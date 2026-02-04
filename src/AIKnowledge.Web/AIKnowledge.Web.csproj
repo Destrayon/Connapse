@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIKnowledge.Core\AIKnowledge.Core.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Ingestion\AIKnowledge.Ingestion.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Search\AIKnowledge.Search.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Agents\AIKnowledge.Agents.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Storage\AIKnowledge.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+</Project>

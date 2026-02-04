@@ -1,0 +1,41 @@
+# Build
+bin/
+obj/
+publish/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+.idea/
+
+# Secrets
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json.template
+secrets.json
+*.pfx
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# Data
+*.db
+*.db-shm
+*.db-wal
+uploads/
+knowledge-data/
+
+# Logs
+logs/
+*.log
+
+# Test
+TestResults/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db

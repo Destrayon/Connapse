@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIKnowledge.Core\AIKnowledge.Core.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Ingestion\AIKnowledge.Ingestion.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Search\AIKnowledge.Search.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Agents\AIKnowledge.Agents.csproj" />
+    <ProjectReference Include="..\AIKnowledge.Storage\AIKnowledge.Storage.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
