@@ -28,3 +28,21 @@ public record WebSearchOptions(
     int MaxResults = 10,
     string? Region = null,
     string? Language = null);
+
+public record FileSystemEntry(
+    string Name,
+    string VirtualPath,
+    bool IsDirectory,
+    long SizeBytes,
+    DateTime LastModifiedUtc);
+
+public class KnowledgeFileSystemOptions
+{
+    public const string SectionName = "Knowledge:FileSystem";
+
+    /// <summary>
+    /// Root directory for the managed file system. Relative paths are resolved
+    /// from the application's working directory.
+    /// </summary>
+    public string RootPath { get; set; } = "knowledge-data";
+}

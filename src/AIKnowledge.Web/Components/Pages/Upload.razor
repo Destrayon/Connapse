@@ -1,0 +1,62 @@
+@page "/upload"
+@rendermode InteractiveServer
+
+<PageTitle>Upload - AIKnowledge</PageTitle>
+
+<h1>Upload Documents</h1>
+<p class="page-subtitle">Add files to your knowledge base. Uploaded documents will be automatically chunked, embedded, and made searchable.</p>
+
+<div class="upload-container">
+    <div class="upload-zone">
+        <div class="upload-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+            </svg>
+        </div>
+        <h3>Drop files here</h3>
+        <p class="upload-subtext">or click to browse your computer</p>
+        <div class="upload-formats">
+            <span class="format-badge">PDF</span>
+            <span class="format-badge">Markdown</span>
+            <span class="format-badge">Text</span>
+            <span class="format-badge">HTML</span>
+            <span class="format-badge">Word</span>
+        </div>
+    </div>
+
+    <div class="upload-options mt-4">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Destination Folder</label>
+                <div class="input-group">
+                    <span class="input-group-text">/</span>
+                    <input type="text" class="form-control" placeholder="documents" @bind="destinationFolder" disabled />
+                </div>
+                <small class="text-muted d-block mt-1">Files will be stored at this path in your knowledge base</small>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Chunking Strategy</label>
+                <select class="form-select" @bind="chunkingStrategy" disabled>
+                    <option value="Semantic">Semantic (Default)</option>
+                    <option value="FixedSize">Fixed Size</option>
+                    <option value="Recursive">Recursive</option>
+                    <option value="DocumentAware">Document-Aware</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="upload-notice mt-4">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+        </svg>
+        <span>Upload functionality is coming soon. The ingestion pipeline will process files automatically once connected.</span>
+    </div>
+</div>
+
+@code {
+    private string destinationFolder = "documents";
+    private string chunkingStrategy = "Semantic";
+}
