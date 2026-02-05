@@ -1,8 +1,10 @@
 using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Storage.Data;
+using AIKnowledge.Storage.Documents;
 using AIKnowledge.Storage.FileSystem;
 using AIKnowledge.Storage.Settings;
+using AIKnowledge.Storage.Vectors;
 using Amazon.Runtime;
 using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
@@ -59,6 +61,16 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IKnowledgeFileSystem>(sp => sp.GetRequiredService<MinioFileSystem>());
         else
             services.AddSingleton<IKnowledgeFileSystem>(sp => sp.GetRequiredService<LocalKnowledgeFileSystem>());
+
+        // Embedding provider
+        services.AddHttpClient<OllamaEmbeddingProvider>();
+        services.AddScoped<IEmbeddingProvider, OllamaEmbeddingProvider>();
+
+        // Document store
+        services.AddScoped<IDocumentStore, PostgresDocumentStore>();
+
+        // Vector store
+        services.AddScoped<IVectorStore, PgVectorStore>();
 
         return services;
     }

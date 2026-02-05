@@ -60,6 +60,13 @@ public interface IEmbeddingProvider
     int Dimensions { get; }
     string ModelId { get; }
 }
+
+// Phase 3 Implementation ✅
+// - OllamaEmbeddingProvider: calls Ollama POST /api/embeddings
+//   - HttpClient with typed client pattern
+//   - Batch processing (sends multiple parallel requests)
+//   - Dimension validation with warnings
+//   - Configurable timeout (default: 30s)
 ```
 
 ### IVectorStore
@@ -72,6 +79,14 @@ public interface IVectorStore
     Task DeleteAsync(string id, CancellationToken ct = default);
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
 }
+
+// Phase 3 Implementation ✅
+// - PgVectorStore: PostgreSQL + pgvector extension
+//   - Raw SQL with parameterized queries for <=> operator
+//   - Cosine distance → similarity conversion (1 - distance)
+//   - Filters: documentId, collectionId via WHERE clauses
+//   - JOINs chunks + documents for complete result metadata
+//   - Batch deletion by document ID for reindexing
 ```
 
 ### IDocumentStore
@@ -84,6 +99,14 @@ public interface IDocumentStore
     Task<IReadOnlyList<Document>> ListAsync(string? collectionId = null, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
 }
+
+// Phase 3 Implementation ✅
+// - PostgresDocumentStore: EF Core with KnowledgeDbContext
+//   - CRUD operations on documents table
+//   - GUID validation for all IDs
+//   - AsNoTracking for read queries
+//   - Collection filtering in ListAsync
+//   - Cascade deletes to chunks + vectors (DB-level)
 ```
 
 ### IDocumentParser (new)

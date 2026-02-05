@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Phase 2 (Settings System) complete — ready for Phase 3
+**Status**: Phase 3 (Storage Implementations) complete — ready for Phase 4
 
 ---
 
@@ -446,5 +446,31 @@ volumes:
 - When settings are saved via UI: writes to DB → calls `SettingsReloadService.ReloadSettings()` → triggers `IOptionsMonitor` → all consumers see new values without restart
 - Settings stored as JSONB in `settings` table, flattened to configuration keys like `Knowledge:Embedding:Model`
 - All 7 settings categories fully editable through Settings page UI
+
+### 2026-02-04 — Phase 3: Storage Implementations Complete
+
+**Worked on**: Core storage layer implementations
+
+**Completed**:
+- **Task 4.1**: Implemented `OllamaEmbeddingProvider : IEmbeddingProvider` — calls Ollama `/api/embeddings` endpoint with batch support, configurable timeout, dimension validation
+- **Task 4.2**: Implemented `PostgresDocumentStore : IDocumentStore` — full CRUD operations for documents, collection filtering, proper GUID handling
+- **Task 4.3**: Implemented `PgVectorStore : IVectorStore` — pgvector-backed vector storage with cosine similarity search using raw SQL to leverage `<=>` operator, supports filters (documentId, collectionId), batch deletion
+- **Task 4.4**: FTS indexing already implemented via computed `tsvector` column in database schema (auto-updates on chunk insert/update)
+- Added `Microsoft.Extensions.Http` package to Storage project for HttpClient DI
+- Registered all storage implementations in `ServiceCollectionExtensions`
+- Build: 0 warnings, 0 errors
+
+**Remaining**:
+- Phase 4: Ingestion Pipeline (parsers, chunkers, pipeline orchestrator, background worker, queue)
+- Phase 5: Search (vector search, keyword search, RRF fusion, hybrid search service)
+- Phase 6: Access Surfaces (REST API, Upload page, Search page, CLI commands, MCP tools)
+- Phase 7: Reindexing + Polish (reindex service, content hash comparison, tests)
+
+**Notes**:
+- OllamaEmbeddingProvider uses HttpClient with typed client pattern for proper lifecycle management
+- PgVectorStore uses raw SQL with parameterized queries to access pgvector's native `<=>` cosine distance operator
+- Cosine distance (0-2) is converted to similarity score (0-1) via `1 - distance` formula
+- FTS search_vector column is automatically maintained by PostgreSQL as a stored generated column
+- All implementations use async/await throughout with proper cancellation token support
 
 ---

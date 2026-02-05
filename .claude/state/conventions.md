@@ -109,6 +109,31 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Results fused via `ISearchReranker` — default `RrfReranker`, optional `CrossEncoderReranker`
 - Over-fetch by 2x from each source before fusion (e.g., topK=10 → fetch 20 from each)
 
+## Storage Implementations (Phase 3 ✅)
+
+### Embedding Provider
+- Use `AddHttpClient<T>()` for typed clients calling external APIs (e.g., Ollama)
+- Inject `IOptionsMonitor<EmbeddingSettings>` for configuration
+- Batch processing: divide requests into configurable batch sizes (default: 32)
+- Validate dimensions match settings, log warnings on mismatch
+- Throw `InvalidOperationException` with helpful messages on connection failures
+
+### Vector Store (pgvector)
+- Use **raw SQL with parameterized queries** to access pgvector's native `<=>` operator for cosine distance
+- EF Core LINQ doesn't support pgvector operators directly yet
+- Query pattern: `SELECT ... FROM chunk_vectors WHERE ... ORDER BY embedding <=> $1 LIMIT $2`
+- Convert **distance → similarity**: `similarity = 1.0 - distance` (distance 0-2, similarity 0-1)
+- Always include chunk content in results via JOIN on chunks table
+- Filter support: `documentId`, `collectionId` via WHERE clauses
+- Use `Database.SqlQueryRaw<T>()` with DTO record for result mapping
+
+### Document Store
+- All IDs are GUIDs — parse and validate before queries
+- Use `.AsNoTracking()` for read-only queries
+- Return `null` for not found (don't throw)
+- Log warnings for invalid IDs, log info for successful operations
+- Cascade deletes handled by DB schema — just delete document entity
+
 ## API Endpoints
 
 - Minimal API in `Endpoints/` folder, not controllers
