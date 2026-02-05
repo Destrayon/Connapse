@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Planning complete — ready for implementation
+**Status**: Phase 1 (Infrastructure) complete — ready for Phase 2
 
 ---
 
@@ -301,6 +301,59 @@ volumes:
 - Settings resolution order: appsettings.json → env vars → database (highest priority)
 - Ollama is optional in docker-compose (use `--profile with-ollama`)
 - IVF index on pgvector needs rebuilding after large bulk inserts (or use HNSW)
+
+### 2026-02-05 — Phase 1: Infrastructure Complete
+
+**Worked on**: Docker, PostgreSQL, MinIO, EF Core schema
+
+**Completed**:
+- Created `docker-compose.yml` — Postgres 17 + pgvector, MinIO, Ollama (optional profile), web app with health checks
+- Created `Dockerfile` — multi-stage build (SDK restore → publish, ASP.NET runtime)
+- Created `.dockerignore` — excludes build artifacts, IDE files, tests, data directories
+- Added NuGet packages to Storage: `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.0, `Pgvector.EntityFrameworkCore` 0.3.0, `AWSSDK.S3` 4.0.18.2, `Microsoft.EntityFrameworkCore.Design` 10.0.0
+- Created 6 EF Core entity classes: DocumentEntity, ChunkEntity (tsvector FTS), ChunkVectorEntity (pgvector), SettingEntity (JSONB), BatchEntity, BatchDocumentEntity
+- Created `KnowledgeDbContext` with Fluent API: all tables, indexes (GIN for FTS, IVFFlat for vectors), cascade deletes, JSONB columns, generated tsvector column
+- Created `DesignTimeDbContextFactory` for `dotnet ef` tooling
+- Generated `InitialCreate` migration matching the reference schema
+- Created `MinioOptions` config class
+- Implemented `MinioFileSystem : IKnowledgeFileSystem` — S3-compatible file operations (list, save, open, delete, exists) with path traversal protection and bucket auto-creation
+- Updated `ServiceCollectionExtensions` — registers DbContext (Postgres+pgvector), IAmazonS3 client (ForcePathStyle for MinIO), MinIO/Local file system selection
+- Updated `Program.cs` — auto-applies migrations on startup, ensures MinIO bucket exists
+- Updated `appsettings.json` — Postgres connection string, MinIO config, switched VectorStore to PgVector, added EF Core log filtering
+- Build: 0 warnings, 0 errors
+
+**Remaining**:
+- Phase 2: Settings system
+- Phase 3: Storage implementations (document store, vector store, embedding provider)
+- Phase 4+: Ingestion, search, access surfaces, reindexing
+
+**Notes**:
+- `docker compose up` starts Postgres+MinIO; app auto-migrates on startup
+- Ollama optional: `docker compose --profile with-ollama up`
+- MinIO creds default to aikp_dev/aikp_dev_secret, overridable via env vars
+- When MinIO AccessKey is configured, `IKnowledgeFileSystem` resolves to MinioFileSystem; otherwise falls back to LocalKnowledgeFileSystem
+
+### 2026-02-05 — Database Schema Fix (snake_case column names)
+
+**Worked on**: Fixed PostgreSQL schema column naming issue
+
+**Completed**:
+- Fixed Npgsql.PostgresException: '42703: column "content" does not exist' error
+- Updated all entity configurations in KnowledgeDbContext to use explicit snake_case column names (HasColumnName())
+- Applied convention across all tables: documents, chunks, chunk_vectors, settings, batches, batch_documents
+- Removed old migration and generated new InitialCreate migration with proper column names
+- Verified database schema created correctly with all tables, indexes (GIN for FTS, IVFFlat for pgvector), and foreign keys
+- Confirmed pgvector extension v0.8.1 installed and working
+- Confirmed tsvector generated column working: `to_tsvector('english', content)` now references correct column name
+
+**Remaining**:
+- Phase 2: Settings system
+- Phase 3+: Storage implementations, ingestion, search, access surfaces
+
+**Notes**:
+- PostgreSQL convention is snake_case for column names; EF Core defaults to PascalCase
+- Computed columns in PostgreSQL use unquoted identifiers (lowercase), so column names must match
+- All 6 entity classes now have explicit column name mappings for consistency
 
 ### 2026-02-04 — Dark Theme, Upload Page, File System Management
 

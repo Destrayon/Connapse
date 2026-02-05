@@ -62,12 +62,15 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 ## Database (PostgreSQL)
 
 - PostgreSQL 17 with pgvector extension for vector storage
-- Use raw SQL or EF Core — decision deferred to implementation
-- tsvector columns for FTS, generated from chunk content
+- EF Core for schema management with code-first migrations
+- **Column naming**: snake_case (PostgreSQL convention) — use `.HasColumnName("column_name")` on all properties
+- Table names: lowercase with underscores (`documents`, `chunk_vectors`)
+- tsvector columns for FTS, generated from chunk content via computed column
 - JSONB for flexible metadata and settings storage
 - UUIDs for all primary keys (`gen_random_uuid()`)
 - `TIMESTAMPTZ` for all timestamps
 - CASCADE deletes: deleting a document removes its chunks and vectors
+- Computed columns must reference lowercase unquoted column names (e.g., `to_tsvector('english', content)`)
 
 ## Object Storage (MinIO / S3)
 
