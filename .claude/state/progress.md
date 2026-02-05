@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Phase 4 (Ingestion Pipeline) complete — ready for Phase 5
+**Status**: Phase 5 (Search) complete — ready for Phase 6
 
 ---
 
@@ -512,6 +512,37 @@ volumes:
 - All parsers return ParsedDocument with content, metadata, and warnings
 - Chunkers return ChunkInfo with content, index, token count, offsets, metadata
 - IngestionWorker supports parallel processing based on UploadSettings.ParallelWorkers (default: 4)
+
+---
+
+### 2026-02-04 — Phase 5: Search Complete
+
+**Worked on**: Hybrid search system (vector + keyword + reranking)
+
+**Completed**:
+- **Task 5.1**: Implemented VectorSearchService — embeds queries using IEmbeddingProvider, searches IVectorStore using cosine similarity, supports filters (collectionId, documentId)
+- **Task 5.2**: Implemented KeywordSearchService — PostgreSQL FTS using tsvector and tsquery, ts_rank for relevance scoring, normalized scores to 0-1 range, query sanitization
+- **Task 5.3**: Implemented RrfReranker (Reciprocal Rank Fusion) — merges multiple ranked lists using formula: score = sum(1 / (k + rank)), configurable k-value (default: 60), deduplicates results
+- **Task 5.4**: Implemented CrossEncoderReranker — LLM-based reranking, scores (query, chunk) pairs via Ollama API, rates relevance 0-10, low temperature for consistency
+- **Task 5.5**: Implemented HybridSearchService (implements IKnowledgeSearch) — orchestrates Semantic/Keyword/Hybrid search modes, runs vector + keyword in parallel for hybrid mode, applies configured reranker (RRF or CrossEncoder), tags results with source metadata
+- Created ServiceCollectionExtensions in Search project — registers VectorSearchService, KeywordSearchService, RrfReranker, CrossEncoderReranker (with HttpClient), HybridSearchService as IKnowledgeSearch
+- Updated Program.cs — added AddKnowledgeSearch() call
+- Build: 0 errors, 0 warnings
+
+**Remaining**:
+- Phase 6: Access Surfaces (REST API, Upload page, Search page, CLI commands, MCP tools)
+- Phase 7: Reindexing + Polish (reindex service, content hash comparison, tests)
+
+**Notes**:
+- Hybrid search runs vector and keyword searches in parallel, then fuses results
+- Results are tagged with "source" metadata ("vector" or "keyword") for reranker fusion
+- RRF deduplicates chunks appearing in both vector and keyword results
+- CrossEncoder is optional and slower but more accurate than RRF
+- SearchSettings.Reranker configures which reranker to use ("None", "RRF", or "CrossEncoder")
+- SearchSettings.Mode determines search type (Semantic, Keyword, or Hybrid)
+- VectorSearchService converts VectorSearchResult to SearchHit format
+- KeywordSearchService normalizes ts_rank scores to 0-1 range for consistency with vector scores
+- IKnowledgeSearch.SearchStreamAsync implemented but currently returns batch results (can be enhanced for true streaming later)
 
 ---
 

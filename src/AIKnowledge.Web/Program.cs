@@ -1,5 +1,6 @@
 using AIKnowledge.Core;
 using AIKnowledge.Ingestion.Extensions;
+using AIKnowledge.Search.Extensions;
 using AIKnowledge.Storage.Data;
 using AIKnowledge.Storage.Extensions;
 using AIKnowledge.Storage.FileSystem;
@@ -23,6 +24,9 @@ builder.Services.AddAIKnowledgeStorage(builder.Configuration);
 
 // Add document ingestion pipeline
 builder.Services.AddDocumentIngestion();
+
+// Add knowledge search (hybrid vector + keyword search)
+builder.Services.AddKnowledgeSearch();
 
 // Configure settings with IOptionsMonitor for live reload
 builder.Services.Configure<EmbeddingSettings>(

@@ -135,11 +135,59 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Pipeline: Scoped (per-request or per-job)
 - Worker: AddHostedService (runs in background)
 
-## Search
+## Search (Phase 5 ✅)
 
 - Hybrid search: vector (pgvector) + keyword (Postgres FTS) run in parallel
 - Results fused via `ISearchReranker` — default `RrfReranker`, optional `CrossEncoderReranker`
-- Over-fetch by 2x from each source before fusion (e.g., topK=10 → fetch 20 from each)
+- Three search modes: `Semantic` (vector only), `Keyword` (FTS only), `Hybrid` (both + reranking)
+
+### Vector Search
+- `VectorSearchService` embeds query via `IEmbeddingProvider`, searches `IVectorStore`
+- Supports filters: `collectionId`, `documentId` (merged from SearchOptions.Filters)
+- Converts `VectorSearchResult` → `SearchHit` format
+- Applies `MinScore` threshold before returning
+
+### Keyword Search
+- `KeywordSearchService` queries Postgres FTS using `tsvector` and `plainto_tsquery`
+- Uses `ts_rank()` for TF-IDF-like relevance scoring
+- Normalizes ranks to 0-1 range (handles edge case where all ranks identical)
+- Query sanitization: removes tsquery special characters, collapses spaces
+- Raw SQL via `Database.SqlQueryRaw<T>()` for full FTS control
+
+### Reranking
+- `RrfReranker`: Reciprocal Rank Fusion using formula `score = sum(1 / (k + rank))`
+  - Groups hits by "source" metadata ("vector" or "keyword")
+  - Builds ranked lists per source (1-indexed)
+  - Accumulates RRF scores for chunks appearing in multiple lists
+  - Normalizes final scores to 0-1 range
+  - Configurable k-value via `SearchSettings.RrfK` (default: 60)
+- `CrossEncoderReranker`: LLM-based reranking
+  - Scores each (query, chunk) pair via Ollama API
+  - Prompt asks LLM to rate relevance 0-10
+  - Low temperature (0.1) for consistent scoring
+  - Configured via `SearchSettings.CrossEncoderModel`
+  - Fallback to original scores on error
+  - Registered with `AddHttpClient<T>()` for proper HttpClient lifecycle
+
+### Hybrid Search Orchestration
+- `HybridSearchService` implements `IKnowledgeSearch` (main entry point)
+- Routes to appropriate search based on `SearchOptions.Mode`
+- For Hybrid mode:
+  - Runs vector and keyword searches in parallel via `Task.WhenAll()`
+  - Tags results with "source" metadata before merging
+  - Passes combined list to configured reranker
+- Applies final score threshold and topK limit after reranking
+- `SearchStreamAsync` currently returns batch results (can enhance for true streaming)
+- Reports timing via `Stopwatch` in `SearchResult.Duration`
+
+### Registration
+- `services.AddKnowledgeSearch()` in Search project's ServiceCollectionExtensions
+- VectorSearchService: Scoped (depends on IVectorStore, IEmbeddingProvider)
+- KeywordSearchService: Scoped (depends on DbContext)
+- RrfReranker: Scoped, implements ISearchReranker
+- CrossEncoderReranker: registered via AddHttpClient<ISearchReranker, T> (scoped with typed HttpClient)
+- HybridSearchService: Scoped, registered as IKnowledgeSearch implementation
+- All rerankers injected as `IEnumerable<ISearchReranker>` for runtime selection by name
 
 ## Storage Implementations (Phase 3 ✅)
 

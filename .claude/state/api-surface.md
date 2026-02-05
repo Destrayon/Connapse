@@ -155,7 +155,7 @@ public record ChunkInfo(
 // - SemanticChunker: Embedding-based boundaries using cosine similarity, splits where similarity < threshold
 ```
 
-### ISearchReranker (Phase 4 ✅)
+### ISearchReranker (Phase 5 ✅)
 
 ```csharp
 public interface ISearchReranker
@@ -167,9 +167,23 @@ public interface ISearchReranker
         CancellationToken cancellationToken = default);
 }
 
-// To be implemented in Phase 5:
-// - RrfReranker: Reciprocal Rank Fusion (k=60 default)
-// - CrossEncoderReranker: LLM-based (query, chunk) pair scoring
+// Phase 5 Implementations ✅
+// - RrfReranker (Name = "RRF"): Reciprocal Rank Fusion
+//   - Formula: score = sum(1 / (k + rank)) across all lists
+//   - Expects hits tagged with "source" metadata ("vector" or "keyword")
+//   - Groups by source, builds ranked lists (1-indexed)
+//   - Accumulates scores for duplicates across lists
+//   - Normalizes final scores to 0-1 range
+//   - Configured via SearchSettings.RrfK (default: 60)
+//
+// - CrossEncoderReranker (Name = "CrossEncoder"): LLM-based scoring
+//   - Scores each (query, chunk) pair via Ollama POST /api/generate
+//   - Prompt: "Rate relevance 0-10, respond with number only"
+//   - Low temperature (0.1) for consistency
+//   - Normalizes scores to 0-1 after all pairs scored
+//   - Configured via SearchSettings.CrossEncoderModel (falls back to LlmSettings.Model)
+//   - HttpClient injected via AddHttpClient<ISearchReranker, CrossEncoderReranker>()
+//   - Fallback to original score on parse errors or API failures
 ```
 
 ### IIngestionQueue (Phase 4 ✅)
@@ -298,6 +312,75 @@ public interface IWebSearchProvider
     Task<WebSearchResult> SearchAsync(string query, WebSearchOptions? options = null, CancellationToken ct = default);
 }
 ```
+
+---
+
+## Internal Search Services (Phase 5 ✅)
+
+These services are not exposed as interfaces but are key components of the search system.
+
+### VectorSearchService
+
+```csharp
+public class VectorSearchService
+{
+    Task<List<SearchHit>> SearchAsync(string query, SearchOptions options, CancellationToken ct = default);
+}
+```
+
+- Registered as Scoped (not interface-based)
+- Embeds query text using `IEmbeddingProvider.EmbedAsync()`
+- Builds filters dict from `SearchOptions.CollectionId` + `SearchOptions.Filters`
+- Calls `IVectorStore.SearchAsync()` with query vector, topK, and filters
+- Converts `VectorSearchResult` → `SearchHit` (extracts metadata: documentId, content, fileName, etc.)
+- Applies `MinScore` threshold
+- Used by `HybridSearchService` for semantic search component
+
+### KeywordSearchService
+
+```csharp
+public class KeywordSearchService
+{
+    Task<List<SearchHit>> SearchAsync(string query, SearchOptions options, CancellationToken ct = default);
+}
+```
+
+- Registered as Scoped, depends on `KnowledgeDbContext`
+- Sanitizes query: removes tsquery special chars (`&|!():<>*`), collapses spaces
+- Uses raw SQL with `plainto_tsquery('english', query)` for FTS matching
+- Uses `ts_rank(search_vector, query)` for relevance scoring
+- JOINs chunks + documents for complete metadata
+- Normalizes ts_rank scores to 0-1 range: `(rank - min) / (max - min)`
+- Handles edge case where all ranks are identical (score = 1.0)
+- Applies `MinScore` threshold after normalization
+- Returns metadata including raw ts_rank value for debugging
+- Used by `HybridSearchService` for keyword search component
+
+### HybridSearchService
+
+```csharp
+public class HybridSearchService : IKnowledgeSearch
+{
+    // Implements IKnowledgeSearch interface
+}
+```
+
+- Registered as `IKnowledgeSearch` (main search entry point)
+- Depends on: `VectorSearchService`, `KeywordSearchService`, `IEnumerable<ISearchReranker>`
+- Routes searches based on `SearchOptions.Mode`:
+  - `Semantic` → VectorSearchService only
+  - `Keyword` → KeywordSearchService only
+  - `Hybrid` → both in parallel via `Task.WhenAll()`
+- For Hybrid mode:
+  - Tags vector results with `metadata["source"] = "vector"`
+  - Tags keyword results with `metadata["source"] = "keyword"`
+  - Merges both lists (includes duplicates for reranker)
+- Applies reranking if `SearchSettings.Reranker != "None"`:
+  - Finds reranker by name from injected `IEnumerable<ISearchReranker>`
+  - Calls `reranker.RerankAsync()` with merged hits
+- Final filtering: applies `MinScore` threshold, limits to `TopK`
+- Reports `Duration` via `Stopwatch`
+- `SearchStreamAsync` currently returns batch results (enhancement opportunity for true streaming)
 
 ---
 
