@@ -51,7 +51,13 @@ public class RecursiveChunker : IChunkingStrategy
             if (tokenCount >= settings.MinChunkSize)
             {
                 // Find actual position in original content
-                int startOffset = content.IndexOf(chunkText, currentOffset, StringComparison.Ordinal);
+                // Ensure currentOffset is within valid bounds
+                currentOffset = Math.Min(currentOffset, content.Length);
+
+                int startOffset = currentOffset < content.Length
+                    ? content.IndexOf(chunkText, currentOffset, StringComparison.Ordinal)
+                    : -1;
+
                 if (startOffset == -1) startOffset = currentOffset;
 
                 int endOffset = startOffset + chunkText.Length;

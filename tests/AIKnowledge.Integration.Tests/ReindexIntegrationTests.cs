@@ -1,0 +1,211 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Testcontainers.Minio;
+using Testcontainers.PostgreSql;
+
+namespace AIKnowledge.Integration.Tests;
+
+/// <summary>
+/// Integration tests for the reindex service - verifying content-hash detection and re-processing.
+/// </summary>
+public class ReindexIntegrationTests : IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
+        .WithImage("pgvector/pgvector:pg17")
+        .WithDatabase("aikp_test")
+        .WithUsername("aikp_test")
+        .WithPassword("aikp_test")
+        .Build();
+
+    private readonly MinioContainer _minioContainer = new MinioBuilder()
+        .WithImage("minio/minio")
+        .Build();
+
+    private WebApplicationFactory<Program> _factory = null!;
+    private HttpClient _client = null!;
+
+    public async Task InitializeAsync()
+    {
+        await _postgresContainer.StartAsync();
+        await _minioContainer.StartAsync();
+
+        _factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
+                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
+                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
+                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
+                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
+                builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
+                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
+            });
+
+        _client = _factory.CreateClient();
+        await Task.Delay(2000);
+    }
+
+    public async Task DisposeAsync()
+    {
+        _client.Dispose();
+        await _factory.DisposeAsync();
+        await _postgresContainer.DisposeAsync();
+        await _minioContainer.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Reindex_UnchangedDocument_SkipsReprocessing()
+    {
+        // Arrange: Upload a document
+        var originalContent = "This is the original content that should not change.";
+        var documentId = await UploadDocument("unchanged-doc.txt", originalContent);
+
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+
+        var docBefore = await GetDocument(documentId);
+        var lastIndexedBefore = docBefore.LastIndexedAt;
+
+        // Act: Trigger reindex (content unchanged)
+        var reindexResponse = await _client.PostAsync("/api/documents/reindex", null);
+        reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        reindexResult.Should().NotBeNull();
+
+        // Assert: Document was not re-enqueued (content hash matches)
+        reindexResult!.Skipped.Should().Be(1, "Unchanged document should be skipped");
+        reindexResult.Enqueued.Should().Be(0, "No documents should be re-enqueued");
+
+        var docAfter = await GetDocument(documentId);
+        docAfter.LastIndexedAt.Should().Be(lastIndexedBefore, "LastIndexedAt should not change for unchanged documents");
+
+        // Cleanup
+        await _client.DeleteAsync($"/api/documents/{documentId}");
+    }
+
+    [Fact]
+    public async Task Reindex_ForceMode_ReprocessesAllDocuments()
+    {
+        // Arrange: Upload a document
+        var content = "Content for force reindex test.";
+        var documentId = await UploadDocument("force-doc.txt", content);
+
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+
+        // Act: Trigger force reindex
+        var reindexRequest = new { Force = true };
+        var reindexResponse = await _client.PostAsJsonAsync("/api/documents/reindex", reindexRequest);
+        reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        reindexResult.Should().NotBeNull();
+
+        // Assert: Document was re-enqueued despite unchanged content
+        reindexResult!.Enqueued.Should().Be(1, "Force mode should reindex all documents");
+        reindexResult.Skipped.Should().Be(0, "Force mode should not skip any documents");
+
+        // Wait for re-ingestion
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+
+        var docAfter = await GetDocument(documentId);
+        docAfter.Status.Should().Be("Ready", "Document should be re-indexed successfully");
+
+        // Cleanup
+        await _client.DeleteAsync($"/api/documents/{documentId}");
+    }
+
+    [Fact]
+    public async Task Reindex_ByCollection_OnlyReindexesFilteredDocuments()
+    {
+        // Arrange: Upload documents to different collections
+        var doc1Id = await UploadDocument("coll1-doc.txt", "Collection 1 document", "/collection1");
+        var doc2Id = await UploadDocument("coll2-doc.txt", "Collection 2 document", "/collection2");
+
+        await WaitForIngestionToComplete(doc1Id, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(doc2Id, timeoutSeconds: 30);
+
+        // Act: Reindex only collection1
+        var reindexRequest = new { CollectionId = "collection1", Force = true };
+        var reindexResponse = await _client.PostAsJsonAsync("/api/documents/reindex", reindexRequest);
+        reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        reindexResult.Should().NotBeNull();
+
+        // Assert: Only collection1 document was reindexed
+        reindexResult!.Enqueued.Should().Be(1, "Only documents in collection1 should be reindexed");
+
+        // Cleanup
+        await _client.DeleteAsync($"/api/documents/{doc1Id}");
+        await _client.DeleteAsync($"/api/documents/{doc2Id}");
+    }
+
+    private async Task<Guid> UploadDocument(string fileName, string content, string virtualPath = "/test")
+    {
+        using var multipart = new MultipartFormDataContent();
+        var fileBytes = Encoding.UTF8.GetBytes(content);
+        var fileContent = new ByteArrayContent(fileBytes);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+        multipart.Add(fileContent, "file", fileName);
+        multipart.Add(new StringContent(virtualPath), "virtualPath");
+
+        var response = await _client.PostAsync("/api/documents", multipart);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<UploadResult>();
+        return result!.DocumentId;
+    }
+
+    private async Task<DocumentDto> GetDocument(Guid documentId)
+    {
+        var response = await _client.GetAsync($"/api/documents/{documentId}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
+        return document!;
+    }
+
+    private async Task WaitForIngestionToComplete(Guid documentId, int timeoutSeconds)
+    {
+        var startTime = DateTime.UtcNow;
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+
+        while (DateTime.UtcNow - startTime < timeout)
+        {
+            var response = await _client.GetAsync($"/api/documents/{documentId}");
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
+                if (document?.Status == "Ready")
+                {
+                    return;
+                }
+
+                if (document?.Status == "Failed")
+                {
+                    throw new Exception($"Ingestion failed: {document.ErrorMessage}");
+                }
+            }
+
+            await Task.Delay(500);
+        }
+
+        throw new TimeoutException($"Ingestion did not complete within {timeoutSeconds} seconds");
+    }
+
+    // DTOs
+    private record UploadResult(Guid DocumentId, string FileName, string Status);
+    private record DocumentDto(
+        Guid Id,
+        string FileName,
+        string VirtualPath,
+        string Status,
+        int ChunkCount,
+        DateTime? LastIndexedAt,
+        string? ErrorMessage);
+    private record ReindexResultDto(int Enqueued, int Skipped, int Failed);
+}

@@ -176,4 +176,28 @@ appsettings.json → appsettings.{Env}.json → Environment vars → Database (S
 
 ---
 
+### 2026-02-05 — Testing Strategy: Unit Tests + Testcontainers Integration Tests
+
+**Context**: Need comprehensive test coverage for production readiness. Core components (parsers, chunkers, search fusion) need unit tests. End-to-end workflows (upload → ingest → search, reindex, settings reload) need integration tests with real services.
+
+**Decision**: Two-tier testing approach:
+1. **Unit tests** (xUnit + FluentAssertions + NSubstitute) for isolated component testing
+2. **Integration tests** (Testcontainers + WebApplicationFactory) for end-to-end workflows with real PostgreSQL and MinIO
+
+**Alternatives**:
+- Option A: Unit tests only with mocks — fast but misses integration bugs, doesn't test real DB/storage behavior
+- Option B: Unit tests + Testcontainers integration tests — comprehensive, catches real-world issues, requires Docker
+- Option C: Manual testing only — error-prone, not repeatable, no regression protection
+
+**Rationale**: Option B provides best balance of speed (unit tests run in milliseconds) and confidence (integration tests catch real bugs). Testcontainers automatically manages container lifecycle, making tests self-contained and reproducible. TDD approach caught 4 production bugs (IndexOutOfRangeException, ArgumentOutOfRangeException, exception handling) before deployment.
+
+**Consequences**:
+- Unit tests: 65 tests for parsers (29), chunkers (27), RRF reranker (11)
+- Integration tests: 10 tests for ingestion (2), reindex (3), settings (4) — require Docker
+- Build: 0 warnings, 0 errors, 100% pass rate
+- All tests follow `MethodName_Scenario_ExpectedResult` naming convention
+- Integration tests use `IAsyncLifetime` for proper container cleanup
+
+---
+
 <!-- Add new decisions above this line, newest first -->

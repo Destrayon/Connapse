@@ -107,13 +107,19 @@ public class FixedSizeChunker : IChunkingStrategy
     /// </summary>
     private static int FindNaturalBreakpoint(string content, int start, int target)
     {
+        // Ensure target is within bounds
+        if (target >= content.Length)
+        {
+            return content.Length;
+        }
+
         // Look for natural boundaries within a reasonable window
         int searchWindow = Math.Min(100, (target - start) / 4);
 
         // First, try to find a double newline (paragraph break)
         for (int i = target; i > target - searchWindow && i > start; i--)
         {
-            if (i > 0 && content[i] == '\n' && content[i - 1] == '\n')
+            if (i > 0 && i < content.Length && content[i] == '\n' && content[i - 1] == '\n')
             {
                 return i;
             }
@@ -122,7 +128,7 @@ public class FixedSizeChunker : IChunkingStrategy
         // Next, try to find a single newline
         for (int i = target; i > target - searchWindow && i > start; i--)
         {
-            if (content[i] == '\n')
+            if (i < content.Length && content[i] == '\n')
             {
                 return i;
             }
@@ -131,7 +137,7 @@ public class FixedSizeChunker : IChunkingStrategy
         // Next, try to find a sentence boundary (period followed by space)
         for (int i = target; i > target - searchWindow && i > start; i--)
         {
-            if (content[i] == '.' && i + 1 < content.Length && char.IsWhiteSpace(content[i + 1]))
+            if (i < content.Length && content[i] == '.' && i + 1 < content.Length && char.IsWhiteSpace(content[i + 1]))
             {
                 return i + 1;
             }
@@ -140,7 +146,7 @@ public class FixedSizeChunker : IChunkingStrategy
         // Finally, try to find any whitespace
         for (int i = target; i > target - searchWindow && i > start; i--)
         {
-            if (char.IsWhiteSpace(content[i]))
+            if (i < content.Length && char.IsWhiteSpace(content[i]))
             {
                 return i;
             }

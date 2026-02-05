@@ -99,3 +99,6 @@ app.MapMcpEndpoints();
 app.MapHub<IngestionHub>("/hubs/ingestion");
 
 app.Run();
+
+// Make Program accessible to WebApplicationFactory for integration tests
+public partial class Program { }

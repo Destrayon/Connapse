@@ -64,6 +64,42 @@ Bugs, tech debt, and workarounds. Prevents future sessions from re-discovering t
 
 **Status**: Fixed
 
+### FixedSizeChunker IndexOutOfRangeException
+
+**Severity**: High (runtime crash)
+
+**Description**: `FindNaturalBreakpoint` method accessed array indices beyond content length when target position equaled or exceeded content.Length, causing IndexOutOfRangeException.
+
+**Root Cause**: Loop started at `target` without checking if `target < content.Length` before accessing `content[i]`.
+
+**Fix**: Added bounds check at method start (`if (target >= content.Length) return content.Length`) and added `i < content.Length` check in all four search loops.
+
+**Status**: Fixed in Phase 8 (2026-02-05) — discovered by unit tests before reaching production
+
+### RecursiveChunker ArgumentOutOfRangeException
+
+**Severity**: High (runtime crash)
+
+**Description**: `ChunkAsync` method passed invalid `startIndex` to `IndexOf`, causing ArgumentOutOfRangeException when `currentOffset` exceeded content length.
+
+**Root Cause**: `currentOffset` tracking could grow beyond actual content length, especially with overlap calculations.
+
+**Fix**: Clamped `currentOffset` with `Math.Min(currentOffset, content.Length)` and added bounds check before calling `IndexOf`.
+
+**Status**: Fixed in Phase 8 (2026-02-05) — discovered by unit tests before reaching production
+
+### Parser Exception Handling - Cancellation Suppressed
+
+**Severity**: Medium (cancellation didn't work)
+
+**Description**: TextParser and OfficeParser caught `OperationCanceledException` in generic exception handler, preventing cancellation tokens from propagating properly.
+
+**Root Cause**: Generic `catch (Exception ex)` block caught all exceptions including `OperationCanceledException` and `NotSupportedException`, returning empty documents instead of throwing.
+
+**Fix**: Added explicit catch blocks to rethrow `OperationCanceledException` and `NotSupportedException` before the generic handler in both parsers.
+
+**Status**: Fixed in Phase 8 (2026-02-05) — discovered by unit tests before reaching production
+
 ---
 
 <!-- Add issues as discovered -->

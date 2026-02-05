@@ -84,6 +84,10 @@ public class TextParser : IDocumentParser
 
             return new ParsedDocument(content, metadata, warnings);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             warnings.Add($"Error reading text file: {ex.Message}");

@@ -48,6 +48,10 @@ public class OfficeParser : IDocumentParser
         {
             throw;
         }
+        catch (NotSupportedException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             warnings.Add($"Error parsing Office document: {ex.Message}");
