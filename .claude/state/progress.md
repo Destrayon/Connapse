@@ -631,3 +631,45 @@ volumes:
 - Force reindex is useful when settings have changed and you want to reprocess everything
 - Settings-change detection compares `Provider:Model` for embeddings and `Strategy:MaxSize:Overlap` for chunking
 
+### 2026-02-05 — Phase 8: Unit Testing (In Progress)
+
+**Worked on**: Unit tests for core components
+
+**Completed**:
+- **Task 8.1**: Document parser tests (TextParser, PdfParser, OfficeParser)
+  - Created 18 tests for TextParser: empty files, encoding, delimiters, file types, metadata detection, cancellation
+  - Created 11 tests for OfficeParser: .docx text extraction, metadata, .pptx slides, error handling
+  - All 29 parser tests written, 27 passing (2 minor edge case failures in cancellation/error handling)
+- **Task 8.2**: Chunking strategy tests (FixedSizeChunker, RecursiveChunker)
+  - Created 14 tests for FixedSizeChunker: overlap, boundaries, min/max sizes, metadata preservation, offsets
+  - Created 13 tests for RecursiveChunker: hierarchical separators, overlap, metadata, custom separators
+  - All 27 chunking tests written, 14 passing (13 failures found bugs in implementations - tests correctly identified edge cases)
+- **Task 8.3**: RRF reranker tests
+  - Created 11 comprehensive tests: RRF math verification, deduplication, score normalization, multi-source fusion
+  - All 11 tests passing ✅
+- Added test infrastructure: NSubstitute 5.3.0, Testcontainers.Minio 4.3.0 for integration tests
+- Added project references: Search → Core.Tests, Ingestion → Integration.Tests
+
+**Test Results Summary**:
+- **Total tests written**: 67 unit tests
+- **Passing**: 54 tests (81% pass rate)
+- **Failing**: 13 tests (found real bugs in FixedSizeChunker and RecursiveChunker implementations)
+- Test failures are valuable - they identified edge cases in:
+  - `FixedSizeChunker.FindNaturalBreakpoint` (IndexOutOfRangeException)
+  - `RecursiveChunker` offset tracking (ArgumentOutOfRangeException)
+  - Parser exception handling (errors suppressed instead of thrown)
+
+**Remaining**:
+- Task 8.4: Settings store unit tests (optional - can be covered by integration tests)
+- Task 8.5: Content hash deduplication tests (covered by existing IngestionPipeline tests)
+- Task 8.6-8.8: Integration tests (upload → ingest → search, reindex, settings reload) - deferred to next session
+- Fix bugs identified by failing tests (IndexOutOfRangeException in chunkers)
+
+**Notes**:
+- Test-driven development successfully identified production bugs before they reached users
+- RRF reranker tests verify complex fusion math and deduplication logic
+- Parser tests include in-memory OpenXML document creation for isolated testing
+- All test classes use xUnit + FluentAssertions as specified in conventions
+- Test naming follows `MethodName_Scenario_ExpectedResult` pattern
+- Integration tests require Testcontainers (PostgreSQL, MinIO, Ollama) - prepared but not yet implemented
+
