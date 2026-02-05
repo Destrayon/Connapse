@@ -17,6 +17,7 @@ public interface IKnowledgeIngester
 }
 
 public record IngestionOptions(
+    string? DocumentId = null,
     string? FileName = null,
     string? ContentType = null,
     string? CollectionId = null,
@@ -290,6 +291,43 @@ public interface ISettingsStore
 // - Stores settings as JSONB in `settings` table
 // - JSON serialization for flexible schema
 // - Integrated with IOptionsMonitor for live reload
+```
+
+### IConnectionTester (Connection Testing Feature ✅)
+
+```csharp
+public interface IConnectionTester
+{
+    Task<ConnectionTestResult> TestConnectionAsync(
+        object settings,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default);
+}
+
+public record ConnectionTestResult
+{
+    public required bool Success { get; init; }
+    public required string Message { get; init; }
+    public Dictionary<string, object>? Details { get; init; }
+    public TimeSpan? Duration { get; init; }
+
+    public static ConnectionTestResult CreateSuccess(string message, Dictionary<string, object>? details = null, TimeSpan? duration = null);
+    public static ConnectionTestResult CreateFailure(string message, Dictionary<string, object>? details = null, TimeSpan? duration = null);
+}
+
+// Implementations:
+// - OllamaConnectionTester: Tests Ollama endpoints (Embedding & LLM settings)
+//   - Calls GET /api/tags to list available models
+//   - Returns model count and version info in details
+//   - Default timeout: 10 seconds
+//
+// - MinioConnectionTester: Tests MinIO/S3 connectivity (Storage settings)
+//   - Calls ListBucketsAsync() to validate credentials
+//   - Checks bucket existence
+//   - Returns bucket list and connection details
+//   - Default timeout: 10 seconds
+//
+// Usage: Test connection before saving settings in UI
 ```
 
 ### IAgentTool
@@ -586,6 +624,56 @@ public record SearchRequest(string Query, SearchMode? Mode = null, int? TopK = n
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/batches/{id}/status` | Get batch ingestion progress. Returns `IngestionJobStatus` or 404 if batch not found. |
+
+### Settings (Connection Testing Feature ✅)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/settings/{category}` | Get current settings for a category. Categories: `embedding`, `chunking`, `search`, `llm`, `upload`, `websearch`, `storage`. Returns settings record (EmbeddingSettings, ChunkingSettings, etc.). |
+| `PUT` | `/api/settings/{category}` | Update settings for a category. Body: JSON settings object. Saves to database and triggers IOptionsMonitor live reload. Returns `{ success: true, message: string }`. |
+| `POST` | `/api/settings/test-connection` | Test connectivity to external services before saving settings. Body: `TestConnectionRequest`. Returns `ConnectionTestResult` with success status, message, and details. |
+
+**Request/Response DTOs:**
+```csharp
+public record TestConnectionRequest(
+    string Category,              // "embedding", "llm", or "storage"
+    JsonElement Settings,         // Current form values (EmbeddingSettings, LlmSettings, or StorageSettings)
+    int? TimeoutSeconds = null);  // Optional timeout (default: 10)
+
+// ConnectionTestResult defined in IConnectionTester (see above)
+```
+
+**Supported Categories for Test Connection:**
+- `embedding` → Tests Ollama endpoint via GET /api/tags
+- `llm` → Tests Ollama endpoint via GET /api/tags
+- `storage` → Tests MinIO S3 connectivity via ListBucketsAsync()
+
+**Example Success Response:**
+```json
+{
+  "success": true,
+  "message": "Connected to Ollama at http://localhost:11434 (3 models available)",
+  "details": {
+    "baseUrl": "http://localhost:11434",
+    "modelCount": 3,
+    "models": ["nomic-embed-text", "llama3.2", "llama3.2:1b"]
+  },
+  "duration": "00:00:01.234"
+}
+```
+
+**Example Failure Response:**
+```json
+{
+  "success": false,
+  "message": "Connection failed: Connection refused",
+  "details": {
+    "error": "Connection refused",
+    "errorType": "HttpRequestException"
+  },
+  "duration": "00:00:05.001"
+}
+```
 
 ### SignalR Hub
 

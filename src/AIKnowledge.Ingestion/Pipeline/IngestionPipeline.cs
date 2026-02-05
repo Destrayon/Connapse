@@ -65,17 +65,36 @@ public class IngestionPipeline : IKnowledgeIngester
     {
         var stopwatch = Stopwatch.StartNew();
         var warnings = new List<string>();
+        Stream? workingStream = null;
+        bool createdMemoryStream = false;
 
         try
         {
-            // Create document entity
-            var documentId = Guid.NewGuid();
-            var contentHash = await ComputeContentHashAsync(content, ct);
+            // Use provided DocumentId or generate a new one
+            var documentId = !string.IsNullOrEmpty(options.DocumentId) && Guid.TryParse(options.DocumentId, out var providedId)
+                ? providedId
+                : Guid.NewGuid();
 
-            // Save file to storage
+            // Handle non-seekable streams (e.g., from MinIO)
+            if (!content.CanSeek)
+            {
+                // Copy to MemoryStream for seekable operations
+                var ms = new MemoryStream();
+                await content.CopyToAsync(ms, ct);
+                ms.Position = 0;
+                workingStream = ms;
+                createdMemoryStream = true;
+            }
+            else
+            {
+                workingStream = content;
+            }
+
+            var contentHash = await ComputeContentHashAsync(workingStream, ct);
+
+            // Save file to storage (only if not already saved)
+            // Note: When called from IngestionWorker, file is already saved
             var virtualPath = options.FileName ?? $"upload-{documentId}";
-            content.Position = 0;
-            await _fileSystem.SaveFileAsync(virtualPath, content, ct);
 
             // Build metadata including indexing settings for reindex detection
             var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
@@ -100,7 +119,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 CollectionId = options.CollectionId,
                 VirtualPath = virtualPath,
                 ContentHash = contentHash,
-                SizeBytes = content.Length,
+                SizeBytes = workingStream.Length,
                 Status = "Processing",
                 CreatedAt = DateTime.UtcNow,
                 Metadata = metadata
@@ -110,8 +129,8 @@ public class IngestionPipeline : IKnowledgeIngester
             await _context.SaveChangesAsync(ct);
 
             // Parse document
-            content.Position = 0;
-            var parsedDocument = await ParseDocumentAsync(content, options.FileName ?? "", ct);
+            workingStream.Position = 0;
+            var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
             warnings.AddRange(parsedDocument.Warnings);
 
             // Chunk document
@@ -159,7 +178,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 // Store embedding in vector store
                 var chunkMetadata = new Dictionary<string, string>(chunkInfo.Metadata)
                 {
-                    ["DocumentId"] = documentId.ToString(),
+                    ["documentId"] = documentId.ToString(),
+                    ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
                 };
 
@@ -201,6 +221,14 @@ public class IngestionPipeline : IKnowledgeIngester
                 ChunkCount: 0,
                 Duration: stopwatch.Elapsed,
                 Warnings: warnings);
+        }
+        finally
+        {
+            // Dispose working stream if we created a MemoryStream
+            if (createdMemoryStream && workingStream != null)
+            {
+                await workingStream.DisposeAsync();
+            }
         }
     }
 
@@ -285,6 +313,13 @@ public class IngestionPipeline : IKnowledgeIngester
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)
     {
         using var sha256 = SHA256.Create();
+
+        // Stream must be seekable - caller should ensure this
+        if (!content.CanSeek)
+        {
+            throw new InvalidOperationException("Stream must be seekable to compute content hash");
+        }
+
         content.Position = 0;
         var hashBytes = await sha256.ComputeHashAsync(content, ct);
         content.Position = 0;

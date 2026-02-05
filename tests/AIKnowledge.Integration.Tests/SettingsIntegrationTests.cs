@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using AIKnowledge.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,7 +65,7 @@ public class SettingsIntegrationTests : IAsyncLifetime
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var settings = await response.Content.ReadFromJsonAsync<EmbeddingSettingsDto>();
+        var settings = await response.Content.ReadFromJsonAsync<EmbeddingSettings>();
         settings.Should().NotBeNull();
         settings!.Provider.Should().NotBeNullOrWhiteSpace();
         settings.Model.Should().NotBeNullOrWhiteSpace();
@@ -77,18 +78,17 @@ public class SettingsIntegrationTests : IAsyncLifetime
         var getResponse = await _client.GetAsync("/api/settings/chunking");
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var originalSettings = await getResponse.Content.ReadFromJsonAsync<ChunkingSettingsDto>();
+        var originalSettings = await getResponse.Content.ReadFromJsonAsync<ChunkingSettings>();
         originalSettings.Should().NotBeNull();
 
         var originalMaxChunkSize = originalSettings!.MaxChunkSize;
 
         // Act: Update chunking settings
-        var newSettings = new ChunkingSettingsDto(
-            Strategy: "FixedSize",
-            MaxChunkSize: originalMaxChunkSize + 100, // Change the value
-            MinChunkSize: originalSettings.MinChunkSize,
-            Overlap: originalSettings.Overlap,
-            RecursiveSeparators: originalSettings.RecursiveSeparators);
+        var newSettings = originalSettings with
+        {
+            Strategy = "FixedSize",
+            MaxChunkSize = originalMaxChunkSize + 100 // Change the value
+        };
 
         var updateResponse = await _client.PutAsJsonAsync("/api/settings/chunking", newSettings);
         updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -100,7 +100,7 @@ public class SettingsIntegrationTests : IAsyncLifetime
         var verifyResponse = await _client.GetAsync("/api/settings/chunking");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var updatedSettings = await verifyResponse.Content.ReadFromJsonAsync<ChunkingSettingsDto>();
+        var updatedSettings = await verifyResponse.Content.ReadFromJsonAsync<ChunkingSettings>();
         updatedSettings.Should().NotBeNull();
         updatedSettings!.MaxChunkSize.Should().Be(originalMaxChunkSize + 100, "Settings should be updated immediately");
 
@@ -115,16 +115,15 @@ public class SettingsIntegrationTests : IAsyncLifetime
         var getResponse = await _client.GetAsync("/api/settings/search");
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var originalSettings = await getResponse.Content.ReadFromJsonAsync<SearchSettingsDto>();
+        var originalSettings = await getResponse.Content.ReadFromJsonAsync<SearchSettings>();
         originalSettings.Should().NotBeNull();
 
         // Act: Toggle search mode
         var newMode = originalSettings!.Mode == "Hybrid" ? "Semantic" : "Hybrid";
-        var newSettings = new SearchSettingsDto(
-            Mode: newMode,
-            TopK: originalSettings.TopK,
-            MinScore: originalSettings.MinScore,
-            Reranker: originalSettings.Reranker);
+        var newSettings = originalSettings with
+        {
+            Mode = newMode
+        };
 
         var updateResponse = await _client.PutAsJsonAsync("/api/settings/search", newSettings);
         updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -135,7 +134,7 @@ public class SettingsIntegrationTests : IAsyncLifetime
         var verifyResponse = await _client.GetAsync("/api/settings/search");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var updatedSettings = await verifyResponse.Content.ReadFromJsonAsync<SearchSettingsDto>();
+        var updatedSettings = await verifyResponse.Content.ReadFromJsonAsync<SearchSettings>();
         updatedSettings.Should().NotBeNull();
         updatedSettings!.Mode.Should().Be(newMode, "Search mode should be updated immediately");
 
@@ -153,8 +152,8 @@ public class SettingsIntegrationTests : IAsyncLifetime
         embeddingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         chunkingResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var originalEmbedding = await embeddingResponse.Content.ReadFromJsonAsync<EmbeddingSettingsDto>();
-        var originalChunking = await chunkingResponse.Content.ReadFromJsonAsync<ChunkingSettingsDto>();
+        var originalEmbedding = await embeddingResponse.Content.ReadFromJsonAsync<EmbeddingSettings>();
+        var originalChunking = await chunkingResponse.Content.ReadFromJsonAsync<ChunkingSettings>();
 
         // Act: Update both categories
         var newEmbedding = originalEmbedding! with { Model = "test-model-v2" };
@@ -167,9 +166,9 @@ public class SettingsIntegrationTests : IAsyncLifetime
 
         // Assert: Both updates are reflected
         var verifyEmbedding = await (await _client.GetAsync("/api/settings/embedding"))
-            .Content.ReadFromJsonAsync<EmbeddingSettingsDto>();
+            .Content.ReadFromJsonAsync<EmbeddingSettings>();
         var verifyChunking = await (await _client.GetAsync("/api/settings/chunking"))
-            .Content.ReadFromJsonAsync<ChunkingSettingsDto>();
+            .Content.ReadFromJsonAsync<ChunkingSettings>();
 
         verifyEmbedding!.Model.Should().Be("test-model-v2");
         verifyChunking!.MaxChunkSize.Should().Be(999);
@@ -178,25 +177,4 @@ public class SettingsIntegrationTests : IAsyncLifetime
         await _client.PutAsJsonAsync("/api/settings/embedding", originalEmbedding);
         await _client.PutAsJsonAsync("/api/settings/chunking", originalChunking);
     }
-
-    // DTOs matching settings types
-    private record EmbeddingSettingsDto(
-        string Provider,
-        string Model,
-        string BaseUrl,
-        int Dimensions,
-        int TimeoutSeconds);
-
-    private record ChunkingSettingsDto(
-        string Strategy,
-        int MaxChunkSize,
-        int MinChunkSize,
-        int Overlap,
-        string[] RecursiveSeparators);
-
-    private record SearchSettingsDto(
-        string Mode,
-        int TopK,
-        double MinScore,
-        string Reranker);
 }

@@ -1,6 +1,7 @@
 @page "/search"
 @rendermode InteractiveServer
-@inject HttpClient Http
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
 
 <PageTitle>Search - AIKnowledge</PageTitle>
 
@@ -131,6 +132,19 @@
     private bool isSearching = false;
     private SearchResult? searchResult;
     private string? errorMessage;
+    private HttpClient? _httpClient;
+    private HttpClient Http
+    {
+        get
+        {
+            if (_httpClient == null)
+            {
+                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
+                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
+            }
+            return _httpClient;
+        }
+    }
 
     private async Task HandleKeyPress(KeyboardEventArgs e)
     {

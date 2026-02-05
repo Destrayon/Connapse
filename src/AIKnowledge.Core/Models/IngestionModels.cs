@@ -1,6 +1,7 @@
 namespace AIKnowledge.Core;
 
 public record IngestionOptions(
+    string? DocumentId = null,
     string? FileName = null,
     string? ContentType = null,
     string? CollectionId = null,
@@ -17,6 +18,19 @@ public record IngestionProgress(
     IngestionPhase Phase,
     double PercentComplete,
     string? Message);
+
+/// <summary>
+/// DTO for SignalR real-time ingestion progress updates.
+/// Matches the structure sent by IngestionProgressBroadcaster.
+/// </summary>
+public record IngestionProgressUpdate(
+    string JobId,
+    string State,
+    string? CurrentPhase,
+    double PercentComplete,
+    string? ErrorMessage,
+    DateTime? StartedAt,
+    DateTime? CompletedAt);
 
 public enum IngestionPhase { Parsing, Chunking, Embedding, Storing, Complete }
 

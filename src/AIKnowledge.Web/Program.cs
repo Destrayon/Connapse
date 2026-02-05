@@ -11,6 +11,7 @@ using AIKnowledge.Web.Endpoints;
 using AIKnowledge.Web.Hubs;
 using AIKnowledge.Web.Mcp;
 using AIKnowledge.Web.Services;
+using Microsoft.AspNetCore.Components;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,8 +28,10 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddSignalR();
 
-// Add HttpClient for API calls from Blazor components
-builder.Services.AddHttpClient();
+// Add named HttpClient for Blazor components
+// BaseAddress will be set by components using NavigationManager
+// This avoids conflicts with typed HttpClient registrations used by background services
+builder.Services.AddHttpClient("BlazorClient");
 
 // Add background services
 builder.Services.AddHostedService<IngestionProgressBroadcaster>();
@@ -93,6 +96,7 @@ app.MapRazorComponents<App>()
 app.MapDocumentsEndpoints();
 app.MapSearchEndpoints();
 app.MapBatchesEndpoints();
+app.MapSettingsEndpoints();
 app.MapMcpEndpoints();
 
 // Map SignalR hub

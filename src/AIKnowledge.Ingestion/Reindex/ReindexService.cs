@@ -407,6 +407,7 @@ public class ReindexService : IReindexService
             DocumentId: doc.Id.ToString(),
             VirtualPath: doc.VirtualPath,
             Options: new IngestionOptions(
+                DocumentId: doc.Id.ToString(),
                 FileName: doc.FileName,
                 ContentType: doc.ContentType,
                 CollectionId: doc.CollectionId,

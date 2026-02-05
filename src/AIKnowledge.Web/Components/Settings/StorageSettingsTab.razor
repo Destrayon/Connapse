@@ -1,4 +1,5 @@
 @using AIKnowledge.Core
+@using System.Net.Http.Json
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -93,14 +94,54 @@
             <button type="submit" class="btn btn-primary me-2">
                 <span class="bi-save me-1"></span> Save Changes
             </button>
-            <button type="button" class="btn btn-secondary" @onclick="Reset">
+            <button type="button" class="btn btn-secondary me-2" @onclick="Reset">
                 <span class="bi-arrow-counterclockwise me-1"></span> Reset
             </button>
+            <button type="button" class="btn btn-info" @onclick="TestConnection" disabled="@isTestingConnection">
+                @if (isTestingConnection)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Testing...</span>
+                }
+                else
+                {
+                    <span class="bi-plug me-1"></span>
+                    <span>Test Connection</span>
+                }
+            </button>
         </div>
+
+        @if (!string.IsNullOrEmpty(testMessage))
+        {
+            <div class="col-12 mt-3">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                    @testMessage
+                    <button type="button" class="btn-close" @onclick="@(() => testMessage = null)"></button>
+                </div>
+            </div>
+        }
     </div>
 </EditForm>
 
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+
 @code {
+    private HttpClient? _httpClient;
+    private HttpClient Http
+    {
+        get
+        {
+            if (_httpClient == null)
+            {
+                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
+                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
+            }
+            return _httpClient;
+        }
+    }
+
     [Parameter]
     public StorageSettings Settings { get; set; } = new();
 
@@ -108,6 +149,9 @@
     public EventCallback<StorageSettings> OnSave { get; set; }
 
     private StorageSettings localSettings = new();
+    private bool isTestingConnection;
+    private string? testMessage;
+    private bool testSuccess;
 
     protected override void OnParametersSet()
     {
@@ -122,5 +166,46 @@
     private void Reset()
     {
         localSettings = Settings with { };
+    }
+
+    private async Task TestConnection()
+    {
+        isTestingConnection = true;
+        testMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var request = new
+            {
+                Category = "storage",
+                Settings = localSettings,
+                TimeoutSeconds = 10
+            };
+
+            var response = await Http.PostAsJsonAsync("/api/settings/test-connection", request);
+            var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
+
+            if (result != null)
+            {
+                testSuccess = result.Success;
+                testMessage = result.Message;
+            }
+            else
+            {
+                testSuccess = false;
+                testMessage = "No response from server";
+            }
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            isTestingConnection = false;
+            StateHasChanged();
+        }
     }
 }

@@ -44,6 +44,7 @@ public static class DocumentsEndpoints
                         DocumentId: documentId,
                         VirtualPath: virtualPath,
                         Options: new IngestionOptions(
+                            DocumentId: documentId,
                             FileName: file.FileName,
                             ContentType: file.ContentType,
                             CollectionId: collectionId,

@@ -29,16 +29,28 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         if (!context.Database.CanConnect())
             return;
 
-        var settings = context.Settings.AsNoTracking().ToList();
-
-        Data.Clear();
-
-        foreach (var setting in settings)
+        try
         {
-            // Flatten JSONB values into configuration keys
-            // E.g., category "Embedding" with { "Model": "nomic-embed-text" }
-            // becomes "Knowledge:Embedding:Model" = "nomic-embed-text"
-            FlattenSettings($"Knowledge:{setting.Category}", setting.Values);
+            var settings = context.Settings.AsNoTracking().ToList();
+
+            Data.Clear();
+
+            foreach (var setting in settings)
+            {
+                // Flatten JSONB values into configuration keys
+                // E.g., category "Embedding" with { "Model": "nomic-embed-text" }
+                // becomes "Knowledge:Embedding:Model" = "nomic-embed-text"
+                FlattenSettings($"Knowledge:{setting.Category}", setting.Values);
+            }
+        }
+        catch (Exception)
+        {
+            // Silently ignore errors during load - this can happen if:
+            // 1. Database schema not yet created (migrations haven't run)
+            // 2. Settings table doesn't exist
+            // 3. Database is being initialized
+            // The application will fall back to appsettings.json values
+            return;
         }
     }
 

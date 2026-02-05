@@ -264,6 +264,7 @@ public class McpServer
             DocumentId: documentId,
             VirtualPath: virtualPath,
             Options: new IngestionOptions(
+                DocumentId: documentId,
                 FileName: fileName,
                 ContentType: null,
                 CollectionId: collectionId,

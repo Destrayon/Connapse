@@ -2,7 +2,8 @@
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.SignalR.Client
 @using System.Net.Http.Headers
-@inject HttpClient Http
+@using AIKnowledge.Core
+@inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
 @implements IAsyncDisposable
 
@@ -156,6 +157,7 @@
     private bool isDragging = false;
     private List<UploadFileInfo> uploadedFiles = new();
     private HubConnection? hubConnection;
+    private HttpClient Http = null!;
 
     protected override async Task OnInitializedAsync()
     {
@@ -165,8 +167,12 @@
             .WithAutomaticReconnect()
             .Build();
 
-        hubConnection.On<dynamic>("IngestionProgress", HandleIngestionProgress);
+        hubConnection.On<IngestionProgressUpdate>("IngestionProgress", HandleIngestionProgress);
         await hubConnection.StartAsync();
+
+        // Get HttpClient for API calls with BaseAddress
+        Http = HttpClientFactory.CreateClient("BlazorClient");
+        Http.BaseAddress = new Uri(Navigation.BaseUri);
     }
 
     private void HandleDragEnter()
@@ -260,18 +266,20 @@
         StateHasChanged();
     }
 
-    private void HandleIngestionProgress(dynamic progress)
+    private async Task HandleIngestionProgress(IngestionProgressUpdate progress)
     {
-        string jobId = progress.jobId;
-        var file = uploadedFiles.FirstOrDefault(f => f.JobId == jobId);
-        if (file != null)
+        await InvokeAsync(() =>
         {
-            file.State = progress.state;
-            file.CurrentPhase = progress.currentPhase;
-            file.PercentComplete = progress.percentComplete;
-            file.ErrorMessage = progress.errorMessage;
-            StateHasChanged();
-        }
+            var file = uploadedFiles.FirstOrDefault(f => f.JobId == progress.JobId);
+            if (file != null)
+            {
+                file.State = progress.State;
+                file.CurrentPhase = progress.CurrentPhase;
+                file.PercentComplete = progress.PercentComplete;
+                file.ErrorMessage = progress.ErrorMessage;
+                StateHasChanged();
+            }
+        });
     }
 
     private string FormatFileSize(long bytes)

@@ -1,5 +1,6 @@
 using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
+using AIKnowledge.Storage.ConnectionTesters;
 using AIKnowledge.Storage.Data;
 using AIKnowledge.Storage.Documents;
 using AIKnowledge.Storage.FileSystem;
@@ -10,6 +11,7 @@ using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace AIKnowledge.Storage.Extensions;
 
@@ -19,11 +21,16 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // PostgreSQL + pgvector
+        // PostgreSQL + pgvector with dynamic JSON support
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+
+        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        dataSourceBuilder.EnableDynamicJson(); // Required for Dictionary<string, string> serialization
+        dataSourceBuilder.UseVector();
+        var dataSource = dataSourceBuilder.Build();
+
         services.AddDbContext<KnowledgeDbContext>(options =>
-            options.UseNpgsql(
-                configuration.GetConnectionString("DefaultConnection"),
-                npgsql => npgsql.UseVector()));
+            options.UseNpgsql(dataSource, npgsql => npgsql.UseVector()));
 
         // Settings store
         services.AddScoped<ISettingsStore, PostgresSettingsStore>();
@@ -71,6 +78,10 @@ public static class ServiceCollectionExtensions
 
         // Vector store
         services.AddScoped<IVectorStore, PgVectorStore>();
+
+        // Connection testers
+        services.AddScoped<OllamaConnectionTester>();
+        services.AddScoped<MinioConnectionTester>();
 
         return services;
     }

@@ -1,3 +1,4 @@
+using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Ingestion.Pipeline;
 using AIKnowledge.Web.Hubs;
@@ -47,18 +48,18 @@ public class IngestionProgressBroadcaster : BackgroundService
                         if (ShouldBroadcast(jobId, status))
                         {
                             // Broadcast to job-specific group
+                            var progressUpdate = new IngestionProgressUpdate(
+                                JobId: jobId,
+                                State: status.State.ToString(),
+                                CurrentPhase: status.CurrentPhase?.ToString(),
+                                PercentComplete: status.PercentComplete,
+                                ErrorMessage: status.ErrorMessage,
+                                StartedAt: status.StartedAt,
+                                CompletedAt: status.CompletedAt);
+
                             await _hubContext.Clients.Group(jobId).SendAsync(
                                 "IngestionProgress",
-                                new
-                                {
-                                    jobId,
-                                    state = status.State.ToString(),
-                                    currentPhase = status.CurrentPhase?.ToString(),
-                                    percentComplete = status.PercentComplete,
-                                    errorMessage = status.ErrorMessage,
-                                    startedAt = status.StartedAt,
-                                    completedAt = status.CompletedAt
-                                },
+                                progressUpdate,
                                 stoppingToken);
 
                             _lastBroadcast[jobId] = DateTime.UtcNow;

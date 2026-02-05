@@ -25,6 +25,15 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Use `ValueTask<T>` for hot paths that often complete synchronously
 - Prefer `await foreach` over `.ToListAsync()`
 
+## Type Safety
+
+- **NEVER use `dynamic` keyword** — always use strongly-typed DTOs
+  - `dynamic` doesn't work with `System.Text.Json.JsonElement` (e.g., SignalR, API responses)
+  - No compile-time checking, no IntelliSense, runtime binding overhead
+  - Create proper record types instead (e.g., `IngestionProgressUpdate`)
+- Use records for DTOs and immutable data structures
+- Nullable reference types enabled globally — handle null explicitly
+
 ## Error Handling
 
 - `Result<T>` pattern for expected failures (validation, not found)
@@ -53,6 +62,47 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Global theme tokens in `wwwroot/app.css`
 - Use inline SVGs or data-URI SVGs for icons (no external icon library dependency)
 - `@rendermode InteractiveServer` on pages that need interactivity
+
+### Blazor HttpClient Pattern
+- **CRITICAL**: Never register scoped `HttpClient` that resolves `NavigationManager` during service configuration
+- Use named `HttpClient` registration: `builder.Services.AddHttpClient("BlazorClient")` (no configuration callback)
+- Components inject both `IHttpClientFactory` and `NavigationManager`
+- Components create client and set `BaseAddress` lazily in property getter:
+```csharp
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+
+@code {
+    private HttpClient? _httpClient;
+    private HttpClient Http
+    {
+        get
+        {
+            if (_httpClient == null)
+            {
+                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
+                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
+            }
+            return _httpClient;
+        }
+    }
+}
+```
+- **Why**: Background services need typed `HttpClient` registrations (e.g., `OllamaEmbeddingProvider`) that don't depend on `NavigationManager`, which only exists in HTTP request/Blazor contexts
+
+### Blazor Threading
+- **CRITICAL**: All SignalR callbacks MUST use `InvokeAsync()` to marshal state changes to UI thread
+- SignalR messages arrive on background threads — direct `StateHasChanged()` calls will crash
+- Pattern: `async Task Handler(T data) => await InvokeAsync(() => { /* mutate state, call StateHasChanged() */ })`
+- Always make handler methods `async Task`, never `void`, when using `InvokeAsync()`
+- This applies to ANY callback from background threads (timers, event handlers, etc.)
+
+## SignalR
+
+- Always use strongly-typed handlers: `hubConnection.On<TDto>("EventName", handler)`
+- Create DTOs for all SignalR messages (e.g., `IngestionProgressUpdate`)
+- Send typed objects from server: `Clients.Group(id).SendAsync("Event", new TDto(...))`
+- Never use `dynamic` — `System.Text.Json` deserializes to `JsonElement` which doesn't support dynamic binding
 
 ## File System
 
@@ -95,6 +145,31 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
   - Triggers `IOptionsMonitor` change notifications on reload
 - Implementation: `ISettingsStore` → `PostgresSettingsStore` (JSON serialization to/from JSONB)
 
+## Connection Testing (Settings Feature ✅)
+
+- Test external service connectivity BEFORE saving settings to database
+- `IConnectionTester` interface with `TestConnectionAsync(object settings, TimeSpan? timeout, CancellationToken)`
+- Implementations test specific services:
+  - `OllamaConnectionTester`: Tests Ollama via GET /api/tags (used for Embedding + LLM settings)
+  - `MinioConnectionTester`: Tests MinIO/S3 via ListBucketsAsync (used for Storage settings)
+- Returns structured `ConnectionTestResult`:
+  - `Success` (bool): Test passed/failed
+  - `Message` (string): Human-readable result (e.g., "Connected to Ollama (3 models available)")
+  - `Details` (Dictionary): Structured info (modelCount, buckets, error details)
+  - `Duration` (TimeSpan): Test execution time
+- Default timeout: 10 seconds (configurable per test)
+- UI pattern in Settings tabs:
+  - "Test Connection" button next to Save/Reset
+  - Spinner animation during test (`isTestingConnection` state)
+  - Success alert (green) or error alert (red) with dismissible close button
+  - Tests current form values via `HttpClient.PostAsJsonAsync("/api/settings/test-connection")`
+- API endpoint: `POST /api/settings/test-connection`
+  - Body: `{ Category: string, Settings: JsonElement, TimeoutSeconds?: int }`
+  - Returns `ConnectionTestResult` JSON
+- Registered as Scoped services in Storage DI extensions
+- Uses reflection to extract BaseUrl/endpoint properties from settings objects (supports multiple settings types)
+- Test connection does NOT modify any database state — read-only validation
+
 ## Ingestion (Phase 4 ✅)
 
 - Background processing via `Channel<T>` + `IHostedService` (BackgroundService) — no external message queue
@@ -119,8 +194,13 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 
 ### Pipeline & Queue
 - `IngestionPipeline` orchestrates: parse → chunk → embed → store
+- **CRITICAL**: `IngestionOptions` must include `DocumentId` when calling `IngestAsync()` to preserve pre-assigned IDs
+  - Upload endpoint generates DocumentId → passes to IngestionJob → must flow to IngestionOptions
+  - Pipeline uses `options.DocumentId` if provided, else generates new Guid
+  - All callers (DocumentsEndpoints, ReindexService, McpServer) must pass DocumentId
 - Computes SHA-256 hash of file content for deduplication
 - Stores chunks in `chunks` table, embeddings in `chunk_vectors` via `IVectorStore`
+- **PgVectorStore metadata requirements**: Must include lowercase "documentId" and "modelId" keys
 - Updates document status: Pending → Processing → Ready | Failed
 - `IngestionQueue` uses bounded `Channel<T>` (capacity: 1000)
 - Job status tracked in-memory via `ConcurrentDictionary<string, IngestionJobStatus>`

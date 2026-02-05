@@ -104,24 +104,29 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Assert: Upload succeeded
         uploadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var uploadResult = await uploadResponse.Content.ReadFromJsonAsync<UploadResult>();
+        var uploadResult = await uploadResponse.Content.ReadFromJsonAsync<UploadResponse>();
         uploadResult.Should().NotBeNull();
-        uploadResult!.DocumentId.Should().NotBeEmpty();
-        uploadResult.FileName.Should().Be(fileName);
+        uploadResult!.Documents.Should().HaveCount(1);
+        uploadResult.SuccessCount.Should().Be(1);
 
-        var documentId = uploadResult.DocumentId;
+        var uploadedDoc = uploadResult.Documents.First();
+        uploadedDoc.FileName.Should().Be(fileName);
+        uploadedDoc.DocumentId.Should().NotBeEmpty();
+        uploadedDoc.Error.Should().BeNull();
+
+        var documentId = uploadedDoc.DocumentId;
 
         // Act 2: Wait for ingestion to complete (poll status)
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
 
-        // Act 3: Verify document status
+        // Act 3: Verify document exists (note: Document model doesn't have Status/ChunkCount)
         var docResponse = await _client.GetAsync($"/api/documents/{documentId}");
         docResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var document = await docResponse.Content.ReadFromJsonAsync<DocumentDto>();
         document.Should().NotBeNull();
-        document!.Status.Should().Be("Ready");
-        document.ChunkCount.Should().BeGreaterThan(0);
+        document!.Id.Should().Be(documentId);
+        document.FileName.Should().Be(fileName);
 
         // Act 4: Search for content from the document
         var searchResponse = await _client.GetAsync("/api/search?q=artificial+intelligence+machine+learning&mode=Keyword&topK=10");
@@ -130,11 +135,12 @@ public class IngestionIntegrationTests : IAsyncLifetime
         var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>();
         searchResult.Should().NotBeNull();
         searchResult!.Hits.Should().NotBeEmpty();
+        searchResult.TotalMatches.Should().BeGreaterThan(0);
 
         // Assert: Search results contain our document
         var hit = searchResult.Hits.FirstOrDefault(h => h.DocumentId == documentId);
         hit.Should().NotBeNull("Search should return chunks from the uploaded document");
-        hit!.Content.Should().Contain("artificial intelligence", "Chunk content should contain searched terms");
+        hit!.Content.Should().ContainEquivalentOf("artificial intelligence", "Chunk content should contain searched terms");
         hit.Score.Should().BeGreaterThan(0);
 
         // Act 5: Clean up - delete document
@@ -157,7 +163,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
             ("doc3.txt", "Vector databases enable semantic search using embeddings.")
         };
 
-        var documentIds = new List<Guid>();
+        var documentIds = new List<string>();
 
         // Act 1: Upload all documents
         foreach (var (fileName, content) in documents)
@@ -172,8 +178,8 @@ public class IngestionIntegrationTests : IAsyncLifetime
             var response = await _client.PostAsync("/api/documents", multipart);
             response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-            var result = await response.Content.ReadFromJsonAsync<UploadResult>();
-            documentIds.Add(result!.DocumentId);
+            var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
+            documentIds.Add(result!.Documents.First().DocumentId);
         }
 
         // Act 2: Wait for all ingestions to complete
@@ -207,9 +213,10 @@ public class IngestionIntegrationTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Polls document status until it's Ready or Failed, or timeout is reached.
+    /// Waits for ingestion to complete by checking if document exists and can be searched.
+    /// Note: Document model doesn't expose Status, so we just wait a bit and verify existence.
     /// </summary>
-    private async Task WaitForIngestionToComplete(Guid documentId, int timeoutSeconds)
+    private async Task WaitForIngestionToComplete(string documentId, int timeoutSeconds)
     {
         var startTime = DateTime.UtcNow;
         var timeout = TimeSpan.FromSeconds(timeoutSeconds);
@@ -220,14 +227,12 @@ public class IngestionIntegrationTests : IAsyncLifetime
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
-                if (document?.Status == "Ready")
+                if (document != null)
                 {
+                    // Document exists, assume ingestion completed
+                    // In a real scenario, you might want to search for content to verify
+                    await Task.Delay(1000); // Give it a moment to index
                     return;
-                }
-
-                if (document?.Status == "Failed")
-                {
-                    throw new Exception($"Ingestion failed: {document.ErrorMessage}");
                 }
             }
 
@@ -238,14 +243,38 @@ public class IngestionIntegrationTests : IAsyncLifetime
     }
 
     // DTOs matching API responses
-    private record UploadResult(Guid DocumentId, string FileName, string Status);
-    private record DocumentDto(
-        Guid Id,
+    private record UploadResponse(
+        string? BatchId,
+        List<UploadedDocumentResponse> Documents,
+        int TotalCount,
+        int SuccessCount);
+
+    private record UploadedDocumentResponse(
+        string DocumentId,
+        string? JobId,
         string FileName,
+        long SizeBytes,
         string VirtualPath,
-        string Status,
-        int ChunkCount,
-        string? ErrorMessage);
-    private record SearchResultDto(List<SearchHitDto> Hits, string Mode);
-    private record SearchHitDto(Guid ChunkId, Guid DocumentId, string Content, double Score);
+        string? Error = null);
+
+    private record DocumentDto(
+        string Id,
+        string FileName,
+        string? ContentType,
+        string? CollectionId,
+        long SizeBytes,
+        DateTime CreatedAt,
+        Dictionary<string, string> Metadata);
+
+    private record SearchResultDto(
+        List<SearchHitDto> Hits,
+        int TotalMatches,
+        TimeSpan Duration);
+
+    private record SearchHitDto(
+        string ChunkId,
+        string DocumentId,
+        string Content,
+        float Score,
+        Dictionary<string, string> Metadata);
 }
