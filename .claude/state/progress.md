@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Phase 1 (Infrastructure) complete — ready for Phase 2
+**Status**: Phase 2 (Settings System) complete — ready for Phase 3
 
 ---
 
@@ -414,5 +414,37 @@ volumes:
 - Restructured from default VS template (flat `AIKnowledgePlatform/`) to proper `src/` layout
 - Using .NET 10 SDK 10.0.102
 - Local-first defaults: Ollama for embeddings/LLM, SQLite-vec for vectors
+
+### 2026-02-04 — Phase 2: Settings System Complete
+
+**Worked on**: Runtime-mutable settings with database backing and live reload
+
+**Completed**:
+- Created `ISettingsStore` interface in Core (GetAsync, SaveAsync, ResetAsync, GetCategoriesAsync)
+- Defined 7 settings record types in `SettingsModels.cs`: `EmbeddingSettings`, `ChunkingSettings`, `SearchSettings`, `LlmSettings`, `UploadSettings`, `WebSearchSettings`, `StorageSettings`
+- Implemented `PostgresSettingsStore : ISettingsStore` — uses JSONB column in `settings` table, JSON serialization for flexible schema
+- Created `DatabaseSettingsProvider : IConfigurationProvider` — custom configuration provider that loads settings from database at startup
+- Created `DatabaseSettingsSource : IConfigurationSource` — wires up the provider
+- Created `SettingsReloadService` — triggers `IOptionsMonitor` change notifications when settings are updated
+- Added `ConfigurationBuilderExtensions.AddDatabaseSettings()` extension method
+- Updated `Program.cs` — adds database configuration source, configures `IOptionsMonitor<T>` for all 7 settings categories
+- Registered `PostgresSettingsStore` and `SettingsReloadService` in DI
+- Created Settings page (`/settings`) with 7-tab layout: Embedding, Chunking, Search, LLM, Upload, Web Search, Storage
+- Created 7 tab components with EditForm binding: `EmbeddingSettingsTab`, `ChunkingSettingsTab`, `SearchSettingsTab`, `LlmSettingsTab`, `UploadSettingsTab`, `WebSearchSettingsTab`, `StorageSettingsTab`
+- Updated NavMenu: added Settings link with gear icon
+- Fixed settings records: changed `init` to `set` for form binding compatibility
+- Build: 0 warnings, 0 errors
+
+**Remaining**:
+- Task 2.7: Test Connection functionality (deferred — requires actual service implementations)
+- Task 2.8: REST API endpoints for settings (deferred — optional for now)
+- Phase 3: Storage implementations (Ollama embedding provider, Postgres document store, PgVector store, FTS indexing)
+- Phase 4+: Ingestion, search, access surfaces, reindexing
+
+**Notes**:
+- Settings resolution order: `appsettings.json` → env vars → **database (highest priority)**
+- When settings are saved via UI: writes to DB → calls `SettingsReloadService.ReloadSettings()` → triggers `IOptionsMonitor` → all consumers see new values without restart
+- Settings stored as JSONB in `settings` table, flattened to configuration keys like `Knowledge:Embedding:Model`
+- All 7 settings categories fully editable through Settings page UI
 
 ---

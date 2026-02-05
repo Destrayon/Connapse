@@ -2,6 +2,7 @@ using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Storage.Data;
 using AIKnowledge.Storage.FileSystem;
+using AIKnowledge.Storage.Settings;
 using Amazon.Runtime;
 using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,12 @@ public static class ServiceCollectionExtensions
             options.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection"),
                 npgsql => npgsql.UseVector()));
+
+        // Settings store
+        services.AddScoped<ISettingsStore, PostgresSettingsStore>();
+
+        // Settings reload service
+        services.AddSingleton<SettingsReloadService>();
 
         // Local file system (kept for non-Docker dev)
         services.Configure<KnowledgeFileSystemOptions>(

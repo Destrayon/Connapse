@@ -1,0 +1,80 @@
+@using AIKnowledge.Core
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Max File Size (MB)</label>
+            <InputNumber @bind-Value="localSettings.MaxFileSizeMb" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Default Upload Path</label>
+            <InputText @bind-Value="localSettings.DefaultPath" class="form-control" placeholder="/uploads" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Parallel Workers</label>
+            <InputNumber @bind-Value="localSettings.ParallelWorkers" class="form-control" />
+            <small class="form-text text-muted">Number of concurrent ingestion workers</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Batch Size</label>
+            <InputNumber @bind-Value="localSettings.BatchSize" class="form-control" />
+            <small class="form-text text-muted">Files per bulk operation</small>
+        </div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.AutoStartIngestion" class="form-check-input" id="autoIngest" />
+                <label class="form-check-label" for="autoIngest">
+                    Auto-start Ingestion
+                </label>
+            </div>
+
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.EnableVirusScanning" class="form-check-input" id="virusScan" />
+                <label class="form-check-label" for="virusScan">
+                    Enable Virus Scanning
+                </label>
+                <small class="form-text text-muted d-block">Requires ClamAV</small>
+            </div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public UploadSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<UploadSettings> OnSave { get; set; }
+
+    private UploadSettings localSettings = new();
+
+    protected override void OnParametersSet()
+    {
+        localSettings = Settings with { };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        localSettings = Settings with { };
+    }
+}

@@ -33,10 +33,12 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 
 ## Configuration
 
-- `IOptions<T>` everywhere
-- Validate at startup with `ValidateOnStart()`
+- Use `IOptionsMonitor<T>` for runtime-mutable settings (not `IOptions<T>`)
+- Settings categories: Embedding, Chunking, Search, LLM, Upload, WebSearch, Storage
+- All settings are records with `{ get; set; }` for form binding
 - Sensible defaults in `appsettings.json`
 - Never hardcode connection strings or secrets
+- Database overrides via `DatabaseSettingsProvider` (custom `IConfigurationProvider`)
 
 ## Dependency Injection
 
@@ -79,13 +81,19 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Bucket name configurable via `StorageSettings`
 - `IKnowledgeFileSystem` remains the abstraction — `MinioFileSystem` for Docker, `LocalKnowledgeFileSystem` for local dev without Docker
 
-## Settings
+## Settings (Phase 2 ✅)
 
-- Runtime-mutable settings stored in Postgres `settings` table (JSONB per category)
-- Each settings category has a `{Name}Settings` class with a `const string Category` field
-- Services use `IOptionsMonitor<T>` (not `IOptions<T>`) to support live reload
-- Resolution order: `appsettings.json` → env vars → database (highest priority)
-- API keys masked in UI, overridable via environment variables for production
+- Runtime-mutable settings stored in Postgres `settings` table (category + JSONB values)
+- Each settings category is a record type: `EmbeddingSettings`, `ChunkingSettings`, etc.
+- All properties use `{ get; set; }` (not `init`) for EditForm binding compatibility
+- Services inject `IOptionsMonitor<T>` (not `IOptions<T>`) to support live reload
+- Resolution order: `appsettings.json` → env vars → **database (highest priority)**
+- Settings page at `/settings` with 7 tabs, save triggers `SettingsReloadService.ReloadSettings()`
+- `DatabaseSettingsProvider` is a custom `IConfigurationProvider` that:
+  - Loads settings from DB at startup
+  - Flattens JSONB into config keys (e.g., `Knowledge:Embedding:Model`)
+  - Triggers `IOptionsMonitor` change notifications on reload
+- Implementation: `ISettingsStore` → `PostgresSettingsStore` (JSON serialization to/from JSONB)
 
 ## Ingestion
 

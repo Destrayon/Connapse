@@ -1,0 +1,90 @@
+@using AIKnowledge.Core
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Provider</label>
+            <InputSelect @bind-Value="localSettings.Provider" class="form-select">
+                <option value="Ollama">Ollama</option>
+                <option value="OpenAI">OpenAI</option>
+                <option value="AzureOpenAI">Azure OpenAI</option>
+                <option value="Anthropic">Anthropic</option>
+            </InputSelect>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Model</label>
+            <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="nomic-embed-text" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Dimensions</label>
+            <InputNumber @bind-Value="localSettings.Dimensions" class="form-control" />
+            <small class="form-text text-muted">Must match model output dimensions</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Batch Size</label>
+            <InputNumber @bind-Value="localSettings.BatchSize" class="form-control" />
+            <small class="form-text text-muted">Number of texts to embed in parallel</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Base URL</label>
+            <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
+            <small class="form-text text-muted">For Ollama or custom endpoints</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Timeout (seconds)</label>
+            <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">API Key</label>
+            <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="Optional for cloud providers" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Azure Deployment Name</label>
+            <InputText @bind-Value="localSettings.AzureDeploymentName" class="form-control" placeholder="For Azure OpenAI only" />
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public EmbeddingSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<EmbeddingSettings> OnSave { get; set; }
+
+    private EmbeddingSettings localSettings = new();
+
+    protected override void OnParametersSet()
+    {
+        // Clone settings to avoid modifying parent until save
+        localSettings = Settings with { };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        localSettings = Settings with { };
+    }
+}

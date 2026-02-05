@@ -152,16 +152,21 @@ public record BatchStatus(
     string Status);   // Processing | Completed | PartialFailure
 ```
 
-### ISettingsStore (new)
+### ISettingsStore (Phase 2 ✅)
 
 ```csharp
 public interface ISettingsStore
 {
-    Task<T> GetAsync<T>(string category, CancellationToken ct = default) where T : class, new();
+    Task<T?> GetAsync<T>(string category, CancellationToken ct = default) where T : class;
     Task SaveAsync<T>(string category, T settings, CancellationToken ct = default) where T : class;
     Task ResetAsync(string category, CancellationToken ct = default);
     Task<IReadOnlyList<string>> GetCategoriesAsync(CancellationToken ct = default);
 }
+
+// Implementation: PostgresSettingsStore
+// - Stores settings as JSONB in `settings` table
+// - JSON serialization for flexible schema
+// - Integrated with IOptionsMonitor for live reload
 ```
 
 ### IAgentTool
@@ -241,77 +246,108 @@ public interface IWebSearchProvider
 
 ---
 
-## Settings Types (new)
+## Settings Types (Phase 2 ✅)
+
+All settings are records with `{ get; set; }` properties for form binding.
 
 ```csharp
-public class EmbeddingSettings
+public record EmbeddingSettings
 {
-    public const string Category = "Embedding";
-    public string Provider { get; set; } = "Ollama";       // Ollama | OpenAI | AzureOpenAI
+    public string Provider { get; set; } = "Ollama";                     // Ollama | OpenAI | AzureOpenAI | Anthropic
     public string Model { get; set; } = "nomic-embed-text";
     public int Dimensions { get; set; } = 768;
-    public string BaseUrl { get; set; } = "http://localhost:11434";
+    public string? BaseUrl { get; set; } = "http://localhost:11434";
     public string? ApiKey { get; set; }
+    public string? AzureDeploymentName { get; set; }
+    public int BatchSize { get; set; } = 32;
+    public int TimeoutSeconds { get; set; } = 30;
 }
 
-public class ChunkingSettings
+public record ChunkingSettings
 {
-    public const string Category = "Chunking";
-    public ChunkingStrategyType Strategy { get; set; } = ChunkingStrategyType.Recursive;
-    public int MaxChunkSize { get; set; } = 512;        // tokens
-    public int Overlap { get; set; } = 50;               // tokens
-    public float SemanticThreshold { get; set; } = 0.5f; // for Semantic strategy
+    public string Strategy { get; set; } = "Semantic";                   // FixedSize | Recursive | Semantic | DocumentAware
+    public int MaxChunkSize { get; set; } = 512;
+    public int Overlap { get; set; } = 50;
+    public int MinChunkSize { get; set; } = 100;
+    public double SemanticThreshold { get; set; } = 0.5;
+    public string[] RecursiveSeparators { get; set; } = ["\n\n", "\n", ". ", " "];
+    public bool RespectDocumentStructure { get; set; } = true;
 }
 
-public class SearchSettings
+public record SearchSettings
 {
-    public const string Category = "Search";
-    public SearchMode DefaultMode { get; set; } = SearchMode.Hybrid;
-    public int DefaultTopK { get; set; } = 10;
-    public float DefaultMinScore { get; set; } = 0.7f;
-    public RerankStrategy RerankStrategy { get; set; } = RerankStrategy.Rrf;
+    public string Mode { get; set; } = "Hybrid";                         // Vector | Keyword | Hybrid
+    public int TopK { get; set; } = 10;
+    public string Reranker { get; set; } = "RRF";                        // None | RRF | CrossEncoder
     public int RrfK { get; set; } = 60;
+    public double VectorWeight { get; set; } = 0.7;
+    public double MinimumScore { get; set; } = 0.0;
     public string? CrossEncoderModel { get; set; }
+    public bool EnableQueryExpansion { get; set; } = false;
+    public bool IncludeWebSearch { get; set; } = false;
 }
 
-public class LlmSettings
+public record LlmSettings
 {
-    public const string Category = "LLM";
-    public string Provider { get; set; } = "Ollama";      // Ollama | OpenAI | AzureOpenAI | Anthropic
+    public string Provider { get; set; } = "Ollama";                     // Ollama | OpenAI | AzureOpenAI | Anthropic
     public string Model { get; set; } = "llama3.2";
-    public string BaseUrl { get; set; } = "http://localhost:11434";
+    public string? BaseUrl { get; set; } = "http://localhost:11434";
     public string? ApiKey { get; set; }
-    public float Temperature { get; set; } = 0.7f;
-    public int MaxTokens { get; set; } = 2048;
+    public string? AzureDeploymentName { get; set; }
+    public double Temperature { get; set; } = 0.7;
+    public int MaxTokens { get; set; } = 2000;
+    public int TimeoutSeconds { get; set; } = 60;
+    public string? SystemPrompt { get; set; }
 }
 
-public class UploadSettings
+public record UploadSettings
 {
-    public const string Category = "Uploads";
     public int MaxFileSizeMb { get; set; } = 100;
-    public int MaxBatchSize { get; set; } = 200;
-    public string AllowedExtensions { get; set; } = ".txt,.md,.csv,.pdf,.docx,.pptx,.json,.xml,.html";
-    public bool AutoIngestOnUpload { get; set; } = true;
+    public string[] AllowedExtensions { get; set; } = [".txt", ".md", ".pdf", ".docx", ".pptx", ".csv"];
+    public string DefaultPath { get; set; } = "/uploads";
+    public int ParallelWorkers { get; set; } = 4;
+    public bool EnableVirusScanning { get; set; } = false;
+    public bool AutoStartIngestion { get; set; } = true;
+    public int BatchSize { get; set; } = 100;
 }
 
-public class WebSearchSettings
+public record WebSearchSettings
 {
-    public const string Category = "WebSearch";
-    public string Provider { get; set; } = "None";        // Brave | Serper | Tavily | None
+    public string Provider { get; set; } = "None";                       // None | Brave | Serper | Tavily
     public string? ApiKey { get; set; }
-    public int MaxResults { get; set; } = 10;
+    public int MaxResults { get; set; } = 5;
+    public int TimeoutSeconds { get; set; } = 10;
+    public bool SafeSearch { get; set; } = true;
+    public string? Region { get; set; }
 }
 
-public class StorageSettings
+public record StorageSettings
 {
-    public const string Category = "Storage";
-    public string MinioEndpoint { get; set; } = "localhost:9000";
-    public string MinioBucket { get; set; } = "aikp-documents";
+    public string VectorStoreProvider { get; set; } = "PgVector";        // SqliteVec | PgVector | Qdrant | Pinecone | AzureAISearch
+    public string DocumentStoreProvider { get; set; } = "Postgres";      // Postgres | MongoDB
+    public string FileStorageProvider { get; set; } = "MinIO";           // Local | MinIO | AzureBlob | S3
+    public string? MinioEndpoint { get; set; } = "localhost:9000";
     public string? MinioAccessKey { get; set; }
     public string? MinioSecretKey { get; set; }
-    public bool MinioUseSsl { get; set; } = false;
+    public string MinioBucketName { get; set; } = "aikp-files";
+    public bool MinioUseSSL { get; set; } = false;
+    public string? LocalStorageRootPath { get; set; } = "knowledge-data";
+    public string? AzureBlobConnectionString { get; set; }
+    public string? AzureBlobContainerName { get; set; }
 }
 ```
+
+**Settings Configuration Categories:**
+- `Knowledge:Embedding` → EmbeddingSettings
+- `Knowledge:Chunking` → ChunkingSettings
+- `Knowledge:Search` → SearchSettings
+- `Knowledge:LLM` → LlmSettings
+- `Knowledge:Upload` → UploadSettings
+- `Knowledge:WebSearch` → WebSearchSettings
+- `Knowledge:Storage` → StorageSettings
+
+**Live Reload:**
+- Settings saved via `ISettingsStore.SaveAsync()` → stored in DB → triggers `SettingsReloadService.ReloadSettings()` → `IOptionsMonitor<T>.CurrentValue` updates without app restart
 
 ---
 

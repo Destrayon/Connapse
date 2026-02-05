@@ -1,0 +1,81 @@
+@using AIKnowledge.Core
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Provider</label>
+            <InputSelect @bind-Value="localSettings.Provider" class="form-select">
+                <option value="None">None (Disabled)</option>
+                <option value="Brave">Brave Search</option>
+                <option value="Serper">Serper.dev</option>
+                <option value="Tavily">Tavily</option>
+            </InputSelect>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Max Results</label>
+            <InputNumber @bind-Value="localSettings.MaxResults" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">API Key</label>
+            <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="Required for web search providers" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Timeout (seconds)</label>
+            <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Region</label>
+            <InputText @bind-Value="localSettings.Region" class="form-control" placeholder="e.g., US, GB" />
+            <small class="form-text text-muted">ISO 3166-1 alpha-2 country code</small>
+        </div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.SafeSearch" class="form-check-input" id="safeSearch" />
+                <label class="form-check-label" for="safeSearch">
+                    Enable Safe Search
+                </label>
+            </div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public WebSearchSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<WebSearchSettings> OnSave { get; set; }
+
+    private WebSearchSettings localSettings = new();
+
+    protected override void OnParametersSet()
+    {
+        localSettings = Settings with { };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        localSettings = Settings with { };
+    }
+}
