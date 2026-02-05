@@ -95,13 +95,45 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
   - Triggers `IOptionsMonitor` change notifications on reload
 - Implementation: `ISettingsStore` → `PostgresSettingsStore` (JSON serialization to/from JSONB)
 
-## Ingestion
+## Ingestion (Phase 4 ✅)
 
-- Background processing via `Channel<T>` + `IHostedService` — no external message queue
-- Content-hash deduplication (SHA-256) for fast reindexing
-- Parsers registered via `IDocumentParser` — matched by file extension / content type
-- Chunking strategies implement `IChunkingStrategy` — selected per settings or per-upload override
+- Background processing via `Channel<T>` + `IHostedService` (BackgroundService) — no external message queue
+- Content-hash deduplication (SHA-256) for fast reindexing — stored in `documents.content_hash`
+- Parsers registered via `IDocumentParser` — matched by file extension in `SupportedExtensions`
+- Chunking strategies implement `IChunkingStrategy` — selected by `Name` property, not enum
 - Batch uploads return immediately with a batch ID; progress via polling or SignalR
+
+### Document Parsers
+- Each parser declares `SupportedExtensions` (e.g., `[".txt", ".md", ".csv"]`)
+- Return `ParsedDocument` with content, metadata dict, and warnings list
+- Extract metadata: file type, line count, document properties (title, author, creation date)
+- Use `Task.Run()` to wrap synchronous parsing libraries (PdfPig, OpenXML) for cancellation support
+- Always return a result — empty content + warnings on error, never throw directly
+
+### Chunking Strategies
+- Identify by `Name` string property (e.g., "FixedSize", "Recursive", "Semantic")
+- Return `IReadOnlyList<ChunkInfo>` with content, index, token count, offsets, metadata
+- Token counting via `TokenCounter.EstimateTokenCount()` heuristic (~0.25 tokens/char)
+- Natural boundary detection for better chunk quality (paragraphs → sentences → spaces)
+- SemanticChunker requires `IEmbeddingProvider` dependency — registered as Transient
+
+### Pipeline & Queue
+- `IngestionPipeline` orchestrates: parse → chunk → embed → store
+- Computes SHA-256 hash of file content for deduplication
+- Stores chunks in `chunks` table, embeddings in `chunk_vectors` via `IVectorStore`
+- Updates document status: Pending → Processing → Ready | Failed
+- `IngestionQueue` uses bounded `Channel<T>` (capacity: 1000)
+- Job status tracked in-memory via `ConcurrentDictionary<string, IngestionJobStatus>`
+- `IngestionWorker` spawns N parallel workers based on `UploadSettings.ParallelWorkers`
+- Each worker dequeues jobs, processes via pipeline, updates status
+
+### Registration
+- `services.AddDocumentIngestion()` in Ingestion project's ServiceCollectionExtensions
+- Parsers: Singleton (stateless)
+- Chunkers: FixedSize/Recursive = Singleton, Semantic = Transient (has IEmbeddingProvider dependency)
+- Queue: Singleton (shared state)
+- Pipeline: Scoped (per-request or per-job)
+- Worker: AddHostedService (runs in background)
 
 ## Search
 

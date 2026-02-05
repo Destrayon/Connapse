@@ -1,4 +1,5 @@
 using AIKnowledge.Core;
+using AIKnowledge.Ingestion.Extensions;
 using AIKnowledge.Storage.Data;
 using AIKnowledge.Storage.Extensions;
 using AIKnowledge.Storage.FileSystem;
@@ -19,6 +20,9 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddAIKnowledgeStorage(builder.Configuration);
+
+// Add document ingestion pipeline
+builder.Services.AddDocumentIngestion();
 
 // Configure settings with IOptionsMonitor for live reload
 builder.Services.Configure<EmbeddingSettings>(

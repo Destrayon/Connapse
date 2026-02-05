@@ -109,70 +109,102 @@ public interface IDocumentStore
 //   - Cascade deletes to chunks + vectors (DB-level)
 ```
 
-### IDocumentParser (new)
+### IDocumentParser (Phase 4 ✅)
 
 ```csharp
 public interface IDocumentParser
 {
-    bool CanParse(string fileName, string? contentType);
-    Task<ParsedDocument> ParseAsync(Stream content, string fileName, CancellationToken ct = default);
+    IReadOnlySet<string> SupportedExtensions { get; }
+    Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken cancellationToken = default);
 }
 
 public record ParsedDocument(
-    string Text,
-    string FileName,
-    string? Title,
-    Dictionary<string, string> Metadata);  // extracted metadata (author, page count, etc.)
+    string Content,
+    Dictionary<string, string> Metadata,
+    List<string> Warnings);
+
+// Phase 4 Implementations ✅
+// - TextParser: .txt, .md, .csv, .json, .xml, .yaml — detects file type, counts lines, CSV delimiter detection
+// - PdfParser: .pdf via PdfPig — extracts text + metadata (title, author, creator, creation date), page markers, handles scanned PDFs
+// - OfficeParser: .docx, .pptx via OpenXML — extracts paragraphs, tables (Word), slides (PowerPoint), document properties
 ```
 
-### IChunkingStrategy (new)
+### IChunkingStrategy (Phase 4 ✅)
 
 ```csharp
 public interface IChunkingStrategy
 {
-    ChunkingStrategyType Type { get; }
-    Task<IReadOnlyList<Chunk>> ChunkAsync(ParsedDocument document, ChunkingSettings settings, CancellationToken ct = default);
+    string Name { get; }
+    Task<IReadOnlyList<ChunkInfo>> ChunkAsync(
+        ParsedDocument parsedDocument,
+        ChunkingSettings settings,
+        CancellationToken cancellationToken = default);
 }
 
-public enum ChunkingStrategyType { FixedSize, Recursive, Semantic, DocumentAware }
+public record ChunkInfo(
+    string Content,
+    int ChunkIndex,
+    int TokenCount,
+    int StartOffset,
+    int EndOffset,
+    Dictionary<string, string> Metadata);
+
+// Phase 4 Implementations ✅
+// - FixedSizeChunker: Token-based with configurable overlap, natural boundary detection (newlines → sentences → spaces)
+// - RecursiveChunker: Hierarchical splitting using configurable separators, preserves document structure
+// - SemanticChunker: Embedding-based boundaries using cosine similarity, splits where similarity < threshold
 ```
 
-### ISearchReranker (new)
+### ISearchReranker (Phase 4 ✅)
 
 ```csharp
 public interface ISearchReranker
 {
-    RerankStrategy Strategy { get; }
-    Task<List<SearchHit>> RerankAsync(string query, List<SearchHit> hits, CancellationToken ct = default);
+    string Name { get; }
+    Task<List<SearchHit>> RerankAsync(
+        string query,
+        List<SearchHit> hits,
+        CancellationToken cancellationToken = default);
 }
 
-public enum RerankStrategy { None, Rrf, CrossEncoder }
+// To be implemented in Phase 5:
+// - RrfReranker: Reciprocal Rank Fusion (k=60 default)
+// - CrossEncoderReranker: LLM-based (query, chunk) pair scoring
 ```
 
-### IIngestionQueue (new)
+### IIngestionQueue (Phase 4 ✅)
 
 ```csharp
 public interface IIngestionQueue
 {
-    Task<string> EnqueueAsync(IngestionJob job, CancellationToken ct = default);
-    Task<IngestionJob?> DequeueAsync(CancellationToken ct = default);
-    Task<BatchStatus> GetBatchStatusAsync(string batchId, CancellationToken ct = default);
+    Task EnqueueAsync(IngestionJob job, CancellationToken cancellationToken = default);
+    Task<IngestionJob?> DequeueAsync(CancellationToken cancellationToken = default);
+    Task<IngestionJobStatus?> GetStatusAsync(string jobId);
+    int QueueDepth { get; }
 }
 
 public record IngestionJob(
+    string JobId,
     string DocumentId,
-    string BatchId,
     string VirtualPath,
-    IngestionOptions Options);
+    IngestionOptions Options,
+    string? BatchId = null);
 
-public record BatchStatus(
-    string BatchId,
-    int TotalFiles,
-    int Completed,
-    int Failed,
-    int Processing,
-    int Pending,
-    string Status);   // Processing | Completed | PartialFailure
+public record IngestionJobStatus(
+    string JobId,
+    IngestionJobState State,
+    IngestionPhase? CurrentPhase,
+    double PercentComplete,
+    string? ErrorMessage,
+    DateTime? StartedAt,
+    DateTime? CompletedAt);
+
+public enum IngestionJobState { Queued, Processing, Completed, Failed }
+
+// Phase 4 Implementation ✅
+// - IngestionQueue: Channel-based (capacity: 1000), concurrent job status tracking (ConcurrentDictionary)
+// - UpdateJobStatus, CleanupOldStatuses methods for status management
+// - CompleteQueue() for graceful shutdown
 ```
 
 ### ISettingsStore (Phase 2 ✅)

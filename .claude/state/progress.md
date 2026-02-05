@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Phase 3 (Storage Implementations) complete — ready for Phase 4
+**Status**: Phase 4 (Ingestion Pipeline) complete — ready for Phase 5
 
 ---
 
@@ -474,3 +474,44 @@ volumes:
 - All implementations use async/await throughout with proper cancellation token support
 
 ---
+
+
+### 2026-02-04 — Phase 4: Ingestion Pipeline Complete
+
+**Worked on**: Document parsing, chunking, ingestion orchestration
+
+**Completed**:
+- **Task 3.1-3.4**: Defined core interfaces (IDocumentParser, IChunkingStrategy, IIngestionQueue, ISearchReranker)
+- **Task 3.5**: Implemented TextParser for .txt, .md, .csv, .json, .xml, .yaml files with metadata detection
+- **Task 3.6**: Implemented PdfParser using PdfPig — extracts text, metadata (title, author, creation date), handles multi-page documents
+- **Task 3.7**: Implemented OfficeParser for .docx and .pptx using DocumentFormat.OpenXml — extracts paragraphs, tables, slides
+- Created TokenCounter utility — estimates tokens using character count heuristic (~4 chars/token)
+- **Task 3.8**: Implemented FixedSizeChunker — token-based chunking with configurable overlap, natural boundary detection (paragraphs → sentences → words)
+- **Task 3.9**: Implemented RecursiveChunker — hierarchical splitting using configurable separators, preserves document structure
+- **Task 3.10**: Implemented SemanticChunker — embedding-based boundary detection using cosine similarity, splits where similarity drops below threshold
+- **Task 3.12**: Implemented IngestionQueue using Channel<T> — bounded channel (capacity: 1000), concurrent job status tracking, cleanup for old jobs
+- **Task 3.11**: Implemented IngestionPipeline — orchestrates parse → chunk → embed → store, computes SHA-256 content hash, stores chunks in DB with embeddings in vector store
+- **Task 3.13**: Implemented IngestionWorker BackgroundService — parallel job processing (N workers), dequeues from channel, updates job status
+- **Task 3.14**: Content-hash deduplication integrated in pipeline (SHA-256 of file content stored in document entity)
+- Created ServiceCollectionExtensions in Ingestion project — registers parsers, chunkers, pipeline, queue, worker
+- Updated Program.cs — added AddDocumentIngestion() call
+- Build: 0 errors, 0 warnings
+
+**Remaining**:
+- Phase 5: Search (vector search, keyword search, RRF fusion, hybrid search service)
+- Phase 6: Access Surfaces (REST API, Upload page, Search page, CLI commands, MCP tools)
+- Phase 7: Reindexing + Polish (reindex service, content hash comparison, tests)
+
+**Notes**:
+- PdfPig package installed as prerelease (1.7.0-custom-5)
+- DocumentFormat.OpenXml 3.4.1 for Office parsing
+- Microsoft.Extensions.Hosting.Abstractions 10.0.2 for BackgroundService
+- Token counting uses simple heuristic: ~0.25 tokens/char (or ~1.3 tokens/word)
+- SemanticChunker requires IEmbeddingProvider for sentence-level similarity analysis
+- IngestionQueue maintains job status in-memory (ConcurrentDictionary), supports cleanup of old completed jobs
+- All parsers return ParsedDocument with content, metadata, and warnings
+- Chunkers return ChunkInfo with content, index, token count, offsets, metadata
+- IngestionWorker supports parallel processing based on UploadSettings.ParallelWorkers (default: 4)
+
+---
+
