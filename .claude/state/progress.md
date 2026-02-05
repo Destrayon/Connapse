@@ -8,7 +8,7 @@ Current tasks, blockers, and session history. Update at end of each work session
 
 **Task**: Feature #1 — Document Upload + Ingestion Pipeline + Hybrid Search
 
-**Status**: Phase 5 (Search) complete — ready for Phase 6
+**Status**: Phase 7 (Reindexing) complete — ready for Phase 8 (Testing)
 
 ---
 
@@ -591,4 +591,43 @@ volumes:
 - All four access surfaces (Web UI, REST API, CLI, MCP) call the same core services (IKnowledgeSearch, IDocumentStore, IIngestionQueue)
 - SignalR broadcaster throttles updates to max 2 per second per job, broadcasts completion once
 - System is now production-ready for end-to-end document ingestion and search workflow
+
+### 2026-02-05 — Phase 7: Reindexing Service Complete
+
+**Worked on**: Content-hash-based reindexing with settings-change detection
+
+**Completed**:
+- **Task 7.1**: Implemented `ReindexService` in Ingestion project
+  - Walks documents from database, compares SHA-256 content hashes against files in MinIO
+  - Only re-processes documents where content has changed
+  - Clears existing chunks/vectors before re-ingestion
+  - Returns detailed results: enqueued, skipped, failed counts with reasons
+- **Task 7.2**: Added collection-scoped and force-reindex support
+  - `ReindexOptions.CollectionId` filters to specific collection
+  - `ReindexOptions.DocumentIds` filters to specific document IDs
+  - `ReindexOptions.Force` bypasses hash comparison, reindexes all
+- **Task 7.3**: Implemented strategy-change detection
+  - IngestionPipeline now stores chunking/embedding settings in document metadata (`IndexedWith:*` keys)
+  - ReindexService compares stored settings against current settings
+  - Detects changes to: ChunkingStrategy, MaxChunkSize, Overlap, EmbeddingProvider, EmbeddingModel
+  - Automatically triggers reindex when settings differ
+- Created `IReindexService` interface in Core with:
+  - `ReindexAsync(options)` for batch reindexing
+  - `CheckDocumentAsync(id)` for single-document evaluation
+  - `ReindexOptions`, `ReindexResult`, `ReindexCheck` record types
+  - `ReindexReason` enum: Unchanged, ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged, Forced, FileNotFound, NeverIndexed, Error
+- Updated REST API `/api/documents/reindex` endpoint with new options
+- Added `GET /api/documents/{id}/reindex-check` endpoint for debugging
+- Updated CLI `aikp reindex` command with `--force` and `--no-detect-changes` flags
+- Build: 0 warnings, 0 errors
+
+**Remaining**:
+- Phase 8: Unit and integration tests
+
+**Notes**:
+- Metadata keys for tracking: `IndexedWith:ChunkingStrategy`, `IndexedWith:ChunkingMaxSize`, `IndexedWith:ChunkingOverlap`, `IndexedWith:EmbeddingProvider`, `IndexedWith:EmbeddingModel`, `IndexedWith:EmbeddingDimensions`
+- Pre-metadata documents (from before this update) will not have stored settings and won't trigger settings-change reindex
+- ReindexService uses scoped DbContext for proper EF Core lifecycle
+- Force reindex is useful when settings have changed and you want to reprocess everything
+- Settings-change detection compares `Provider:Model` for embeddings and `Strategy:MaxSize:Overlap` for chunking
 

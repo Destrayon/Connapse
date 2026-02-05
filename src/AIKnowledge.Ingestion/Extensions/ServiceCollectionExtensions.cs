@@ -2,6 +2,7 @@ using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Ingestion.Chunking;
 using AIKnowledge.Ingestion.Parsers;
 using AIKnowledge.Ingestion.Pipeline;
+using AIKnowledge.Ingestion.Reindex;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AIKnowledge.Ingestion.Extensions;
@@ -16,6 +17,7 @@ public static class ServiceCollectionExtensions
     /// - Document parsers (Text, PDF, Office)
     /// - Chunking strategies (FixedSize, Recursive, Semantic)
     /// - Ingestion pipeline and queue
+    /// - Reindex service
     /// - Background worker
     /// </summary>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
@@ -35,6 +37,9 @@ public static class ServiceCollectionExtensions
 
         // Register ingestion pipeline
         services.AddScoped<IKnowledgeIngester, IngestionPipeline>();
+
+        // Register reindex service
+        services.AddScoped<IReindexService, ReindexService>();
 
         // Register background worker
         services.AddHostedService<IngestionWorker>();

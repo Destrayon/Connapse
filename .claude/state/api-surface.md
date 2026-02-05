@@ -186,6 +186,60 @@ public interface ISearchReranker
 //   - Fallback to original score on parse errors or API failures
 ```
 
+### IReindexService (Phase 7 ✅)
+
+```csharp
+public interface IReindexService
+{
+    Task<ReindexResult> ReindexAsync(ReindexOptions options, CancellationToken ct = default);
+    Task<ReindexCheck> CheckDocumentAsync(string documentId, CancellationToken ct = default);
+}
+
+public record ReindexOptions
+{
+    public string? CollectionId { get; init; }
+    public IReadOnlyList<string>? DocumentIds { get; init; }
+    public bool Force { get; init; } = false;
+    public bool DetectSettingsChanges { get; init; } = true;
+    public ChunkingStrategy? Strategy { get; init; }
+}
+
+public record ReindexResult
+{
+    public required string BatchId { get; init; }
+    public int TotalDocuments { get; init; }
+    public int EnqueuedCount { get; init; }
+    public int SkippedCount { get; init; }
+    public int FailedCount { get; init; }
+    public IReadOnlyDictionary<ReindexReason, int> ReasonCounts { get; init; }
+    public IReadOnlyList<ReindexDocumentResult> Documents { get; init; }
+}
+
+public record ReindexDocumentResult(
+    string DocumentId, string FileName, ReindexAction Action, ReindexReason Reason,
+    string? JobId = null, string? ErrorMessage = null);
+
+public record ReindexCheck(
+    string DocumentId, bool NeedsReindex, ReindexReason Reason,
+    string? CurrentHash = null, string? StoredHash = null,
+    string? CurrentChunkingStrategy = null, string? StoredChunkingStrategy = null,
+    string? CurrentEmbeddingModel = null, string? StoredEmbeddingModel = null);
+
+public enum ReindexAction { Enqueued, Skipped, Failed }
+public enum ReindexReason {
+    Unchanged, ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged,
+    Forced, FileNotFound, NeverIndexed, Error
+}
+
+// Phase 7 Implementation ✅
+// - ReindexService: compares SHA-256 content hashes, detects settings changes
+// - Settings metadata keys stored in document during ingestion:
+//   - IndexedWith:ChunkingStrategy, IndexedWith:ChunkingMaxSize, IndexedWith:ChunkingOverlap
+//   - IndexedWith:EmbeddingProvider, IndexedWith:EmbeddingModel, IndexedWith:EmbeddingDimensions
+// - Clears existing chunks/vectors before re-ingestion
+// - Collection-scoped, document-filtered, or force reindex modes
+```
+
 ### IIngestionQueue (Phase 4 ✅)
 
 ```csharp
@@ -499,13 +553,19 @@ public record StorageSettings
 | `GET` | `/api/documents` | List documents. Query params: `collectionId?`. Returns array of `Document` objects. |
 | `GET` | `/api/documents/{id}` | Get single document metadata by ID. Returns `Document` or 404. |
 | `DELETE` | `/api/documents/{id}` | Delete document + associated chunks + vectors (cascade). Also deletes file from storage. Returns 204 No Content. |
-| `POST` | `/api/documents/reindex` | Trigger reindex. Body: `{ collectionId?: string }`. Checks file existence, re-enqueues for processing. Returns batch info: `{ batchId, totalDocuments, enqueuedCount, message }`. |
+| `POST` | `/api/documents/reindex` | Trigger reindex with content-hash comparison and settings-change detection. Body: `ReindexRequest`. Returns `{ batchId, totalDocuments, enqueuedCount, skippedCount, failedCount, reasonCounts, message }`. |
+| `GET` | `/api/documents/{id}/reindex-check` | Check if a specific document needs reindexing. Returns hash comparison and settings comparison details for debugging. |
 
 **Request/Response DTOs:**
 ```csharp
 public record UploadResponse(string? BatchId, List<UploadedDocumentResponse> Documents, int TotalCount, int SuccessCount);
 public record UploadedDocumentResponse(string DocumentId, string? JobId, string FileName, long SizeBytes, string VirtualPath, string? Error = null);
-public record ReindexRequest(string? CollectionId = null);
+public record ReindexRequest(
+    string? CollectionId = null,
+    IReadOnlyList<string>? DocumentIds = null,
+    bool? Force = null,
+    bool? DetectSettingsChanges = null,
+    ChunkingStrategy? Strategy = null);
 ```
 
 ### Search
@@ -591,18 +651,24 @@ aikp search "machine learning best practices" --mode Hybrid --top 5
 
 #### reindex
 ```bash
-aikp reindex [--collection <id>]
+aikp reindex [--collection <id>] [--force] [--no-detect-changes]
 ```
 
-Triggers reindexing via `POST /api/documents/reindex`.
+Triggers reindexing via `POST /api/documents/reindex` with content-hash comparison.
 
 **Options:**
 - `--collection <id>`: Reindex only documents in this collection
+- `--force`: Skip content-hash comparison, reindex all documents
+- `--no-detect-changes`: Disable chunking/embedding settings change detection
 
 **Example:**
 ```bash
 aikp reindex --collection research
+aikp reindex --force                    # Reindex everything
+aikp reindex --no-detect-changes        # Only reindex if content hash changed
 ```
+
+**Output:** Reports total documents evaluated, enqueued, skipped (unchanged), failed, with breakdown by reason (ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged, Forced, etc.)
 
 ---
 

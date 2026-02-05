@@ -25,7 +25,16 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IEnumerable<IDocumentParser> _parsers;
     private readonly IEnumerable<IChunkingStrategy> _chunkingStrategies;
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
+    private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<IngestionPipeline> _logger;
+
+    // Metadata keys for tracking indexing settings
+    public const string MetadataKeyChunkingStrategy = "IndexedWith:ChunkingStrategy";
+    public const string MetadataKeyChunkingMaxSize = "IndexedWith:ChunkingMaxSize";
+    public const string MetadataKeyChunkingOverlap = "IndexedWith:ChunkingOverlap";
+    public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
+    public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
+    public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
 
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -35,6 +44,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IEnumerable<IDocumentParser> parsers,
         IEnumerable<IChunkingStrategy> chunkingStrategies,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
+        IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -44,6 +54,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _parsers = parsers;
         _chunkingStrategies = chunkingStrategies;
         _chunkingSettings = chunkingSettings;
+        _embeddingSettings = embeddingSettings;
         _logger = logger;
     }
 
@@ -66,6 +77,21 @@ public class IngestionPipeline : IKnowledgeIngester
             content.Position = 0;
             await _fileSystem.SaveFileAsync(virtualPath, content, ct);
 
+            // Build metadata including indexing settings for reindex detection
+            var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
+            var chunkSettings = _chunkingSettings.CurrentValue;
+            var embedSettings = _embeddingSettings.CurrentValue;
+
+            // Store chunking settings used
+            metadata[MetadataKeyChunkingStrategy] = options.Strategy.ToString();
+            metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
+            metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
+
+            // Store embedding settings used
+            metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
+            metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
+            metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
+
             var documentEntity = new DocumentEntity
             {
                 Id = documentId,
@@ -77,7 +103,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 SizeBytes = content.Length,
                 Status = "Processing",
                 CreatedAt = DateTime.UtcNow,
-                Metadata = options.Metadata ?? new Dictionary<string, string>()
+                Metadata = metadata
             };
 
             _context.Documents.Add(documentEntity);
@@ -131,7 +157,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 _context.Chunks.Add(chunkEntity);
 
                 // Store embedding in vector store
-                var metadata = new Dictionary<string, string>(chunkInfo.Metadata)
+                var chunkMetadata = new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["DocumentId"] = documentId.ToString(),
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
@@ -140,7 +166,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 await _vectorStore.UpsertAsync(
                     chunkId.ToString(),
                     embeddings[i],
-                    metadata,
+                    chunkMetadata,
                     ct);
             }
 

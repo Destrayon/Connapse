@@ -36,8 +36,10 @@ if (args.Length == 0)
     Console.WriteLine("  search \"<query>\" [--mode <mode>] [--top <n>] [--collection <id>]");
     Console.WriteLine("      Search knowledge base");
     Console.WriteLine();
-    Console.WriteLine("  reindex [--collection <id>]");
+    Console.WriteLine("  reindex [--collection <id>] [--force] [--no-detect-changes]");
     Console.WriteLine("      Trigger reindexing of documents");
+    Console.WriteLine("      --force                Skip content-hash comparison, reindex all");
+    Console.WriteLine("      --no-detect-changes    Don't detect chunking/embedding settings changes");
     return 0;
 }
 
@@ -221,13 +223,19 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient)
 static async Task<int> HandleReindex(string[] args, HttpClient httpClient)
 {
     var collection = GetOption(args, "--collection");
+    var force = HasFlag(args, "--force");
+    var detectChanges = !HasFlag(args, "--no-detect-changes");
 
     Console.WriteLine("Triggering reindex...");
     if (!string.IsNullOrWhiteSpace(collection))
         Console.WriteLine($"Collection: {collection}");
+    if (force)
+        Console.WriteLine("Mode: Force (ignoring content hashes)");
+    if (!detectChanges)
+        Console.WriteLine("Settings change detection: disabled");
     Console.WriteLine();
 
-    var request = new { collectionId = collection };
+    var request = new { collectionId = collection, force, detectSettingsChanges = detectChanges };
     var json = JsonSerializer.Serialize(request);
     var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -243,14 +251,30 @@ static async Task<int> HandleReindex(string[] args, HttpClient httpClient)
     if (result != null)
     {
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("✓ Reindex started");
+        Console.WriteLine("✓ Reindex complete");
         Console.ResetColor();
         Console.WriteLine();
         Console.WriteLine($"Batch ID: {result.BatchId}");
-        Console.WriteLine($"Total documents: {result.TotalDocuments}");
+        Console.WriteLine($"Total documents evaluated: {result.TotalDocuments}");
         Console.WriteLine($"Enqueued for reindexing: {result.EnqueuedCount}");
+        Console.WriteLine($"Skipped (unchanged): {result.SkippedCount}");
+        Console.WriteLine($"Failed: {result.FailedCount}");
+
+        if (result.ReasonCounts != null && result.ReasonCounts.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Breakdown by reason:");
+            foreach (var kvp in result.ReasonCounts)
+            {
+                Console.WriteLine($"  {kvp.Key}: {kvp.Value}");
+            }
+        }
+
         Console.WriteLine();
-        Console.WriteLine("Reindexing is happening in the background. Use the web UI to monitor progress.");
+        if (result.EnqueuedCount > 0)
+            Console.WriteLine("Reindexing is happening in the background. Use the web UI to monitor progress.");
+        else
+            Console.WriteLine("No documents needed reindexing.");
     }
 
     return 0;
@@ -266,6 +290,11 @@ static string? GetOption(string[] args, string option)
     return null;
 }
 
+static bool HasFlag(string[] args, string flag)
+{
+    return args.Any(a => a.Equals(flag, StringComparison.OrdinalIgnoreCase));
+}
+
 static int Error(string message)
 {
     Console.ForegroundColor = ConsoleColor.Red;
@@ -276,4 +305,11 @@ static int Error(string message)
 
 record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
 record SearchHit(string ChunkId, string DocumentId, string Content, float Score, Dictionary<string, string> Metadata);
-record ReindexResult(string BatchId, int TotalDocuments, int EnqueuedCount, string Message);
+record ReindexResult(
+    string BatchId,
+    int TotalDocuments,
+    int EnqueuedCount,
+    int SkippedCount,
+    int FailedCount,
+    Dictionary<string, int>? ReasonCounts,
+    string Message);

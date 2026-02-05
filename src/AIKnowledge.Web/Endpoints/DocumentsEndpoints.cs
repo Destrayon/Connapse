@@ -143,58 +143,58 @@ public static class DocumentsEndpoints
         // POST /api/documents/reindex - Trigger reindexing
         group.MapPost("/reindex", async (
             [FromBody] ReindexRequest? request,
-            [FromServices] IDocumentStore documentStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
-            [FromServices] IIngestionQueue queue,
+            [FromServices] IReindexService reindexService,
             CancellationToken ct) =>
         {
-            // Get documents to reindex (all or filtered by collection)
-            var documents = await documentStore.ListAsync(request?.CollectionId, ct);
-
-            if (documents.Count == 0)
-                return Results.Ok(new { message = "No documents to reindex", count = 0 });
-
-            var batchId = Guid.NewGuid().ToString();
-            var enqueuedCount = 0;
-
-            foreach (var doc in documents)
+            var options = new ReindexOptions
             {
-                // Check if file still exists
-                var virtualPath = doc.Metadata.GetValueOrDefault("VirtualPath");
-                if (string.IsNullOrEmpty(virtualPath))
-                    continue;
+                CollectionId = request?.CollectionId,
+                DocumentIds = request?.DocumentIds,
+                Force = request?.Force ?? false,
+                DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
+                Strategy = request?.Strategy
+            };
 
-                var exists = await fileSystem.ExistsAsync(virtualPath, ct);
-                if (!exists)
-                    continue;
-
-                // Enqueue reindex job (same as ingestion)
-                var job = new IngestionJob(
-                    JobId: Guid.NewGuid().ToString(),
-                    DocumentId: doc.Id,
-                    VirtualPath: virtualPath,
-                    Options: new IngestionOptions(
-                        FileName: doc.FileName,
-                        ContentType: doc.ContentType,
-                        CollectionId: doc.CollectionId,
-                        Strategy: ChunkingStrategy.Semantic,
-                        Metadata: doc.Metadata),
-                    BatchId: batchId);
-
-                await queue.EnqueueAsync(job, ct);
-                enqueuedCount++;
-            }
+            var result = await reindexService.ReindexAsync(options, ct);
 
             return Results.Ok(new
             {
-                batchId,
-                totalDocuments = documents.Count,
-                enqueuedCount,
-                message = $"Reindexing {enqueuedCount} documents"
+                batchId = result.BatchId,
+                totalDocuments = result.TotalDocuments,
+                enqueuedCount = result.EnqueuedCount,
+                skippedCount = result.SkippedCount,
+                failedCount = result.FailedCount,
+                reasonCounts = result.ReasonCounts.ToDictionary(
+                    kvp => kvp.Key.ToString(),
+                    kvp => kvp.Value),
+                message = $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
             });
         })
         .WithName("ReindexDocuments")
-        .WithDescription("Trigger reindexing of all documents or documents in a specific collection");
+        .WithDescription("Trigger reindexing of documents with content-hash comparison and settings-change detection");
+
+        // GET /api/documents/{id}/reindex-check - Check if document needs reindexing
+        group.MapGet("/{id}/reindex-check", async (
+            string id,
+            [FromServices] IReindexService reindexService,
+            CancellationToken ct) =>
+        {
+            var check = await reindexService.CheckDocumentAsync(id, ct);
+            return Results.Ok(new
+            {
+                documentId = check.DocumentId,
+                needsReindex = check.NeedsReindex,
+                reason = check.Reason.ToString(),
+                currentHash = check.CurrentHash,
+                storedHash = check.StoredHash,
+                currentChunkingStrategy = check.CurrentChunkingStrategy,
+                storedChunkingStrategy = check.StoredChunkingStrategy,
+                currentEmbeddingModel = check.CurrentEmbeddingModel,
+                storedEmbeddingModel = check.StoredEmbeddingModel
+            });
+        })
+        .WithName("CheckDocumentReindex")
+        .WithDescription("Check if a specific document needs reindexing and why");
 
         return app;
     }
@@ -216,4 +216,8 @@ public record UploadedDocumentResponse(
     string? Error = null);
 
 public record ReindexRequest(
-    string? CollectionId = null);
+    string? CollectionId = null,
+    IReadOnlyList<string>? DocumentIds = null,
+    bool? Force = null,
+    bool? DetectSettingsChanges = null,
+    ChunkingStrategy? Strategy = null);
