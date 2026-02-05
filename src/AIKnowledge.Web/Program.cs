@@ -1,11 +1,16 @@
 using AIKnowledge.Core;
 using AIKnowledge.Ingestion.Extensions;
+using AIKnowledge.Ingestion.Pipeline;
 using AIKnowledge.Search.Extensions;
 using AIKnowledge.Storage.Data;
 using AIKnowledge.Storage.Extensions;
 using AIKnowledge.Storage.FileSystem;
 using AIKnowledge.Storage.Settings;
 using AIKnowledge.Web.Components;
+using AIKnowledge.Web.Endpoints;
+using AIKnowledge.Web.Hubs;
+using AIKnowledge.Web.Mcp;
+using AIKnowledge.Web.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +24,17 @@ builder.Configuration.AddDatabaseSettings(connectionString);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddSignalR();
+
+// Add HttpClient for API calls from Blazor components
+builder.Services.AddHttpClient();
+
+// Add background services
+builder.Services.AddHostedService<IngestionProgressBroadcaster>();
+
+// Add MCP server
+builder.Services.AddSingleton<McpServer>();
 
 builder.Services.AddAIKnowledgeStorage(builder.Configuration);
 
@@ -72,5 +88,14 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Map API endpoints
+app.MapDocumentsEndpoints();
+app.MapSearchEndpoints();
+app.MapBatchesEndpoints();
+app.MapMcpEndpoints();
+
+// Map SignalR hub
+app.MapHub<IngestionHub>("/hubs/ingestion");
 
 app.Run();

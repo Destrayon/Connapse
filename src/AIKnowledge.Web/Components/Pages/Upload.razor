@@ -1,5 +1,10 @@
 @page "/upload"
 @rendermode InteractiveServer
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Net.Http.Headers
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
 
 <PageTitle>Upload - AIKnowledge</PageTitle>
 
@@ -7,56 +12,302 @@
 <p class="page-subtitle">Add files to your knowledge base. Uploaded documents will be automatically chunked, embedded, and made searchable.</p>
 
 <div class="upload-container">
-    <div class="upload-zone">
-        <div class="upload-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
-                <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
-            </svg>
-        </div>
-        <h3>Drop files here</h3>
-        <p class="upload-subtext">or click to browse your computer</p>
-        <div class="upload-formats">
-            <span class="format-badge">PDF</span>
-            <span class="format-badge">Markdown</span>
-            <span class="format-badge">Text</span>
-            <span class="format-badge">HTML</span>
-            <span class="format-badge">Word</span>
-        </div>
+    <div class="upload-zone @(isDragging ? "dragging" : "")"
+         @ondragenter="HandleDragEnter"
+         @ondragleave="HandleDragLeave"
+         @ondragover:preventDefault
+         @ondrop="HandleDrop"
+         @ondrop:preventDefault>
+
+        <InputFile OnChange="HandleFileSelection" multiple accept=".pdf,.md,.txt,.docx,.pptx,.csv,.json,.xml,.yaml,.yml,.html" id="fileInput" style="display: none;" />
+
+        <label for="fileInput" style="cursor: pointer; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <div class="upload-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                </svg>
+            </div>
+            <h3>Drop files here</h3>
+            <p class="upload-subtext">or click to browse your computer</p>
+            <div class="upload-formats">
+                <span class="format-badge">PDF</span>
+                <span class="format-badge">Markdown</span>
+                <span class="format-badge">Text</span>
+                <span class="format-badge">Word</span>
+                <span class="format-badge">CSV</span>
+            </div>
+        </label>
     </div>
 
     <div class="upload-options mt-4">
         <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Destination Folder</label>
                 <div class="input-group">
                     <span class="input-group-text">/</span>
-                    <input type="text" class="form-control" placeholder="documents" @bind="destinationFolder" disabled />
+                    <input type="text" class="form-control" placeholder="uploads" @bind="destinationPath" />
                 </div>
-                <small class="text-muted d-block mt-1">Files will be stored at this path in your knowledge base</small>
+                <small class="text-muted d-block mt-1">Virtual path in knowledge base</small>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Chunking Strategy</label>
-                <select class="form-select" @bind="chunkingStrategy" disabled>
+                <select class="form-select" @bind="chunkingStrategy">
                     <option value="Semantic">Semantic (Default)</option>
                     <option value="FixedSize">Fixed Size</option>
                     <option value="Recursive">Recursive</option>
-                    <option value="DocumentAware">Document-Aware</option>
                 </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Collection ID (Optional)</label>
+                <input type="text" class="form-control" placeholder="default" @bind="collectionId" />
+                <small class="text-muted d-block mt-1">Group related documents</small>
             </div>
         </div>
     </div>
 
-    <div class="upload-notice mt-4">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
-            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
-        </svg>
-        <span>Upload functionality is coming soon. The ingestion pipeline will process files automatically once connected.</span>
-    </div>
+    @if (uploadedFiles.Any())
+    {
+        <div class="mt-4">
+            <h3>Upload Progress</h3>
+            <div class="table-responsive">
+                <table class="table table-dark table-hover">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var file in uploadedFiles)
+                        {
+                            <tr>
+                                <td>@file.FileName</td>
+                                <td>@FormatFileSize(file.SizeBytes)</td>
+                                <td>
+                                    @if (file.Error != null)
+                                    {
+                                        <span class="badge bg-danger">Error</span>
+                                    }
+                                    else if (file.State == "Completed")
+                                    {
+                                        <span class="badge bg-success">Complete</span>
+                                    }
+                                    else if (file.State == "Failed")
+                                    {
+                                        <span class="badge bg-danger">Failed</span>
+                                    }
+                                    else if (file.State == "Processing")
+                                    {
+                                        <span class="badge bg-info">Processing</span>
+                                    }
+                                    else if (file.State == "Queued")
+                                    {
+                                        <span class="badge bg-secondary">Queued</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">Uploading</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (file.Error != null)
+                                    {
+                                        <small class="text-danger">@file.Error</small>
+                                    }
+                                    else if (file.ErrorMessage != null)
+                                    {
+                                        <small class="text-danger">@file.ErrorMessage</small>
+                                    }
+                                    else if (file.State == "Completed")
+                                    {
+                                        <span class="text-success">✓ @file.CurrentPhase</span>
+                                    }
+                                    else if (file.PercentComplete > 0)
+                                    {
+                                        <div class="progress" style="height: 20px;">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                                 role="progressbar"
+                                                 style="width: @(file.PercentComplete)%">
+                                                @((int)file.PercentComplete)% @file.CurrentPhase
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Waiting...</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
 </div>
 
 @code {
-    private string destinationFolder = "documents";
+    private string destinationPath = "uploads";
     private string chunkingStrategy = "Semantic";
+    private string? collectionId;
+    private bool isDragging = false;
+    private List<UploadFileInfo> uploadedFiles = new();
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Initialize SignalR connection
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/ingestion"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<dynamic>("IngestionProgress", HandleIngestionProgress);
+        await hubConnection.StartAsync();
+    }
+
+    private void HandleDragEnter()
+    {
+        isDragging = true;
+    }
+
+    private void HandleDragLeave()
+    {
+        isDragging = false;
+    }
+
+    private async Task HandleDrop(DragEventArgs e)
+    {
+        isDragging = false;
+        // File handling happens through InputFile component
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        const long maxFileSize = 1024L * 1024 * 500; // 500 MB
+
+        var files = e.GetMultipleFiles(200); // Max 200 files
+
+        foreach (var file in files)
+        {
+            var fileInfo = new UploadFileInfo
+            {
+                FileName = file.Name,
+                SizeBytes = file.Size
+            };
+            uploadedFiles.Add(fileInfo);
+        }
+
+        StateHasChanged();
+
+        // Upload files
+        foreach (var file in files)
+        {
+            await UploadFile(file, maxFileSize);
+        }
+    }
+
+    private async Task UploadFile(IBrowserFile file, long maxFileSize)
+    {
+        var fileInfo = uploadedFiles.FirstOrDefault(f => f.FileName == file.Name);
+        if (fileInfo == null) return;
+
+        try
+        {
+            // Create multipart form data
+            using var content = new MultipartFormDataContent();
+            using var fileStream = file.OpenReadStream(maxFileSize);
+            using var streamContent = new StreamContent(fileStream);
+            streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+
+            content.Add(streamContent, "files", file.Name);
+            content.Add(new StringContent(destinationPath), "destinationPath");
+            content.Add(new StringContent(chunkingStrategy), "strategy");
+            if (!string.IsNullOrWhiteSpace(collectionId))
+                content.Add(new StringContent(collectionId), "collectionId");
+
+            // Upload to API
+            var response = await Http.PostAsync("/api/documents", content);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
+            if (result != null)
+            {
+                var uploadedDoc = result.Documents.FirstOrDefault(d => d.FileName == file.Name);
+                if (uploadedDoc != null)
+                {
+                    fileInfo.DocumentId = uploadedDoc.DocumentId;
+                    fileInfo.JobId = uploadedDoc.JobId;
+                    fileInfo.Error = uploadedDoc.Error;
+
+                    if (fileInfo.JobId != null && hubConnection != null)
+                    {
+                        // Subscribe to progress updates
+                        await hubConnection.InvokeAsync("SubscribeToJob", fileInfo.JobId);
+                        fileInfo.State = "Queued";
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            fileInfo.Error = ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private void HandleIngestionProgress(dynamic progress)
+    {
+        string jobId = progress.jobId;
+        var file = uploadedFiles.FirstOrDefault(f => f.JobId == jobId);
+        if (file != null)
+        {
+            file.State = progress.state;
+            file.CurrentPhase = progress.currentPhase;
+            file.PercentComplete = progress.percentComplete;
+            file.ErrorMessage = progress.errorMessage;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    private class UploadFileInfo
+    {
+        public string FileName { get; set; } = "";
+        public long SizeBytes { get; set; }
+        public string? DocumentId { get; set; }
+        public string? JobId { get; set; }
+        public string? State { get; set; }
+        public string? CurrentPhase { get; set; }
+        public double PercentComplete { get; set; }
+        public string? Error { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    private record UploadResponse(string? BatchId, List<UploadedDoc> Documents, int TotalCount, int SuccessCount);
+    private record UploadedDoc(string DocumentId, string? JobId, string FileName, long SizeBytes, string VirtualPath, string? Error);
 }

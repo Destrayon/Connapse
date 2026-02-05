@@ -1,0 +1,176 @@
+@page "/search"
+@rendermode InteractiveServer
+@inject HttpClient Http
+
+<PageTitle>Search - AIKnowledge</PageTitle>
+
+<h1>Search Knowledge Base</h1>
+<p class="page-subtitle">Search through your documents using semantic, keyword, or hybrid search</p>
+
+<div class="search-container">
+    <div class="search-input-section">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label class="form-label">Search Query</label>
+                <input type="text"
+                       class="form-control form-control-lg"
+                       placeholder="Enter your search query..."
+                       @bind="query"
+                       @onkeypress="HandleKeyPress" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Search Mode</label>
+                <select class="form-select" @bind="searchMode">
+                    <option value="Hybrid">Hybrid</option>
+                    <option value="Semantic">Semantic</option>
+                    <option value="Keyword">Keyword</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Results</label>
+                <select class="form-select" @bind="topK">
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <button class="btn btn-primary btn-lg" @onclick="PerformSearch" disabled="@isSearching">
+                @if (isSearching)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span>Searching...</span>
+                }
+                else
+                {
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="margin-right: 0.5rem;">
+                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                    </svg>
+                    <span>Search</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (errorMessage != null)
+    {
+        <div class="alert alert-danger mt-4" role="alert">
+            <strong>Error:</strong> @errorMessage
+        </div>
+    }
+
+    @if (searchResult != null && !isSearching)
+    {
+        <div class="search-results mt-4">
+            <div class="results-header">
+                <h3>Search Results</h3>
+                <span class="results-meta">
+                    Found @searchResult.TotalMatches results in @searchResult.Duration.TotalMilliseconds.ToString("F0")ms
+                </span>
+            </div>
+
+            @if (searchResult.Hits.Count == 0)
+            {
+                <div class="no-results">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                    </svg>
+                    <h4>No results found</h4>
+                    <p>Try adjusting your search query or using a different search mode</p>
+                </div>
+            }
+            else
+            {
+                <div class="results-list">
+                    @foreach (var hit in searchResult.Hits)
+                    {
+                        <div class="result-card">
+                            <div class="result-header">
+                                <div class="result-score-badge">
+                                    <span class="score-label">Score:</span>
+                                    <span class="score-value">@hit.Score.ToString("F3")</span>
+                                </div>
+                                @if (hit.Metadata.ContainsKey("source"))
+                                {
+                                    <span class="source-badge">@hit.Metadata["source"]</span>
+                                }
+                            </div>
+
+                            <div class="result-content">
+                                <div class="result-text">@hit.Content</div>
+                            </div>
+
+                            <div class="result-footer">
+                                <small class="text-muted">
+                                    <strong>Document:</strong> @hit.DocumentId
+                                    @if (hit.Metadata.ContainsKey("FileName"))
+                                    {
+                                        <span> | <strong>File:</strong> @hit.Metadata["FileName"]</span>
+                                    }
+                                    @if (hit.Metadata.ContainsKey("ChunkIndex"))
+                                    {
+                                        <span> | <strong>Chunk:</strong> @hit.Metadata["ChunkIndex"]</span>
+                                    }
+                                </small>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string query = "";
+    private string searchMode = "Hybrid";
+    private int topK = 10;
+    private bool isSearching = false;
+    private SearchResult? searchResult;
+    private string? errorMessage;
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !isSearching)
+        {
+            await PerformSearch();
+        }
+    }
+
+    private async Task PerformSearch()
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            errorMessage = "Please enter a search query";
+            return;
+        }
+
+        isSearching = true;
+        errorMessage = null;
+        searchResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var response = await Http.GetAsync($"/api/search?q={Uri.EscapeDataString(query)}&mode={searchMode}&topK={topK}");
+            response.EnsureSuccessStatusCode();
+
+            searchResult = await response.Content.ReadFromJsonAsync<SearchResult>();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSearching = false;
+            StateHasChanged();
+        }
+    }
+
+    private record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
+    private record SearchHit(string ChunkId, string DocumentId, string Content, float Score, Dictionary<string, string> Metadata);
+}

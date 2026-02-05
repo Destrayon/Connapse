@@ -22,6 +22,12 @@
     background: var(--accent-subtle);
 }
 
+.upload-zone.dragging {
+    border-color: var(--accent);
+    background: var(--accent-subtle);
+    transform: scale(1.02);
+}
+
 .upload-icon {
     color: var(--accent);
     margin-bottom: 1rem;

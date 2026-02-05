@@ -489,49 +489,229 @@ public record StorageSettings
 
 ---
 
-## REST API Endpoints (new)
+## REST API Endpoints (Phase 6 ✅)
 
 ### Documents
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/documents` | Upload files (multipart/form-data). Streams to MinIO, enqueues ingestion. Returns batch ID + document IDs. |
-| `GET` | `/api/documents` | List documents. Query params: `collection`, `status`, `page`, `pageSize`. |
-| `GET` | `/api/documents/{id}` | Get single document metadata. |
-| `DELETE` | `/api/documents/{id}` | Delete document + associated chunks + vectors. |
-| `POST` | `/api/documents/reindex` | Trigger reindex. Body: `{ collectionId?, force? }`. |
+| `POST` | `/api/documents` | Upload files (multipart/form-data). FormData: `files` (IFormFileCollection), `collectionId?`, `destinationPath?`, `strategy?`. Streams to MinIO, enqueues ingestion. Returns `UploadResponse` with batch ID, document IDs, job IDs. |
+| `GET` | `/api/documents` | List documents. Query params: `collectionId?`. Returns array of `Document` objects. |
+| `GET` | `/api/documents/{id}` | Get single document metadata by ID. Returns `Document` or 404. |
+| `DELETE` | `/api/documents/{id}` | Delete document + associated chunks + vectors (cascade). Also deletes file from storage. Returns 204 No Content. |
+| `POST` | `/api/documents/reindex` | Trigger reindex. Body: `{ collectionId?: string }`. Checks file existence, re-enqueues for processing. Returns batch info: `{ batchId, totalDocuments, enqueuedCount, message }`. |
+
+**Request/Response DTOs:**
+```csharp
+public record UploadResponse(string? BatchId, List<UploadedDocumentResponse> Documents, int TotalCount, int SuccessCount);
+public record UploadedDocumentResponse(string DocumentId, string? JobId, string FileName, long SizeBytes, string VirtualPath, string? Error = null);
+public record ReindexRequest(string? CollectionId = null);
+```
 
 ### Search
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/search` | Simple search. Query params: `q`, `mode`, `topK`, `minScore`, `collection`. |
-| `POST` | `/api/search` | Search with complex filters. JSON body with full `SearchOptions`. |
+| `GET` | `/api/search` | Simple search. Query params: `q` (required), `mode?` (Semantic/Keyword/Hybrid, default: Hybrid), `topK?` (default: 10), `collectionId?`. Returns `SearchResult`. |
+| `POST` | `/api/search` | Search with complex filters. Body: `SearchRequest` with `Query`, `Mode?`, `TopK?`, `CollectionId?`, `Filters?`. Returns `SearchResult`. |
+
+**Request/Response DTOs:**
+```csharp
+public record SearchRequest(string Query, SearchMode? Mode = null, int? TopK = null, string? CollectionId = null, Dictionary<string, string>? Filters = null);
+// SearchResult defined in IKnowledgeSearch (see above)
+```
 
 ### Batches
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/batches/{id}/status` | Get batch ingestion progress. |
+| `GET` | `/api/batches/{id}/status` | Get batch ingestion progress. Returns `IngestionJobStatus` or 404 if batch not found. |
 
-### Settings
+### SignalR Hub
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/settings` | List all setting categories. |
-| `GET` | `/api/settings/{category}` | Get settings for a category. |
-| `PUT` | `/api/settings/{category}` | Update settings for a category. Triggers live reload. |
-| `DELETE` | `/api/settings/{category}` | Reset category to defaults (deletes DB override). |
+| Hub | Path | Methods |
+|-----|------|---------|
+| `IngestionHub` | `/hubs/ingestion` | `SubscribeToJob(string jobId)` - Join group for job updates<br>`UnsubscribeFromJob(string jobId)` - Leave group |
+
+**Server-to-client events:**
+- `IngestionProgress` - Sends job status update: `{ jobId, state, currentPhase?, percentComplete, errorMessage?, startedAt?, completedAt? }`
+- Broadcast by `IngestionProgressBroadcaster` every 500ms for active jobs
 
 ---
 
-## MCP Tools (new)
+## CLI Commands (Phase 6 ✅)
 
-| Tool Name | Description | Parameters |
-|-----------|-------------|------------|
-| `search_knowledge` | Search the knowledge base | `query` (string), `mode?` (Semantic/Keyword/Hybrid), `topK?` (int), `collection?` (string) |
-| `ingest_document` | Upload and ingest a document | `filePath` (string), `collection?` (string), `strategy?` (ChunkingStrategy) |
-| `list_documents` | List indexed documents | `collection?` (string), `status?` (string) |
+Binary: `aikp` (AIKnowledge.CLI project)
+
+**Configuration:**
+- Reads `ApiBaseUrl` from appsettings.json or env var (default: `https://localhost:5001`)
+- SSL validation bypassed for localhost in development
+
+### Commands
+
+#### ingest
+```bash
+aikp ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]
+```
+
+Uploads file(s) to knowledge base via `POST /api/documents`.
+
+**Arguments:**
+- `path` (required): File or directory path
+
+**Options:**
+- `--collection <id>`: Collection ID for organization
+- `--strategy <name>`: Chunking strategy (Semantic, FixedSize, Recursive) [default: Semantic]
+- `--destination <path>`: Virtual destination path in knowledge base [default: uploads]
+
+**Example:**
+```bash
+aikp ingest ./docs --collection research --strategy Semantic
+```
+
+#### search
+```bash
+aikp search "<query>" [--mode <mode>] [--top <n>] [--collection <id>]
+```
+
+Searches knowledge base via `GET /api/search`, displays formatted results.
+
+**Arguments:**
+- `query` (required): Search query text (quote if contains spaces)
+
+**Options:**
+- `--mode <mode>`: Search mode (Semantic, Keyword, Hybrid) [default: Hybrid]
+- `--top <n>`: Number of results to return [default: 10]
+- `--collection <id>`: Filter by collection ID
+
+**Example:**
+```bash
+aikp search "machine learning best practices" --mode Hybrid --top 5
+```
+
+#### reindex
+```bash
+aikp reindex [--collection <id>]
+```
+
+Triggers reindexing via `POST /api/documents/reindex`.
+
+**Options:**
+- `--collection <id>`: Reindex only documents in this collection
+
+**Example:**
+```bash
+aikp reindex --collection research
+```
+
+---
+
+## MCP Server (Phase 6 ✅)
+
+**Protocol**: JSON-RPC 2.0
+**Endpoint**: `POST /mcp`
+**Convenience**: `GET /mcp/tools` (list available tools)
+
+### RPC Methods
+
+#### tools/list
+Returns array of available tools with JSON Schema for parameters.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "id": "1"
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [ /* array of McpTool */ ]
+  },
+  "id": "1"
+}
+```
+
+#### tools/call
+Executes a tool and returns result.
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "search_knowledge",
+    "arguments": {
+      "query": "test",
+      "mode": "Hybrid",
+      "topK": 5
+    }
+  },
+  "id": "2"
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      { "type": "text", "text": "Found 3 results..." }
+    ],
+    "isError": false
+  },
+  "id": "2"
+}
+```
+
+### Available Tools
+
+#### search_knowledge
+
+Search the knowledge base using semantic, keyword, or hybrid search.
+
+**Parameters:**
+- `query` (string, required): Search query text
+- `mode` (string, optional): "Semantic", "Keyword", or "Hybrid" [default: Hybrid]
+- `topK` (number, optional): Number of results [default: 10]
+- `collectionId` (string, optional): Filter by collection
+
+**Returns:** Text with formatted search results including scores, content, file names, and sources.
+
+#### list_documents
+
+List all documents in the knowledge base.
+
+**Parameters:**
+- `collectionId` (string, optional): Filter by collection ID
+
+**Returns:** Text with formatted document list including ID, file name, size, created date, collection.
+
+#### ingest_document
+
+Add a document to the knowledge base.
+
+**Parameters:**
+- `path` (string, required): Virtual path for document (e.g., "/documents/report.pdf")
+- `content` (string, required): Base64-encoded document content
+- `fileName` (string, required): Original file name with extension
+- `collectionId` (string, optional): Collection ID for organization
+- `strategy` (string, optional): "Semantic", "FixedSize", or "Recursive" [default: Semantic]
+
+**Returns:** Text with document ID, job ID, and confirmation that ingestion is queued.
+
+**Implementation:**
+- `McpServer` class in `AIKnowledge.Web.Mcp`
+- Depends on: `IKnowledgeSearch`, `IDocumentStore`, `IKnowledgeFileSystem`, `IIngestionQueue`
+- Registered as singleton in DI container
+- Full error handling with JSON-RPC 2.0 error responses
 
 ---
 

@@ -1,4 +1,5 @@
 using AIKnowledge.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -13,20 +14,20 @@ namespace AIKnowledge.Ingestion.Pipeline;
 public class IngestionWorker : BackgroundService
 {
     private readonly IIngestionQueue _queue;
-    private readonly IKnowledgeIngester _ingester;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IKnowledgeFileSystem _fileSystem;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionWorker> _logger;
 
     public IngestionWorker(
         IIngestionQueue queue,
-        IKnowledgeIngester ingester,
+        IServiceScopeFactory scopeFactory,
         IKnowledgeFileSystem fileSystem,
         IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionWorker> logger)
     {
         _queue = queue;
-        _ingester = ingester;
+        _scopeFactory = scopeFactory;
         _fileSystem = fileSystem;
         _uploadSettings = uploadSettings;
         _logger = logger;
@@ -136,11 +137,15 @@ public class IngestionWorker : BackgroundService
     {
         try
         {
+            // Create a scope for scoped dependencies (IKnowledgeIngester uses DbContext)
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var ingester = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+
             // Open file from storage
             using var fileStream = await _fileSystem.OpenFileAsync(job.VirtualPath, ct);
 
             // Process through ingestion pipeline
-            var result = await _ingester.IngestAsync(fileStream, job.Options, ct);
+            var result = await ingester.IngestAsync(fileStream, job.Options, ct);
 
             return result;
         }
