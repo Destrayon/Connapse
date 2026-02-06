@@ -20,7 +20,10 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Database connection string not found.");
 
-builder.Configuration.AddDatabaseSettings(connectionString);
+var dbSettingsProvider = builder.Configuration.AddDatabaseSettings(connectionString);
+
+// Register DatabaseSettingsProvider for settings reload
+builder.Services.AddSingleton(dbSettingsProvider);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

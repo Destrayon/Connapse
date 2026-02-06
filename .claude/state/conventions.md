@@ -55,6 +55,51 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Prefer interfaces over concrete types
 - Scoped for per-request, Singleton for stateless services
 
+### DbContext Threading Pattern (CRITICAL!)
+- **DbContext is NOT thread-safe** — cannot have concurrent operations on the same context instance
+- **Problem**: Parallel async operations (e.g., `Task.WhenAll`) sharing the same scoped DbContext will throw `InvalidOperationException`
+- **Solution**: Use `IServiceScopeFactory` to create separate scopes for each parallel operation
+- **When to use**: Any service that needs to run parallel database operations (searches, updates, etc.)
+- **Pattern**:
+```csharp
+public class HybridSearchService
+{
+    private readonly IServiceScopeFactory _scopeFactory;
+
+    public HybridSearchService(IServiceScopeFactory scopeFactory)
+    {
+        _scopeFactory = scopeFactory;
+    }
+
+    private async Task<List<Result>> ParallelSearchAsync(...)
+    {
+        // Each Task.Run gets its own scope and DbContext
+        var task1 = Task.Run(async () =>
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var service = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
+            return await service.SearchAsync(...);
+        }, ct);
+
+        var task2 = Task.Run(async () =>
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var service = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
+            return await service.SearchAsync(...);
+        }, ct);
+
+        await Task.WhenAll(task1, task2);
+        // Combine results...
+    }
+}
+```
+- **Key points**:
+  - Inject `IServiceScopeFactory` (not the concrete services directly)
+  - Create a new scope for each parallel operation
+  - Use `await using` for proper scope disposal
+  - Each scope resolves its own scoped dependencies (including DbContext)
+  - Do NOT share scoped services across Task.Run boundaries
+
 ## Blazor UI
 
 - Dark theme with purple accents — use CSS custom properties (`var(--surface)`, `var(--accent)`, etc.)
@@ -124,6 +169,14 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - CASCADE deletes: deleting a document removes its chunks and vectors
 - Computed columns must reference lowercase unquoted column names (e.g., `to_tsvector('english', content)`)
 
+### JSONB Pattern (CRITICAL!)
+- **ALWAYS** use `JsonDocument` for JSONB columns, **NEVER** `Dictionary<string, object>`
+- Why: Npgsql's `EnableDynamicJson()` only supports `Dictionary<string, string>`, NOT `Dictionary<string, object>`
+- Reading: Use `jsonDoc.RootElement.GetRawText()` then `JsonSerializer.Deserialize<T>(json)`
+- Writing: Use `JsonSerializer.Serialize(obj)` then `JsonDocument.Parse(json)`
+- Example entity property: `public JsonDocument Values { get; set; } = null!;`
+- This applies to ALL JSONB columns (settings, metadata, flexible schemas)
+
 ## Object Storage (MinIO / S3)
 
 - All original uploaded files stored in MinIO (S3-compatible)
@@ -133,17 +186,23 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 
 ## Settings (Phase 2 ✅)
 
-- Runtime-mutable settings stored in Postgres `settings` table (category + JSONB values)
+- Runtime-mutable settings stored in Postgres `settings` table (category + JSONB `JsonDocument` values)
 - Each settings category is a record type: `EmbeddingSettings`, `ChunkingSettings`, etc.
 - All properties use `{ get; set; }` (not `init`) for EditForm binding compatibility
 - Services inject `IOptionsMonitor<T>` (not `IOptions<T>`) to support live reload
 - Resolution order: `appsettings.json` → env vars → **database (highest priority)**
-- Settings page at `/settings` with 7 tabs, save triggers `SettingsReloadService.ReloadSettings()`
+- Settings page at `/settings` with 7 tabs
+- **Reload Architecture** (CRITICAL — uses DI, NOT static fields):
+  - `ISettingsReloader` service (singleton) wraps `DatabaseSettingsProvider`
+  - `PostgresSettingsStore` calls `settingsReloader.Reload()` after saving to DB
+  - `DatabaseSettingsProvider.Reload()` calls `Load()` then `OnReload()`
+  - `OnReload()` triggers change token → `IOptionsMonitor` updates
+  - `DatabaseSettingsProvider` registered as singleton in Program.cs
 - `DatabaseSettingsProvider` is a custom `IConfigurationProvider` that:
   - Loads settings from DB at startup
-  - Flattens JSONB into config keys (e.g., `Knowledge:Embedding:Model`)
+  - Flattens JSONB `JsonDocument` into config keys (e.g., `Knowledge:Embedding:Model`)
   - Triggers `IOptionsMonitor` change notifications on reload
-- Implementation: `ISettingsStore` → `PostgresSettingsStore` (JSON serialization to/from JSONB)
+- Implementation: `ISettingsStore` → `PostgresSettingsStore` (`JsonDocument` serialization to/from JSONB)
 
 ## Connection Testing (Settings Feature ✅)
 
@@ -251,9 +310,15 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 
 ### Hybrid Search Orchestration
 - `HybridSearchService` implements `IKnowledgeSearch` (main entry point)
+- **Uses `IServiceScopeFactory`** instead of injecting search services directly (avoids DbContext threading issues)
 - Routes to appropriate search based on `SearchOptions.Mode`
+- For single-mode searches (Semantic/Keyword):
+  - Creates a scope to resolve the appropriate search service
+  - Executes search within that scope
 - For Hybrid mode:
-  - Runs vector and keyword searches in parallel via `Task.WhenAll()`
+  - Runs vector and keyword searches in **parallel with separate scopes**
+  - Each `Task.Run` creates its own scope and resolves its own search service
+  - Each scope gets its own DbContext instance → no concurrent access issues
   - Tags results with "source" metadata before merging
   - Passes combined list to configured reranker
 - Applies final score threshold and topK limit after reranking
@@ -268,6 +333,7 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - CrossEncoderReranker: registered via AddHttpClient<ISearchReranker, T> (scoped with typed HttpClient)
 - HybridSearchService: Scoped, registered as IKnowledgeSearch implementation
 - All rerankers injected as `IEnumerable<ISearchReranker>` for runtime selection by name
+- **Note**: HybridSearchService injects `IServiceScopeFactory` (not search services directly) for thread-safe parallel execution
 
 ## Storage Implementations (Phase 3 ✅)
 
@@ -299,6 +365,40 @@ Patterns and style choices specific to AIKnowledgePlatform. Update when new patt
 - Minimal API in `Endpoints/` folder, not controllers
 - Group endpoints by resource: `DocumentEndpoints`, `SearchEndpoints`, `SettingsEndpoints`
 - Return `Results.Ok()` / `Results.NotFound()` / `Results.Problem()` — standard problem details for errors
+
+### JSON Serialization
+- **CRITICAL**: ASP.NET Core uses camelCase for JSON by default, but `JsonSerializer.Deserialize` uses case-sensitive matching by default
+- Always use `JsonSerializerOptions` with `PropertyNameCaseInsensitive = true` when deserializing from API requests
+- Example pattern (SettingsEndpoints.cs):
+```csharp
+private static readonly JsonSerializerOptions JsonOptions = new()
+{
+    PropertyNameCaseInsensitive = true
+};
+
+// Use in deserialization
+var settings = JsonSerializer.Deserialize<ChunkingSettings>(json, JsonOptions);
+```
+- **Why**: Tests and clients send `{ "baseUrl": "..." }` (camelCase), but C# properties are `BaseUrl` (PascalCase)
+- Without case-insensitive options, properties deserialize as null, causing subtle bugs
+
+## Testing
+
+### Integration Tests
+- Use `WebApplicationFactory<Program>` for full-stack testing with real services
+- Use `Testcontainers` for PostgreSQL and MinIO — real databases, not mocks
+- Test helpers must match actual API behavior (form field names, response DTOs)
+- **Wait for completion properly**: Use status endpoints to verify operations completed, don't just check existence
+  - Example: Use `/api/documents/{id}/reindex-check` to verify Status="Ready" before proceeding
+  - Wait for `NeedsReindex=false`, not just document existence
+- **Form data patterns**:
+  - Upload endpoint expects `destinationPath` and `collectionId` as separate form fields
+  - Don't conflate virtualPath (internal storage location) with collectionId (logical grouping)
+- **Null checks**: Always add null-conditional operators for properties that can be null (e.g., `response.S3Objects?.Count`)
+
+### Test Naming
+- `MethodName_Scenario_ExpectedResult`
+- Examples: `IngestAsync_ValidTextFile_CreatesChunks`, `Search_WithFilters_ReturnsFilteredResults`
 
 ## Docker
 

@@ -69,6 +69,24 @@ public class ReindexIntegrationTests : IAsyncLifetime
         var docBefore = await GetDocument(documentId);
         docBefore.Should().NotBeNull();
 
+        // Verify document is truly ready before reindexing
+        var checkBefore = await _client.GetAsync($"/api/documents/{documentId}/reindex-check");
+        if (!checkBefore.IsSuccessStatusCode)
+        {
+            var errorContent = await checkBefore.Content.ReadAsStringAsync();
+            throw new Exception($"Reindex check failed with status {checkBefore.StatusCode}: {errorContent}");
+        }
+
+        var checkResult = await checkBefore.Content.ReadFromJsonAsync<ReindexCheckDto>();
+        checkResult.Should().NotBeNull();
+        if (checkResult!.NeedsReindex)
+        {
+            throw new Exception($"Document still needs reindex before test: Reason={checkResult.Reason}, Hash={checkResult.CurrentHash}");
+        }
+
+        // Give a bit more time for everything to settle
+        await Task.Delay(2000);
+
         // Act: Trigger reindex (content unchanged)
         var reindexResponse = await _client.PostAsync("/api/documents/reindex", null);
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -77,6 +95,11 @@ public class ReindexIntegrationTests : IAsyncLifetime
         reindexResult.Should().NotBeNull();
 
         // Assert: Document was not re-enqueued (content hash matches)
+        // Debug: Output actual counts if test fails
+        if (reindexResult!.SkippedCount != 1)
+        {
+            throw new Exception($"Expected SkippedCount=1, but got SkippedCount={reindexResult.SkippedCount}, EnqueuedCount={reindexResult.EnqueuedCount}, FailedCount={reindexResult.FailedCount}, TotalDocuments={reindexResult.TotalDocuments}. Reasons: {string.Join(", ", reindexResult.ReasonCounts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
+        }
         reindexResult!.SkippedCount.Should().Be(1, "Unchanged document should be skipped");
         reindexResult.EnqueuedCount.Should().Be(0, "No documents should be re-enqueued");
 
@@ -123,8 +146,8 @@ public class ReindexIntegrationTests : IAsyncLifetime
     public async Task Reindex_ByCollection_OnlyReindexesFilteredDocuments()
     {
         // Arrange: Upload documents to different collections
-        var doc1Id = await UploadDocument("coll1-doc.txt", "Collection 1 document", "/collection1");
-        var doc2Id = await UploadDocument("coll2-doc.txt", "Collection 2 document", "/collection2");
+        var doc1Id = await UploadDocument("coll1-doc.txt", "Collection 1 document", collectionId: "collection1");
+        var doc2Id = await UploadDocument("coll2-doc.txt", "Collection 2 document", collectionId: "collection2");
 
         await WaitForIngestionToComplete(doc1Id, timeoutSeconds: 30);
         await WaitForIngestionToComplete(doc2Id, timeoutSeconds: 30);
@@ -145,14 +168,22 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await _client.DeleteAsync($"/api/documents/{doc2Id}");
     }
 
-    private async Task<string> UploadDocument(string fileName, string content, string virtualPath = "/test")
+    private async Task<string> UploadDocument(string fileName, string content, string? collectionId = null)
     {
         using var multipart = new MultipartFormDataContent();
         var fileBytes = Encoding.UTF8.GetBytes(content);
         var fileContent = new ByteArrayContent(fileBytes);
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(fileContent, "file", fileName);
-        multipart.Add(new StringContent(virtualPath), "virtualPath");
+
+        // Set destination path
+        multipart.Add(new StringContent("/test"), "destinationPath");
+
+        // Set collection ID if provided
+        if (!string.IsNullOrEmpty(collectionId))
+        {
+            multipart.Add(new StringContent(collectionId), "collectionId");
+        }
 
         var response = await _client.PostAsync("/api/documents", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -177,15 +208,26 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var response = await _client.GetAsync($"/api/documents/{documentId}");
+            // Use reindex-check endpoint to verify document is fully indexed
+            var response = await _client.GetAsync($"/api/documents/{documentId}/reindex-check");
             if (response.StatusCode == HttpStatusCode.OK)
             {
-                var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
-                if (document != null)
+                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>();
+                if (check != null)
                 {
-                    // Document exists, assume ingestion completed
-                    await Task.Delay(1000); // Give it a moment to index
-                    return;
+                    // Document is ready when it doesn't need reindex
+                    // (NeedsReindex=false means it's indexed and unchanged)
+                    if (!check.NeedsReindex)
+                    {
+                        await Task.Delay(500); // Give it a moment to settle
+                        return;
+                    }
+
+                    // If there's an error other than NeverIndexed, throw
+                    if (check.Reason == "Error" || check.Reason == "FileNotFound")
+                    {
+                        throw new Exception($"Ingestion failed for document {documentId}: {check.Reason}");
+                    }
                 }
             }
 
@@ -227,4 +269,15 @@ public class ReindexIntegrationTests : IAsyncLifetime
         int FailedCount,
         Dictionary<string, int> ReasonCounts,
         string Message);
+
+    private record ReindexCheckDto(
+        string DocumentId,
+        bool NeedsReindex,
+        string Reason,
+        string? CurrentHash,
+        string? StoredHash,
+        string? CurrentChunkingStrategy = null,
+        string? StoredChunkingStrategy = null,
+        string? CurrentEmbeddingModel = null,
+        string? StoredEmbeddingModel = null);
 }

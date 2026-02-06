@@ -4,6 +4,7 @@ using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Search.Keyword;
 using AIKnowledge.Search.Vector;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -15,21 +16,18 @@ namespace AIKnowledge.Search.Hybrid;
 /// </summary>
 public class HybridSearchService : IKnowledgeSearch
 {
-    private readonly VectorSearchService _vectorSearch;
-    private readonly KeywordSearchService _keywordSearch;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEnumerable<ISearchReranker> _rerankers;
     private readonly ILogger<HybridSearchService> _logger;
     private readonly SearchSettings _searchSettings;
 
     public HybridSearchService(
-        VectorSearchService vectorSearch,
-        KeywordSearchService keywordSearch,
+        IServiceScopeFactory scopeFactory,
         IEnumerable<ISearchReranker> rerankers,
         IOptionsMonitor<SearchSettings> searchSettings,
         ILogger<HybridSearchService> logger)
     {
-        _vectorSearch = vectorSearch;
-        _keywordSearch = keywordSearch;
+        _scopeFactory = scopeFactory;
         _rerankers = rerankers;
         _logger = logger;
         _searchSettings = searchSettings.CurrentValue;
@@ -62,14 +60,19 @@ public class HybridSearchService : IKnowledgeSearch
             query,
             options.TopK);
 
+        // Create a scope to get search services
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
+        var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
+
         switch (mode)
         {
             case SearchMode.Semantic:
-                hits = await _vectorSearch.SearchAsync(query, options, ct);
+                hits = await vectorSearch.SearchAsync(query, options, ct);
                 break;
 
             case SearchMode.Keyword:
-                hits = await _keywordSearch.SearchAsync(query, options, ct);
+                hits = await keywordSearch.SearchAsync(query, options, ct);
                 break;
 
             case SearchMode.Hybrid:
@@ -119,16 +122,20 @@ public class HybridSearchService : IKnowledgeSearch
 
     /// <summary>
     /// Performs hybrid search by running vector and keyword search in parallel and merging results.
+    /// Each search uses its own scope to avoid DbContext threading issues.
     /// </summary>
     private async Task<List<SearchHit>> PerformHybridSearchAsync(
         string query,
         SearchOptions options,
         CancellationToken ct)
     {
-        // Run both searches in parallel
+        // Run both searches in parallel, each with its own scope (and thus separate DbContext)
         var vectorTask = Task.Run(async () =>
         {
-            var results = await _vectorSearch.SearchAsync(query, options, ct);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
+            var results = await vectorSearch.SearchAsync(query, options, ct);
+
             // Tag results with source
             return results.Select(h => h with
             {
@@ -138,7 +145,10 @@ public class HybridSearchService : IKnowledgeSearch
 
         var keywordTask = Task.Run(async () =>
         {
-            var results = await _keywordSearch.SearchAsync(query, options, ct);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
+            var results = await keywordSearch.SearchAsync(query, options, ct);
+
             // Tag results with source
             return results.Select(h => h with
             {

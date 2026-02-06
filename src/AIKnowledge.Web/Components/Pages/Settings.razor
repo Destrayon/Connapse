@@ -4,7 +4,7 @@
 @using AIKnowledge.Storage.Settings
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
-@inject SettingsReloadService ReloadService
+@inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<EmbeddingSettings> EmbeddingOptions
 @inject IOptionsMonitor<ChunkingSettings> ChunkingOptions
 @inject IOptionsMonitor<SearchSettings> SearchOptions
@@ -188,7 +188,7 @@
         try
         {
             await SettingsStore.SaveAsync(category, settings);
-            ReloadService.ReloadSettings();
+            ReloadService.Reload();
             saveMessage = $"{category} settings saved successfully!";
             saveSuccess = true;
         }

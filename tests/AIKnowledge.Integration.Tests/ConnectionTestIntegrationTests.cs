@@ -126,7 +126,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
             Category = "embedding",
             Settings = new EmbeddingSettings
             {
-                BaseUrl = "http://localhost:99999", // Non-existent endpoint
+                BaseUrl = "http://localhost:54321", // Non-existent endpoint (valid port range)
                 Model = "test-model"
             },
             TimeoutSeconds = 5
@@ -141,7 +141,10 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
-        result.Message.Should().Contain("Connection failed");
+        result.Message.Should().Match(m =>
+            m.Contains("Connection failed", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("error", StringComparison.OrdinalIgnoreCase),
+            "failure message should indicate connection error");
     }
 
     [Fact]

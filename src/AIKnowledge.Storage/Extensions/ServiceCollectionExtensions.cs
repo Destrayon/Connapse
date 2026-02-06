@@ -35,8 +35,8 @@ public static class ServiceCollectionExtensions
         // Settings store
         services.AddScoped<ISettingsStore, PostgresSettingsStore>();
 
-        // Settings reload service
-        services.AddSingleton<SettingsReloadService>();
+        // Settings reload service - requires IConfigurationRoot to trigger reload
+        services.AddSingleton<ISettingsReloader, SettingsReloader>();
 
         // Local file system (kept for non-Docker dev)
         services.Configure<KnowledgeFileSystemOptions>(

@@ -9,6 +9,12 @@ namespace AIKnowledge.Web.Endpoints;
 
 public static class SettingsEndpoints
 {
+    // JSON options for deserializing settings with case-insensitive property names
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings").WithTags("Settings");
@@ -50,13 +56,13 @@ public static class SettingsEndpoints
                 // Deserialize JSON to the appropriate settings type
                 object? settings = categoryLower switch
                 {
-                    "embedding" => JsonSerializer.Deserialize<EmbeddingSettings>(settingsJson.GetRawText()),
-                    "chunking" => JsonSerializer.Deserialize<ChunkingSettings>(settingsJson.GetRawText()),
-                    "search" => JsonSerializer.Deserialize<SearchSettings>(settingsJson.GetRawText()),
-                    "llm" => JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText()),
-                    "upload" => JsonSerializer.Deserialize<UploadSettings>(settingsJson.GetRawText()),
-                    "websearch" => JsonSerializer.Deserialize<WebSearchSettings>(settingsJson.GetRawText()),
-                    "storage" => JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText()),
+                    "embedding" => JsonSerializer.Deserialize<EmbeddingSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "chunking" => JsonSerializer.Deserialize<ChunkingSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "search" => JsonSerializer.Deserialize<SearchSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "llm" => JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "upload" => JsonSerializer.Deserialize<UploadSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "websearch" => JsonSerializer.Deserialize<WebSearchSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "storage" => JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText(), JsonOptions),
                     _ => null
                 };
 
@@ -141,7 +147,7 @@ public static class SettingsEndpoints
         int? timeoutSeconds,
         CancellationToken ct)
     {
-        var settings = JsonSerializer.Deserialize<EmbeddingSettings>(settingsJson.GetRawText());
+        var settings = JsonSerializer.Deserialize<EmbeddingSettings>(settingsJson.GetRawText(), JsonOptions);
         if (settings == null)
         {
             return ConnectionTestResult.CreateFailure("Invalid EmbeddingSettings");
@@ -157,7 +163,7 @@ public static class SettingsEndpoints
         int? timeoutSeconds,
         CancellationToken ct)
     {
-        var settings = JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText());
+        var settings = JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText(), JsonOptions);
         if (settings == null)
         {
             return ConnectionTestResult.CreateFailure("Invalid LlmSettings");
@@ -173,7 +179,7 @@ public static class SettingsEndpoints
         int? timeoutSeconds,
         CancellationToken ct)
     {
-        var settings = JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText());
+        var settings = JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText(), JsonOptions);
         if (settings == null)
         {
             return ConnectionTestResult.CreateFailure("Invalid StorageSettings");

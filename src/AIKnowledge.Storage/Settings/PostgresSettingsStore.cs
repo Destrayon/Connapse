@@ -10,7 +10,7 @@ namespace AIKnowledge.Storage.Settings;
 /// PostgreSQL-backed settings store using JSONB for flexible schema.
 /// Settings are stored by category and can be updated at runtime.
 /// </summary>
-public class PostgresSettingsStore(KnowledgeDbContext context) : ISettingsStore
+public class PostgresSettingsStore(KnowledgeDbContext context, ISettingsReloader settingsReloader) : ISettingsStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -28,17 +28,16 @@ public class PostgresSettingsStore(KnowledgeDbContext context) : ISettingsStore
         if (entity is null)
             return null;
 
-        // Convert Dictionary<string, object> to T via JSON round-trip
-        var json = JsonSerializer.Serialize(entity.Values, JsonOptions);
+        // Deserialize JsonDocument to T
+        var json = entity.Values.RootElement.GetRawText();
         return JsonSerializer.Deserialize<T>(json, JsonOptions);
     }
 
     public async Task SaveAsync<T>(string category, T settings, CancellationToken cancellationToken = default) where T : class
     {
-        // Convert T to Dictionary<string, object> via JSON round-trip
+        // Serialize T to JsonDocument
         var json = JsonSerializer.Serialize(settings, JsonOptions);
-        var values = JsonSerializer.Deserialize<Dictionary<string, object>>(json, JsonOptions)
-            ?? new Dictionary<string, object>();
+        var jsonDocument = JsonDocument.Parse(json);
 
         var entity = await context.Settings
             .FirstOrDefaultAsync(s => s.Category == category, cancellationToken);
@@ -49,7 +48,7 @@ public class PostgresSettingsStore(KnowledgeDbContext context) : ISettingsStore
             entity = new SettingEntity
             {
                 Category = category,
-                Values = values,
+                Values = jsonDocument,
                 UpdatedAt = DateTime.UtcNow
             };
             context.Settings.Add(entity);
@@ -57,12 +56,15 @@ public class PostgresSettingsStore(KnowledgeDbContext context) : ISettingsStore
         else
         {
             // Update existing entry
-            entity.Values = values;
+            entity.Values = jsonDocument;
             entity.UpdatedAt = DateTime.UtcNow;
             context.Settings.Update(entity);
         }
 
         await context.SaveChangesAsync(cancellationToken);
+
+        // Reload configuration to notify IOptionsMonitor subscribers of the change
+        settingsReloader.Reload();
     }
 
     public async Task ResetAsync(string category, CancellationToken cancellationToken = default)
@@ -74,6 +76,9 @@ public class PostgresSettingsStore(KnowledgeDbContext context) : ISettingsStore
         {
             context.Settings.Remove(entity);
             await context.SaveChangesAsync(cancellationToken);
+
+            // Reload configuration to notify IOptionsMonitor subscribers of the change
+            settingsReloader.Reload();
         }
     }
 

@@ -122,7 +122,7 @@ public class MinioFileSystem : IKnowledgeFileSystem
             };
 
             var response = await _s3.ListObjectsV2Async(listRequest, ct);
-            return response.S3Objects.Count > 0;
+            return response.S3Objects?.Count > 0;
         }
     }
 

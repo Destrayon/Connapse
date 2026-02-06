@@ -577,7 +577,7 @@ public record StorageSettings
 - `Knowledge:Storage` → StorageSettings
 
 **Live Reload:**
-- Settings saved via `ISettingsStore.SaveAsync()` → stored in DB → triggers `SettingsReloadService.ReloadSettings()` → `IOptionsMonitor<T>.CurrentValue` updates without app restart
+- Settings saved via `ISettingsStore.SaveAsync()` → stored in DB → triggers `ISettingsReloader.Reload()` → `IOptionsMonitor<T>.CurrentValue` updates without app restart
 
 ---
 

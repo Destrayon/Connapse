@@ -40,7 +40,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                 // Flatten JSONB values into configuration keys
                 // E.g., category "Embedding" with { "Model": "nomic-embed-text" }
                 // becomes "Knowledge:Embedding:Model" = "nomic-embed-text"
-                FlattenSettings($"Knowledge:{setting.Category}", setting.Values);
+                FlattenJsonDocument($"Knowledge:{setting.Category}", setting.Values);
             }
         }
         catch (Exception)
@@ -54,25 +54,9 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         }
     }
 
-    private void FlattenSettings(string prefix, IDictionary<string, object> values)
+    private void FlattenJsonDocument(string prefix, JsonDocument document)
     {
-        foreach (var (key, value) in values)
-        {
-            var configKey = $"{prefix}:{key}";
-
-            if (value is JsonElement jsonElement)
-            {
-                FlattenJsonElement(configKey, jsonElement);
-            }
-            else if (value is IDictionary<string, object> dict)
-            {
-                FlattenSettings(configKey, dict);
-            }
-            else
-            {
-                Data[configKey] = value?.ToString() ?? string.Empty;
-            }
-        }
+        FlattenJsonElement(prefix, document.RootElement);
     }
 
     private void FlattenJsonElement(string prefix, JsonElement element)
