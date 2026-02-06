@@ -200,4 +200,49 @@ appsettings.json → appsettings.{Env}.json → Environment vars → Database (S
 
 ---
 
+### 2026-02-06 — Container-Based File Browser with Vector Index Isolation
+
+**Context**: The current upload page is a simple file upload interface. Users need a full object storage browser (like S3/MinIO) where they can organize files into projects with folder hierarchies. Each project should have isolated search - searching one project should never return results from another.
+
+**Decision**: Replace the upload page with a container-based file browser. Containers are top-level isolated units (representing projects). Each container has its own logical vector space. Folders provide organizational hierarchy within containers. Full path (`/{container}/{folder-path}/{filename}`) determines uniqueness.
+
+**Key Design Decisions**:
+
+1. **Container Isolation**: Single `chunks` table with `container_id` column, always filtered by container. No cross-container search allowed. Containers represent isolated projects.
+
+2. **Folder Hierarchy**: Folders are organizational units within containers. Path-based filtering for search (e.g., search in `/docs/2026/` only searches that subtree recursively). Empty folders are explicitly supported.
+
+3. **File Uniqueness**: Full path including container is the unique identifier. Same filename in same folder → gets `file (1).pdf` pattern. Same file content in different containers → completely independent, no cross-container deduplication.
+
+4. **Chunk Lifecycle**: Chunks are tied to file lifecycle via `CASCADE DELETE`. File deleted → chunks deleted. File re-uploaded with same path and different hash → re-index. Same hash → skip.
+
+5. **File Editing**: Delete + re-upload only (no in-place editing). Most document types can't be edited in-browser anyway, and edits require full re-chunking/re-embedding.
+
+6. **Folder Deletion**: Confirmation required, then cascade delete all nested files/folders and their chunks.
+
+7. **Container Deletion**: Must be empty first (fail if not empty). User must delete all contents before deleting container.
+
+8. **Cross-Container Operations**: Moving files between containers is prohibited. Must delete from source and re-upload to destination.
+
+9. **CollectionId Removal**: The existing `CollectionId` field is replaced by containers. Containers serve the same purpose but are required, structured, and first-class.
+
+**Alternatives**:
+- Option A: Keep simple upload page + CollectionId tags — no visual organization, soft filtering only
+- Option B: Container-based file browser with hard isolation — full object storage UX, true project isolation
+- Option C: Virtual folders without isolation — organizational but no search separation
+
+**Rationale**: Option B provides the project isolation users need (different knowledge bases shouldn't mix), gives a familiar S3-like UX for organizing files, and makes the folder structure meaningful for search filtering. The container concept maps naturally to "projects" or "workspaces".
+
+**Consequences**:
+- New `containers` table in database
+- `documents` table gets required `container_id` (replaces optional `CollectionId`)
+- `chunks` table gets denormalized `container_id` for query performance
+- New `folders` table for empty folder support
+- All API endpoints scoped under `/api/containers/{id}/...`
+- Search API requires container ID
+- UI becomes a file browser with container list → folder navigation → file details
+- All access surfaces (Web UI, REST API, CLI, MCP) must support full file management
+
+---
+
 <!-- Add new decisions above this line, newest first -->

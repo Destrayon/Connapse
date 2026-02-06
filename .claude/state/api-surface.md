@@ -6,6 +6,54 @@ Public interfaces and contracts. Track breaking changes here.
 
 ## Core Interfaces
 
+### IContainerStore (Feature #2 — Planned)
+
+```csharp
+public interface IContainerStore
+{
+    Task<Container> CreateAsync(CreateContainerRequest request, CancellationToken ct = default);
+    Task<Container?> GetAsync(Guid containerId, CancellationToken ct = default);
+    Task<Container?> GetByNameAsync(string name, CancellationToken ct = default);
+    Task<IReadOnlyList<Container>> ListAsync(CancellationToken ct = default);
+    Task<bool> DeleteAsync(Guid containerId, CancellationToken ct = default); // Fails if not empty
+    Task<bool> IsEmptyAsync(Guid containerId, CancellationToken ct = default);
+}
+
+public record Container(
+    Guid Id,
+    string Name,
+    string? Description,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    int DocumentCount,    // Computed
+    long TotalSizeBytes); // Computed
+
+public record CreateContainerRequest(
+    string Name,          // Alphanumeric + hyphens, unique
+    string? Description);
+```
+
+### IFolderStore (Feature #2 — Planned)
+
+```csharp
+public interface IFolderStore
+{
+    Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default);
+    Task<IReadOnlyList<Folder>> ListAsync(Guid containerId, string? parentPath = null, CancellationToken ct = default);
+    Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default);
+    Task DeleteAsync(Guid containerId, string path, bool cascade = false, CancellationToken ct = default);
+}
+
+public record Folder(
+    Guid Id,
+    Guid ContainerId,
+    string Path,          // e.g., "/folder/subfolder/"
+    string Name,          // Last segment, e.g., "subfolder"
+    DateTime CreatedAt);
+```
+
+---
+
 ### IKnowledgeIngester
 
 ```csharp
@@ -583,7 +631,80 @@ public record StorageSettings
 
 ## REST API Endpoints (Phase 6 ✅)
 
-### Documents
+### Containers (Feature #2 — Planned)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/containers` | Create container. Body: `{ name, description? }`. Returns `Container`. |
+| `GET` | `/api/containers` | List all containers. Returns array of `Container`. |
+| `GET` | `/api/containers/{id}` | Get container details. Returns `Container` or 404. |
+| `DELETE` | `/api/containers/{id}` | Delete container. Fails with 400 if not empty. Returns 204. |
+
+### Container Files (Feature #2 — Planned)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/containers/{id}/files` | Upload files to container. Multipart form-data: `files`, `path?` (destination folder). Streams to MinIO, enqueues ingestion. Returns `UploadResponse`. |
+| `GET` | `/api/containers/{id}/files` | List files/folders at path. Query: `?path=/folder/`. Returns array of `FileSystemEntry`. |
+| `GET` | `/api/containers/{id}/files/{fileId}` | Get file details including indexing status. Returns `FileDetails`. |
+| `DELETE` | `/api/containers/{id}/files/{fileId}` | Delete file + chunks (cascade). Returns 204. |
+
+### Container Folders (Feature #2 — Planned)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/containers/{id}/folders` | Create empty folder. Body: `{ path }`. Returns `Folder`. |
+| `DELETE` | `/api/containers/{id}/folders` | Delete folder. Query: `?path=/folder/&cascade=true`. Cascade deletes nested files/folders. Returns 204. |
+
+### Container Search (Feature #2 — Planned)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/containers/{id}/search` | Search within container. Query: `?q=...&path=/folder/&mode=Hybrid&topK=10`. Path filters to subtree. Returns `SearchResult`. |
+| `POST` | `/api/containers/{id}/search` | Search with complex filters. Body: `ContainerSearchRequest`. Returns `SearchResult`. |
+
+### Container Reindex (Feature #2 — Planned)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/containers/{id}/reindex` | Reindex all documents in container. Body: `{ force?, detectSettingsChanges?, path? }`. Returns `ReindexResult`. |
+
+**New DTOs (Feature #2):**
+```csharp
+public record FileDetails(
+    Guid Id,
+    Guid ContainerId,
+    string Path,
+    string FileName,
+    long SizeBytes,
+    string MimeType,
+    string Status,          // Pending, Processing, Ready, Error
+    string? ErrorMessage,
+    int ChunkCount,
+    string? EmbeddingModel,
+    string ContentHash,
+    DateTime CreatedAt,
+    DateTime UpdatedAt);
+
+public record FileSystemEntry(
+    string Name,
+    string Path,
+    bool IsFolder,
+    long? SizeBytes,        // Null for folders
+    DateTime? LastModified, // Null for folders
+    string? Status);        // Null for folders, document status for files
+
+public record ContainerSearchRequest(
+    string Query,
+    string? Path = null,    // Filter to subtree
+    SearchMode? Mode = null,
+    int? TopK = null,
+    Dictionary<string, string>? Filters = null);
+```
+
+---
+
+### Documents (Legacy — Will Be Replaced by Container Endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -827,15 +948,77 @@ Executes a tool and returns result.
 
 ### Available Tools
 
+#### container_create (Feature #2 — Planned)
+
+Create a new container for organizing files.
+
+**Parameters:**
+- `name` (string, required): Container name (alphanumeric + hyphens)
+- `description` (string, optional): Container description
+
+**Returns:** Text with container ID and confirmation.
+
+#### container_list (Feature #2 — Planned)
+
+List all containers.
+
+**Parameters:** None
+
+**Returns:** Text with formatted container list (name, document count, total size).
+
+#### container_delete (Feature #2 — Planned)
+
+Delete an empty container.
+
+**Parameters:**
+- `name` (string, required): Container name
+
+**Returns:** Text with confirmation or error if not empty.
+
+#### upload_file (Feature #2 — Planned)
+
+Upload a file to a container. Replaces `ingest_document`.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `path` (string, optional): Destination folder path (e.g., "/docs/2026/")
+- `content` (string, required): Base64-encoded file content
+- `fileName` (string, required): Original file name with extension
+- `strategy` (string, optional): Chunking strategy [default: Semantic]
+
+**Returns:** Text with file ID, job ID, full path, and ingestion status.
+
+#### list_files (Feature #2 — Planned)
+
+List files and folders in a container.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `path` (string, optional): Folder path to list [default: "/"]
+
+**Returns:** Text with formatted file/folder list.
+
+#### delete_file (Feature #2 — Planned)
+
+Delete a file from a container.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `fileId` (string, required): File ID
+
+**Returns:** Text with confirmation.
+
 #### search_knowledge
 
 Search the knowledge base using semantic, keyword, or hybrid search.
 
 **Parameters:**
 - `query` (string, required): Search query text
+- `containerId` (string, required): Container ID or name **(Feature #2: becomes required)**
+- `path` (string, optional): Filter to folder subtree (e.g., "/docs/") **(Feature #2: new)**
 - `mode` (string, optional): "Semantic", "Keyword", or "Hybrid" [default: Hybrid]
 - `topK` (number, optional): Number of results [default: 10]
-- `collectionId` (string, optional): Filter by collection
+- ~~`collectionId` (string, optional): Filter by collection~~ **(Feature #2: removed)**
 
 **Returns:** Text with formatted search results including scores, content, file names, and sources.
 
@@ -870,6 +1053,34 @@ Add a document to the knowledge base.
 ---
 
 ## Breaking Changes
+
+### 2026-02-06 — Container-Based File Browser (Feature #2 — Planned)
+
+**Change**: Documents now require a container. All file operations, search, and reindex endpoints move under `/api/containers/{id}/...`. `CollectionId` removed entirely.
+
+**Migration**:
+- No user data to migrate (pre-release)
+- All API consumers must update to use container-scoped endpoints
+- CLI commands updated to require `--container` flag
+- MCP tools updated to require `containerId` parameter
+- Search no longer works without specifying a container
+
+**New Endpoints**:
+- `POST/GET/DELETE /api/containers` — container management
+- `POST/GET/DELETE /api/containers/{id}/files` — file operations
+- `POST/DELETE /api/containers/{id}/folders` — folder operations
+- `GET/POST /api/containers/{id}/search` — scoped search
+- `POST /api/containers/{id}/reindex` — scoped reindex
+
+**Removed Endpoints** (replaced by container-scoped versions):
+- `POST /api/documents` → `POST /api/containers/{id}/files`
+- `GET /api/documents` → `GET /api/containers/{id}/files`
+- `DELETE /api/documents/{id}` → `DELETE /api/containers/{id}/files/{id}`
+- `GET /api/search` → `GET /api/containers/{id}/search`
+- `POST /api/search` → `POST /api/containers/{id}/search`
+- `POST /api/documents/reindex` → `POST /api/containers/{id}/reindex`
+
+---
 
 ### 2026-02-04 — Storage Backend: SQLite → PostgreSQL + MinIO
 
