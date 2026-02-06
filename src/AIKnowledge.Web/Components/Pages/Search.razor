@@ -17,6 +17,7 @@
                        class="form-control form-control-lg"
                        placeholder="Enter your search query..."
                        @bind="query"
+                       @bind:event="oninput"
                        @onkeypress="HandleKeyPress" />
             </div>
             <div class="col-md-2">
