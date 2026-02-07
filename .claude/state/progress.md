@@ -19,13 +19,14 @@ Current status and recent work. Update at end of each session. For detailed impl
 - ✅ Testing (72 unit tests + 14 integration tests, all passing)
 
 ### Feature #2: Container-Based File Browser
-**Status**: 🚧 **IN PROGRESS** — Phases 1-2 complete (schema + core services)
+**Status**: 🚧 **IN PROGRESS** — Phases 1-3 complete (schema + core services + API endpoints)
 
 - ✅ Phase 1: Database schema migration (containers, folders, container_id on docs/chunks/vectors)
 - ✅ Phase 2: Core services (IContainerStore, IFolderStore, PathUtilities, updated all stores/search/ingestion)
+- ✅ Phase 3: API endpoints (container CRUD, file ops, folder ops, search, reindex — all container-scoped)
 - All 10 projects build with 0 errors, 0 warnings
 - Old migration deleted; fresh migration needed on next startup
-- See detailed plan below for remaining phases (3-9).
+- See detailed plan below for remaining phases (4-9).
 
 ---
 
@@ -122,12 +123,16 @@ POST   /api/containers/{id}/reindex       Reindex documents in container
 
 ### UI Flow
 
-1. **Container List Page** (`/`)
+**Navigation**: Files (home `/`) | Search (`/search`) | Settings (`/settings`)
+- The file system IS the main page — no separate Home or Upload pages
+- Upload page removed, replaced by file browser drag-drop upload
+
+1. **Container List** (`/` — main page)
    - Grid/list of containers as cards
    - Create container button + modal
    - Click container → navigate to file browser
 
-2. **File Browser Page** (`/containers/{id}`)
+2. **File Browser** (`/containers/{id}`)
    - Breadcrumb navigation (Container > Folder > Subfolder)
    - Folder/file list view (table or grid)
    - Drag-drop zone for uploads
@@ -203,15 +208,18 @@ search_knowledge     Search within container (updated to require containerId)
 - [x] Compilation fixes across all consumers (endpoints, CLI, MCP, Blazor Upload page)
 - [x] IngestionJob record: `VirtualPath` → `Path`
 
-#### Phase 3: API Endpoints
-- [ ] Container CRUD endpoints
-- [ ] Update document endpoints to nest under containers
-- [ ] Folder endpoints (create, delete with cascade)
-- [ ] Update search endpoints to require container
-- [ ] Update reindex endpoint to scope to container
+#### Phase 3: API Endpoints ✅
+- [x] Container CRUD endpoints (POST/GET/GET/{id}/DELETE /api/containers)
+- [x] Update document endpoints to nest under containers (POST/GET/GET/{fileId}/DELETE /api/containers/{id}/files)
+- [x] Folder endpoints (POST/DELETE /api/containers/{id}/folders)
+- [x] Update search endpoints to require container (GET/POST /api/containers/{id}/search)
+- [x] Update reindex endpoint to scope to container (POST /api/containers/{id}/reindex)
+- [x] File browse listing (folders + files combined, sorted, path filtering)
+- [x] Reindex-check moved under files (GET /api/containers/{id}/files/{fileId}/reindex-check)
 
-#### Phase 4: Web UI - Container List
-- [ ] Container list page (cards/grid)
+#### Phase 4: Web UI - Container List (main page `/`)
+- [ ] Container list page at `/` (replaces Home + Upload pages)
+- [ ] Remove old Home.razor and Upload.razor
 - [ ] Create container modal
 - [ ] Delete container (with empty check)
 - [ ] Navigation to file browser
