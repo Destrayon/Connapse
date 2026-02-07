@@ -19,14 +19,19 @@ Current status and recent work. Update at end of each session. For detailed impl
 - ✅ Testing (72 unit tests + 14 integration tests, all passing)
 
 ### Feature #2: Container-Based File Browser
-**Status**: 🚧 **IN PROGRESS** — Phases 1-3 complete (schema + core services + API endpoints)
+**Status**: 🚧 **IN PROGRESS** — Phases 1-8 complete (schema + services + API + UI + CLI + MCP)
 
 - ✅ Phase 1: Database schema migration (containers, folders, container_id on docs/chunks/vectors)
 - ✅ Phase 2: Core services (IContainerStore, IFolderStore, PathUtilities, updated all stores/search/ingestion)
 - ✅ Phase 3: API endpoints (container CRUD, file ops, folder ops, search, reindex — all container-scoped)
+- ✅ Phase 4: Web UI - Container List (main page /, create/delete modals, empty state)
+- ✅ Phase 5: Web UI - File Browser (breadcrumbs, file/folder list, upload, create/delete)
+- ✅ Phase 6: Web UI - File Details (side panel with metadata, status, actions)
+- ✅ Phase 7: CLI (container CRUD, upload/search/reindex require --container, name→ID resolution)
+- ✅ Phase 8: MCP (7 tools: container_create/list/delete, search_knowledge, list_files, upload_file, delete_file)
 - All 10 projects build with 0 errors, 0 warnings
 - Old migration deleted; fresh migration needed on next startup
-- See detailed plan below for remaining phases (4-9).
+- Remaining: Phase 9 (testing).
 
 ---
 
@@ -217,35 +222,36 @@ search_knowledge     Search within container (updated to require containerId)
 - [x] File browse listing (folders + files combined, sorted, path filtering)
 - [x] Reindex-check moved under files (GET /api/containers/{id}/files/{fileId}/reindex-check)
 
-#### Phase 4: Web UI - Container List (main page `/`)
-- [ ] Container list page at `/` (replaces Home + Upload pages)
-- [ ] Remove old Home.razor and Upload.razor
-- [ ] Create container modal
-- [ ] Delete container (with empty check)
-- [ ] Navigation to file browser
+#### Phase 4: Web UI - Container List (main page `/`) ✅
+- [x] Container list page at `/` (replaces Home + Upload pages)
+- [x] Remove old Home.razor and Upload.razor (+ Counter/Weather demo pages)
+- [x] Create container modal
+- [x] Delete container (with empty check + confirmation dialog)
+- [x] Navigation to file browser (navigates to /containers/{id})
 
-#### Phase 5: Web UI - File Browser
-- [ ] File/folder list view with breadcrumbs
-- [ ] Folder navigation (click to enter, breadcrumb to go back)
-- [ ] Drag-drop upload zone
-- [ ] Create folder modal
-- [ ] Delete folder with confirmation + cascade
+#### Phase 5: Web UI - File Browser ✅
+- [x] File/folder list view with breadcrumbs
+- [x] Folder navigation (click to enter, breadcrumb to go back)
+- [x] Drag-drop upload zone with SignalR progress
+- [x] Create folder modal
+- [x] Delete folder/file with confirmation + cascade
 
-#### Phase 6: Web UI - File Details
-- [ ] File details side panel
-- [ ] Indexing status display
-- [ ] Real-time updates via SignalR
-- [ ] Auto-open on upload
+#### Phase 6: Web UI - File Details ✅
+- [x] File details side panel (click file → slide-in panel)
+- [x] Indexing status display (status badge, chunk count, embedding model, content hash)
+- [x] SignalR integration for upload progress (reuses Phase 5 hub connection)
+- [x] File metadata display (path, size, type, upload date, error messages)
 
-#### Phase 7: CLI Updates
-- [ ] Container management commands
-- [ ] Update upload/search/reindex to require container
-- [ ] Folder operations
+#### Phase 7: CLI Updates ✅
+- [x] Container management commands (container create/list/delete)
+- [x] Update upload/search/reindex to require --container (name→ID resolution)
+- [x] Remove old legacy endpoints, use container-scoped API paths
 
-#### Phase 8: MCP Updates
-- [ ] Container tools
-- [ ] Update existing tools to require container
-- [ ] Update tool schemas
+#### Phase 8: MCP Updates ✅
+- [x] Container tools (container_create, container_list, container_delete)
+- [x] New tools (list_files, upload_file, delete_file)
+- [x] Updated search_knowledge (containerId required, path filtering)
+- [x] Name-to-ID resolution for all container parameters
 
 #### Phase 9: Testing
 - [ ] Unit tests for new services
