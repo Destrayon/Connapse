@@ -38,7 +38,7 @@ public interface IIngestionQueue
 public record IngestionJob(
     string JobId,
     string DocumentId,
-    string VirtualPath,
+    string Path,
     IngestionOptions Options,
     string? BatchId = null);
 

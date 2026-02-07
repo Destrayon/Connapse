@@ -142,7 +142,7 @@ public class IngestionWorker : BackgroundService
             var ingester = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
 
             // Open file from storage
-            using var fileStream = await _fileSystem.OpenFileAsync(job.VirtualPath, ct);
+            using var fileStream = await _fileSystem.OpenFileAsync(job.Path, ct);
 
             // Process through ingestion pipeline
             var result = await ingester.IngestAsync(fileStream, job.Options, ct);

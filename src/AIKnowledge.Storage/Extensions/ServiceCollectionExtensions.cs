@@ -2,8 +2,10 @@ using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Storage.ConnectionTesters;
 using AIKnowledge.Storage.Data;
+using AIKnowledge.Storage.Containers;
 using AIKnowledge.Storage.Documents;
 using AIKnowledge.Storage.FileSystem;
+using AIKnowledge.Storage.Folders;
 using AIKnowledge.Storage.Settings;
 using AIKnowledge.Storage.Vectors;
 using Amazon.Runtime;
@@ -72,6 +74,12 @@ public static class ServiceCollectionExtensions
         // Embedding provider
         services.AddHttpClient<OllamaEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider, OllamaEmbeddingProvider>();
+
+        // Container store
+        services.AddScoped<IContainerStore, PostgresContainerStore>();
+
+        // Folder store
+        services.AddScoped<IFolderStore, PostgresFolderStore>();
 
         // Document store
         services.AddScoped<IDocumentStore, PostgresDocumentStore>();

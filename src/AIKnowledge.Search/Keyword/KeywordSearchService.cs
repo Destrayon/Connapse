@@ -43,10 +43,10 @@ public class KeywordSearchService
         var whereClauses = new List<string> { "1=1" };
         var parameters = new List<object> { tsQuery };
 
-        if (!string.IsNullOrEmpty(options.CollectionId))
+        if (!string.IsNullOrEmpty(options.ContainerId))
         {
-            whereClauses.Add($"d.collection_id = ${parameters.Count + 1}");
-            parameters.Add(options.CollectionId);
+            whereClauses.Add($"d.container_id = ${parameters.Count + 1}");
+            parameters.Add(options.ContainerId);
         }
 
         if (options.Filters != null && options.Filters.TryGetValue("documentId", out var documentId))
@@ -71,7 +71,7 @@ public class KeywordSearchService
                 ts_rank(c.search_vector, plainto_tsquery('english', {{0}})) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
-                d.collection_id as CollectionId
+                d.container_id as ContainerId
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
@@ -109,7 +109,7 @@ public class KeywordSearchService
                         { "documentId", r.DocumentId.ToString() },
                         { "fileName", r.FileName },
                         { "contentType", r.ContentType ?? "" },
-                        { "collectionId", r.CollectionId ?? "" },
+                        { "containerId", r.ContainerId.ToString() },
                         { "chunkIndex", r.ChunkIndex.ToString() },
                         { "rawRank", r.Rank.ToString("F4") }
                     });
@@ -152,5 +152,5 @@ public class KeywordSearchService
         float Rank,
         string FileName,
         string? ContentType,
-        string? CollectionId);
+        Guid ContainerId);
 }

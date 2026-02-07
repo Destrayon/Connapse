@@ -13,7 +13,7 @@ public static class DocumentsEndpoints
         // POST /api/documents - Upload document(s)
         group.MapPost("/", async (
             [FromForm] IFormFileCollection files,
-            [FromForm] string? collectionId,
+            [FromForm] string? containerId,
             [FromForm] string? destinationPath,
             [FromForm] ChunkingStrategy? strategy,
             [FromServices] IKnowledgeFileSystem fileSystem,
@@ -28,26 +28,26 @@ public static class DocumentsEndpoints
 
             foreach (var file in files)
             {
-                // Generate document ID and virtual path
+                // Generate document ID and path
                 var documentId = Guid.NewGuid().ToString();
-                var virtualPath = $"{destinationPath?.TrimEnd('/') ?? "/uploads"}/{file.FileName}";
+                var path = $"{destinationPath?.TrimEnd('/') ?? "/uploads"}/{file.FileName}";
 
                 try
                 {
                     // Stream file to storage
                     using var stream = file.OpenReadStream();
-                    await fileSystem.SaveFileAsync(virtualPath, stream, ct);
+                    await fileSystem.SaveFileAsync(path, stream, ct);
 
                     // Enqueue ingestion job
                     var job = new IngestionJob(
                         JobId: Guid.NewGuid().ToString(),
                         DocumentId: documentId,
-                        VirtualPath: virtualPath,
+                        Path: path,
                         Options: new IngestionOptions(
                             DocumentId: documentId,
                             FileName: file.FileName,
                             ContentType: file.ContentType,
-                            CollectionId: collectionId,
+                            ContainerId: containerId,
                             Strategy: strategy ?? ChunkingStrategy.Semantic,
                             Metadata: new Dictionary<string, string>
                             {
@@ -63,7 +63,7 @@ public static class DocumentsEndpoints
                         JobId: job.JobId,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        VirtualPath: virtualPath));
+                        Path: path));
                 }
                 catch (Exception ex)
                 {
@@ -72,7 +72,7 @@ public static class DocumentsEndpoints
                         JobId: null,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        VirtualPath: virtualPath,
+                        Path: path,
                         Error: ex.Message));
                 }
             }
@@ -89,15 +89,21 @@ public static class DocumentsEndpoints
 
         // GET /api/documents - List all documents
         group.MapGet("/", async (
-            [FromQuery] string? collectionId,
+            [FromQuery] string? containerId,
             [FromServices] IDocumentStore documentStore,
             CancellationToken ct) =>
         {
-            var documents = await documentStore.ListAsync(collectionId, ct);
-            return Results.Ok(documents);
+            if (!string.IsNullOrEmpty(containerId) && Guid.TryParse(containerId, out var cId))
+            {
+                var documents = await documentStore.ListAsync(cId, ct: ct);
+                return Results.Ok(documents);
+            }
+
+            // No container specified — return empty for now (Phase 3 will add proper listing)
+            return Results.Ok(Array.Empty<Document>());
         })
         .WithName("ListDocuments")
-        .WithDescription("List all documents, optionally filtered by collection");
+        .WithDescription("List all documents, optionally filtered by container");
 
         // GET /api/documents/{id} - Get document by ID
         group.MapGet("/{id}", async (
@@ -130,9 +136,8 @@ public static class DocumentsEndpoints
             // Delete file from storage (best effort - don't fail if file missing)
             try
             {
-                var virtualPath = document.Metadata.GetValueOrDefault("VirtualPath");
-                if (!string.IsNullOrEmpty(virtualPath))
-                    await fileSystem.DeleteAsync(virtualPath, ct);
+                if (!string.IsNullOrEmpty(document.Path))
+                    await fileSystem.DeleteAsync(document.Path, ct);
             }
             catch { /* File already deleted or not found - ignore */ }
 
@@ -149,7 +154,7 @@ public static class DocumentsEndpoints
         {
             var options = new ReindexOptions
             {
-                CollectionId = request?.CollectionId,
+                ContainerId = request?.ContainerId,
                 DocumentIds = request?.DocumentIds,
                 Force = request?.Force ?? false,
                 DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
@@ -213,11 +218,11 @@ public record UploadedDocumentResponse(
     string? JobId,
     string FileName,
     long SizeBytes,
-    string VirtualPath,
+    string Path,
     string? Error = null);
 
 public record ReindexRequest(
-    string? CollectionId = null,
+    string? ContainerId = null,
     IReadOnlyList<string>? DocumentIds = null,
     bool? Force = null,
     bool? DetectSettingsChanges = null,

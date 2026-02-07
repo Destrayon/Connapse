@@ -53,6 +53,13 @@ public class PgVectorStore : IVectorStore
             throw new ArgumentException("Metadata must contain a 'modelId'", nameof(metadata));
         }
 
+        // Extract containerId from metadata
+        Guid containerId = Guid.Empty;
+        if (metadata.TryGetValue("containerId", out var containerIdStr))
+        {
+            Guid.TryParse(containerIdStr, out containerId);
+        }
+
         var existing = await _context.ChunkVectors
             .FirstOrDefaultAsync(cv => cv.ChunkId == chunkId, ct);
 
@@ -62,6 +69,7 @@ public class PgVectorStore : IVectorStore
             existing.Embedding = new Vector(vector);
             existing.ModelId = modelId;
             existing.DocumentId = documentId;
+            existing.ContainerId = containerId;
         }
         else
         {
@@ -70,6 +78,7 @@ public class PgVectorStore : IVectorStore
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
+                ContainerId = containerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId
             };
@@ -109,27 +118,27 @@ public class PgVectorStore : IVectorStore
                 parameters.Add(documentId);
             }
 
-            if (filters.TryGetValue("collectionId", out var collectionId))
+            if (filters.TryGetValue("containerId", out var containerIdStr) &&
+                Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add($"d.collection_id = ${parameters.Count + 1}");
-                parameters.Add(collectionId);
+                whereClauses.Add($"cv.container_id = ${parameters.Count + 1}");
+                parameters.Add(containerId);
             }
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
 
         // Use raw SQL to leverage pgvector's <=> cosine distance operator
-        // Note: We use parameter placeholders {0}, {1}, etc. for parameterized queries
         var sql = $@"
             SELECT
                 cv.chunk_id as ChunkId,
                 cv.document_id as DocumentId,
+                cv.container_id as ContainerId,
                 (cv.embedding <=> {{0}}) as Distance,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
                 d.file_name as FileName,
-                d.content_type as ContentType,
-                d.collection_id as CollectionId
+                d.content_type as ContentType
             FROM chunk_vectors cv
             INNER JOIN chunks c ON cv.chunk_id = c.id
             INNER JOIN documents d ON cv.document_id = d.id
@@ -149,9 +158,9 @@ public class PgVectorStore : IVectorStore
             new Dictionary<string, string>
             {
                 { "documentId", r.DocumentId.ToString() },
+                { "containerId", r.ContainerId.ToString() },
                 { "fileName", r.FileName },
                 { "contentType", r.ContentType ?? "" },
-                { "collectionId", r.CollectionId ?? "" },
                 { "content", r.Content },
                 { "chunkIndex", r.ChunkIndex.ToString() }
             }
@@ -169,12 +178,12 @@ public class PgVectorStore : IVectorStore
     private record VectorSearchRow(
         Guid ChunkId,
         Guid DocumentId,
+        Guid ContainerId,
         double Distance,
         string Content,
         int ChunkIndex,
         string FileName,
-        string? ContentType,
-        string? CollectionId);
+        string? ContentType);
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {

@@ -60,8 +60,8 @@
                 </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label">Collection ID (Optional)</label>
-                <input type="text" class="form-control" placeholder="default" @bind="collectionId" />
+                <label class="form-label">Container ID (Optional)</label>
+                <input type="text" class="form-control" placeholder="default" @bind="containerId" />
                 <small class="text-muted d-block mt-1">Group related documents</small>
             </div>
         </div>
@@ -153,7 +153,7 @@
 @code {
     private string destinationPath = "uploads";
     private string chunkingStrategy = "Semantic";
-    private string? collectionId;
+    private string? containerId;
     private bool isDragging = false;
     private List<UploadFileInfo> uploadedFiles = new();
     private HubConnection? hubConnection;
@@ -232,8 +232,8 @@
             content.Add(streamContent, "files", file.Name);
             content.Add(new StringContent(destinationPath), "destinationPath");
             content.Add(new StringContent(chunkingStrategy), "strategy");
-            if (!string.IsNullOrWhiteSpace(collectionId))
-                content.Add(new StringContent(collectionId), "collectionId");
+            if (!string.IsNullOrWhiteSpace(containerId))
+                content.Add(new StringContent(containerId), "containerId");
 
             // Upload to API
             var response = await Http.PostAsync("/api/documents", content);
@@ -317,5 +317,5 @@
     }
 
     private record UploadResponse(string? BatchId, List<UploadedDoc> Documents, int TotalCount, int SuccessCount);
-    private record UploadedDoc(string DocumentId, string? JobId, string FileName, long SizeBytes, string VirtualPath, string? Error);
+    private record UploadedDoc(string DocumentId, string? JobId, string FileName, long SizeBytes, string Path, string? Error);
 }

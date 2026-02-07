@@ -111,13 +111,17 @@ public class IngestionPipeline : IKnowledgeIngester
             metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
             metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
 
+            var containerId = !string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
+                ? cId
+                : Guid.Empty;
+
             var documentEntity = new DocumentEntity
             {
                 Id = documentId,
+                ContainerId = containerId,
                 FileName = options.FileName ?? "unknown",
                 ContentType = options.ContentType,
-                CollectionId = options.CollectionId,
-                VirtualPath = virtualPath,
+                Path = virtualPath,
                 ContentHash = contentHash,
                 SizeBytes = workingStream.Length,
                 Status = "Processing",
@@ -165,6 +169,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     Id = chunkId,
                     DocumentId = documentId,
+                    ContainerId = containerId,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
                     TokenCount = chunkInfo.TokenCount,
@@ -179,6 +184,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 var chunkMetadata = new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["documentId"] = documentId.ToString(),
+                    ["containerId"] = containerId.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
                 };

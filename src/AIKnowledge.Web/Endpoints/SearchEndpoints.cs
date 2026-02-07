@@ -15,7 +15,7 @@ public static class SearchEndpoints
             [FromQuery] string q,
             [FromQuery] string? mode,
             [FromQuery] int? topK,
-            [FromQuery] string? collectionId,
+            [FromQuery] string? containerId,
             [FromServices] IKnowledgeSearch searchService,
             CancellationToken ct) =>
         {
@@ -29,7 +29,7 @@ public static class SearchEndpoints
             var options = new SearchOptions(
                 Mode: searchMode,
                 TopK: topK ?? 10,
-                CollectionId: collectionId);
+                ContainerId: containerId);
 
             var results = await searchService.SearchAsync(q, options, ct);
             return Results.Ok(results);
@@ -49,7 +49,7 @@ public static class SearchEndpoints
             var options = new SearchOptions(
                 Mode: request.Mode ?? SearchMode.Hybrid,
                 TopK: request.TopK ?? 10,
-                CollectionId: request.CollectionId,
+                ContainerId: request.ContainerId,
                 Filters: request.Filters);
 
             var results = await searchService.SearchAsync(request.Query, options, ct);
@@ -67,5 +67,5 @@ public record SearchRequest(
     string Query,
     SearchMode? Mode = null,
     int? TopK = null,
-    string? CollectionId = null,
+    string? ContainerId = null,
     Dictionary<string, string>? Filters = null);

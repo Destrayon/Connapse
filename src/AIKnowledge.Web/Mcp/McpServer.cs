@@ -50,22 +50,22 @@ public class McpServer
                             Type: "number",
                             Description: "Number of results to return",
                             Default: 10),
-                        ["collectionId"] = new McpToolProperty(
+                        ["containerId"] = new McpToolProperty(
                             Type: "string",
-                            Description: "Optional: Filter results to a specific collection")
+                            Description: "Optional: Filter results to a specific container")
                     },
                     Required: new List<string> { "query" })),
 
             new McpTool(
                 Name: "list_documents",
-                Description: "List all documents in the knowledge base. Optionally filter by collection ID.",
+                Description: "List all documents in the knowledge base. Optionally filter by container ID.",
                 InputSchema: new McpToolInputSchema(
                     Type: "object",
                     Properties: new Dictionary<string, McpToolProperty>
                     {
-                        ["collectionId"] = new McpToolProperty(
+                        ["containerId"] = new McpToolProperty(
                             Type: "string",
-                            Description: "Optional: Filter documents by collection ID")
+                            Description: "Optional: Filter documents by container ID")
                     })),
 
             new McpTool(
@@ -84,9 +84,9 @@ public class McpServer
                         ["fileName"] = new McpToolProperty(
                             Type: "string",
                             Description: "Original file name with extension"),
-                        ["collectionId"] = new McpToolProperty(
+                        ["containerId"] = new McpToolProperty(
                             Type: "string",
-                            Description: "Optional: Collection ID to organize related documents"),
+                            Description: "Optional: Container ID to organize related documents"),
                         ["strategy"] = new McpToolProperty(
                             Type: "string",
                             Description: "Chunking strategy",
@@ -143,12 +143,12 @@ public class McpServer
             ? parsedMode
             : SearchMode.Hybrid;
         var topK = args.TryGetValue("topK", out var topKObj) ? Convert.ToInt32(topKObj) : 10;
-        var collectionId = args.TryGetValue("collectionId", out var collObj) ? collObj.ToString() : null;
+        var containerId = args.TryGetValue("containerId", out var contObj) ? contObj.ToString() : null;
 
         var options = new SearchOptions(
             Mode: mode,
             TopK: topK,
-            CollectionId: collectionId);
+            ContainerId: containerId);
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var searchService = scope.ServiceProvider.GetRequiredService<IKnowledgeSearch>();
@@ -176,11 +176,20 @@ public class McpServer
 
     private async Task<McpToolResult> ExecuteListDocumentsAsync(Dictionary<string, object>? args, CancellationToken ct)
     {
-        var collectionId = args?.TryGetValue("collectionId", out var collObj) == true ? collObj.ToString() : null;
+        var containerId = args?.TryGetValue("containerId", out var contObj) == true ? contObj.ToString() : null;
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-        var documents = await documentStore.ListAsync(collectionId, ct);
+
+        IReadOnlyList<Document> documents;
+        if (!string.IsNullOrEmpty(containerId) && Guid.TryParse(containerId, out var cId))
+        {
+            documents = await documentStore.ListAsync(cId, ct: ct);
+        }
+        else
+        {
+            documents = [];
+        }
 
         var resultText = $"Found {documents.Count} documents:\n\n";
 
@@ -190,8 +199,8 @@ public class McpServer
             resultText += $"File: {doc.FileName}\n";
             resultText += $"Size: {doc.SizeBytes:N0} bytes\n";
             resultText += $"Created: {doc.CreatedAt:yyyy-MM-dd HH:mm:ss}\n";
-            if (!string.IsNullOrEmpty(doc.CollectionId))
-                resultText += $"Collection: {doc.CollectionId}\n";
+            if (!string.IsNullOrEmpty(doc.ContainerId))
+                resultText += $"Container: {doc.ContainerId}\n";
             resultText += "\n";
         }
 
@@ -229,7 +238,7 @@ public class McpServer
         var virtualPath = pathObj.ToString()!;
         var base64Content = contentObj.ToString()!;
         var fileName = fileNameObj.ToString()!;
-        var collectionId = args.TryGetValue("collectionId", out var collObj) ? collObj.ToString() : null;
+        var containerId = args.TryGetValue("containerId", out var contObj) ? contObj.ToString() : null;
         var strategyStr = args.TryGetValue("strategy", out var stratObj) ? stratObj.ToString() : "Semantic";
 
         if (!Enum.TryParse<ChunkingStrategy>(strategyStr, out var strategy))
@@ -262,12 +271,12 @@ public class McpServer
         var job = new IngestionJob(
             JobId: jobId,
             DocumentId: documentId,
-            VirtualPath: virtualPath,
+            Path: virtualPath,
             Options: new IngestionOptions(
                 DocumentId: documentId,
                 FileName: fileName,
                 ContentType: null,
-                CollectionId: collectionId,
+                ContainerId: containerId,
                 Strategy: strategy,
                 Metadata: new Dictionary<string, string>
                 {

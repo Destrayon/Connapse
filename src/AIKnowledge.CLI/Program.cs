@@ -30,13 +30,13 @@ if (args.Length == 0)
     Console.WriteLine("Usage: aikp <command> [options]");
     Console.WriteLine();
     Console.WriteLine("Commands:");
-    Console.WriteLine("  ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]");
+    Console.WriteLine("  ingest <path> [--container <id>] [--strategy <name>] [--destination <path>]");
     Console.WriteLine("      Add file or folder to knowledge base");
     Console.WriteLine();
-    Console.WriteLine("  search \"<query>\" [--mode <mode>] [--top <n>] [--collection <id>]");
+    Console.WriteLine("  search \"<query>\" [--mode <mode>] [--top <n>] [--container <id>]");
     Console.WriteLine("      Search knowledge base");
     Console.WriteLine();
-    Console.WriteLine("  reindex [--collection <id>] [--force] [--no-detect-changes]");
+    Console.WriteLine("  reindex [--container <id>] [--force] [--no-detect-changes]");
     Console.WriteLine("      Trigger reindexing of documents");
     Console.WriteLine("      --force                Skip content-hash comparison, reindex all");
     Console.WriteLine("      --no-detect-changes    Don't detect chunking/embedding settings changes");
@@ -64,12 +64,12 @@ static async Task<int> HandleIngest(string[] args, HttpClient httpClient)
 {
     if (args.Length < 2)
     {
-        Console.WriteLine("Usage: aikp ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]");
+        Console.WriteLine("Usage: aikp ingest <path> [--container <id>] [--strategy <name>] [--destination <path>]");
         return 1;
     }
 
     var path = args[1];
-    var collection = GetOption(args, "--collection");
+    var container = GetOption(args, "--container");
     var strategy = GetOption(args, "--strategy") ?? "Semantic";
     var destination = GetOption(args, "--destination") ?? "uploads";
 
@@ -104,8 +104,8 @@ static async Task<int> HandleIngest(string[] args, HttpClient httpClient)
             content.Add(streamContent, "files", Path.GetFileName(file));
             content.Add(new StringContent(destination), "destinationPath");
             content.Add(new StringContent(strategy), "strategy");
-            if (!string.IsNullOrWhiteSpace(collection))
-                content.Add(new StringContent(collection), "collectionId");
+            if (!string.IsNullOrWhiteSpace(container))
+                content.Add(new StringContent(container), "containerId");
 
             var response = await httpClient.PostAsync("/api/documents", content);
             response.EnsureSuccessStatusCode();
@@ -135,24 +135,24 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient)
 {
     if (args.Length < 2)
     {
-        Console.WriteLine("Usage: aikp search \"<query>\" [--mode <mode>] [--top <n>] [--collection <id>]");
+        Console.WriteLine("Usage: aikp search \"<query>\" [--mode <mode>] [--top <n>] [--container <id>]");
         return 1;
     }
 
     var query = args[1];
     var mode = GetOption(args, "--mode") ?? "Hybrid";
     var topK = int.Parse(GetOption(args, "--top") ?? "10");
-    var collection = GetOption(args, "--collection");
+    var container = GetOption(args, "--container");
 
     Console.WriteLine($"Searching for: \"{query}\"");
     Console.WriteLine($"Mode: {mode} | Top: {topK}");
-    if (!string.IsNullOrWhiteSpace(collection))
-        Console.WriteLine($"Collection: {collection}");
+    if (!string.IsNullOrWhiteSpace(container))
+        Console.WriteLine($"Container: {container}");
     Console.WriteLine();
 
     var url = $"/api/search?q={Uri.EscapeDataString(query)}&mode={mode}&topK={topK}";
-    if (!string.IsNullOrWhiteSpace(collection))
-        url += $"&collectionId={Uri.EscapeDataString(collection)}";
+    if (!string.IsNullOrWhiteSpace(container))
+        url += $"&containerId={Uri.EscapeDataString(container)}";
 
     var response = await httpClient.GetAsync(url);
     response.EnsureSuccessStatusCode();
@@ -222,20 +222,20 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient)
 
 static async Task<int> HandleReindex(string[] args, HttpClient httpClient)
 {
-    var collection = GetOption(args, "--collection");
+    var container = GetOption(args, "--container");
     var force = HasFlag(args, "--force");
     var detectChanges = !HasFlag(args, "--no-detect-changes");
 
     Console.WriteLine("Triggering reindex...");
-    if (!string.IsNullOrWhiteSpace(collection))
-        Console.WriteLine($"Collection: {collection}");
+    if (!string.IsNullOrWhiteSpace(container))
+        Console.WriteLine($"Container: {container}");
     if (force)
         Console.WriteLine("Mode: Force (ignoring content hashes)");
     if (!detectChanges)
         Console.WriteLine("Settings change detection: disabled");
     Console.WriteLine();
 
-    var request = new { collectionId = collection, force, detectSettingsChanges = detectChanges };
+    var request = new { containerId = container, force, detectSettingsChanges = detectChanges };
     var json = JsonSerializer.Serialize(request);
     var content = new StringContent(json, Encoding.UTF8, "application/json");
 

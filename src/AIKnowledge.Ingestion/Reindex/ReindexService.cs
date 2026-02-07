@@ -41,8 +41,8 @@ public class ReindexService : IReindexService
     public async Task<ReindexResult> ReindexAsync(ReindexOptions options, CancellationToken ct = default)
     {
         _logger.LogInformation(
-            "Starting reindex operation: CollectionId={CollectionId}, Force={Force}, DetectSettingsChanges={DetectSettingsChanges}",
-            options.CollectionId,
+            "Starting reindex operation: ContainerId={ContainerId}, Force={Force}, DetectSettingsChanges={DetectSettingsChanges}",
+            options.ContainerId,
             options.Force,
             options.DetectSettingsChanges);
 
@@ -124,7 +124,7 @@ public class ReindexService : IReindexService
         }
 
         // Check if file exists
-        if (!await _fileSystem.ExistsAsync(doc.VirtualPath, ct))
+        if (!await _fileSystem.ExistsAsync(doc.Path, ct))
         {
             return new ReindexCheck(
                 documentId,
@@ -138,7 +138,7 @@ public class ReindexService : IReindexService
         string currentHash;
         try
         {
-            using var stream = await _fileSystem.OpenFileAsync(doc.VirtualPath, ct);
+            using var stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
             currentHash = await ComputeContentHashAsync(stream, ct);
         }
         catch (Exception ex)
@@ -217,9 +217,9 @@ public class ReindexService : IReindexService
         var query = _context.Documents.AsNoTracking().AsQueryable();
 
         // Filter by collection if specified
-        if (!string.IsNullOrEmpty(options.CollectionId))
+        if (!string.IsNullOrEmpty(options.ContainerId))
         {
-            query = query.Where(d => d.CollectionId == options.CollectionId);
+            query = query.Where(d => d.ContainerId.ToString() == options.ContainerId);
         }
 
         // Filter by specific document IDs if specified
@@ -251,12 +251,12 @@ public class ReindexService : IReindexService
             }
 
             // Check if file exists
-            if (!await _fileSystem.ExistsAsync(doc.VirtualPath, ct))
+            if (!await _fileSystem.ExistsAsync(doc.Path, ct))
             {
                 _logger.LogWarning(
-                    "Document {DocumentId} file not found at {VirtualPath}",
+                    "Document {DocumentId} file not found at {Path}",
                     doc.Id,
-                    doc.VirtualPath);
+                    doc.Path);
 
                 return new ReindexDocumentResult(
                     doc.Id.ToString(),
@@ -269,7 +269,7 @@ public class ReindexService : IReindexService
             string currentHash;
             try
             {
-                using var stream = await _fileSystem.OpenFileAsync(doc.VirtualPath, ct);
+                using var stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
                 currentHash = await ComputeContentHashAsync(stream, ct);
             }
             catch (Exception ex)
@@ -405,12 +405,12 @@ public class ReindexService : IReindexService
         var job = new IngestionJob(
             JobId: Guid.NewGuid().ToString(),
             DocumentId: doc.Id.ToString(),
-            VirtualPath: doc.VirtualPath,
+            Path: doc.Path,
             Options: new IngestionOptions(
                 DocumentId: doc.Id.ToString(),
                 FileName: doc.FileName,
                 ContentType: doc.ContentType,
-                CollectionId: doc.CollectionId,
+                ContainerId: doc.ContainerId.ToString(),
                 Strategy: strategy,
                 Metadata: doc.Metadata),
             BatchId: batchId);

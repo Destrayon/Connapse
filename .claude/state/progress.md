@@ -19,9 +19,13 @@ Current status and recent work. Update at end of each session. For detailed impl
 - ✅ Testing (72 unit tests + 14 integration tests, all passing)
 
 ### Feature #2: Container-Based File Browser
-**Status**: 📋 **PLANNED** — Architecture designed, ready for implementation
+**Status**: 🚧 **IN PROGRESS** — Phases 1-2 complete (schema + core services)
 
-See detailed plan below.
+- ✅ Phase 1: Database schema migration (containers, folders, container_id on docs/chunks/vectors)
+- ✅ Phase 2: Core services (IContainerStore, IFolderStore, PathUtilities, updated all stores/search/ingestion)
+- All 10 projects build with 0 errors, 0 warnings
+- Old migration deleted; fresh migration needed on next startup
+- See detailed plan below for remaining phases (3-9).
 
 ---
 
@@ -176,21 +180,28 @@ search_knowledge     Search within container (updated to require containerId)
 
 ### Implementation Phases
 
-#### Phase 1: Database Schema Migration
-- [ ] Create `containers` table
-- [ ] Add `container_id` to `documents` table (required)
-- [ ] Add `container_id` to `chunks` table (denormalized)
-- [ ] Create `folders` table (for empty folders)
-- [ ] Remove `CollectionId` from documents
-- [ ] EF Core migration
+#### Phase 1: Database Schema Migration ✅
+- [x] Create `containers` table (ContainerEntity, unique name index)
+- [x] Add `container_id` to `documents` table (required FK, cascade delete)
+- [x] Add `container_id` to `chunks` table (denormalized, indexed)
+- [x] Add `container_id` to `chunk_vectors` table (denormalized, indexed)
+- [x] Create `folders` table (FolderEntity, unique container+path index)
+- [x] Remove `CollectionId` from documents (replaced with `ContainerId` Guid)
+- [x] Rename `VirtualPath` → `Path` on DocumentEntity
+- [x] Delete old migration files (fresh InitialCreate on next startup)
 
-#### Phase 2: Core Services
-- [ ] `IContainerStore` interface + `PostgresContainerStore`
-- [ ] Update `IDocumentStore` to require container context
-- [ ] Update `IVectorStore` to filter by container
-- [ ] Update `IKnowledgeSearch` to require container
-- [ ] Folder service for empty folder management
-- [ ] Path normalization + duplicate naming utilities
+#### Phase 2: Core Services ✅
+- [x] `IContainerStore` interface + `PostgresContainerStore` (CRUD, name validation, document count)
+- [x] `IFolderStore` interface + `PostgresFolderStore` (create, list, delete with cascade)
+- [x] `PathUtilities` (path normalization, container name validation, duplicate naming)
+- [x] Update `IDocumentStore` / `PostgresDocumentStore` (ContainerId, ExistsByPathAsync)
+- [x] Update `PgVectorStore` (container_id column, containerId metadata filter)
+- [x] Update `VectorSearchService`, `KeywordSearchService`, `HybridSearchService`
+- [x] Update `IngestionPipeline` (sets ContainerId on document/chunk entities + vector metadata)
+- [x] Update `ReindexService` (ContainerId filtering)
+- [x] Update DI registration (IContainerStore, IFolderStore)
+- [x] Compilation fixes across all consumers (endpoints, CLI, MCP, Blazor Upload page)
+- [x] IngestionJob record: `VirtualPath` → `Path`
 
 #### Phase 3: API Endpoints
 - [ ] Container CRUD endpoints
@@ -249,6 +260,43 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Recent Sessions
+
+### 2026-02-06 (Session 4) — Feature #2 Phases 1-2 Implementation
+
+**Status**: Phases 1-2 complete ✅
+
+**What Changed**:
+Schema migration (Phase 1):
+- Created `ContainerEntity` and `FolderEntity` entities
+- Added `ContainerId` (Guid, required) to DocumentEntity, ChunkEntity, ChunkVectorEntity
+- Renamed `VirtualPath` → `Path` on DocumentEntity
+- Configured all EF Core mappings: FKs, cascade deletes, unique indexes
+- Deleted old migration (clean regeneration needed)
+
+Core services (Phase 2):
+- Created `IContainerStore` + `PostgresContainerStore` (CRUD with name validation)
+- Created `IFolderStore` + `PostgresFolderStore` (cascade delete of nested docs/subfolders)
+- Created `PathUtilities` (container name regex, path normalization, duplicate naming)
+- Updated `PostgresDocumentStore`, `PgVectorStore`, `VectorSearchService`, `KeywordSearchService`
+- Updated `IngestionPipeline` and `ReindexService`
+- Updated `IngestionJob.VirtualPath` → `.Path`
+- Fixed all consumer code: DocumentsEndpoints, SearchEndpoints, McpServer, CLI, Upload.razor
+
+**Files Created** (7):
+1. `src/AIKnowledge.Storage/Data/Entities/ContainerEntity.cs`
+2. `src/AIKnowledge.Storage/Data/Entities/FolderEntity.cs`
+3. `src/AIKnowledge.Core/Interfaces/IContainerStore.cs`
+4. `src/AIKnowledge.Core/Interfaces/IFolderStore.cs`
+5. `src/AIKnowledge.Storage/Containers/PostgresContainerStore.cs`
+6. `src/AIKnowledge.Storage/Folders/PostgresFolderStore.cs`
+7. `src/AIKnowledge.Core/Utilities/PathUtilities.cs`
+
+**Files Modified** (~20):
+Entities, KnowledgeDbContext, core models, interfaces, stores, search services, ingestion, endpoints, CLI, MCP, Blazor
+
+**Build**: 0 errors, 0 warnings across all 10 projects
+
+**Next**: Phase 3 (container-scoped API endpoints)
 
 ### 2026-02-05 (Session 2) — Integration Test Fixes (11/14 Passing)
 
