@@ -72,14 +72,14 @@ The database schema is created automatically on first startup via EF Core migrat
 
 7. **Access the application**:
 
-- **Web UI**: http://localhost:5001
+- **Web UI**: http://localhost:5001 (shows the container list on the home page)
 - **MinIO Console**: http://localhost:9001 (login: `aikp_admin` / your password)
 - **Ollama API**: http://localhost:11434
 
 ### Verify Installation
 
-1. Open http://localhost:5001
-2. Go to **Settings** → **Connection Testing**
+1. Open http://localhost:5001 — the home page displays the container list
+2. Go to **Settings**
 3. Click "Test Connection" for PostgreSQL, MinIO, and Ollama
 4. All tests should show ✅ Success
 
@@ -769,9 +769,11 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Chunking__Overlap` | Overlap tokens between chunks | `50` |
 | `Knowledge__Search__Mode` | Default search mode | `Hybrid` |
 | `Knowledge__Search__TopK` | Default result count | `10` |
-| `Knowledge__Search__MinScore` | Minimum similarity score | `0.7` |
+| `Knowledge__Search__MinimumScore` | Minimum similarity score | `0.5` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
+
+> **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 
 ### appsettings.json Structure
 
@@ -805,7 +807,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     "Search": {
       "Mode": "Hybrid",
       "TopK": 10,
-      "MinScore": 0.7,
+      "MinimumScore": 0.5,
       "RerankerStrategy": "RRF",
       "RrfK": 60
     },
@@ -817,13 +819,14 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "MaxTokens": 2048
     },
     "Storage": {
-      "MinIO": {
-        "Endpoint": "minio:9000",
-        "AccessKey": "aikp_dev",
-        "SecretKey": "aikp_dev_secret",
-        "UseSSL": false,
-        "BucketName": "knowledge-files"
-      }
+      "VectorStoreProvider": "PgVector",
+      "DocumentStoreProvider": "Postgres",
+      "FileStorageProvider": "MinIO",
+      "MinioEndpoint": "minio:9000",
+      "MinioAccessKey": "aikp_dev",
+      "MinioSecretKey": "aikp_dev_secret",
+      "MinioUseSSL": false,
+      "MinioBucketName": "aikp-files"
     },
     "Upload": {
       "MaxFileSizeBytes": 104857600,

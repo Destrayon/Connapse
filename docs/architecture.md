@@ -13,7 +13,8 @@ AIKnowledgePlatform is a .NET 10 Blazor WebApp that transforms uploaded document
 │              AIKnowledge.Web                         │
 │  ┌────────────────┐      ┌──────────────────┐      │
 │  │ Blazor Pages   │      │  API Endpoints   │      │
-│  │  - Upload      │      │  - Documents     │      │
+│  │  - Containers  │      │  - Containers    │      │
+│  │  - File Browser│      │  - Files/Folders │      │
 │  │  - Search      │      │  - Search        │      │
 │  │  - Settings    │      │  - Settings      │      │
 │  └────────┬───────┘      └────────┬─────────┘      │
@@ -46,9 +47,11 @@ AIKnowledgePlatform is a .NET 10 Blazor WebApp that transforms uploaded document
 │  │  PostgreSQL  │  │    MinIO     │  │  Ollama   │ │
 │  │  + pgvector  │  │  (S3 API)    │  │ (optional)│ │
 │  │              │  │              │  │           │ │
-│  │ - documents  │  │ - original   │  │ - embed   │ │
-│  │ - chunks     │  │   files      │  │ - llm     │ │
+│  │ - containers │  │ - original   │  │ - embed   │ │
+│  │ - documents  │  │   files      │  │ - llm     │ │
+│  │ - chunks     │  │              │  │           │ │
 │  │ - vectors    │  │              │  │           │ │
+│  │ - folders    │  │              │  │           │ │
 │  │ - FTS index  │  │              │  │           │ │
 │  │ - settings   │  │              │  │           │ │
 │  └──────────────┘  └──────────────┘  └───────────┘ │
@@ -65,7 +68,7 @@ src/
 ├── AIKnowledge.Search/       # Vector search, keyword search, hybrid fusion
 ├── AIKnowledge.Storage/      # Database, vector store, object storage, settings
 ├── AIKnowledge.Agents/       # (Planned) Agent orchestration, tools, memory
-└── AIKnowledge.CLI/          # (Planned) Command-line interface
+└── AIKnowledge.CLI/          # Command-line interface (container mgmt, upload, search, reindex)
 
 tests/
 ├── AIKnowledge.Core.Tests/           # Unit tests (parsers, chunkers, RRF)
@@ -107,9 +110,13 @@ All swappable implementations are defined as interfaces in `AIKnowledge.Core`:
 |-----------|---------|----------------|
 | `IKnowledgeIngester` | Document ingestion pipeline | `IngestionPipeline` |
 | `IKnowledgeSearch` | Query → ranked results | `HybridSearchService` |
-| `IEmbeddingProvider` | Text → vector | `OllamaEmbeddingProvider` |
+| `IContainerStore` | Container CRUD (isolated vector indexes) | `PostgresContainerStore` |
+| `IFolderStore` | Folder management within containers | `PostgresFolderStore` |
+| `IDocumentStore` | Document metadata CRUD (container-scoped) | `PostgresDocumentStore` |
 | `IVectorStore` | Vector storage + similarity search | `PgVectorStore` |
-| `IDocumentStore` | Document metadata CRUD | `PostgresDocumentStore` |
+| `IEmbeddingProvider` | Text → vector | `OllamaEmbeddingProvider` |
+| `IIngestionQueue` | Background ingestion job queue + cancellation | `IngestionQueue` |
+| `IReindexService` | Content-hash dedup reindexing | `ReindexService` |
 | `IDocumentParser` | File → ParsedDocument | `TextParser`, `PdfParser`, `OfficeParser` |
 | `IChunkingStrategy` | ParsedDocument → Chunks | `SemanticChunker`, `FixedSizeChunker`, `RecursiveChunker` |
 | `ISearchReranker` | Result fusion + reranking | `RrfReranker`, `CrossEncoderReranker` |
@@ -121,26 +128,31 @@ All swappable implementations are defined as interfaces in `AIKnowledge.Core`:
 All domain types live in the `AIKnowledge.Core` namespace (files in `Models/` folder):
 
 ```csharp
+// Containers & Storage
+record Container(string Id, string Name, string? Description, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
+record CreateContainerRequest(string Name, string? Description);
+record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
+record Document(string Id, string ContainerId, string FileName, string? ContentType, string Path,
+    long SizeBytes, DateTime CreatedAt, Dictionary<string, string> Metadata);
+
 // Ingestion
-record IngestionOptions(string? DocumentId, string? FileName, string? ContentType, ...);
+record IngestionOptions(string? DocumentId, string? FileName, string? ContentType,
+    string? ContainerId, string? Path, ChunkingStrategy Strategy, Dictionary<string, string>? Metadata);
 record IngestionResult(string DocumentId, int ChunkCount, TimeSpan Duration, ...);
 record IngestionProgress(IngestionPhase Phase, double PercentComplete, string? Message);
-record ParsedDocument(string Content, Dictionary<string, string> Metadata, List<string> Warnings);
-record ChunkInfo(string Content, int ChunkIndex, int TokenCount, ...);
+record IngestionJob(string JobId, string DocumentId, string ContainerId, string FileName,
+    string StoragePath, string Path, IngestionOptions Options);
 
 // Search
-record SearchOptions(int TopK, float MinScore, SearchMode Mode, ...);
+record SearchOptions(int TopK = 10, float MinScore = 0.0f, string? ContainerId = null,
+    SearchMode Mode = SearchMode.Hybrid, Dictionary<string, string>? Filters = null);
 record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
 record SearchHit(string ChunkId, string DocumentId, string Content, float Score, ...);
-
-// Storage
-record Document(Guid Id, string FileName, string ContentType, long FileSize, ...);
-record Chunk(Guid Id, Guid DocumentId, string Content, int ChunkIndex, ...);
 
 // Settings (7 categories)
 record EmbeddingSettings(string Provider, string BaseUrl, string Model, int Dimensions, ...);
 record ChunkingSettings(string Strategy, int MaxTokens, int Overlap, ...);
-record SearchSettings(string Mode, int TopK, float MinScore, string RerankerStrategy, ...);
+record SearchSettings(string Mode, int TopK, float MinimumScore, string RerankerStrategy, ...);
 record LlmSettings(string Provider, string BaseUrl, string Model, ...);
 record StorageSettings(string MinioEndpoint, string MinioAccessKey, ...);
 record UploadSettings(long MaxFileSizeBytes, List<string> AllowedExtensions, ...);
@@ -152,34 +164,35 @@ record WebSearchSettings(string Provider, string ApiKey, ...);
 ### Upload → Ingestion → Search Flow
 
 ```
-1. User uploads file(s) via UI or API
+1. User uploads file(s) via File Browser UI, API, CLI, or MCP
    ↓
-2. POST /api/documents
+2. POST /api/containers/{containerId}/files
    - Validates file type + size
    - Generates DocumentId (GUID)
    - Streams file to MinIO (original storage)
-   - Creates Document record in Postgres (status: Pending)
-   - Enqueues IngestionJob (Channel<T> queue)
+   - Creates Document record in Postgres (status: Pending, container-scoped)
+   - Enqueues IngestionJob (Channel<T> queue) with ContainerId + Path
    ↓
 3. Background IngestionWorker (IHostedService)
-   - Dequeues job (4 concurrent workers)
+   - Dequeues job (4 concurrent workers, per-job CancellationToken)
    - Fetches file from MinIO
    - Calls IngestionPipeline.IngestAsync()
      ↓
      3a. Parse: IDocumentParser → ParsedDocument
      3b. Chunk: IChunkingStrategy → List<ChunkInfo>
      3c. Embed: IEmbeddingProvider → float[][]
-     3d. Store: IVectorStore + IDocumentStore
+     3d. Store: IVectorStore + IDocumentStore (upsert — updates on reindex)
    - Broadcasts progress via SignalR (IngestionProgressBroadcaster)
    - Updates Document status (Ready | Failed)
    ↓
 4. Search becomes available immediately
-   - User queries via UI or API
-   - GET /api/search?q=query&mode=Hybrid&topK=10
+   - User queries via UI, API, CLI, or MCP
+   - GET /api/containers/{containerId}/search?q=query&mode=Hybrid&topK=10&minScore=0.5
      ↓
-     4a. HybridSearchService runs Vector + Keyword in parallel
+     4a. HybridSearchService runs Vector + Keyword in parallel (separate DbContext scopes)
      4b. RrfReranker fuses results (Reciprocal Rank Fusion)
      4c. Optional: CrossEncoderReranker rescores top results
+     4d. Filter by minScore threshold (default 0.5 from SearchSettings.MinimumScore)
    - Returns ranked SearchHits with chunk content + metadata
 ```
 
@@ -210,30 +223,48 @@ Settings are layered with increasing priority:
 ### PostgreSQL + pgvector Schema
 
 ```sql
--- Core tables
-documents (id, file_name, content_type, file_size, content_hash, storage_path,
-           collection_id, created_at, updated_at)
+-- Container isolation
+containers (id, name, description, created_at, updated_at)
+-- Unique index on name
 
-chunks (id, document_id, content, chunk_index, token_count,
-        start_offset, end_offset, metadata, created_at)
--- FTS: tsvector column + GIN index for keyword search
+-- Documents (container-scoped)
+documents (id, container_id, path, file_name, content_hash, size_bytes,
+           mime_type, status, error_message, metadata, created_at, updated_at)
+-- FK: container_id → containers (CASCADE DELETE)
 
-chunk_vectors (chunk_id, embedding, model_id, dimensions)
--- pgvector: embedding vector(1536) with cosine distance index
+-- Chunks (denormalized container_id for query performance)
+chunks (id, document_id, container_id, content, chunk_index,
+        search_vector, metadata, created_at)
+-- FK: document_id → documents (CASCADE DELETE)
+-- FTS: search_vector tsvector column + GIN index
 
-settings (category, data, updated_at)
+-- Chunk vectors (denormalized container_id)
+chunk_vectors (id, chunk_id, container_id, embedding, model_id, metadata)
+-- FK: chunk_id → chunks (CASCADE DELETE)
+-- pgvector: embedding vector(dimensions) with cosine distance index
+
+-- Folders (for empty folder support)
+folders (id, container_id, path, created_at)
+-- FK: container_id → containers (CASCADE DELETE)
+-- Unique index on (container_id, path)
+
+-- Settings (runtime-mutable, JSONB per category)
+settings (category, values, updated_at)
 -- JSONB per category (embedding, chunking, search, llm, storage, upload, websearch)
-
--- Reindexing
-batches (id, status, total_documents, completed_documents,
-         created_at, started_at, completed_at)
 ```
 
 **Indexes**:
+- `containers.name` (unique B-tree) — name lookups
+- `documents.container_id` (B-tree) — container-scoped queries
 - `documents.content_hash` (B-tree) — deduplication on reindex
+- `documents.(container_id, path)` (unique B-tree) — path uniqueness within container
 - `chunks.document_id` (B-tree) — cascade delete, chunk retrieval
-- `chunks.content_tsvector` (GIN) — full-text search
-- `chunk_vectors.embedding` (IVFFLAT/HNSW) — vector similarity search
+- `chunks.container_id` (B-tree) — container-scoped search
+- `chunks.search_vector` (GIN) — full-text search
+- `chunk_vectors.chunk_id` (B-tree) — cascade delete
+- `chunk_vectors.container_id` (B-tree) — container-scoped vector search
+- `chunk_vectors.embedding` (HNSW) — vector similarity search
+- `folders.(container_id, path)` (unique B-tree) — folder path uniqueness
 
 **pgvector Operator**: `<=>` (cosine distance). Converted to similarity: `1 - distance`.
 
@@ -244,7 +275,7 @@ batches (id, status, total_documents, completed_documents,
 **Structure**:
 ```
 Bucket: knowledge-files
-├── documents/{documentId}/original.{ext}
+├── {containerId}/{documentId}/original.{ext}
 └── (future) thumbnails/{documentId}/preview.png
 ```
 
@@ -291,9 +322,10 @@ Bucket: knowledge-files
 ### Vector Storage (IVectorStore)
 
 **Current Implementation**: `PgVectorStore`
-- Uses raw SQL with parameterized queries (EF Core doesn't support `<=>` operator)
+- Uses raw SQL with named `NpgsqlParameter` objects (EF Core doesn't support `<=>` operator)
+- **Critical**: Must use named parameters (not positional `{N}`) with pgvector `Vector` type — positional params silently fail
 - Cosine distance metric
-- Filters: `documentId`, `collectionId`, `metadata` key-value pairs
+- Filters: `containerId` (required), `documentId`, `metadata` key-value pairs
 - Batch deletion: `DeleteByDocumentIdAsync` for reindexing
 
 **Query Example**:
@@ -319,22 +351,23 @@ LIMIT @top_k;
 ### Hybrid Search Flow
 
 ```
-User Query: "How to configure embeddings?"
+User Query: "How to configure embeddings?" (container: my-project)
 │
-├─ VectorSearchService
+├─ VectorSearchService (separate DbContext scope)
 │  └─ Embed query → float[]
-│  └─ PgVectorStore.SearchAsync(vector, topK=20)
-│  └─ Returns 20 results ranked by cosine similarity
+│  └─ PgVectorStore.SearchAsync(vector, containerId, topK=20)
+│  └─ Returns 20 results ranked by cosine similarity (filtered by container)
 │
-├─ KeywordSearchService
+├─ KeywordSearchService (separate DbContext scope)
 │  └─ Build tsquery: "configure & embedding"
-│  └─ Query chunks.content_tsvector (GIN index)
+│  └─ Query chunks.search_vector WHERE container_id = @id (GIN index)
 │  └─ Returns 20 results ranked by ts_rank
 │
 └─ RrfReranker (Reciprocal Rank Fusion)
    └─ Combine both result sets
    └─ Score = Σ(1 / (k + rank)) for k=60
    └─ Deduplicate by chunk_id
+   └─ Filter by MinimumScore threshold (default 0.5)
    └─ Return top 10 fused results
 
 (Optional) CrossEncoderReranker
@@ -386,6 +419,11 @@ where k=60, rank_i is the rank in result set i
 **Worker**: `IngestionWorker : BackgroundService`
 - Processes 4 concurrent jobs (configurable via `UploadSettings.ConcurrentIngestions`)
 - Each job: fetch from MinIO → ingest → broadcast progress → update status
+- Per-job `CancellationTokenSource` linked to application shutdown token
+
+**Job Cancellation**: `IIngestionQueue.CancelJobForDocumentAsync(documentId)` cancels in-progress jobs (used when deleting a file that's still being ingested).
+
+**Upsert Logic**: `IngestionPipeline` checks `FindAsync` before insert — updates existing document during reindex, creates new otherwise.
 
 **Backpressure**: If queue full, upload endpoint returns 429 Too Many Requests.
 
@@ -410,7 +448,7 @@ The same core services power multiple interfaces:
 | **Blazor UI** | Interactive Server | End users, settings management |
 | **REST API** | Minimal API | Programmatic access, integrations |
 | **MCP Server** | Model Context Protocol | AI agents (Claude Desktop, etc.) |
-| **CLI** | (Planned) .NET CLI tool | Automation, CI/CD, scripting |
+| **CLI** | .NET CLI tool (`aikp`) | Automation, CI/CD, scripting |
 
 All surfaces call the same domain services (`IKnowledgeIngester`, `IKnowledgeSearch`, etc.) — no duplication.
 
@@ -439,12 +477,16 @@ All services registered in `Program.cs` with appropriate lifetimes:
 // Scoped (per-request)
 builder.Services.AddScoped<IKnowledgeIngester, IngestionPipeline>();
 builder.Services.AddScoped<IKnowledgeSearch, HybridSearchService>();
+builder.Services.AddScoped<IContainerStore, PostgresContainerStore>();
+builder.Services.AddScoped<IFolderStore, PostgresFolderStore>();
 builder.Services.AddScoped<IDocumentStore, PostgresDocumentStore>();
 builder.Services.AddScoped<IVectorStore, PgVectorStore>();
+builder.Services.AddScoped<IReindexService, ReindexService>();
 
 // Singleton (shared state)
 builder.Services.AddSingleton<IIngestionQueue, IngestionQueue>();
 builder.Services.AddSingleton<IngestionProgressBroadcaster>();
+builder.Services.AddSingleton<ISettingsReloader, SettingsReloader>();
 
 // Hosted (background workers)
 builder.Services.AddHostedService<IngestionWorker>();
@@ -561,7 +603,10 @@ public class HybridSearchService
 
 ### Multi-Tenancy
 
-- **Tenant isolation**: Add `tenant_id` to all tables, row-level security
+**Current**: Container-based isolation provides project-level separation. Each container has its own vector index, document set, and folder hierarchy. All queries are scoped to a single container — no cross-container data leakage.
+
+**Future** (for true multi-user environments):
+- **Tenant isolation**: Add `tenant_id` to containers, row-level security
 - **Separate databases**: One Postgres DB per tenant (schema-per-tenant)
 - **Separate buckets**: MinIO bucket per tenant
 
@@ -571,7 +616,7 @@ public class HybridSearchService
 - **OCR**: Extract text from scanned PDFs and images
 - **Entity extraction**: NER (Named Entity Recognition) for metadata
 - **Question answering**: RAG-powered Q&A with citations
-- **Agent tools**: MCP tools for file management, search, summarization
+- **Agent tools**: Extended MCP tools for summarization, conversation memory
 
 ## References
 

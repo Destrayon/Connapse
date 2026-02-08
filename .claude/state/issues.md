@@ -30,14 +30,6 @@ Bugs, tech debt, and workarounds. Prevents future sessions from re-discovering t
 
 **Workaround**: Send warmup request on app start, or document expected delay.
 
-### SQLite Write Contention
-
-**Severity**: Medium
-
-**Description**: SQLite struggles with concurrent writes → "database is locked" errors.
-
-**Workaround**: Queue writes or use PostgreSQL for multi-user scenarios.
-
 ### Large File Chunking Memory
 
 **Severity**: Medium
