@@ -4,32 +4,72 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-06)
+## Current Status (2026-02-08)
 
 ### Feature #1: Document Upload + Ingestion + Hybrid Search
-**Status**: ✅ **COMPLETE** — All 8 phases implemented, 86/86 tests passing (100%)
+**Status**: ✅ **COMPLETE**
 
-- ✅ Infrastructure (Docker, PostgreSQL+pgvector, MinIO)
-- ✅ Settings system (runtime-mutable, DB-backed, live reload)
-- ✅ Storage layer (document store, vector store, embeddings)
-- ✅ Ingestion pipeline (parsers, chunkers, background queue)
-- ✅ Hybrid search (vector + keyword FTS + RRF/CrossEncoder)
-- ✅ Access surfaces (Web UI, REST API, CLI, MCP server)
-- ✅ Reindexing (content-hash dedup, settings-change detection)
-- ✅ Testing (72 unit tests + 14 integration tests, all passing)
+- Infrastructure (Docker, PostgreSQL+pgvector, MinIO)
+- Settings system (runtime-mutable, DB-backed, live reload)
+- Storage layer (document store, vector store, embeddings)
+- Ingestion pipeline (parsers, chunkers, background queue)
+- Hybrid search (vector + keyword FTS + RRF/CrossEncoder)
+- Access surfaces (Web UI, REST API, CLI, MCP server)
+- Reindexing (content-hash dedup, settings-change detection)
 
-### Feature #2: Container-Based File Browser
-**Status**: 📋 **PLANNED** — Architecture designed, ready for implementation
+### Feature #2: Container-Based File Browser with Vector Index Isolation
+**Status**: ✅ **COMPLETE**
 
-See detailed plan below.
+All 9 phases implemented:
+- Schema migration (containers, folders, container_id on all tables)
+- Core services (IContainerStore, IFolderStore, PathUtilities)
+- API endpoints (all container-scoped)
+- Web UI (container list, file browser, file details)
+- CLI (container commands, --container flag required)
+- MCP (7 tools with container support)
+- Testing (171 total tests passing)
+
+### Feature #3: Public Release Preparation
+**Status**: 🚀 **IN PROGRESS** (Branch: `feature/public-release-prep`)
+
+Preparing for open source release with commercial hosting business model. See [PUBLIC_RELEASE_PREP.md](../../PUBLIC_RELEASE_PREP.md).
+
+**Critical Tasks**:
+- [ ] LICENSE file (MIT or Apache 2.0)
+- [ ] SECURITY.md with pre-alpha warnings
+- [ ] Expanded README.md (features, quickstart, roadmap)
+- [ ] CONTRIBUTING.md
+- [ ] CODE_OF_CONDUCT.md
+- [ ] .env.example template
+- [ ] Security warnings in appsettings.json
+
+**Target**: Open source repository with clear "development only" warnings, community contribution guidelines, and foundation for future commercial hosted service.
 
 ---
 
-## Feature #2: Container-Based File Browser
+## Session History
+
+### 2026-02-08 (Session 7) -- Public Release Preparation
+
+**Branch**: Deleted `feature/file-system` (merged to master), created `feature/public-release-prep`
+
+**Business Model Decision**: Open source + commercial hosting (see decisions.md #13)
+
+**Deliverables**:
+- Created [PUBLIC_RELEASE_PREP.md](../../PUBLIC_RELEASE_PREP.md) with comprehensive launch checklist
+- Updated decisions.md with business model rationale
+- Updated progress.md to reflect Feature #2 completion status
+- Documented authentication implementation plan for v0.2.0
+
+**Next Steps**: Work through PUBLIC_RELEASE_PREP.md tasks (Phase 1: Critical Documentation)
+
+---
+
+## Archive: Feature #2 Implementation Plan
 
 ### Overview
 
-Replace simple upload page with S3-like object storage browser. Containers provide isolated vector indexes (projects). Folders provide organizational hierarchy with path-based search filtering.
+Replaced simple upload page with S3-like object storage browser. Containers provide isolated vector indexes (projects). Folders provide organizational hierarchy with path-based search filtering.
 
 ### Data Model
 
