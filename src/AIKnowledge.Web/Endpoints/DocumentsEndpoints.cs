@@ -182,6 +182,7 @@ public static class DocumentsEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IIngestionQueue ingestionQueue,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -190,6 +191,9 @@ public static class DocumentsEndpoints
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+
+            // Cancel any in-flight ingestion job for this document
+            await ingestionQueue.CancelJobForDocumentAsync(fileId);
 
             // Delete from database (cascades to chunks and vectors)
             await documentStore.DeleteAsync(fileId, ct);

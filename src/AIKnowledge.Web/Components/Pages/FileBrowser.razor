@@ -39,113 +39,137 @@
     </div>
 </div>
 
-@* Loading / Error *@
-@if (isLoading)
-{
-    <div class="text-center py-5">
-        <div class="spinner-border text-accent" role="status">
-            <span class="visually-hidden">Loading...</span>
+@* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
+<div id="fileDropZone" class="browser-content">
+
+    <div class="drop-overlay">
+        <div class="drop-overlay-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+            </svg>
+            <span>Drop files to upload</span>
         </div>
     </div>
-}
-else if (errorMessage is not null)
-{
-    <div class="alert alert-danger">@errorMessage</div>
-}
-else
-{
-    @* Upload Drop Zone + File List *@
-    <div id="fileDropZone" class="browser-content">
 
-        <div class="drop-overlay">
-            <div class="drop-overlay-content">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
-                    <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
-                </svg>
-                <span>Drop files to upload</span>
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-accent" role="status">
+                <span class="visually-hidden">Loading...</span>
             </div>
         </div>
-
+    }
+    else if (errorMessage is not null)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (entries.Count == 0)
+    {
         @* Empty folder state *@
-        @if (entries.Count == 0)
+        <div class="empty-folder">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
+            </svg>
+            <p>This folder is empty. Upload files or create a subfolder.</p>
+        </div>
+    }
+    else
+    {
+        @* Selection toolbar *@
+        @if (selectedEntryKeys.Count > 0)
         {
-            <div class="empty-folder">
-                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
-                </svg>
-                <p>This folder is empty. Upload files or create a subfolder.</p>
+            <div class="selection-toolbar">
+                <span class="selection-count">@selectedEntryKeys.Count selected</span>
+                <button class="btn btn-sm btn-outline-danger" @onclick="ShowBulkDeleteConfirmation">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="me-1" viewBox="0 0 16 16">
+                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                        <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                    </svg>
+                    Delete Selected
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ClearSelection">Clear</button>
             </div>
         }
-        else
-        {
-            @* File/Folder table *@
-            <table class="file-table">
-                <thead>
-                    <tr>
-                        <th class="col-name">Name</th>
-                        <th class="col-size">Size</th>
-                        <th class="col-status">Status</th>
-                        <th class="col-modified">Modified</th>
-                        <th class="col-actions"></th>
+
+        @* File/Folder table *@
+        <table class="file-table">
+            <thead>
+                <tr>
+                    <th class="col-check" @onclick="ToggleSelectAll"
+                        title="@(AllSelected ? "Unselect all" : "Select all")">
+                        <input type="checkbox" class="form-check-input"
+                               checked="@AllSelected"
+                               tabindex="-1" />
+                    </th>
+                    <th class="col-name">Name</th>
+                    <th class="col-size">Size</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-modified">Modified</th>
+                    <th class="col-actions"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in entries)
+                {
+                    <tr class="file-row @(entry.IsFolder ? "folder-row" : "") @(IsSelected(entry) ? "row-selected" : "")"
+                        @onclick="() => HandleEntryClick(entry)">
+                        <td class="col-check" @onclick="() => ToggleSelection(entry)"
+                            @onclick:stopPropagation="true">
+                            <input type="checkbox" class="form-check-input"
+                                   checked="@IsSelected(entry)"
+                                   tabindex="-1" />
+                        </td>
+                        <td class="col-name">
+                            @if (entry.IsFolder)
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="entry-icon folder-icon" viewBox="0 0 16 16">
+                                    <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31zM2.19 4a1 1 0 0 0-.996 1.09l.637 7a1 1 0 0 0 .995.91h10.348a1 1 0 0 0 .995-.91l.637-7A1 1 0 0 0 13.81 4H2.19z"/>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="entry-icon file-icon" viewBox="0 0 16 16">
+                                    <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
+                                </svg>
+                            }
+                            <span class="entry-name">@entry.Name</span>
+                        </td>
+                        <td class="col-size">
+                            @if (!entry.IsFolder && entry.SizeBytes.HasValue)
+                            {
+                                @FormatFileSize(entry.SizeBytes.Value)
+                            }
+                        </td>
+                        <td class="col-status">
+                            @if (!entry.IsFolder)
+                            {
+                                <span class="badge @GetStatusBadgeClass(entry.Status ?? "Pending")">@(entry.Status ?? "Pending")</span>
+                            }
+                        </td>
+                        <td class="col-modified">
+                            @if (entry.LastModified.HasValue)
+                            {
+                                @entry.LastModified.Value.ToString("MMM d, yyyy")
+                            }
+                        </td>
+                        <td class="col-actions">
+                            <button class="btn btn-sm btn-outline-danger action-btn"
+                                    title="Delete"
+                                    @onclick="() => ConfirmDeleteEntry(entry)"
+                                    @onclick:stopPropagation="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                                    <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                                </svg>
+                            </button>
+                        </td>
                     </tr>
-                </thead>
-                <tbody>
-                    @foreach (var entry in entries)
-                    {
-                        <tr class="file-row @(entry.IsFolder ? "folder-row" : "")"
-                            @onclick="() => HandleEntryClick(entry)">
-                            <td class="col-name">
-                                @if (entry.IsFolder)
-                                {
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="entry-icon folder-icon" viewBox="0 0 16 16">
-                                        <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31zM2.19 4a1 1 0 0 0-.996 1.09l.637 7a1 1 0 0 0 .995.91h10.348a1 1 0 0 0 .995-.91l.637-7A1 1 0 0 0 13.81 4H2.19z"/>
-                                    </svg>
-                                }
-                                else
-                                {
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="entry-icon file-icon" viewBox="0 0 16 16">
-                                        <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
-                                    </svg>
-                                }
-                                <span class="entry-name">@entry.Name</span>
-                            </td>
-                            <td class="col-size">
-                                @if (!entry.IsFolder && entry.SizeBytes.HasValue)
-                                {
-                                    @FormatFileSize(entry.SizeBytes.Value)
-                                }
-                            </td>
-                            <td class="col-status">
-                                @if (!entry.IsFolder)
-                                {
-                                    <span class="badge @GetStatusBadgeClass(entry.Status ?? "Pending")">@(entry.Status ?? "Pending")</span>
-                                }
-                            </td>
-                            <td class="col-modified">
-                                @if (entry.LastModified.HasValue)
-                                {
-                                    @entry.LastModified.Value.ToString("MMM d, yyyy")
-                                }
-                            </td>
-                            <td class="col-actions">
-                                <button class="btn btn-sm btn-outline-danger action-btn"
-                                        title="Delete"
-                                        @onclick="() => ConfirmDeleteEntry(entry)"
-                                        @onclick:stopPropagation="true">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
-                                        <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-                                    </svg>
-                                </button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
-    </div>
-}
+                }
+            </tbody>
+        </table>
+    }
+</div>
 
 @* File Detail Panel *@
 @if (selectedFile is not null)
@@ -292,6 +316,44 @@ else
     </div>
 }
 
+@* Bulk Delete Confirmation Modal *@
+@if (showBulkDeleteModal)
+{
+    <div class="modal-backdrop" @onclick="CancelBulkDelete"></div>
+    <div class="modal-dialog-centered">
+        <div class="modal-content-custom">
+            <div class="modal-header-custom">
+                <h4>Delete @selectedEntryKeys.Count Item(s)</h4>
+                <button class="btn-close btn-close-white" @onclick="CancelBulkDelete"></button>
+            </div>
+            <div class="modal-body-custom">
+                <p>Are you sure you want to delete <strong>@selectedEntryKeys.Count</strong> selected item(s)?</p>
+                @{
+                    var selectedFolders = entries.Count(e => e.IsFolder && selectedEntryKeys.Contains(GetEntryKey(e)));
+                }
+                @if (selectedFolders > 0)
+                {
+                    <p class="text-warning mb-0">@selectedFolders folder(s) selected — all files and subfolders inside will be deleted.</p>
+                }
+                @if (bulkDeleteError is not null)
+                {
+                    <div class="alert alert-danger py-2 mt-2">@bulkDeleteError</div>
+                }
+            </div>
+            <div class="modal-footer-custom">
+                <button class="btn btn-outline-secondary" @onclick="CancelBulkDelete">Cancel</button>
+                <button class="btn btn-danger" @onclick="BulkDeleteSelected" disabled="@isDeletingBulk">
+                    @if (isDeletingBulk)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Delete @selectedEntryKeys.Count Item(s)
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
 
@@ -307,10 +369,16 @@ else
     private string? folderError;
     private bool isCreatingFolder;
 
-    // Delete modal
+    // Delete modal (single)
     private BrowseEntryDto? entryToDelete;
     private string? deleteError;
     private bool isDeletingEntry;
+
+    // Multi-select for bulk delete
+    private HashSet<string> selectedEntryKeys = new();
+    private bool showBulkDeleteModal;
+    private string? bulkDeleteError;
+    private bool isDeletingBulk;
 
     // Upload tracking (maps JobId to entry index for SignalR updates)
     private Dictionary<string, string> jobToDocumentId = new();
@@ -405,7 +473,8 @@ else
 
     /// <summary>
     /// Refreshes the file list without showing the loading spinner.
-    /// Used for background refreshes after uploads and ingestion completion.
+    /// Preserves optimistic entries for in-flight ingestion jobs so files
+    /// don't disappear and reappear during batch uploads.
     /// </summary>
     private async Task RefreshEntries()
     {
@@ -414,7 +483,29 @@ else
             var encodedPath = Uri.EscapeDataString(currentPath);
             var result = await Http.GetFromJsonAsync<List<BrowseEntryDto>>(
                 $"/api/containers/{ContainerId}/files?path={encodedPath}");
-            entries = result ?? new();
+            var serverEntries = result ?? new();
+
+            // Preserve in-flight entries (active ingestion jobs not yet in server state)
+            var inFlightDocIds = new HashSet<string>(jobToDocumentId.Values);
+            var serverIds = new HashSet<string>(
+                serverEntries.Where(e => e.Id is not null).Select(e => e.Id!));
+
+            var preserved = entries
+                .Where(e => e.Id is not null
+                          && inFlightDocIds.Contains(e.Id)
+                          && !serverIds.Contains(e.Id))
+                .ToList();
+
+            entries = serverEntries;
+
+            // Re-insert preserved in-flight entries in sorted position
+            foreach (var entry in preserved)
+            {
+                var insertIdx = entries.FindIndex(e =>
+                    !e.IsFolder && string.Compare(e.Name, entry.Name, StringComparison.OrdinalIgnoreCase) > 0);
+                if (insertIdx < 0) insertIdx = entries.Count;
+                entries.Insert(insertIdx, entry);
+            }
         }
         catch { /* Silently ignore refresh failures */ }
     }
@@ -424,6 +515,7 @@ else
     private async void NavigateToPath(string path)
     {
         currentPath = path;
+        selectedEntryKeys.Clear();
         await LoadEntries();
         StateHasChanged();
     }
@@ -434,6 +526,7 @@ else
         {
             selectedFile = null;
             selectedBrowseEntry = null;
+            selectedEntryKeys.Clear();
             currentPath = entry.Path;
             await LoadEntries();
         }
@@ -554,16 +647,22 @@ else
                     entries[idx] = entry with { Status = displayStatus };
                 }
 
-                // Refresh from server when processing finishes
+                // Remove finished job from tracking
                 if (progress.State is "Completed" or "Failed")
                 {
                     jobToDocumentId.Remove(progress.JobId);
-                    _ = InvokeAsync(async () =>
+
+                    // Only do a full server refresh when all tracked jobs are done,
+                    // preventing in-flight files from disappearing mid-batch
+                    if (jobToDocumentId.Count == 0)
                     {
-                        await RefreshEntries();
-                        await LoadContainer();
-                        StateHasChanged();
-                    });
+                        _ = InvokeAsync(async () =>
+                        {
+                            await RefreshEntries();
+                            await LoadContainer();
+                            StateHasChanged();
+                        });
+                    }
                 }
 
                 StateHasChanged();
@@ -676,6 +775,106 @@ else
         finally
         {
             isDeletingEntry = false;
+        }
+    }
+
+    // Multi-select helpers
+    private string GetEntryKey(BrowseEntryDto entry) => entry.Id ?? entry.Path;
+
+    private bool IsSelected(BrowseEntryDto entry) => selectedEntryKeys.Contains(GetEntryKey(entry));
+
+    private bool AllSelected => entries.Count > 0 && entries.All(e => selectedEntryKeys.Contains(GetEntryKey(e)));
+
+    private void ToggleSelection(BrowseEntryDto entry)
+    {
+        var key = GetEntryKey(entry);
+        if (!selectedEntryKeys.Remove(key))
+            selectedEntryKeys.Add(key);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (AllSelected)
+            selectedEntryKeys.Clear();
+        else
+            foreach (var entry in entries)
+                selectedEntryKeys.Add(GetEntryKey(entry));
+    }
+
+    private void ClearSelection() => selectedEntryKeys.Clear();
+
+    private void ShowBulkDeleteConfirmation()
+    {
+        if (selectedEntryKeys.Count > 0)
+        {
+            showBulkDeleteModal = true;
+            bulkDeleteError = null;
+        }
+    }
+
+    private void CancelBulkDelete() => showBulkDeleteModal = false;
+
+    private async Task BulkDeleteSelected()
+    {
+        isDeletingBulk = true;
+        bulkDeleteError = null;
+
+        try
+        {
+            var toDelete = entries.Where(e => selectedEntryKeys.Contains(GetEntryKey(e))).ToList();
+            var errors = new List<string>();
+
+            foreach (var entry in toDelete)
+            {
+                HttpResponseMessage response;
+
+                if (entry.IsFolder)
+                {
+                    var encodedPath = Uri.EscapeDataString(entry.Path);
+                    response = await Http.DeleteAsync(
+                        $"/api/containers/{ContainerId}/folders?path={encodedPath}&cascade=true");
+                }
+                else
+                {
+                    response = await Http.DeleteAsync(
+                        $"/api/containers/{ContainerId}/files/{entry.Id}");
+                }
+
+                if (response.IsSuccessStatusCode)
+                {
+                    // Close detail panel if we deleted the selected file
+                    if (!entry.IsFolder && selectedBrowseEntry?.Id == entry.Id)
+                    {
+                        selectedFile = null;
+                        selectedBrowseEntry = null;
+                    }
+                }
+                else
+                {
+                    errors.Add($"{entry.Name}: HTTP {(int)response.StatusCode}");
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                bulkDeleteError = $"Failed to delete {errors.Count} item(s): {string.Join("; ", errors)}";
+            }
+            else
+            {
+                showBulkDeleteModal = false;
+                selectedEntryKeys.Clear();
+            }
+
+            await RefreshEntries();
+            await LoadContainer();
+        }
+        catch (Exception ex)
+        {
+            bulkDeleteError = ex.Message;
+        }
+        finally
+        {
+            isDeletingBulk = false;
         }
     }
 

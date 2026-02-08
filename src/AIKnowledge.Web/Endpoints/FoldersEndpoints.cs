@@ -47,6 +47,7 @@ public static class FoldersEndpoints
             [FromServices] IFolderStore folderStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IIngestionQueue ingestionQueue,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -60,9 +61,13 @@ public static class FoldersEndpoints
             if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
                 return Results.NotFound(new { error = $"Folder '{normalizedPath}' not found" });
 
-            // Get document paths before deletion so we can clean up file storage
+            // Get documents before deletion so we can cancel jobs and clean up storage
             var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, ct);
             var filePaths = documents.Select(d => d.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+
+            // Cancel any in-flight ingestion jobs for documents in this folder
+            foreach (var doc in documents)
+                await ingestionQueue.CancelJobForDocumentAsync(doc.Id);
 
             var deleted = await folderStore.DeleteAsync(containerId, normalizedPath, ct);
             if (!deleted)

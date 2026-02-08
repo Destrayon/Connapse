@@ -88,8 +88,23 @@ public class IngestionWorker : BackgroundService
                         0);
                 }
 
-                // Process the job
-                var result = await ProcessJobAsync(job, stoppingToken);
+                // Create a per-job CTS linked with the application stopping token
+                // so the job can be individually cancelled (e.g., on document delete)
+                using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+
+                if (_queue is IngestionQueue q)
+                    q.RegisterJobCancellation(job.JobId, jobCts);
+
+                IngestionResult result;
+                try
+                {
+                    result = await ProcessJobAsync(job, jobCts.Token);
+                }
+                finally
+                {
+                    if (_queue is IngestionQueue q2)
+                        q2.UnregisterJobCancellation(job.JobId);
+                }
 
                 // Update final status
                 if (_queue is IngestionQueue queue2)
@@ -120,9 +135,15 @@ public class IngestionWorker : BackgroundService
                     result.ChunkCount,
                     result.Duration.TotalMilliseconds);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Application is shutting down
+                break;
+            }
             catch (OperationCanceledException)
             {
-                break;
+                // Per-job cancellation (e.g., document was deleted) — continue to next job
+                _logger.LogInformation("Worker {WorkerId}: job was cancelled (document deleted)", workerId);
             }
             catch (Exception ex)
             {
