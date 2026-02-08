@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore.Migrations;
 using NpgsqlTypes;
 using Pgvector;
@@ -9,7 +10,7 @@ using Pgvector;
 namespace AIKnowledge.Storage.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class InitialSchema : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -35,14 +36,42 @@ namespace AIKnowledge.Storage.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "containers",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    name = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    description = table.Column<string>(type: "text", nullable: true),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_containers", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "settings",
+                columns: table => new
+                {
+                    category = table.Column<string>(type: "text", nullable: false),
+                    values = table.Column<JsonDocument>(type: "jsonb", nullable: false, defaultValueSql: "'{}'::jsonb"),
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_settings", x => x.category);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "documents",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    container_id = table.Column<Guid>(type: "uuid", nullable: false),
                     file_name = table.Column<string>(type: "text", nullable: false),
                     content_type = table.Column<string>(type: "text", nullable: true),
-                    collection_id = table.Column<string>(type: "text", nullable: true),
-                    virtual_path = table.Column<string>(type: "text", nullable: false),
+                    path = table.Column<string>(type: "text", nullable: false),
                     content_hash = table.Column<string>(type: "text", nullable: false),
                     size_bytes = table.Column<long>(type: "bigint", nullable: false),
                     chunk_count = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
@@ -55,19 +84,32 @@ namespace AIKnowledge.Storage.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_documents", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_documents_containers_container_id",
+                        column: x => x.container_id,
+                        principalTable: "containers",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "settings",
+                name: "folders",
                 columns: table => new
                 {
-                    category = table.Column<string>(type: "text", nullable: false),
-                    values = table.Column<Dictionary<string, object>>(type: "jsonb", nullable: false, defaultValueSql: "'{}'::jsonb"),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
+                    id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
+                    container_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    path = table.Column<string>(type: "text", nullable: false),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()")
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_settings", x => x.category);
+                    table.PrimaryKey("PK_folders", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_folders_containers_container_id",
+                        column: x => x.container_id,
+                        principalTable: "containers",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -100,6 +142,7 @@ namespace AIKnowledge.Storage.Migrations
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
                     document_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    container_id = table.Column<Guid>(type: "uuid", nullable: false),
                     content = table.Column<string>(type: "text", nullable: false),
                     chunk_index = table.Column<int>(type: "integer", nullable: false),
                     token_count = table.Column<int>(type: "integer", nullable: false),
@@ -125,6 +168,7 @@ namespace AIKnowledge.Storage.Migrations
                 {
                     chunk_id = table.Column<Guid>(type: "uuid", nullable: false),
                     document_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    container_id = table.Column<Guid>(type: "uuid", nullable: false),
                     embedding = table.Column<Vector>(type: "vector(768)", nullable: false),
                     model_id = table.Column<string>(type: "text", nullable: false)
                 },
@@ -151,6 +195,11 @@ namespace AIKnowledge.Storage.Migrations
                 column: "document_id");
 
             migrationBuilder.CreateIndex(
+                name: "idx_chunk_vectors_container_id",
+                table: "chunk_vectors",
+                column: "container_id");
+
+            migrationBuilder.CreateIndex(
                 name: "idx_chunk_vectors_document_id",
                 table: "chunk_vectors",
                 column: "document_id");
@@ -164,6 +213,11 @@ namespace AIKnowledge.Storage.Migrations
                 .Annotation("Npgsql:StorageParameter:lists", 100);
 
             migrationBuilder.CreateIndex(
+                name: "idx_chunks_container_id",
+                table: "chunks",
+                column: "container_id");
+
+            migrationBuilder.CreateIndex(
                 name: "idx_chunks_document_id",
                 table: "chunks",
                 column: "document_id");
@@ -173,6 +227,29 @@ namespace AIKnowledge.Storage.Migrations
                 table: "chunks",
                 column: "search_vector")
                 .Annotation("Npgsql:IndexMethod", "GIN");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_containers_name",
+                table: "containers",
+                column: "name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "idx_documents_container_id",
+                table: "documents",
+                column: "container_id");
+
+            migrationBuilder.CreateIndex(
+                name: "idx_documents_container_path",
+                table: "documents",
+                columns: new[] { "container_id", "path" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_folders_container_path",
+                table: "folders",
+                columns: new[] { "container_id", "path" },
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -185,6 +262,9 @@ namespace AIKnowledge.Storage.Migrations
                 name: "chunk_vectors");
 
             migrationBuilder.DropTable(
+                name: "folders");
+
+            migrationBuilder.DropTable(
                 name: "settings");
 
             migrationBuilder.DropTable(
@@ -195,6 +275,9 @@ namespace AIKnowledge.Storage.Migrations
 
             migrationBuilder.DropTable(
                 name: "documents");
+
+            migrationBuilder.DropTable(
+                name: "containers");
         }
     }
 }

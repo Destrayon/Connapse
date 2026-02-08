@@ -200,11 +200,13 @@ appsettings.json → appsettings.{Env}.json → Environment vars → Database (S
 
 ---
 
-### 2026-02-06 — Container-Based File Browser with Vector Index Isolation
+### 2026-02-06 — Container-Based File Browser with Vector Index Isolation (IMPLEMENTED)
 
-**Context**: The current upload page is a simple file upload interface. Users need a full object storage browser (like S3/MinIO) where they can organize files into projects with folder hierarchies. Each project should have isolated search - searching one project should never return results from another.
+**Context**: The upload page was a simple file upload interface. Users needed a full object storage browser (like S3/MinIO) where they can organize files into projects with folder hierarchies. Each project should have isolated search - searching one project should never return results from another.
 
-**Decision**: Replace the upload page with a container-based file browser. Containers are top-level isolated units (representing projects). Each container has its own logical vector space. Folders provide organizational hierarchy within containers. Full path (`/{container}/{folder-path}/{filename}`) determines uniqueness.
+**Decision**: Replaced the upload page with a container-based file browser. Containers are top-level isolated units (representing projects). Each container has its own logical vector space. Folders provide organizational hierarchy within containers. Full path (`/{container}/{folder-path}/{filename}`) determines uniqueness.
+
+**Status**: Fully implemented across all 9 phases (schema, core services, API, UI, CLI, MCP, tests). 171 tests passing.
 
 **Key Design Decisions**:
 

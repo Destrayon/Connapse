@@ -27,6 +27,13 @@ public interface IIngestionQueue
     Task<IngestionJobStatus?> GetStatusAsync(string jobId);
 
     /// <summary>
+    /// Cancels any queued or in-progress ingestion job for the given document.
+    /// </summary>
+    /// <param name="documentId">The document ID whose job should be cancelled.</param>
+    /// <returns>True if a job was found and cancelled, false otherwise.</returns>
+    Task<bool> CancelJobForDocumentAsync(string documentId);
+
+    /// <summary>
     /// Gets the current queue depth.
     /// </summary>
     int QueueDepth { get; }
@@ -38,7 +45,7 @@ public interface IIngestionQueue
 public record IngestionJob(
     string JobId,
     string DocumentId,
-    string VirtualPath,
+    string Path,
     IngestionOptions Options,
     string? BatchId = null);
 

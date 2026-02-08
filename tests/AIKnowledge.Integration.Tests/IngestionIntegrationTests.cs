@@ -3,21 +3,25 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using AIKnowledge.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
 namespace AIKnowledge.Integration.Tests;
 
 /// <summary>
-/// Integration tests for the complete ingestion pipeline: upload → parse → chunk → embed → store → search
+/// Integration tests for the complete ingestion pipeline: upload → parse → chunk → embed → store → search.
 /// Uses Testcontainers to spin up real PostgreSQL and MinIO instances.
+/// Updated for container-scoped API (Feature #2).
 /// </summary>
 public class IngestionIntegrationTests : IAsyncLifetime
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
         .WithDatabase("aikp_test")
@@ -31,39 +35,35 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _client = null!;
+    private string _containerId = null!;
 
     public async Task InitializeAsync()
     {
-        // Start containers
         await _postgresContainer.StartAsync();
         await _minioContainer.StartAsync();
 
-        // Create factory with test configuration
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
-                builder.ConfigureServices(services =>
-                {
-                    // Override connection strings to point to test containers
-                    builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
-                    builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
-                    builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                    builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                    builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-
-                    // Use smaller chunk size for faster testing
-                    builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
-                    builder.UseSetting("Knowledge:Chunking:Overlap", "20");
-
-                    // Reduce worker count for predictable test behavior
-                    builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
-                });
+                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
+                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
+                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
+                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
+                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
+                builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
+                builder.UseSetting("Knowledge:Chunking:Overlap", "20");
+                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
             });
 
         _client = _factory.CreateClient();
-
-        // Wait for application to be ready and migrations to complete
         await Task.Delay(2000);
+
+        // Create a container for ingestion tests
+        var response = await _client.PostAsJsonAsync("/api/containers",
+            new { Name = "ingestion-tests" });
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        _containerId = container!.Id;
     }
 
     public async Task DisposeAsync()
@@ -91,48 +91,30 @@ public class IngestionIntegrationTests : IAsyncLifetime
             """;
         var fileName = "test-document.txt";
 
-        using var content = new MultipartFormDataContent();
-        var fileBytes = Encoding.UTF8.GetBytes(fileContent);
-        var fileContent2 = new ByteArrayContent(fileBytes);
-        fileContent2.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-        content.Add(fileContent2, "file", fileName);
-        content.Add(new StringContent("/test"), "virtualPath");
-
         // Act 1: Upload document
-        var uploadResponse = await _client.PostAsync("/api/documents", content);
+        var documentId = await UploadDocument(fileName, fileContent);
+        documentId.Should().NotBeNullOrEmpty();
 
-        // Assert: Upload succeeded
-        uploadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var uploadResult = await uploadResponse.Content.ReadFromJsonAsync<UploadResponse>();
-        uploadResult.Should().NotBeNull();
-        uploadResult!.Documents.Should().HaveCount(1);
-        uploadResult.SuccessCount.Should().Be(1);
-
-        var uploadedDoc = uploadResult.Documents.First();
-        uploadedDoc.FileName.Should().Be(fileName);
-        uploadedDoc.DocumentId.Should().NotBeEmpty();
-        uploadedDoc.Error.Should().BeNull();
-
-        var documentId = uploadedDoc.DocumentId;
-
-        // Act 2: Wait for ingestion to complete (poll status)
+        // Act 2: Wait for ingestion to complete
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
 
-        // Act 3: Verify document exists (note: Document model doesn't have Status/ChunkCount)
-        var docResponse = await _client.GetAsync($"/api/documents/{documentId}");
+        // Act 3: Verify document exists
+        var docResponse = await _client.GetAsync(
+            $"/api/containers/{_containerId}/files/{documentId}");
         docResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var document = await docResponse.Content.ReadFromJsonAsync<DocumentDto>();
+        var document = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
         document.Should().NotBeNull();
         document!.Id.Should().Be(documentId);
         document.FileName.Should().Be(fileName);
+        document.ContainerId.Should().Be(_containerId);
 
         // Act 4: Search for content from the document
-        var searchResponse = await _client.GetAsync("/api/search?q=artificial+intelligence+machine+learning&mode=Keyword&topK=10");
+        var searchResponse = await _client.GetAsync(
+            $"/api/containers/{_containerId}/search?q=artificial+intelligence+machine+learning&mode=Keyword&topK=10");
         searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>();
+        var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
         searchResult.Should().NotBeNull();
         searchResult!.Hits.Should().NotBeEmpty();
         searchResult.TotalMatches.Should().BeGreaterThan(0);
@@ -140,15 +122,17 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Assert: Search results contain our document
         var hit = searchResult.Hits.FirstOrDefault(h => h.DocumentId == documentId);
         hit.Should().NotBeNull("Search should return chunks from the uploaded document");
-        hit!.Content.Should().ContainEquivalentOf("artificial intelligence", "Chunk content should contain searched terms");
+        hit!.Content.Should().ContainEquivalentOf("artificial intelligence");
         hit.Score.Should().BeGreaterThan(0);
 
-        // Act 5: Clean up - delete document
-        var deleteResponse = await _client.DeleteAsync($"/api/documents/{documentId}");
+        // Act 5: Clean up
+        var deleteResponse = await _client.DeleteAsync(
+            $"/api/containers/{_containerId}/files/{documentId}");
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify deletion
-        var verifyResponse = await _client.GetAsync($"/api/documents/{documentId}");
+        var verifyResponse = await _client.GetAsync(
+            $"/api/containers/{_containerId}/files/{documentId}");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -168,18 +152,8 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Act 1: Upload all documents
         foreach (var (fileName, content) in documents)
         {
-            var multipart = new MultipartFormDataContent();
-            var fileBytes = Encoding.UTF8.GetBytes(content);
-            var fileContent = new ByteArrayContent(fileBytes);
-            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-            multipart.Add(fileContent, "file", fileName);
-            multipart.Add(new StringContent("/batch-test"), "virtualPath");
-
-            var response = await _client.PostAsync("/api/documents", multipart);
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-            var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
-            documentIds.Add(result!.Documents.First().DocumentId);
+            var docId = await UploadDocument(fileName, content);
+            documentIds.Add(docId);
         }
 
         // Act 2: Wait for all ingestions to complete
@@ -193,10 +167,11 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
         foreach (var term in searchTerms)
         {
-            var searchResponse = await _client.GetAsync($"/api/search?q={Uri.EscapeDataString(term)}&mode=Keyword&topK=5");
+            var searchResponse = await _client.GetAsync(
+                $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString(term)}&mode=Keyword&topK=5");
             searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-            var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>();
+            var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
             searchResult.Should().NotBeNull();
             searchResult!.Hits.Should().NotBeEmpty($"Search for '{term}' should return results");
 
@@ -208,14 +183,29 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Cleanup
         foreach (var docId in documentIds)
         {
-            await _client.DeleteAsync($"/api/documents/{docId}");
+            await _client.DeleteAsync($"/api/containers/{_containerId}/files/{docId}");
         }
     }
 
-    /// <summary>
-    /// Waits for ingestion to complete by checking if document exists and can be searched.
-    /// Note: Document model doesn't expose Status, so we just wait a bit and verify existence.
-    /// </summary>
+    private async Task<string> UploadDocument(string fileName, string content)
+    {
+        using var multipart = new MultipartFormDataContent();
+        var fileBytes = Encoding.UTF8.GetBytes(content);
+        var fileContent2 = new ByteArrayContent(fileBytes);
+        fileContent2.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+        multipart.Add(fileContent2, "files", fileName);
+        multipart.Add(new StringContent("/test"), "path");
+
+        var response = await _client.PostAsync(
+            $"/api/containers/{_containerId}/files", multipart);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var result = await response.Content.ReadFromJsonAsync<UploadResponse>(JsonOptions);
+        result.Should().NotBeNull();
+        result!.Documents.Should().HaveCountGreaterThanOrEqualTo(1);
+        return result.Documents.First().DocumentId;
+    }
+
     private async Task WaitForIngestionToComplete(string documentId, int timeoutSeconds)
     {
         var startTime = DateTime.UtcNow;
@@ -223,26 +213,30 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var response = await _client.GetAsync($"/api/documents/{documentId}");
+            var response = await _client.GetAsync(
+                $"/api/containers/{_containerId}/files/{documentId}/reindex-check");
             if (response.StatusCode == HttpStatusCode.OK)
             {
-                var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
-                if (document != null)
+                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
+                if (check is { NeedsReindex: false })
                 {
-                    // Document exists, assume ingestion completed
-                    // In a real scenario, you might want to search for content to verify
-                    await Task.Delay(1000); // Give it a moment to index
+                    await Task.Delay(500);
                     return;
                 }
+
+                if (check?.Reason is "Error" or "FileNotFound")
+                    throw new Exception($"Ingestion failed for {documentId}: {check.Reason}");
             }
 
-            await Task.Delay(500); // Poll every 500ms
+            await Task.Delay(500);
         }
 
         throw new TimeoutException($"Ingestion did not complete within {timeoutSeconds} seconds");
     }
 
     // DTOs matching API responses
+    private record ContainerDto(string Id, string Name);
+
     private record UploadResponse(
         string? BatchId,
         List<UploadedDocumentResponse> Documents,
@@ -254,14 +248,15 @@ public class IngestionIntegrationTests : IAsyncLifetime
         string? JobId,
         string FileName,
         long SizeBytes,
-        string VirtualPath,
+        string Path,
         string? Error = null);
 
     private record DocumentDto(
         string Id,
+        string ContainerId,
         string FileName,
         string? ContentType,
-        string? CollectionId,
+        string Path,
         long SizeBytes,
         DateTime CreatedAt,
         Dictionary<string, string> Metadata);
@@ -277,4 +272,11 @@ public class IngestionIntegrationTests : IAsyncLifetime
         string Content,
         float Score,
         Dictionary<string, string> Metadata);
+
+    private record ReindexCheckDto(
+        string DocumentId,
+        bool NeedsReindex,
+        string Reason,
+        string? CurrentHash,
+        string? StoredHash);
 }

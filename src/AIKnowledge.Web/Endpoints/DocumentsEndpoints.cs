@@ -1,5 +1,6 @@
 using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
+using AIKnowledge.Core.Utilities;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AIKnowledge.Web.Endpoints;
@@ -8,46 +9,51 @@ public static class DocumentsEndpoints
 {
     public static IEndpointRouteBuilder MapDocumentsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/documents").WithTags("Documents");
+        var group = app.MapGroup("/api/containers/{containerId:guid}/files").WithTags("Files");
 
-        // POST /api/documents - Upload document(s)
+        // POST /api/containers/{containerId}/files - Upload file(s) to container
         group.MapPost("/", async (
+            Guid containerId,
             [FromForm] IFormFileCollection files,
-            [FromForm] string? collectionId,
-            [FromForm] string? destinationPath,
+            [FromForm] string? path,
             [FromForm] ChunkingStrategy? strategy,
+            [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue queue,
             CancellationToken ct) =>
         {
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
+            var destinationPath = PathUtilities.NormalizeFolderPath(path ?? "/");
             var uploadedDocs = new List<UploadedDocumentResponse>();
             string? batchId = files.Count > 1 ? Guid.NewGuid().ToString() : null;
 
             foreach (var file in files)
             {
-                // Generate document ID and virtual path
                 var documentId = Guid.NewGuid().ToString();
-                var virtualPath = $"{destinationPath?.TrimEnd('/') ?? "/uploads"}/{file.FileName}";
+                var filePath = PathUtilities.NormalizePath($"{destinationPath}{file.FileName}");
 
                 try
                 {
                     // Stream file to storage
                     using var stream = file.OpenReadStream();
-                    await fileSystem.SaveFileAsync(virtualPath, stream, ct);
+                    await fileSystem.SaveFileAsync(filePath, stream, ct);
 
                     // Enqueue ingestion job
                     var job = new IngestionJob(
                         JobId: Guid.NewGuid().ToString(),
                         DocumentId: documentId,
-                        VirtualPath: virtualPath,
+                        Path: filePath,
                         Options: new IngestionOptions(
                             DocumentId: documentId,
                             FileName: file.FileName,
                             ContentType: file.ContentType,
-                            CollectionId: collectionId,
+                            ContainerId: containerId.ToString(),
+                            Path: filePath,
                             Strategy: strategy ?? ChunkingStrategy.Semantic,
                             Metadata: new Dictionary<string, string>
                             {
@@ -63,7 +69,7 @@ public static class DocumentsEndpoints
                         JobId: job.JobId,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        VirtualPath: virtualPath));
+                        Path: filePath));
                 }
                 catch (Exception ex)
                 {
@@ -72,7 +78,7 @@ public static class DocumentsEndpoints
                         JobId: null,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        VirtualPath: virtualPath,
+                        Path: filePath,
                         Error: ex.Message));
                 }
             }
@@ -84,103 +90,139 @@ public static class DocumentsEndpoints
                 SuccessCount: uploadedDocs.Count(d => d.Error == null)));
         })
         .DisableAntiforgery()
-        .WithName("UploadDocuments")
-        .WithDescription("Upload one or more documents for ingestion");
+        .WithName("UploadFiles")
+        .WithDescription("Upload one or more files to a container");
 
-        // GET /api/documents - List all documents
+        // GET /api/containers/{containerId}/files - List files and folders at path
         group.MapGet("/", async (
-            [FromQuery] string? collectionId,
+            Guid containerId,
+            [FromQuery] string? path,
+            [FromServices] IContainerStore containerStore,
+            [FromServices] IDocumentStore documentStore,
+            [FromServices] IFolderStore folderStore,
+            CancellationToken ct) =>
+        {
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var browsePath = PathUtilities.NormalizeFolderPath(path ?? "/");
+            var entries = new List<BrowseEntry>();
+
+            // Get explicit folders at this level
+            var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, ct);
+            foreach (var folder in folders)
+            {
+                var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
+                entries.Add(new BrowseEntry(
+                    Name: folderName,
+                    Path: folder.Path,
+                    IsFolder: true,
+                    SizeBytes: null,
+                    LastModified: folder.CreatedAt,
+                    Status: null,
+                    Id: folder.Id));
+            }
+
+            // Get documents at this path level
+            var documents = await documentStore.ListAsync(containerId, pathPrefix: browsePath, ct);
+            foreach (var doc in documents)
+            {
+                // Only include documents directly at this level (not in subfolders)
+                var docParent = PathUtilities.GetParentPath(doc.Path);
+                if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                entries.Add(new BrowseEntry(
+                    Name: doc.FileName,
+                    Path: doc.Path,
+                    IsFolder: false,
+                    SizeBytes: doc.SizeBytes,
+                    LastModified: doc.CreatedAt,
+                    Status: doc.Metadata.GetValueOrDefault("Status"),
+                    Id: doc.Id));
+            }
+
+            // Sort: folders first, then by name
+            entries.Sort((a, b) =>
+            {
+                if (a.IsFolder != b.IsFolder)
+                    return a.IsFolder ? -1 : 1;
+                return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            });
+
+            return Results.Ok(entries);
+        })
+        .WithName("ListFiles")
+        .WithDescription("List files and folders at a path within a container");
+
+        // GET /api/containers/{containerId}/files/{fileId} - Get file details
+        group.MapGet("/{fileId}", async (
+            Guid containerId,
+            string fileId,
+            [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             CancellationToken ct) =>
         {
-            var documents = await documentStore.ListAsync(collectionId, ct);
-            return Results.Ok(documents);
-        })
-        .WithName("ListDocuments")
-        .WithDescription("List all documents, optionally filtered by collection");
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-        // GET /api/documents/{id} - Get document by ID
-        group.MapGet("/{id}", async (
-            string id,
-            [FromServices] IDocumentStore documentStore,
-            CancellationToken ct) =>
-        {
-            var document = await documentStore.GetAsync(id, ct);
-            return document is not null
-                ? Results.Ok(document)
-                : Results.NotFound(new { error = $"Document {id} not found" });
-        })
-        .WithName("GetDocument")
-        .WithDescription("Get a specific document by ID");
+            var document = await documentStore.GetAsync(fileId, ct);
+            if (document is null || document.ContainerId != containerId.ToString())
+                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
 
-        // DELETE /api/documents/{id} - Delete document
-        group.MapDelete("/{id}", async (
-            string id,
+            return Results.Ok(document);
+        })
+        .WithName("GetFile")
+        .WithDescription("Get file details including indexing status");
+
+        // DELETE /api/containers/{containerId}/files/{fileId} - Delete file
+        group.MapDelete("/{fileId}", async (
+            Guid containerId,
+            string fileId,
+            [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IIngestionQueue ingestionQueue,
             CancellationToken ct) =>
         {
-            var document = await documentStore.GetAsync(id, ct);
-            if (document is null)
-                return Results.NotFound(new { error = $"Document {id} not found" });
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var document = await documentStore.GetAsync(fileId, ct);
+            if (document is null || document.ContainerId != containerId.ToString())
+                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+
+            // Cancel any in-flight ingestion job for this document
+            await ingestionQueue.CancelJobForDocumentAsync(fileId);
 
             // Delete from database (cascades to chunks and vectors)
-            await documentStore.DeleteAsync(id, ct);
+            await documentStore.DeleteAsync(fileId, ct);
 
-            // Delete file from storage (best effort - don't fail if file missing)
+            // Delete file from storage (best effort)
             try
             {
-                var virtualPath = document.Metadata.GetValueOrDefault("VirtualPath");
-                if (!string.IsNullOrEmpty(virtualPath))
-                    await fileSystem.DeleteAsync(virtualPath, ct);
+                if (!string.IsNullOrEmpty(document.Path))
+                    await fileSystem.DeleteAsync(document.Path, ct);
             }
-            catch { /* File already deleted or not found - ignore */ }
+            catch { /* File already deleted or not found */ }
 
             return Results.NoContent();
         })
-        .WithName("DeleteDocument")
-        .WithDescription("Delete a document and all associated chunks and vectors");
+        .WithName("DeleteFile")
+        .WithDescription("Delete a file and all associated chunks and vectors");
 
-        // POST /api/documents/reindex - Trigger reindexing
-        group.MapPost("/reindex", async (
-            [FromBody] ReindexRequest? request,
+        // GET /api/containers/{containerId}/files/{fileId}/reindex-check - Check if file needs reindexing
+        group.MapGet("/{fileId}/reindex-check", async (
+            Guid containerId,
+            string fileId,
+            [FromServices] IContainerStore containerStore,
             [FromServices] IReindexService reindexService,
             CancellationToken ct) =>
         {
-            var options = new ReindexOptions
-            {
-                CollectionId = request?.CollectionId,
-                DocumentIds = request?.DocumentIds,
-                Force = request?.Force ?? false,
-                DetectSettingsChanges = request?.DetectSettingsChanges ?? true,
-                Strategy = request?.Strategy
-            };
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            var result = await reindexService.ReindexAsync(options, ct);
-
-            return Results.Ok(new
-            {
-                batchId = result.BatchId,
-                totalDocuments = result.TotalDocuments,
-                enqueuedCount = result.EnqueuedCount,
-                skippedCount = result.SkippedCount,
-                failedCount = result.FailedCount,
-                reasonCounts = result.ReasonCounts.ToDictionary(
-                    kvp => kvp.Key.ToString(),
-                    kvp => kvp.Value),
-                message = $"Reindex complete: {result.EnqueuedCount} enqueued, {result.SkippedCount} skipped, {result.FailedCount} failed"
-            });
-        })
-        .WithName("ReindexDocuments")
-        .WithDescription("Trigger reindexing of documents with content-hash comparison and settings-change detection");
-
-        // GET /api/documents/{id}/reindex-check - Check if document needs reindexing
-        group.MapGet("/{id}/reindex-check", async (
-            string id,
-            [FromServices] IReindexService reindexService,
-            CancellationToken ct) =>
-        {
-            var check = await reindexService.CheckDocumentAsync(id, ct);
+            var check = await reindexService.CheckDocumentAsync(fileId, ct);
             return Results.Ok(new
             {
                 documentId = check.DocumentId,
@@ -194,8 +236,8 @@ public static class DocumentsEndpoints
                 storedEmbeddingModel = check.StoredEmbeddingModel
             });
         })
-        .WithName("CheckDocumentReindex")
-        .WithDescription("Check if a specific document needs reindexing and why");
+        .WithName("CheckFileReindex")
+        .WithDescription("Check if a specific file needs reindexing and why");
 
         return app;
     }
@@ -213,12 +255,14 @@ public record UploadedDocumentResponse(
     string? JobId,
     string FileName,
     long SizeBytes,
-    string VirtualPath,
+    string Path,
     string? Error = null);
 
-public record ReindexRequest(
-    string? CollectionId = null,
-    IReadOnlyList<string>? DocumentIds = null,
-    bool? Force = null,
-    bool? DetectSettingsChanges = null,
-    ChunkingStrategy? Strategy = null);
+public record BrowseEntry(
+    string Name,
+    string Path,
+    bool IsFolder,
+    long? SizeBytes,
+    DateTime? LastModified,
+    string? Status,
+    string? Id);

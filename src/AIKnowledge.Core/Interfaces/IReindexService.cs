@@ -31,12 +31,12 @@ public interface IReindexService
 public record ReindexOptions
 {
     /// <summary>
-    /// Filter to specific collection. Null = all collections.
+    /// Filter to specific container. Null = all containers.
     /// </summary>
-    public string? CollectionId { get; init; }
+    public string? ContainerId { get; init; }
 
     /// <summary>
-    /// Specific document IDs to reindex. Null = all documents matching CollectionId filter.
+    /// Specific document IDs to reindex. Null = all documents matching ContainerId filter.
     /// </summary>
     public IReadOnlyList<string>? DocumentIds { get; init; }
 

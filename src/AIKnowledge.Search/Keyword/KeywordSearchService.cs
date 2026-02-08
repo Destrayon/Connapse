@@ -40,46 +40,61 @@ public class KeywordSearchService
         var tsQuery = SanitizeQuery(query);
 
         // Build WHERE clause for filters
+        // Use {N} format consistently for EF Core's SqlQueryRaw parameterization
         var whereClauses = new List<string> { "1=1" };
-        var parameters = new List<object> { tsQuery };
+        var parameters = new List<object> { tsQuery }; // {0} = tsQuery
 
-        if (!string.IsNullOrEmpty(options.CollectionId))
+        if (!string.IsNullOrEmpty(options.ContainerId))
         {
-            whereClauses.Add($"d.collection_id = ${parameters.Count + 1}");
-            parameters.Add(options.CollectionId);
+            var idx = parameters.Count;
+            whereClauses.Add($"d.container_id = {{{idx}}}");
+            parameters.Add(Guid.Parse(options.ContainerId));
         }
 
         if (options.Filters != null && options.Filters.TryGetValue("documentId", out var documentId))
         {
             if (Guid.TryParse(documentId, out var docId))
             {
-                whereClauses.Add($"c.document_id = ${parameters.Count + 1}");
+                var idx = parameters.Count;
+                whereClauses.Add($"c.document_id = {{{idx}}}");
                 parameters.Add(docId);
             }
         }
+
+        if (options.Filters != null && options.Filters.TryGetValue("pathPrefix", out var pathPrefix))
+        {
+            if (!string.IsNullOrWhiteSpace(pathPrefix))
+            {
+                var idx = parameters.Count;
+                whereClauses.Add($"d.path LIKE {{{idx}}}");
+                parameters.Add(pathPrefix + "%");
+            }
+        }
+
+        var topKIdx = parameters.Count;
+        parameters.Add(options.TopK);
 
         var whereClause = string.Join(" AND ", whereClauses);
 
         // Use ts_rank for relevance scoring
         // ts_rank returns a float4 score based on TF-IDF-like ranking
-        var sql = $@"
+        // Note: all parameters use {N} format for SqlQueryRaw
+        var sql = @$"
             SELECT
                 c.id as ChunkId,
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                ts_rank(c.search_vector, plainto_tsquery('english', {{0}})) as Rank,
+                ts_rank(c.search_vector, plainto_tsquery('english', {{{0}}})) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
-                d.collection_id as CollectionId
+                d.container_id as ContainerId
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
-              AND c.search_vector @@ plainto_tsquery('english', {{0}})
+              AND c.search_vector @@ plainto_tsquery('english', {{{0}}})
             ORDER BY Rank DESC
-            LIMIT {{1}}";
-
-        parameters.Add(options.TopK);
+            LIMIT {{{topKIdx}}}";
 
         var results = await _context.Database
             .SqlQueryRaw<KeywordSearchRow>(sql, parameters.ToArray())
@@ -109,7 +124,7 @@ public class KeywordSearchService
                         { "documentId", r.DocumentId.ToString() },
                         { "fileName", r.FileName },
                         { "contentType", r.ContentType ?? "" },
-                        { "collectionId", r.CollectionId ?? "" },
+                        { "containerId", r.ContainerId.ToString() },
                         { "chunkIndex", r.ChunkIndex.ToString() },
                         { "rawRank", r.Rank.ToString("F4") }
                     });
@@ -152,5 +167,5 @@ public class KeywordSearchService
         float Rank,
         string FileName,
         string? ContentType,
-        string? CollectionId);
+        Guid ContainerId);
 }

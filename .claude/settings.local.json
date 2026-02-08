@@ -19,7 +19,28 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(docker compose down:*)",
-      "Bash(docker logs:*)"
+      "Bash(docker logs:*)",
+      "Bash(docker ps:*)",
+      "Bash(curl:*)",
+      "Bash(PGPASSWORD=aikp docker exec:*)",
+      "Bash(cd:*)",
+      "Bash(del \"d:\\\\CodeProjects\\\\AIKnowledgePlatform\\\\src\\\\AIKnowledge.Web\\\\Components\\\\Pages\\\\Upload.razor\")",
+      "Bash(del \"d:\\\\CodeProjects\\\\AIKnowledgePlatform\\\\src\\\\AIKnowledge.Web\\\\Components\\\\Pages\\\\Upload.razor.css\")",
+      "Bash(docker compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(dotnet ef database update:*)",
+      "Bash(Select-String -Pattern \"test|pass|fail|error\")",
+      "Bash(Select-Object -Last 20)",
+      "WebFetch(domain:www.meziantou.net)",
+      "WebFetch(domain:www.binaryintellect.net)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:opensourcehacker.com)",
+      "WebFetch(domain:code-maze.com)",
+      "Bash(python -m json.tool:*)",
+      "Bash(CID=\"0c90b057-7967-4563-afd9-476826bc27b5\")",
+      "Bash(__NEW_LINE_c19693f2c3939892__ echo \"=== RAW KEYWORD SEARCH ===\")",
+      "Bash(__NEW_LINE_c19693f2c3939892__ echo \"\")"
     ]
   }
 }

@@ -96,7 +96,9 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 // Map API endpoints
+app.MapContainersEndpoints();
 app.MapDocumentsEndpoints();
+app.MapFoldersEndpoints();
 app.MapSearchEndpoints();
 app.MapBatchesEndpoints();
 app.MapSettingsEndpoints();

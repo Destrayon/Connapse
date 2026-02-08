@@ -7,7 +7,6 @@ This guide covers deploying AIKnowledgePlatform in various environments.
 - [Quick Start (Docker Compose)](#quick-start-docker-compose)
 - [Local Development](#local-development)
 - [Production Deployment](#production-deployment)
-- [Cloud Deployments](#cloud-deployments)
 - [Configuration Reference](#configuration-reference)
 - [Backup and Restore](#backup-and-restore)
 - [Troubleshooting](#troubleshooting)
@@ -72,14 +71,14 @@ The database schema is created automatically on first startup via EF Core migrat
 
 7. **Access the application**:
 
-- **Web UI**: http://localhost:5001
+- **Web UI**: http://localhost:5001 (shows the container list on the home page)
 - **MinIO Console**: http://localhost:9001 (login: `aikp_admin` / your password)
 - **Ollama API**: http://localhost:11434
 
 ### Verify Installation
 
-1. Open http://localhost:5001
-2. Go to **Settings** → **Connection Testing**
+1. Open http://localhost:5001 — the home page displays the container list
+2. Go to **Settings**
 3. Click "Test Connection" for PostgreSQL, MinIO, and Ollama
 4. All tests should show ✅ Success
 
@@ -508,219 +507,6 @@ volumes:
 
 ---
 
-## Cloud Deployments
-
-### Azure (Container Apps + Managed Services)
-
-#### Architecture
-
-```
-[Azure Front Door]
-    ↓
-[Container App (AIKnowledge.Web)]
-    ↓
-[Azure Database for PostgreSQL Flexible Server + pgvector]
-[Azure Blob Storage (MinIO replacement)]
-[Azure OpenAI / Ollama in Azure Container Instances]
-```
-
-#### Deployment Steps
-
-1. **Create Resource Group**:
-```bash
-az group create --name aikp-prod --location eastus
-```
-
-2. **Provision PostgreSQL**:
-```bash
-az postgres flexible-server create \
-  --resource-group aikp-prod \
-  --name aikp-postgres \
-  --location eastus \
-  --admin-user aikpadmin \
-  --admin-password <SecurePassword> \
-  --sku-name Standard_D2s_v3 \
-  --version 17
-
-# Enable pgvector extension
-az postgres flexible-server parameter set \
-  --resource-group aikp-prod \
-  --server-name aikp-postgres \
-  --name azure.extensions --value VECTOR
-```
-
-3. **Create Storage Account**:
-```bash
-az storage account create \
-  --name aikpstorage \
-  --resource-group aikp-prod \
-  --location eastus \
-  --sku Standard_LRS
-
-az storage container create \
-  --name knowledge-files \
-  --account-name aikpstorage
-```
-
-4. **Deploy Container App**:
-```bash
-az containerapp create \
-  --name aikp-web \
-  --resource-group aikp-prod \
-  --image yourregistry/aikp:v1.0.0 \
-  --environment aikp-env \
-  --target-port 8080 \
-  --ingress external \
-  --min-replicas 2 \
-  --max-replicas 10 \
-  --secrets \
-    postgres-password=<SecurePassword> \
-    storage-key=<StorageAccountKey> \
-  --env-vars \
-    "ASPNETCORE_ENVIRONMENT=Production" \
-    "ConnectionStrings__DefaultConnection=secretref:postgres-password" \
-    "Knowledge__Storage__BlobStorage__ConnectionString=secretref:storage-key"
-```
-
-#### Cost Estimate (Monthly)
-
-- **Container Apps**: $50-200 (2-10 instances)
-- **PostgreSQL Flexible Server (D2s_v3)**: $120
-- **Blob Storage**: $5-50 (depending on usage)
-- **Azure OpenAI**: $0.0001 per 1K tokens (~$10-100/month)
-
-**Total**: ~$185-470/month
-
-### AWS (ECS + Managed Services)
-
-#### Architecture
-
-```
-[Application Load Balancer]
-    ↓
-[ECS Fargate (AIKnowledge.Web)]
-    ↓
-[RDS PostgreSQL 17 + pgvector]
-[S3 (native, no MinIO)]
-[Bedrock / Ollama in ECS]
-```
-
-#### Deployment (Terraform)
-
-```hcl
-# main.tf
-resource "aws_ecs_cluster" "aikp" {
-  name = "aikp-cluster"
-}
-
-resource "aws_db_instance" "postgres" {
-  identifier           = "aikp-postgres"
-  engine              = "postgres"
-  engine_version      = "17.0"
-  instance_class      = "db.t4g.medium"
-  allocated_storage   = 100
-  db_name             = "aikp"
-  username            = "aikpadmin"
-  password            = var.db_password
-  publicly_accessible = false
-  vpc_security_group_ids = [aws_security_group.db.id]
-
-  # Enable pgvector via RDS Parameter Group
-  parameter_group_name = aws_db_parameter_group.postgres17_pgvector.name
-}
-
-resource "aws_s3_bucket" "documents" {
-  bucket = "aikp-documents-${var.environment}"
-}
-
-resource "aws_ecs_service" "aikp_web" {
-  name            = "aikp-web"
-  cluster         = aws_ecs_cluster.aikp.id
-  task_definition = aws_ecs_task_definition.aikp_web.arn
-  desired_count   = 2
-  launch_type     = "FARGATE"
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.aikp_web.arn
-    container_name   = "web"
-    container_port   = 8080
-  }
-}
-```
-
-**Deploy**:
-```bash
-terraform init
-terraform plan -var="db_password=SecurePassword"
-terraform apply
-```
-
-#### Cost Estimate (Monthly)
-
-- **ECS Fargate (2 tasks, 1 vCPU, 2GB)**: $60
-- **RDS PostgreSQL (db.t4g.medium)**: $80
-- **S3 Standard**: $5-50
-- **Application Load Balancer**: $20
-- **Data Transfer**: $10-50
-
-**Total**: ~$175-260/month
-
-### Google Cloud (Cloud Run + Managed Services)
-
-#### Architecture
-
-```
-[Cloud Load Balancing]
-    ↓
-[Cloud Run (AIKnowledge.Web)]
-    ↓
-[Cloud SQL PostgreSQL 17 + pgvector]
-[Cloud Storage (S3-compatible via XML API)]
-[Vertex AI Embeddings]
-```
-
-#### Deployment
-
-```bash
-# Build and push image
-gcloud builds submit --tag gcr.io/your-project/aikp:v1.0.0
-
-# Create Cloud SQL instance
-gcloud sql instances create aikp-postgres \
-  --database-version=POSTGRES_17 \
-  --tier=db-g1-small \
-  --region=us-central1
-
-# Enable pgvector
-gcloud sql instances patch aikp-postgres \
-  --database-flags=cloudsql.enable_pgvector=on
-
-# Create storage bucket
-gsutil mb gs://aikp-documents/
-
-# Deploy to Cloud Run
-gcloud run deploy aikp-web \
-  --image gcr.io/your-project/aikp:v1.0.0 \
-  --region us-central1 \
-  --platform managed \
-  --allow-unauthenticated \
-  --min-instances 1 \
-  --max-instances 10 \
-  --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
-  --set-secrets "ConnectionStrings__DefaultConnection=postgres-connection:latest"
-```
-
-#### Cost Estimate (Monthly)
-
-- **Cloud Run**: $30-100 (1-10 instances)
-- **Cloud SQL (db-g1-small)**: $50
-- **Cloud Storage**: $5-50
-- **Vertex AI Embeddings**: $0.00005 per 1K characters (~$10-50/month)
-
-**Total**: ~$95-250/month
-
----
-
 ## Configuration Reference
 
 ### Environment Variables
@@ -769,9 +555,11 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Chunking__Overlap` | Overlap tokens between chunks | `50` |
 | `Knowledge__Search__Mode` | Default search mode | `Hybrid` |
 | `Knowledge__Search__TopK` | Default result count | `10` |
-| `Knowledge__Search__MinScore` | Minimum similarity score | `0.7` |
+| `Knowledge__Search__MinimumScore` | Minimum similarity score | `0.5` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
+
+> **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 
 ### appsettings.json Structure
 
@@ -805,7 +593,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     "Search": {
       "Mode": "Hybrid",
       "TopK": 10,
-      "MinScore": 0.7,
+      "MinimumScore": 0.5,
       "RerankerStrategy": "RRF",
       "RrfK": 60
     },
@@ -817,13 +605,14 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "MaxTokens": 2048
     },
     "Storage": {
-      "MinIO": {
-        "Endpoint": "minio:9000",
-        "AccessKey": "aikp_dev",
-        "SecretKey": "aikp_dev_secret",
-        "UseSSL": false,
-        "BucketName": "knowledge-files"
-      }
+      "VectorStoreProvider": "PgVector",
+      "DocumentStoreProvider": "Postgres",
+      "FileStorageProvider": "MinIO",
+      "MinioEndpoint": "minio:9000",
+      "MinioAccessKey": "aikp_dev",
+      "MinioSecretKey": "aikp_dev_secret",
+      "MinioUseSSL": false,
+      "MinioBucketName": "aikp-files"
     },
     "Upload": {
       "MaxFileSizeBytes": 104857600,
