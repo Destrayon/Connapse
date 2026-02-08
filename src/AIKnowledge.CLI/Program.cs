@@ -71,7 +71,7 @@ static void PrintUsage()
     Console.WriteLine("  upload <path> --container <name> [--strategy <name>] [--destination <path>]");
     Console.WriteLine("      Upload file(s) to a container");
     Console.WriteLine();
-    Console.WriteLine("  search \"<query>\" --container <name> [--mode <mode>] [--top <n>] [--path <folder>]");
+    Console.WriteLine("  search \"<query>\" --container <name> [--mode <mode>] [--top <n>] [--path <folder>] [--min-score <0.0-1.0>]");
     Console.WriteLine("      Search within a container");
     Console.WriteLine();
     Console.WriteLine("  reindex --container <name> [--force] [--no-detect-changes]");
@@ -286,7 +286,7 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSe
 {
     if (args.Length < 2)
     {
-        Console.WriteLine("Usage: aikp search \"<query>\" --container <name> [--mode <mode>] [--top <n>] [--path <folder>]");
+        Console.WriteLine("Usage: aikp search \"<query>\" --container <name> [--mode <mode>] [--top <n>] [--path <folder>] [--min-score <0.0-1.0>]");
         return 1;
     }
 
@@ -295,6 +295,7 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSe
     var mode = GetOption(args, "--mode") ?? "Hybrid";
     var topK = int.Parse(GetOption(args, "--top") ?? "10");
     var folderPath = GetOption(args, "--path");
+    var minScoreStr = GetOption(args, "--min-score");
 
     if (string.IsNullOrWhiteSpace(containerName))
         return Error("--container is required. Specify the container name.");
@@ -307,11 +308,15 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSe
     Console.WriteLine($"Container: {containerName} | Mode: {mode} | Top: {topK}");
     if (!string.IsNullOrWhiteSpace(folderPath))
         Console.WriteLine($"Path filter: {folderPath}");
+    if (!string.IsNullOrWhiteSpace(minScoreStr))
+        Console.WriteLine($"Min score: {minScoreStr}");
     Console.WriteLine();
 
     var url = $"/api/containers/{containerId}/search?q={Uri.EscapeDataString(query)}&mode={mode}&topK={topK}";
     if (!string.IsNullOrWhiteSpace(folderPath))
         url += $"&path={Uri.EscapeDataString(folderPath)}";
+    if (!string.IsNullOrWhiteSpace(minScoreStr))
+        url += $"&minScore={minScoreStr}";
 
     var response = await httpClient.GetAsync(url);
     response.EnsureSuccessStatusCode();

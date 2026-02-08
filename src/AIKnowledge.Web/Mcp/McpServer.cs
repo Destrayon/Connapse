@@ -2,6 +2,7 @@ using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using AIKnowledge.Core.Utilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace AIKnowledge.Web.Mcp;
@@ -92,7 +93,10 @@ public class McpServer
                             Default: 10),
                         ["path"] = new McpToolProperty(
                             Type: "string",
-                            Description: "Optional: Filter results to a folder subtree (e.g., '/docs/')")
+                            Description: "Optional: Filter results to a folder subtree (e.g., '/docs/')"),
+                        ["minScore"] = new McpToolProperty(
+                            Type: "number",
+                            Description: "Minimum similarity score threshold (0.0-1.0). Lower values return more results. Defaults to server setting (typically 0.5).")
                     },
                     Required: new List<string> { "query", "containerId" })),
 
@@ -263,9 +267,22 @@ public class McpServer
         if (containerId is null)
             return ErrorResult($"Container '{contObj}' not found.");
 
+        // Resolve minScore: use caller value, fall back to configured setting
+        float effectiveMinScore;
+        if (args.TryGetValue("minScore", out var minScoreObj))
+        {
+            effectiveMinScore = Convert.ToSingle(minScoreObj);
+        }
+        else
+        {
+            var searchSettings = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<SearchSettings>>();
+            effectiveMinScore = (float)searchSettings.CurrentValue.MinimumScore;
+        }
+
         var options = new SearchOptions(
             Mode: mode,
             TopK: topK,
+            MinScore: effectiveMinScore,
             ContainerId: containerId.Value.ToString());
 
         var searchService = scope.ServiceProvider.GetRequiredService<IKnowledgeSearch>();

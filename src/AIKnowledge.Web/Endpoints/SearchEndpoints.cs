@@ -1,6 +1,7 @@
 using AIKnowledge.Core;
 using AIKnowledge.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace AIKnowledge.Web.Endpoints;
 
@@ -17,8 +18,10 @@ public static class SearchEndpoints
             [FromQuery] string? mode,
             [FromQuery] int? topK,
             [FromQuery] string? path,
+            [FromQuery] float? minScore,
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
+            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -35,9 +38,12 @@ public static class SearchEndpoints
             if (!string.IsNullOrWhiteSpace(path))
                 filters["pathPrefix"] = path;
 
+            var effectiveMinScore = minScore ?? (float)searchSettings.CurrentValue.MinimumScore;
+
             var options = new SearchOptions(
                 Mode: searchMode,
                 TopK: topK ?? 10,
+                MinScore: effectiveMinScore,
                 ContainerId: containerId.ToString(),
                 Filters: filters.Count > 0 ? filters : null);
 
@@ -53,6 +59,7 @@ public static class SearchEndpoints
             [FromBody] ContainerSearchRequest request,
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
+            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -65,9 +72,12 @@ public static class SearchEndpoints
             if (!string.IsNullOrWhiteSpace(request.Path) && !filters.ContainsKey("pathPrefix"))
                 filters["pathPrefix"] = request.Path;
 
+            var effectiveMinScore = request.MinScore ?? (float)searchSettings.CurrentValue.MinimumScore;
+
             var options = new SearchOptions(
                 Mode: request.Mode ?? SearchMode.Hybrid,
                 TopK: request.TopK ?? 10,
+                MinScore: effectiveMinScore,
                 ContainerId: containerId.ToString(),
                 Filters: filters.Count > 0 ? filters : null);
 
@@ -87,4 +97,5 @@ public record ContainerSearchRequest(
     string? Path = null,
     SearchMode? Mode = null,
     int? TopK = null,
+    float? MinScore = null,
     Dictionary<string, string>? Filters = null);

@@ -2,7 +2,7 @@ namespace AIKnowledge.Core;
 
 public record SearchOptions(
     int TopK = 10,
-    float MinScore = 0.7f,
+    float MinScore = 0.0f,
     string? ContainerId = null,
     SearchMode Mode = SearchMode.Hybrid,
     Dictionary<string, string>? Filters = null);

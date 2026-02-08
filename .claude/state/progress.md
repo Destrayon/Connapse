@@ -4,7 +4,32 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-06)
+## Current Status (2026-02-07)
+
+### Session 5: Semantic Search Bug Fix & MinScore Tuning
+**Date**: 2026-02-07
+
+**Bug Fixes**:
+- **Critical**: Fixed `PgVectorStore.SearchAsync` SQL parameter binding — `Vector` type was silently dropped by `SqlQueryRaw` positional params, breaking all semantic/hybrid search. Fixed by using explicit named `NpgsqlParameter` objects.
+- **High**: Fixed `SearchSettings.MinimumScore` default (0.0→0.5) and `SearchOptions.MinScore` default (0.7→0.0, endpoints now control effective value)
+
+**Features**:
+- `minScore` is now configurable: Settings page (persisted), API (GET `?minScore=` / POST body), CLI (`--min-score`), MCP (`minScore` property)
+- Search endpoints read default from `IOptionsMonitor<SearchSettings>`, with caller override
+
+**Files Changed**:
+- `src/AIKnowledge.Storage/Vectors/PgVectorStore.cs` — Named NpgsqlParameters, quoted aliases
+- `src/AIKnowledge.Core/Models/SearchModels.cs` — MinScore default 0.7→0.0
+- `src/AIKnowledge.Core/Models/SettingsModels.cs` — MinimumScore default 0.0→0.5
+- `src/AIKnowledge.Web/Endpoints/SearchEndpoints.cs` — Inject IOptionsMonitor, add minScore param
+- `src/AIKnowledge.Web/Mcp/McpServer.cs` — Add minScore to search_knowledge tool
+- `src/AIKnowledge.CLI/Program.cs` — Add --min-score option
+
+**Tests**: 129/129 passing (77 core + 52 ingestion). Integration tests blocked by VS file locks (not a code issue).
+
+---
+
+## Previous Status (2026-02-06)
 
 ### Feature #1: Document Upload + Ingestion + Hybrid Search
 **Status**: ✅ **COMPLETE** — All 8 phases implemented, 86/86 tests passing (100%)

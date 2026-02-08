@@ -451,6 +451,47 @@ private async Task HandleIngestionProgress(IngestionProgressUpdate progress)
 
 **Status**: Fixed (2026-02-06)
 
+### PgVectorStore Vector Parameter Binding Failure
+
+**Severity**: Critical (all semantic/hybrid search broken)
+
+**Description**: `PgVectorStore.SearchAsync` passed `new Vector(queryVector)` as a positional `object` parameter to `SqlQueryRaw`. EF Core's raw SQL parameter binding failed to properly bind the pgvector `Vector` type as a positional parameter, resulting in PostgreSQL error: `08P01: bind message supplies 2 parameters, but prepared statement "" requires 3`.
+
+**Root Cause**: `SqlQueryRaw` with positional `{N}` parameters and `parameters.ToArray()` silently dropped the `Vector` parameter during bind message creation. The SQL sent to PostgreSQL had 3 placeholders ($1, $2, $3) but only 2 actual parameter values were bound.
+
+**Fix**: Replaced positional `{N}` parameters with explicit named `NpgsqlParameter` objects:
+```csharp
+// BEFORE (broken)
+var parameters = new List<object> { new Vector(queryVector), topK };
+// ... sql uses {0}, {1}, {2}
+
+// AFTER (working)
+var vectorParam = new NpgsqlParameter("@queryVector", new Vector(queryVector));
+var topKParam = new NpgsqlParameter("@topK", NpgsqlDbType.Integer) { Value = topK };
+// ... sql uses @queryVector, @topK, @containerId etc.
+```
+
+Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for proper PostgreSQL case handling.
+
+**Status**: Fixed (2026-02-07)
+
+### Semantic Search MinScore Threshold Too Aggressive
+
+**Severity**: High (semantic search returns no results for paraphrased queries)
+
+**Description**: Default `MinScore = 0.7f` in `SearchOptions` filtered out most relevant semantic search results. With `nomic-embed-text`, relevant paraphrased queries score 0.55-0.74, while irrelevant queries score 0.39-0.42. The 0.7 threshold only passed exact keyword matches, defeating the purpose of semantic search.
+
+**Root Cause**: The 0.7 threshold was calibrated for cloud embedding models (OpenAI, Cohere) which produce higher similarity scores. Open-source models like `nomic-embed-text` produce lower absolute scores.
+
+**Fix**:
+1. Changed `SearchSettings.MinimumScore` default from `0.0` to `0.5` (configurable via Settings page)
+2. Changed `SearchOptions.MinScore` default from `0.7f` to `0.0f` (endpoints now set the effective value)
+3. Search endpoints read `MinimumScore` from `IOptionsMonitor<SearchSettings>` as the default
+4. Added `minScore` optional parameter to API (GET query param, POST body), CLI (`--min-score`), and MCP (`minScore` property)
+5. Caller-provided `minScore` overrides the settings value
+
+**Status**: Fixed (2026-02-07)
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests

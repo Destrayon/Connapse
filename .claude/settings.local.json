@@ -36,7 +36,11 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:opensourcehacker.com)",
-      "WebFetch(domain:code-maze.com)"
+      "WebFetch(domain:code-maze.com)",
+      "Bash(python -m json.tool:*)",
+      "Bash(CID=\"0c90b057-7967-4563-afd9-476826bc27b5\")",
+      "Bash(__NEW_LINE_c19693f2c3939892__ echo \"=== RAW KEYWORD SEARCH ===\")",
+      "Bash(__NEW_LINE_c19693f2c3939892__ echo \"\")"
     ]
   }
 }
