@@ -302,6 +302,7 @@ Add to README:
 
 When ready to make repository public:
 
+- [x] Clean `.claude/` directory (settings.local.json gitignored, state/ documented)
 - [ ] All critical tasks complete (1-5)
 - [ ] LICENSE file exists
 - [ ] README has security warnings
@@ -316,6 +317,10 @@ When ready to make repository public:
 - [ ] Push tags: `git push --tags`
 - [ ] Repository visibility: Public
 - [ ] Announce (optional): Reddit, Hacker News, Twitter/X
+
+### Note on `.claude/` Directory
+
+The `.claude/state/` documentation is **intentionally public** as it provides valuable architectural context for contributors. See [.claude/README.md](../.claude/README.md) for details. No sensitive information is included.
 
 ---
 
