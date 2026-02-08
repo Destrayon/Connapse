@@ -1,10 +1,10 @@
 @page "/containers/{ContainerId}"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.SignalR.Client
-@using System.Net.Http.Headers
 @using AIKnowledge.Core
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @implements IAsyncDisposable
 
 <PageTitle>@(container?.Name ?? "Files") - AIKnowledge</PageTitle>
@@ -33,9 +33,9 @@
         <label class="btn btn-sm btn-primary upload-btn-label" for="fileUploadInput">
             <span class="bi-upload me-1"></span> Upload
         </label>
-        <InputFile OnChange="HandleFileSelection" multiple
-                   accept=".pdf,.md,.txt,.docx,.pptx,.csv,.json,.xml,.yaml,.yml,.html"
-                   id="fileUploadInput" style="display: none;" />
+        <input type="file" multiple
+               accept=".pdf,.md,.txt,.docx,.pptx,.csv,.json,.xml,.yaml,.yml,.html"
+               id="fileUploadInput" style="display: none;" />
     </div>
 </div>
 
@@ -55,64 +55,20 @@ else if (errorMessage is not null)
 else
 {
     @* Upload Drop Zone + File List *@
-    <div class="browser-content @(isDragging ? "dragging" : "")"
-         @ondragenter="HandleDragEnter"
-         @ondragleave="HandleDragLeave"
-         @ondragover:preventDefault
-         @ondrop="HandleDrop"
-         @ondrop:preventDefault>
+    <div id="fileDropZone" class="browser-content">
 
-        @if (isDragging)
-        {
-            <div class="drop-overlay">
-                <div class="drop-overlay-content">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
-                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
-                    </svg>
-                    <span>Drop files to upload to @currentPath</span>
-                </div>
+        <div class="drop-overlay">
+            <div class="drop-overlay-content">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                </svg>
+                <span>Drop files to upload</span>
             </div>
-        }
-
-        @* Upload progress *@
-        @if (uploadingFiles.Count > 0)
-        {
-            <div class="upload-progress-section">
-                @foreach (var file in uploadingFiles)
-                {
-                    <div class="upload-progress-row">
-                        <span class="upload-file-name">@file.FileName</span>
-                        <span class="upload-file-size">@FormatFileSize(file.SizeBytes)</span>
-                        @if (file.Error is not null)
-                        {
-                            <span class="badge bg-danger">Error</span>
-                        }
-                        else if (file.State == "Completed")
-                        {
-                            <span class="badge bg-success">Ready</span>
-                        }
-                        else if (file.State == "Failed")
-                        {
-                            <span class="badge bg-danger">Failed</span>
-                        }
-                        else if (file.State == "Processing")
-                        {
-                            <div class="upload-progress-bar">
-                                <div class="upload-progress-fill" style="width: @(file.PercentComplete)%"></div>
-                            </div>
-                        }
-                        else
-                        {
-                            <span class="badge bg-secondary">@(file.State ?? "Uploading")</span>
-                        }
-                    </div>
-                }
-            </div>
-        }
+        </div>
 
         @* Empty folder state *@
-        @if (entries.Count == 0 && uploadingFiles.Count == 0)
+        @if (entries.Count == 0)
         {
             <div class="empty-folder">
                 <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
@@ -121,7 +77,7 @@ else
                 <p>This folder is empty. Upload files or create a subfolder.</p>
             </div>
         }
-        else if (entries.Count > 0)
+        else
         {
             @* File/Folder table *@
             <table class="file-table">
@@ -161,9 +117,9 @@ else
                                 }
                             </td>
                             <td class="col-status">
-                                @if (!entry.IsFolder && entry.Status is not null)
+                                @if (!entry.IsFolder)
                                 {
-                                    <span class="badge @GetStatusBadgeClass(entry.Status)">@entry.Status</span>
+                                    <span class="badge @GetStatusBadgeClass(entry.Status ?? "Pending")">@(entry.Status ?? "Pending")</span>
                                 }
                             </td>
                             <td class="col-modified">
@@ -219,8 +175,8 @@ else
             <div class="detail-row">
                 <span class="detail-label">Status</span>
                 <span class="detail-value">
-                    <span class="badge @GetStatusBadgeClass(selectedFile.Metadata.GetValueOrDefault("Status", "Unknown"))">
-                        @selectedFile.Metadata.GetValueOrDefault("Status", "Unknown")
+                    <span class="badge @GetStatusBadgeClass(selectedFile.Metadata.GetValueOrDefault("Status", "Pending"))">
+                        @selectedFile.Metadata.GetValueOrDefault("Status", "Pending")
                     </span>
                 </span>
             </div>
@@ -228,14 +184,14 @@ else
                 <span class="detail-label">Uploaded</span>
                 <span class="detail-value">@selectedFile.CreatedAt.ToString("MMM d, yyyy HH:mm")</span>
             </div>
-            @if (selectedFile.Metadata.TryGetValue("ContentHash", out var hash))
+            @if (selectedFile.Metadata.TryGetValue("ContentHash", out var hash) && !string.IsNullOrEmpty(hash))
             {
                 <div class="detail-row">
                     <span class="detail-label">Content Hash</span>
                     <span class="detail-value detail-hash">@hash[..Math.Min(16, hash.Length)]...</span>
                 </div>
             }
-            @if (selectedFile.Metadata.TryGetValue("ChunkCount", out var chunks))
+            @if (selectedFile.Metadata.TryGetValue("ChunkCount", out var chunks) && chunks != "0")
             {
                 <div class="detail-row">
                     <span class="detail-label">Chunks</span>
@@ -344,7 +300,6 @@ else
     private string currentPath = "/";
     private bool isLoading = true;
     private string? errorMessage;
-    private bool isDragging;
 
     // Folder modal
     private bool showFolderModal;
@@ -357,13 +312,18 @@ else
     private string? deleteError;
     private bool isDeletingEntry;
 
-    // Upload state
-    private List<UploadFileInfo> uploadingFiles = new();
+    // Upload tracking (maps JobId to entry index for SignalR updates)
+    private Dictionary<string, string> jobToDocumentId = new();
     private HubConnection? hubConnection;
 
     // File detail panel
     private FileDetailDto? selectedFile;
     private BrowseEntryDto? selectedBrowseEntry;
+
+    // JS interop
+    private IJSObjectReference? jsModule;
+    private DotNetObjectReference<FileBrowser>? dotNetRef;
+    private bool jsInitialized;
 
     private HttpClient? _httpClient;
     private HttpClient Http
@@ -392,6 +352,21 @@ else
 
         await LoadContainer();
         await LoadEntries();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!jsInitialized && !isLoading)
+        {
+            try
+            {
+                jsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDrop.js");
+                dotNetRef ??= DotNetObjectReference.Create(this);
+                await jsModule.InvokeVoidAsync("initializeDropZone", "fileDropZone", dotNetRef, ContainerId);
+                jsInitialized = true;
+            }
+            catch { /* Will retry on next render */ }
+        }
     }
 
     private async Task LoadContainer()
@@ -428,12 +403,29 @@ else
         }
     }
 
+    /// <summary>
+    /// Refreshes the file list without showing the loading spinner.
+    /// Used for background refreshes after uploads and ingestion completion.
+    /// </summary>
+    private async Task RefreshEntries()
+    {
+        try
+        {
+            var encodedPath = Uri.EscapeDataString(currentPath);
+            var result = await Http.GetFromJsonAsync<List<BrowseEntryDto>>(
+                $"/api/containers/{ContainerId}/files?path={encodedPath}");
+            entries = result ?? new();
+        }
+        catch { /* Silently ignore refresh failures */ }
+    }
+
     private void NavigateToRoot() => NavigateToPath("/");
 
-    private void NavigateToPath(string path)
+    private async void NavigateToPath(string path)
     {
         currentPath = path;
-        _ = LoadEntries();
+        await LoadEntries();
+        StateHasChanged();
     }
 
     private async Task HandleEntryClick(BrowseEntryDto entry)
@@ -448,7 +440,8 @@ else
         else
         {
             selectedBrowseEntry = entry;
-            await LoadFileDetails(entry.Id!);
+            if (entry.Id is not null)
+                await LoadFileDetails(entry.Id);
         }
     }
 
@@ -489,97 +482,90 @@ else
         return crumbs;
     }
 
-    // Drag/drop handlers
-    private void HandleDragEnter() => isDragging = true;
-    private void HandleDragLeave() => isDragging = false;
+    // JS interop callbacks for drag-and-drop uploads
+    [JSInvokable]
+    public string GetCurrentPath() => currentPath;
 
-    private async Task HandleDrop(DragEventArgs e)
+    [JSInvokable]
+    public async Task HandleDropUploadResult(string resultJson)
     {
-        isDragging = false;
-        // File handling via InputFile component
-    }
+        var result = System.Text.Json.JsonSerializer.Deserialize<UploadResponseDto>(
+            resultJson,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-    // Upload
-    private async Task HandleFileSelection(InputFileChangeEventArgs e)
-    {
-        const long maxFileSize = 1024L * 1024 * 500; // 500 MB
-        var files = e.GetMultipleFiles(200);
-
-        foreach (var file in files)
+        if (result is not null)
         {
-            var fileInfo = new UploadFileInfo
+            foreach (var doc in result.Documents)
             {
-                FileName = file.Name,
-                SizeBytes = file.Size
-            };
-            uploadingFiles.Add(fileInfo);
-        }
-        StateHasChanged();
+                var newEntry = new BrowseEntryDto(
+                    Name: doc.FileName,
+                    Path: doc.Path,
+                    IsFolder: false,
+                    SizeBytes: doc.SizeBytes,
+                    LastModified: DateTime.UtcNow,
+                    Status: "Queued",
+                    Id: doc.DocumentId);
 
-        foreach (var file in files)
-        {
-            await UploadFile(file, maxFileSize);
-        }
-    }
-
-    private async Task UploadFile(IBrowserFile file, long maxFileSize)
-    {
-        var fileInfo = uploadingFiles.FirstOrDefault(f => f.FileName == file.Name);
-        if (fileInfo is null) return;
-
-        try
-        {
-            using var content = new MultipartFormDataContent();
-            using var fileStream = file.OpenReadStream(maxFileSize);
-            using var streamContent = new StreamContent(fileStream);
-            streamContent.Headers.ContentType = new MediaTypeHeaderValue(
-                string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType);
-
-            content.Add(streamContent, "files", file.Name);
-            content.Add(new StringContent(currentPath), "path");
-
-            var response = await Http.PostAsync($"/api/containers/{ContainerId}/files", content);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<UploadResponseDto>();
-            if (result is not null)
-            {
-                var doc = result.Documents.FirstOrDefault(d => d.FileName == file.Name);
-                if (doc is not null)
+                if (!entries.Any(e => e.Id == doc.DocumentId))
                 {
-                    fileInfo.JobId = doc.JobId;
-                    fileInfo.Error = doc.Error;
+                    var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, doc.FileName, StringComparison.OrdinalIgnoreCase) > 0);
+                    if (insertIdx < 0) insertIdx = entries.Count;
+                    entries.Insert(insertIdx, newEntry);
+                }
 
-                    if (fileInfo.JobId is not null && hubConnection is not null)
-                    {
-                        await hubConnection.InvokeAsync("SubscribeToJob", fileInfo.JobId);
-                        fileInfo.State = "Queued";
-                    }
+                if (doc.JobId is not null && hubConnection is not null)
+                {
+                    jobToDocumentId[doc.JobId] = doc.DocumentId;
+                    await hubConnection.InvokeAsync("SubscribeToJob", doc.JobId);
                 }
             }
         }
-        catch (Exception ex)
-        {
-            fileInfo.Error = ex.Message;
-        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task HandleDropUploadError(string error)
+    {
+        errorMessage = $"Drop upload failed: {error}";
         StateHasChanged();
+        return Task.CompletedTask;
     }
 
     private async Task HandleIngestionProgress(IngestionProgressUpdate progress)
     {
         await InvokeAsync(() =>
         {
-            var file = uploadingFiles.FirstOrDefault(f => f.JobId == progress.JobId);
-            if (file is not null)
+            if (jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
             {
-                file.State = progress.State;
-                file.PercentComplete = progress.PercentComplete;
+                // Map ingestion state to a display status
+                var displayStatus = progress.State switch
+                {
+                    "Completed" => "Ready",
+                    "Failed" => "Error",
+                    _ => progress.State // Queued, Processing, etc.
+                };
 
-                // Refresh file list when a file completes
+                // Update the matching entry's status in the file list
+                var idx = entries.FindIndex(e => e.Id == documentId);
+                if (idx >= 0)
+                {
+                    var entry = entries[idx];
+                    entries[idx] = entry with { Status = displayStatus };
+                }
+
+                // Refresh from server when processing finishes
                 if (progress.State is "Completed" or "Failed")
                 {
-                    _ = LoadEntries();
+                    jobToDocumentId.Remove(progress.JobId);
+                    _ = InvokeAsync(async () =>
+                    {
+                        await RefreshEntries();
+                        await LoadContainer();
+                        StateHasChanged();
+                    });
                 }
+
                 StateHasChanged();
             }
         });
@@ -615,7 +601,7 @@ else
             if (response.IsSuccessStatusCode)
             {
                 showFolderModal = false;
-                await LoadEntries();
+                await RefreshEntries();
             }
             else
             {
@@ -667,8 +653,15 @@ else
 
             if (response.IsSuccessStatusCode)
             {
+                // Close detail panel if we deleted the selected file
+                if (!entryToDelete.IsFolder && selectedBrowseEntry?.Id == entryToDelete.Id)
+                {
+                    selectedFile = null;
+                    selectedBrowseEntry = null;
+                }
                 entryToDelete = null;
-                await LoadEntries();
+                await RefreshEntries();
+                await LoadContainer();
             }
             else
             {
@@ -704,8 +697,9 @@ else
     {
         "Ready" => "bg-success",
         "Processing" => "bg-info",
+        "Queued" => "bg-secondary",
         "Pending" => "bg-secondary",
-        "Error" => "bg-danger",
+        "Error" or "Failed" => "bg-danger",
         _ => "bg-secondary"
     };
 
@@ -713,6 +707,9 @@ else
     {
         if (hubConnection is not null)
             await hubConnection.DisposeAsync();
+        if (jsModule is not null)
+            await jsModule.DisposeAsync();
+        dotNetRef?.Dispose();
     }
 
     // DTOs
@@ -732,14 +729,4 @@ else
         string? ErrorMessage,
         DateTime? StartedAt,
         DateTime? CompletedAt);
-
-    private class UploadFileInfo
-    {
-        public string FileName { get; set; } = "";
-        public long SizeBytes { get; set; }
-        public string? JobId { get; set; }
-        public string? State { get; set; }
-        public double PercentComplete { get; set; }
-        public string? Error { get; set; }
-    }
 }

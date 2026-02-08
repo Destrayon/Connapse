@@ -19,7 +19,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 - ✅ Testing (72 unit tests + 14 integration tests, all passing)
 
 ### Feature #2: Container-Based File Browser
-**Status**: 🚧 **IN PROGRESS** — Phases 1-8 complete (schema + services + API + UI + CLI + MCP)
+**Status**: ✅ **COMPLETE** — All 9 phases implemented, 168/168 tests passing (100%)
 
 - ✅ Phase 1: Database schema migration (containers, folders, container_id on docs/chunks/vectors)
 - ✅ Phase 2: Core services (IContainerStore, IFolderStore, PathUtilities, updated all stores/search/ingestion)
@@ -29,9 +29,9 @@ Current status and recent work. Update at end of each session. For detailed impl
 - ✅ Phase 6: Web UI - File Details (side panel with metadata, status, actions)
 - ✅ Phase 7: CLI (container CRUD, upload/search/reindex require --container, name→ID resolution)
 - ✅ Phase 8: MCP (7 tools: container_create/list/delete, search_knowledge, list_files, upload_file, delete_file)
-- All 10 projects build with 0 errors, 0 warnings
+- ✅ Phase 9: Testing (77 unit + 52 ingestion + 39 integration = 168 tests, all passing)
+- All 10 projects build with 0 errors
 - Old migration deleted; fresh migration needed on next startup
-- Remaining: Phase 9 (testing).
 
 ---
 
@@ -253,11 +253,17 @@ search_knowledge     Search within container (updated to require containerId)
 - [x] Updated search_knowledge (containerId required, path filtering)
 - [x] Name-to-ID resolution for all container parameters
 
-#### Phase 9: Testing
-- [ ] Unit tests for new services
-- [ ] Integration tests for container isolation
-- [ ] Integration tests for cascade deletes
-- [ ] Integration tests for path-based search filtering
+#### Phase 9: Testing ✅
+- [x] Unit tests: PathUtilities (25 tests: container name validation, path normalization, duplicate naming)
+- [x] Integration tests: Container CRUD (create valid/duplicate/invalid, list, get, delete empty/non-empty/non-existent)
+- [x] Integration tests: Folder ops (create, delete, duplicate, root path, non-existent container)
+- [x] Integration tests: File browse (empty container, sorted listing with folders+files)
+- [x] Integration tests: Container isolation (search does not leak across containers)
+- [x] Integration tests: Cascade deletes (folder delete cascades to documents and chunks)
+- [x] Integration tests: File upload/get/delete (upload to container, delete removes chunks)
+- [x] Integration tests: Updated IngestionIntegrationTests for container-scoped API
+- [x] Integration tests: Updated ReindexIntegrationTests for container-scoped API
+- [x] Bug fixes found during testing: non-seekable stream in ReindexService, IngestionPipeline reindex PK violation, KeywordSearchService parameter indexing, container delete error handling
 
 ### Migration Notes
 
@@ -274,6 +280,26 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Recent Sessions
+
+### 2026-02-06 (Session 5) — Feature #2 Phase 9: Testing (COMPLETE)
+
+**Status**: Feature #2 fully complete ✅ — 168/168 tests passing (100%)
+
+**Tests Created**:
+1. `tests/AIKnowledge.Core.Tests/Utilities/PathUtilitiesTests.cs` — 25 unit tests for path utilities
+2. `tests/AIKnowledge.Integration.Tests/ContainerIntegrationTests.cs` — 20 integration tests for containers, folders, files, isolation, cascades
+3. Updated `IngestionIntegrationTests.cs` — Rewrote for container-scoped API
+4. Updated `ReindexIntegrationTests.cs` — Rewrote for container-scoped API, added container-scoped reindex test
+
+**Bugs Found & Fixed During Testing**:
+1. **KeywordSearchService SQL parameter conflict** — Mixed `$N` (Npgsql) with `{N}` (EF Core SqlQueryRaw) causing wrong parameter binding when container filter active. Fixed with consistent `{N}` indexing.
+2. **Container delete endpoint error handling** — `PostgresContainerStore.DeleteAsync` throws `InvalidOperationException` for non-empty containers, but endpoint expected boolean. Added try-catch returning BadRequest.
+3. **IngestionPipeline path storage** — Pipeline used `options.FileName` for `DocumentEntity.Path` instead of actual path. Added `Path` field to `IngestionOptions`, set in all 3 callsites.
+4. **ReindexService Guid comparison** — `d.ContainerId.ToString() == options.ContainerId` doesn't translate to SQL. Fixed to direct Guid comparison with `Guid.TryParse`.
+5. **ReindexService non-seekable stream** — `ComputeContentHashAsync` did `content.Position = 0` on MinIO response stream (not seekable). Fixed with `CanSeek` guard.
+6. **IngestionPipeline reindex PK violation** — Always did INSERT for documents, causing PK conflict during reindex. Fixed with FindAsync + update-or-insert logic.
+
+**Test Results**: 77 unit + 52 ingestion + 39 integration = 168 tests, all passing
 
 ### 2026-02-06 (Session 4) — Feature #2 Phases 1-2 Implementation
 

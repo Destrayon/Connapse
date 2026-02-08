@@ -216,10 +216,10 @@ public class ReindexService : IReindexService
     {
         var query = _context.Documents.AsNoTracking().AsQueryable();
 
-        // Filter by collection if specified
-        if (!string.IsNullOrEmpty(options.ContainerId))
+        // Filter by container if specified
+        if (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var containerGuid))
         {
-            query = query.Where(d => d.ContainerId.ToString() == options.ContainerId);
+            query = query.Where(d => d.ContainerId == containerGuid);
         }
 
         // Filter by specific document IDs if specified
@@ -411,6 +411,7 @@ public class ReindexService : IReindexService
                 FileName: doc.FileName,
                 ContentType: doc.ContentType,
                 ContainerId: doc.ContainerId.ToString(),
+                Path: doc.Path,
                 Strategy: strategy,
                 Metadata: doc.Metadata),
             BatchId: batchId);
@@ -479,7 +480,12 @@ public class ReindexService : IReindexService
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)
     {
         using var sha256 = SHA256.Create();
-        content.Position = 0;
+
+        if (content.CanSeek)
+        {
+            content.Position = 0;
+        }
+
         var hashBytes = await sha256.ComputeHashAsync(content, ct);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }

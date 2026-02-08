@@ -384,6 +384,7 @@ public class McpServer
                 FileName: fileName,
                 ContentType: null,
                 ContainerId: containerId.Value.ToString(),
+                Path: filePath,
                 Strategy: strategy,
                 Metadata: new Dictionary<string, string>
                 {

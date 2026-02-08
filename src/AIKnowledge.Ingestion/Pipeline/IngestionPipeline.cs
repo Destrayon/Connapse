@@ -94,7 +94,7 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Save file to storage (only if not already saved)
             // Note: When called from IngestionWorker, file is already saved
-            var virtualPath = options.FileName ?? $"upload-{documentId}";
+            var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
 
             // Build metadata including indexing settings for reindex detection
             var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
@@ -115,21 +115,39 @@ public class IngestionPipeline : IKnowledgeIngester
                 ? cId
                 : Guid.Empty;
 
-            var documentEntity = new DocumentEntity
+            // Check if document already exists (e.g., during reindex)
+            var documentEntity = await _context.Documents.FindAsync([documentId], ct);
+            if (documentEntity != null)
             {
-                Id = documentId,
-                ContainerId = containerId,
-                FileName = options.FileName ?? "unknown",
-                ContentType = options.ContentType,
-                Path = virtualPath,
-                ContentHash = contentHash,
-                SizeBytes = workingStream.Length,
-                Status = "Processing",
-                CreatedAt = DateTime.UtcNow,
-                Metadata = metadata
-            };
+                // Update existing document for reindex
+                documentEntity.ContainerId = containerId;
+                documentEntity.FileName = options.FileName ?? "unknown";
+                documentEntity.ContentType = options.ContentType;
+                documentEntity.Path = virtualPath;
+                documentEntity.ContentHash = contentHash;
+                documentEntity.SizeBytes = workingStream.Length;
+                documentEntity.Status = "Processing";
+                documentEntity.Metadata = metadata;
+            }
+            else
+            {
+                documentEntity = new DocumentEntity
+                {
+                    Id = documentId,
+                    ContainerId = containerId,
+                    FileName = options.FileName ?? "unknown",
+                    ContentType = options.ContentType,
+                    Path = virtualPath,
+                    ContentHash = contentHash,
+                    SizeBytes = workingStream.Length,
+                    Status = "Processing",
+                    CreatedAt = DateTime.UtcNow,
+                    Metadata = metadata
+                };
 
-            _context.Documents.Add(documentEntity);
+                _context.Documents.Add(documentEntity);
+            }
+
             await _context.SaveChangesAsync(ct);
 
             // Parse document

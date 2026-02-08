@@ -45,6 +45,8 @@ public static class FoldersEndpoints
             [FromQuery] bool cascade,
             [FromServices] IContainerStore containerStore,
             [FromServices] IFolderStore folderStore,
+            [FromServices] IDocumentStore documentStore,
+            [FromServices] IKnowledgeFileSystem fileSystem,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -58,9 +60,20 @@ public static class FoldersEndpoints
             if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
                 return Results.NotFound(new { error = $"Folder '{normalizedPath}' not found" });
 
+            // Get document paths before deletion so we can clean up file storage
+            var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, ct);
+            var filePaths = documents.Select(d => d.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
+
             var deleted = await folderStore.DeleteAsync(containerId, normalizedPath, ct);
             if (!deleted)
                 return Results.BadRequest(new { error = "Folder is not empty. Use cascade=true to delete contents." });
+
+            // Clean up file storage (best effort)
+            foreach (var filePath in filePaths)
+            {
+                try { await fileSystem.DeleteAsync(filePath, ct); }
+                catch { /* File already deleted or not found */ }
+            }
 
             return Results.NoContent();
         })

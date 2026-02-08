@@ -339,6 +339,118 @@ private async Task HandleIngestionProgress(IngestionProgressUpdate progress)
 
 **Status**: Fixed (2026-02-05) — all reindex tests now passing
 
+### KeywordSearchService SQL Parameter Conflict
+
+**Severity**: Critical (search returns wrong results or crashes when container filter active)
+
+**Description**: `KeywordSearchService` mixed `$N` (Npgsql positional) with `{N}` (EF Core SqlQueryRaw) parameter placeholders. When ContainerId filter was added as parameter[1], `LIMIT {1}` incorrectly used the ContainerId instead of TopK.
+
+**Root Cause**: Original code used `$N` for some parameters but `{N}` for others. EF Core's SqlQueryRaw only understands `{N}` format. The `LIMIT` value was hardcoded as `{1}` but parameters shifted when container filter was added.
+
+**Fix**: All parameters now use `{N}` format with dynamic index tracking (`var idx = parameters.Count`). TopK parameter index is computed dynamically.
+
+**Status**: Fixed (2026-02-06)
+
+### Container Delete Endpoint Error Handling
+
+**Severity**: Medium (DELETE returns 500 instead of 400 for non-empty containers)
+
+**Description**: `PostgresContainerStore.DeleteAsync` throws `InvalidOperationException` for non-empty containers, but the endpoint expected a boolean return value.
+
+**Fix**: Added try-catch for `InvalidOperationException` in container delete endpoint, returning BadRequest with error message.
+
+**Status**: Fixed (2026-02-06)
+
+### IngestionPipeline Path Storage
+
+**Severity**: High (documents stored with wrong path, breaking reindex and file browse)
+
+**Description**: `IngestionPipeline.IngestAsync` used `options.FileName` for `DocumentEntity.Path` instead of the actual virtual path (e.g., `/test/file.txt`). This caused file browse and reindex to fail because paths didn't match MinIO keys.
+
+**Fix**: Added `Path` field to `IngestionOptions` record. Set in all 3 callsites (DocumentsEndpoints, ReindexService, McpServer). Pipeline now uses `options.Path ?? options.FileName`.
+
+**Status**: Fixed (2026-02-06)
+
+### ReindexService Non-Seekable Stream
+
+**Severity**: High (reindex hash computation fails for all MinIO-stored files)
+
+**Description**: `ReindexService.ComputeContentHashAsync` did `content.Position = 0` on MinIO response stream, which is non-seekable (network stream), throwing `NotSupportedException`.
+
+**Root Cause**: MinIO `GetObjectAsync` returns a network stream that doesn't support seeking. The `IngestionPipeline` already handled this by copying to MemoryStream, but `ReindexService` did not.
+
+**Fix**: Added `if (content.CanSeek)` guard before setting `content.Position = 0`. Stream is already at position 0 when freshly opened.
+
+**Status**: Fixed (2026-02-06)
+
+### IngestionPipeline Reindex PK Violation
+
+**Severity**: Critical (force reindex crashes with PK constraint violation)
+
+**Description**: `IngestionPipeline.IngestAsync` always did `_context.Documents.Add(documentEntity)` (INSERT), causing PK violation when reindexing an existing document.
+
+**Root Cause**: Reindex enqueues a new ingestion job with the existing document's ID. The pipeline unconditionally inserted a new row instead of updating the existing one.
+
+**Fix**: Added `FindAsync` check before insert. If document exists, updates its fields; otherwise creates new entity.
+
+**Status**: Fixed (2026-02-06)
+
+### ReindexService Guid.ToString() in LINQ
+
+**Severity**: High (container-scoped reindex returns all documents)
+
+**Description**: `d.ContainerId.ToString() == options.ContainerId` in LINQ-to-SQL doesn't translate properly with Npgsql, causing container filter to be ineffective.
+
+**Fix**: Parse `options.ContainerId` to `Guid` with `Guid.TryParse`, then compare directly: `d.ContainerId == containerGuid`.
+
+**Status**: Fixed (2026-02-06)
+
+### File Browser: Folder Listing Showed All Nested Subfolders
+
+**Severity**: Medium (UI confusion)
+
+**Description**: `PostgresFolderStore.ListAsync` returned ALL subfolders under a parent path, not just immediate children. Browsing "/" would show "/docs/", "/docs/sub/", "/images/" instead of just "/docs/" and "/images/".
+
+**Root Cause**: Query used `Path.StartsWith(parent)` without filtering to direct children only.
+
+**Fix**: Added client-side filtering after DB query to only return folders where the relative path (after parent prefix, minus trailing slash) contains no "/" characters.
+
+**Status**: Fixed (2026-02-06)
+
+### File Browser: Container File Count Not Updating After Delete
+
+**Severity**: Medium (stale count displayed on home page)
+
+**Description**: After deleting files or folders in the file browser, the container's DocumentCount was not refreshed. The home page still showed the old file count.
+
+**Root Cause**: `DeleteEntry()` in FileBrowser.razor called `LoadEntries()` to refresh the file list but NOT `LoadContainer()` to refresh the container metadata (including DocumentCount). Same issue after upload completion.
+
+**Fix**: Added `await LoadContainer()` call after successful deletion and after ingestion completion in the SignalR progress handler.
+
+**Status**: Fixed (2026-02-06)
+
+### File Browser: Folder Delete Didn't Clean Up File Storage
+
+**Severity**: Medium (orphaned files in MinIO)
+
+**Description**: Deleting a folder removed documents from the DB (cascade) but didn't clean up the actual files in MinIO/S3 storage, leaving orphaned files.
+
+**Root Cause**: `FoldersEndpoints` delete only called `folderStore.DeleteAsync` (DB only). Unlike the individual file delete endpoint which also calls `fileSystem.DeleteAsync`.
+
+**Fix**: Added document path collection before DB deletion, then iterates and deletes each file from storage (best effort).
+
+**Status**: Fixed (2026-02-06)
+
+### File Browser: Delete Button Not Discoverable
+
+**Severity**: Low (UX issue)
+
+**Description**: Delete buttons for files and folders in the file table had `opacity: 0` by default, making them completely invisible. Only visible on row hover, which was easy to miss.
+
+**Fix**: Changed default opacity from 0 to 0.3, so the button is subtly visible at all times and becomes prominent on hover.
+
+**Status**: Fixed (2026-02-06)
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests

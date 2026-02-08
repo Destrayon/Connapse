@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Testcontainers.Minio;
@@ -11,9 +12,15 @@ namespace AIKnowledge.Integration.Tests;
 
 /// <summary>
 /// Integration tests for the reindex service - verifying content-hash detection and re-processing.
+/// Updated for container-scoped API (Feature #2).
 /// </summary>
 public class ReindexIntegrationTests : IAsyncLifetime
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
         .WithDatabase("aikp_test")
@@ -27,6 +34,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _client = null!;
+    private string _containerId = null!;
 
     public async Task InitializeAsync()
     {
@@ -47,6 +55,13 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
         _client = _factory.CreateClient();
         await Task.Delay(2000);
+
+        // Create a container for reindex tests
+        var response = await _client.PostAsJsonAsync("/api/containers",
+            new { Name = "reindex-tests" });
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        _containerId = container!.Id;
     }
 
     public async Task DisposeAsync()
@@ -70,45 +85,35 @@ public class ReindexIntegrationTests : IAsyncLifetime
         docBefore.Should().NotBeNull();
 
         // Verify document is truly ready before reindexing
-        var checkBefore = await _client.GetAsync($"/api/documents/{documentId}/reindex-check");
-        if (!checkBefore.IsSuccessStatusCode)
-        {
-            var errorContent = await checkBefore.Content.ReadAsStringAsync();
-            throw new Exception($"Reindex check failed with status {checkBefore.StatusCode}: {errorContent}");
-        }
+        var checkBefore = await _client.GetAsync(
+            $"/api/containers/{_containerId}/files/{documentId}/reindex-check");
+        checkBefore.IsSuccessStatusCode.Should().BeTrue();
 
-        var checkResult = await checkBefore.Content.ReadFromJsonAsync<ReindexCheckDto>();
+        var checkResult = await checkBefore.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
         checkResult.Should().NotBeNull();
-        if (checkResult!.NeedsReindex)
-        {
-            throw new Exception($"Document still needs reindex before test: Reason={checkResult.Reason}, Hash={checkResult.CurrentHash}");
-        }
+        checkResult!.NeedsReindex.Should().BeFalse(
+            $"Document should be ready. Reason={checkResult.Reason}, Hash={checkResult.CurrentHash}");
 
-        // Give a bit more time for everything to settle
         await Task.Delay(2000);
 
         // Act: Trigger reindex (content unchanged)
-        var reindexResponse = await _client.PostAsync("/api/documents/reindex", null);
+        var reindexResponse = await _client.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>(JsonOptions);
         reindexResult.Should().NotBeNull();
 
         // Assert: Document was not re-enqueued (content hash matches)
-        // Debug: Output actual counts if test fails
-        if (reindexResult!.SkippedCount != 1)
-        {
-            throw new Exception($"Expected SkippedCount=1, but got SkippedCount={reindexResult.SkippedCount}, EnqueuedCount={reindexResult.EnqueuedCount}, FailedCount={reindexResult.FailedCount}, TotalDocuments={reindexResult.TotalDocuments}. Reasons: {string.Join(", ", reindexResult.ReasonCounts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
-        }
         reindexResult!.SkippedCount.Should().Be(1, "Unchanged document should be skipped");
         reindexResult.EnqueuedCount.Should().Be(0, "No documents should be re-enqueued");
 
         var docAfter = await GetDocument(documentId);
-        // Note: Document model doesn't expose LastIndexedAt, can't verify it hasn't changed
         docAfter.Id.Should().Be(documentId);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/documents/{documentId}");
+        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
     [Fact]
@@ -121,11 +126,12 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
 
         // Act: Trigger force reindex
-        var reindexRequest = new { Force = true };
-        var reindexResponse = await _client.PostAsJsonAsync("/api/documents/reindex", reindexRequest);
+        var reindexResponse = await _client.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { Force = true });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>(JsonOptions);
         reindexResult.Should().NotBeNull();
 
         // Assert: Document was re-enqueued despite unchanged content
@@ -139,96 +145,98 @@ public class ReindexIntegrationTests : IAsyncLifetime
         docAfter.Id.Should().Be(documentId, "Document should still exist after reindexing");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/documents/{documentId}");
+        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
     [Fact]
-    public async Task Reindex_ByCollection_OnlyReindexesFilteredDocuments()
+    public async Task Reindex_ContainerScoped_OnlyReindexesContainerDocuments()
     {
-        // Arrange: Upload documents to different collections
-        var doc1Id = await UploadDocument("coll1-doc.txt", "Collection 1 document", collectionId: "collection1");
-        var doc2Id = await UploadDocument("coll2-doc.txt", "Collection 2 document", collectionId: "collection2");
+        // Arrange: Create a second container with a document
+        var response = await _client.PostAsJsonAsync("/api/containers",
+            new { Name = "reindex-other" });
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var otherContainer = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        var doc1Id = await UploadDocument("container1-doc.txt", "Container 1 document for reindex");
+        var doc2Id = await UploadDocumentToContainer(otherContainer!.Id, "container2-doc.txt", "Container 2 document for reindex");
 
         await WaitForIngestionToComplete(doc1Id, timeoutSeconds: 30);
-        await WaitForIngestionToComplete(doc2Id, timeoutSeconds: 30);
+        await WaitForIngestionToCompleteInContainer(otherContainer.Id, doc2Id, timeoutSeconds: 30);
 
-        // Act: Reindex only collection1
-        var reindexRequest = new { CollectionId = "collection1", Force = true };
-        var reindexResponse = await _client.PostAsJsonAsync("/api/documents/reindex", reindexRequest);
+        // Act: Reindex only the first container (force mode to ensure it does something)
+        var reindexResponse = await _client.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { Force = true });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>();
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>(JsonOptions);
         reindexResult.Should().NotBeNull();
 
-        // Assert: Only collection1 document was reindexed
-        reindexResult!.EnqueuedCount.Should().Be(1, "Only documents in collection1 should be reindexed");
+        // Assert: Only the document in _containerId is reindexed
+        reindexResult!.EnqueuedCount.Should().Be(1, "Only the document in the target container should be reindexed");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/documents/{doc1Id}");
-        await _client.DeleteAsync($"/api/documents/{doc2Id}");
+        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{doc1Id}");
+        await _client.DeleteAsync($"/api/containers/{otherContainer.Id}/files/{doc2Id}");
+        await _client.DeleteAsync($"/api/containers/{otherContainer.Id}");
     }
 
-    private async Task<string> UploadDocument(string fileName, string content, string? collectionId = null)
+    private async Task<string> UploadDocument(string fileName, string content)
+    {
+        return await UploadDocumentToContainer(_containerId, fileName, content);
+    }
+
+    private async Task<string> UploadDocumentToContainer(string containerId, string fileName, string content)
     {
         using var multipart = new MultipartFormDataContent();
         var fileBytes = Encoding.UTF8.GetBytes(content);
         var fileContent = new ByteArrayContent(fileBytes);
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-        multipart.Add(fileContent, "file", fileName);
+        multipart.Add(fileContent, "files", fileName);
+        multipart.Add(new StringContent("/test"), "path");
 
-        // Set destination path
-        multipart.Add(new StringContent("/test"), "destinationPath");
-
-        // Set collection ID if provided
-        if (!string.IsNullOrEmpty(collectionId))
-        {
-            multipart.Add(new StringContent(collectionId), "collectionId");
-        }
-
-        var response = await _client.PostAsync("/api/documents", multipart);
+        var response = await _client.PostAsync($"/api/containers/{containerId}/files", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var result = await response.Content.ReadFromJsonAsync<UploadResponse>();
+        var result = await response.Content.ReadFromJsonAsync<UploadResponse>(JsonOptions);
         return result!.Documents.First().DocumentId;
     }
 
     private async Task<DocumentDto> GetDocument(string documentId)
     {
-        var response = await _client.GetAsync($"/api/documents/{documentId}");
+        var response = await _client.GetAsync(
+            $"/api/containers/{_containerId}/files/{documentId}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var document = await response.Content.ReadFromJsonAsync<DocumentDto>();
+        var document = await response.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
         return document!;
     }
 
     private async Task WaitForIngestionToComplete(string documentId, int timeoutSeconds)
+    {
+        await WaitForIngestionToCompleteInContainer(_containerId, documentId, timeoutSeconds);
+    }
+
+    private async Task WaitForIngestionToCompleteInContainer(string containerId, string documentId, int timeoutSeconds)
     {
         var startTime = DateTime.UtcNow;
         var timeout = TimeSpan.FromSeconds(timeoutSeconds);
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            // Use reindex-check endpoint to verify document is fully indexed
-            var response = await _client.GetAsync($"/api/documents/{documentId}/reindex-check");
+            var response = await _client.GetAsync(
+                $"/api/containers/{containerId}/files/{documentId}/reindex-check");
             if (response.StatusCode == HttpStatusCode.OK)
             {
-                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>();
-                if (check != null)
+                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
+                if (check is { NeedsReindex: false })
                 {
-                    // Document is ready when it doesn't need reindex
-                    // (NeedsReindex=false means it's indexed and unchanged)
-                    if (!check.NeedsReindex)
-                    {
-                        await Task.Delay(500); // Give it a moment to settle
-                        return;
-                    }
-
-                    // If there's an error other than NeverIndexed, throw
-                    if (check.Reason == "Error" || check.Reason == "FileNotFound")
-                    {
-                        throw new Exception($"Ingestion failed for document {documentId}: {check.Reason}");
-                    }
+                    await Task.Delay(500);
+                    return;
                 }
+
+                if (check?.Reason is "Error" or "FileNotFound")
+                    throw new Exception($"Ingestion failed for {documentId}: {check.Reason}");
             }
 
             await Task.Delay(500);
@@ -238,6 +246,8 @@ public class ReindexIntegrationTests : IAsyncLifetime
     }
 
     // DTOs matching API responses
+    private record ContainerDto(string Id, string Name);
+
     private record UploadResponse(
         string? BatchId,
         List<UploadedDocumentResponse> Documents,
@@ -249,14 +259,15 @@ public class ReindexIntegrationTests : IAsyncLifetime
         string? JobId,
         string FileName,
         long SizeBytes,
-        string VirtualPath,
+        string Path,
         string? Error = null);
 
     private record DocumentDto(
         string Id,
+        string ContainerId,
         string FileName,
         string? ContentType,
-        string? CollectionId,
+        string Path,
         long SizeBytes,
         DateTime CreatedAt,
         Dictionary<string, string> Metadata);

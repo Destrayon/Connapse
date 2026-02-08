@@ -53,6 +53,7 @@ public static class DocumentsEndpoints
                             FileName: file.FileName,
                             ContentType: file.ContentType,
                             ContainerId: containerId.ToString(),
+                            Path: filePath,
                             Strategy: strategy ?? ChunkingStrategy.Semantic,
                             Metadata: new Dictionary<string, string>
                             {

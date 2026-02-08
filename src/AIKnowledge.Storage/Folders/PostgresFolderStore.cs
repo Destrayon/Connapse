@@ -47,17 +47,21 @@ public class PostgresFolderStore(
             .AsNoTracking()
             .Where(f => f.ContainerId == containerId);
 
-        if (!string.IsNullOrEmpty(parentPath))
-        {
-            var normalizedParent = PathUtilities.NormalizeFolderPath(parentPath);
-            query = query.Where(f => f.Path.StartsWith(normalizedParent) && f.Path != normalizedParent);
-        }
+        var normalizedParent = PathUtilities.NormalizeFolderPath(parentPath ?? "/");
+        query = query.Where(f => f.Path.StartsWith(normalizedParent) && f.Path != normalizedParent);
 
         var entities = await query
             .OrderBy(f => f.Path)
             .ToListAsync(ct);
 
-        return entities.Select(e =>
+        // Filter to immediate children only (exclude deeply nested subfolders)
+        var immediateChildren = entities.Where(e =>
+        {
+            var relative = e.Path[normalizedParent.Length..].TrimEnd('/');
+            return relative.Length > 0 && !relative.Contains('/');
+        }).ToList();
+
+        return immediateChildren.Select(e =>
             new Folder(e.Id.ToString(), e.ContainerId.ToString(), e.Path, e.CreatedAt)).ToList();
     }
 

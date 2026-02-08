@@ -125,7 +125,16 @@ public class PostgresDocumentStore : IDocumentStore
     }
 
     private static Document MapToModel(DocumentEntity entity)
-        => new(
+    {
+        // Merge entity columns into metadata so the API exposes them
+        var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
+        metadata["Status"] = entity.Status;
+        metadata["ContentHash"] = entity.ContentHash;
+        metadata["ChunkCount"] = entity.ChunkCount.ToString();
+        if (!string.IsNullOrEmpty(entity.ErrorMessage))
+            metadata["ErrorMessage"] = entity.ErrorMessage;
+
+        return new(
             entity.Id.ToString(),
             entity.ContainerId.ToString(),
             entity.FileName,
@@ -133,5 +142,6 @@ public class PostgresDocumentStore : IDocumentStore
             entity.Path,
             entity.SizeBytes,
             entity.CreatedAt,
-            entity.Metadata);
+            metadata);
+    }
 }

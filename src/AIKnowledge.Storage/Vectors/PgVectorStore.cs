@@ -114,15 +114,22 @@ public class PgVectorStore : IVectorStore
             if (filters.TryGetValue("documentId", out var documentIdStr) &&
                 Guid.TryParse(documentIdStr, out var documentId))
             {
-                whereClauses.Add($"cv.document_id = ${parameters.Count + 1}");
+                whereClauses.Add($"cv.document_id = {{{parameters.Count}}}");
                 parameters.Add(documentId);
             }
 
             if (filters.TryGetValue("containerId", out var containerIdStr) &&
                 Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add($"cv.container_id = ${parameters.Count + 1}");
+                whereClauses.Add($"cv.container_id = {{{parameters.Count}}}");
                 parameters.Add(containerId);
+            }
+
+            if (filters.TryGetValue("pathPrefix", out var pathPrefix) &&
+                !string.IsNullOrWhiteSpace(pathPrefix))
+            {
+                whereClauses.Add($"d.path LIKE {{{parameters.Count}}}");
+                parameters.Add(pathPrefix + "%");
             }
         }
 

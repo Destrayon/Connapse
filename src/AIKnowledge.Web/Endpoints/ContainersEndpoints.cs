@@ -72,9 +72,16 @@ public static class ContainersEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            var deleted = await containerStore.DeleteAsync(containerId, ct);
-            if (!deleted)
-                return Results.BadRequest(new { error = "Container is not empty. Delete all files first." });
+            try
+            {
+                var deleted = await containerStore.DeleteAsync(containerId, ct);
+                if (!deleted)
+                    return Results.NotFound(new { error = $"Container {containerId} not found" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
 
             return Results.NoContent();
         })

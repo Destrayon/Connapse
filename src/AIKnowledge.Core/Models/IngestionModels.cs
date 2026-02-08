@@ -5,6 +5,7 @@ public record IngestionOptions(
     string? FileName = null,
     string? ContentType = null,
     string? ContainerId = null,
+    string? Path = null,
     ChunkingStrategy Strategy = ChunkingStrategy.Semantic,
     Dictionary<string, string>? Metadata = null);
 
