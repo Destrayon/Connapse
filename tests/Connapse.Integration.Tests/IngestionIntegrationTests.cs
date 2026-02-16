@@ -220,8 +220,17 @@ public class IngestionIntegrationTests : IAsyncLifetime
                 var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
                 if (check is { NeedsReindex: false })
                 {
-                    await Task.Delay(500);
-                    return;
+                    // Verify chunks are actually queryable before returning
+                    var docResponse = await _client.GetAsync(
+                        $"/api/containers/{_containerId}/files/{documentId}");
+                    if (docResponse.IsSuccessStatusCode)
+                    {
+                        var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
+                        if (doc?.ChunkCount > 0)
+                        {
+                            return;
+                        }
+                    }
                 }
 
                 if (check?.Reason is "Error" or "FileNotFound")
