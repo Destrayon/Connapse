@@ -4,6 +4,7 @@ using FluentAssertions;
 
 namespace Connapse.Ingestion.Tests.Parsers;
 
+[Trait("Category", "Unit")]
 public class TextParserTests
 {
     private readonly TextParser _parser = new();

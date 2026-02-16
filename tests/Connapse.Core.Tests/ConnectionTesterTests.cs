@@ -13,6 +13,7 @@ namespace Connapse.Core.Tests;
 /// Unit tests for connection testers (OllamaConnectionTester, MinioConnectionTester).
 /// Uses mocked HTTP responses to test logic without requiring real services.
 /// </summary>
+[Trait("Category", "Unit")]
 public class OllamaConnectionTesterTests
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -148,6 +149,7 @@ public class OllamaConnectionTesterTests
     }
 }
 
+[Trait("Category", "Unit")]
 public class MinioConnectionTesterTests
 {
     private readonly ILogger<MinioConnectionTester> _logger;

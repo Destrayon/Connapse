@@ -12,6 +12,7 @@ namespace Connapse.Integration.Tests;
 /// <summary>
 /// Integration tests for the reindex service - verifying content-hash detection and re-processing.
 /// </summary>
+[Trait("Category", "Integration")]
 public class ReindexIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()

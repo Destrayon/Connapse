@@ -13,6 +13,7 @@ namespace Connapse.Integration.Tests;
 /// Integration tests for connection testing API endpoints.
 /// Tests the /api/settings/test-connection endpoint with real services.
 /// </summary>
+[Trait("Category", "Integration")]
 public class ConnectionTestIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()

@@ -16,6 +16,7 @@ namespace Connapse.Integration.Tests;
 /// Integration tests for the complete ingestion pipeline: upload → parse → chunk → embed → store → search
 /// Uses Testcontainers to spin up real PostgreSQL and MinIO instances.
 /// </summary>
+[Trait("Category", "Integration")]
 public class IngestionIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()

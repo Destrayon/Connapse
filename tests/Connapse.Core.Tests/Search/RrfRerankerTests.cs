@@ -7,6 +7,7 @@ using NSubstitute;
 
 namespace Connapse.Core.Tests.Search;
 
+[Trait("Category", "Unit")]
 public class RrfRerankerTests
 {
     private readonly ILogger<RrfReranker> _logger;

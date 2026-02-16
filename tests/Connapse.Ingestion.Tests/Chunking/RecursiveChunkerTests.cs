@@ -5,6 +5,7 @@ using FluentAssertions;
 
 namespace Connapse.Ingestion.Tests.Chunking;
 
+[Trait("Category", "Unit")]
 public class RecursiveChunkerTests
 {
     private readonly RecursiveChunker _chunker = new();

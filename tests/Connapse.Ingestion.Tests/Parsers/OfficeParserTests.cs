@@ -9,6 +9,7 @@ using P = DocumentFormat.OpenXml.Presentation;
 
 namespace Connapse.Ingestion.Tests.Parsers;
 
+[Trait("Category", "Unit")]
 public class OfficeParserTests
 {
     private readonly OfficeParser _parser = new();

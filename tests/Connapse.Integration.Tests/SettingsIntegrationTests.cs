@@ -13,6 +13,7 @@ namespace Connapse.Integration.Tests;
 /// <summary>
 /// Integration tests for runtime-mutable settings with IOptionsMonitor live reload.
 /// </summary>
+[Trait("Category", "Integration")]
 public class SettingsIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
