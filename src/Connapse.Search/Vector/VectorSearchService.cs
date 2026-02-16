@@ -43,9 +43,9 @@ public class VectorSearchService
 
         // Build filters for vector store
         var filters = new Dictionary<string, string>();
-        if (!string.IsNullOrEmpty(options.CollectionId))
+        if (!string.IsNullOrEmpty(options.ContainerId))
         {
-            filters["collectionId"] = options.CollectionId;
+            filters["containerId"] = options.ContainerId;
         }
 
         // Merge any additional filters from options

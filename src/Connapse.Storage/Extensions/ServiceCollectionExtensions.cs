@@ -2,8 +2,10 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Data;
+using Connapse.Storage.Containers;
 using Connapse.Storage.Documents;
 using Connapse.Storage.FileSystem;
+using Connapse.Storage.Folders;
 using Connapse.Storage.Settings;
 using Connapse.Storage.Vectors;
 using Amazon.Runtime;
@@ -17,7 +19,7 @@ namespace Connapse.Storage.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddConnapseStorage(
+    public static IServiceCollection AddAIKnowledgeStorage(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -72,6 +74,12 @@ public static class ServiceCollectionExtensions
         // Embedding provider
         services.AddHttpClient<OllamaEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider, OllamaEmbeddingProvider>();
+
+        // Container store
+        services.AddScoped<IContainerStore, PostgresContainerStore>();
+
+        // Folder store
+        services.AddScoped<IFolderStore, PostgresFolderStore>();
 
         // Document store
         services.AddScoped<IDocumentStore, PostgresDocumentStore>();

@@ -1,13 +1,12 @@
 # Deployment Guide
 
-This guide covers deploying Connapse in various environments.
+This guide covers deploying ConnapsePlatform in various environments.
 
 ## Table of Contents
 
 - [Quick Start (Docker Compose)](#quick-start-docker-compose)
 - [Local Development](#local-development)
 - [Production Deployment](#production-deployment)
-- [Cloud Deployments](#cloud-deployments)
 - [Configuration Reference](#configuration-reference)
 - [Backup and Restore](#backup-and-restore)
 - [Troubleshooting](#troubleshooting)
@@ -16,7 +15,7 @@ This guide covers deploying Connapse in various environments.
 
 ## Quick Start (Docker Compose)
 
-The fastest way to run Connapse with all dependencies.
+The fastest way to run ConnapsePlatform with all dependencies.
 
 ### Prerequisites
 
@@ -29,8 +28,8 @@ The fastest way to run Connapse with all dependencies.
 
 1. **Clone the repository**:
 ```bash
-git clone https://github.com/yourorg/Connapse.git
-cd Connapse
+git clone https://github.com/yourorg/ConnapsePlatform.git
+cd ConnapsePlatform
 ```
 
 2. **Create environment file**:
@@ -41,7 +40,7 @@ cp .env.example .env
 Edit `.env` and set your passwords:
 ```env
 POSTGRES_PASSWORD=your_secure_password_here
-MINIO_ROOT_USER=connapse_admin
+MINIO_ROOT_USER=aikp_admin
 MINIO_ROOT_PASSWORD=your_secure_minio_password_here
 ```
 
@@ -72,14 +71,14 @@ The database schema is created automatically on first startup via EF Core migrat
 
 7. **Access the application**:
 
-- **Web UI**: http://localhost:5001
-- **MinIO Console**: http://localhost:9001 (login: `connapse_admin` / your password)
+- **Web UI**: http://localhost:5001 (shows the container list on the home page)
+- **MinIO Console**: http://localhost:9001 (login: `aikp_admin` / your password)
 - **Ollama API**: http://localhost:11434
 
 ### Verify Installation
 
-1. Open http://localhost:5001
-2. Go to **Settings** → **Connection Testing**
+1. Open http://localhost:5001 — the home page displays the container list
+2. Go to **Settings**
 3. Click "Test Connection" for PostgreSQL, MinIO, and Ollama
 4. All tests should show ✅ Success
 
@@ -107,10 +106,10 @@ docker compose up -d postgres minio ollama
 
 2. **Configure connection strings**:
 ```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=connapse;Username=connapse;Password=connapse_dev" --project src/Connapse.Web
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=aikp;Username=aikp;Password=aikp_dev" --project src/Connapse.Web
 dotnet user-secrets set "Knowledge:Storage:MinIO:Endpoint" "localhost:9000" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "connapse_dev" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "connapse_dev_secret" --project src/Connapse.Web
+dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "aikp_dev" --project src/Connapse.Web
+dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "aikp_dev_secret" --project src/Connapse.Web
 ```
 
 3. **Run the application**:
@@ -143,10 +142,10 @@ sudo apt install postgresql-17-pgvector  # Ubuntu
 3. **Create database**:
 ```bash
 psql -U postgres
-CREATE DATABASE connapse;
-CREATE USER connapse WITH PASSWORD 'connapse_dev';
-GRANT ALL PRIVILEGES ON DATABASE connapse TO connapse;
-\c connapse
+CREATE DATABASE aikp;
+CREATE USER aikp WITH PASSWORD 'aikp_dev';
+GRANT ALL PRIVILEGES ON DATABASE aikp TO aikp;
+\c aikp
 CREATE EXTENSION IF NOT EXISTS vector;
 \q
 ```
@@ -169,8 +168,8 @@ sudo mv minio /usr/local/bin/
 2. **Start MinIO**:
 ```bash
 mkdir -p ~/minio/data
-export MINIO_ROOT_USER=connapse_dev
-export MINIO_ROOT_PASSWORD=connapse_dev_secret
+export MINIO_ROOT_USER=aikp_dev
+export MINIO_ROOT_PASSWORD=aikp_dev_secret
 minio server ~/minio/data --console-address ":9001"
 ```
 
@@ -250,7 +249,7 @@ builder.Configuration.AddAzureKeyVault(
 ```bash
 dotnet add package Amazon.Extensions.Configuration.SystemsManager
 
-builder.Configuration.AddSystemsManager("/connapse/production");
+builder.Configuration.AddSystemsManager("/aikp/production");
 ```
 
 **Environment Variables** (Kubernetes, Docker):
@@ -259,7 +258,7 @@ builder.Configuration.AddSystemsManager("/connapse/production");
 apiVersion: v1
 kind: Secret
 metadata:
-  name: connapse-secrets
+  name: aikp-secrets
 type: Opaque
 data:
   postgres-password: <base64-encoded-password>
@@ -273,13 +272,13 @@ data:
 Use nginx or Traefik with Let's Encrypt:
 
 ```nginx
-# /etc/nginx/sites-available/connapse
+# /etc/nginx/sites-available/aikp
 server {
     listen 443 ssl http2;
-    server_name connapse.example.com;
+    server_name aikp.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/connapse.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/connapse.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/aikp.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/aikp.example.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:5001;
@@ -320,17 +319,17 @@ export ASPNETCORE_URLS="https://+:443;http://+:80"
 
 ```sql
 -- Create read-only user for analytics
-CREATE ROLE connapse_readonly;
-GRANT CONNECT ON DATABASE connapse TO connapse_readonly;
-GRANT USAGE ON SCHEMA public TO connapse_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO connapse_readonly;
+CREATE ROLE aikp_readonly;
+GRANT CONNECT ON DATABASE aikp TO aikp_readonly;
+GRANT USAGE ON SCHEMA public TO aikp_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO aikp_readonly;
 
 -- Create app user with limited permissions
-CREATE USER connapse_app WITH PASSWORD 'secure_password';
-GRANT CONNECT ON DATABASE connapse TO connapse_app;
-GRANT USAGE, CREATE ON SCHEMA public TO connapse_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO connapse_app;
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO connapse_app;
+CREATE USER aikp_app WITH PASSWORD 'secure_password';
+GRANT CONNECT ON DATABASE aikp TO aikp_app;
+GRANT USAGE, CREATE ON SCHEMA public TO aikp_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aikp_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO aikp_app;
 
 -- Enable SSL
 ALTER SYSTEM SET ssl = on;
@@ -339,17 +338,17 @@ SELECT pg_reload_conf();
 
 **Connection string with SSL**:
 ```
-Host=postgres.example.com;Database=connapse;Username=connapse_app;Password=***;SSL Mode=Require;Trust Server Certificate=false
+Host=postgres.example.com;Database=aikp;Username=aikp_app;Password=***;SSL Mode=Require;Trust Server Certificate=false
 ```
 
 #### 4. MinIO Security
 
 ```bash
 # Create dedicated user (not root)
-mc admin user add myminio connapse_app <secure-password>
+mc admin user add myminio aikp_app <secure-password>
 
 # Create policy with minimal permissions
-cat > /tmp/connapse-policy.json <<EOF
+cat > /tmp/aikp-policy.json <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -370,8 +369,8 @@ cat > /tmp/connapse-policy.json <<EOF
 }
 EOF
 
-mc admin policy create myminio connapse-policy /tmp/connapse-policy.json
-mc admin policy attach myminio connapse-policy --user connapse_app
+mc admin policy create myminio aikp-policy /tmp/aikp-policy.json
+mc admin policy attach myminio aikp-policy --user aikp_app
 ```
 
 ### Dockerfile Optimization
@@ -405,9 +404,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Create non-root user
-RUN groupadd -r connapse && useradd -r -g connapse connapse
-RUN chown -R connapse:connapse /app
-USER connapse
+RUN groupadd -r aikp && useradd -r -g aikp aikp
+RUN chown -R aikp:aikp /app
+USER aikp
 
 COPY --from=build /app/publish .
 
@@ -417,8 +416,8 @@ ENTRYPOINT ["dotnet", "Connapse.Web.dll"]
 
 **Build and push**:
 ```bash
-docker build -t yourregistry/connapse:v1.0.0 .
-docker push yourregistry/connapse:v1.0.0
+docker build -t yourregistry/aikp:v1.0.0 .
+docker push yourregistry/aikp:v1.0.0
 ```
 
 ### Docker Compose (Production)
@@ -429,8 +428,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: connapse
-      POSTGRES_USER: connapse_app
+      POSTGRES_DB: aikp
+      POSTGRES_USER: aikp_app
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
@@ -456,10 +455,10 @@ services:
     restart: unless-stopped
 
   web:
-    image: yourregistry/connapse:v1.0.0
+    image: yourregistry/aikp:v1.0.0
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse_app;Password_FILE=/run/secrets/postgres_password;SSL Mode=Require"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=aikp;Username=aikp_app;Password_FILE=/run/secrets/postgres_password;SSL Mode=Require"
       Knowledge__Storage__MinIO__Endpoint: "minio:9000"
       Knowledge__Storage__MinIO__AccessKey_FILE: /run/secrets/minio_user
       Knowledge__Storage__MinIO__SecretKey_FILE: /run/secrets/minio_password
@@ -505,219 +504,6 @@ volumes:
   pgdata:
   miniodata:
 ```
-
----
-
-## Cloud Deployments
-
-### Azure (Container Apps + Managed Services)
-
-#### Architecture
-
-```
-[Azure Front Door]
-    ↓
-[Container App (Connapse.Web)]
-    ↓
-[Azure Database for PostgreSQL Flexible Server + pgvector]
-[Azure Blob Storage (MinIO replacement)]
-[Azure OpenAI / Ollama in Azure Container Instances]
-```
-
-#### Deployment Steps
-
-1. **Create Resource Group**:
-```bash
-az group create --name connapse-prod --location eastus
-```
-
-2. **Provision PostgreSQL**:
-```bash
-az postgres flexible-server create \
-  --resource-group connapse-prod \
-  --name connapse-postgres \
-  --location eastus \
-  --admin-user connapseadmin \
-  --admin-password <SecurePassword> \
-  --sku-name Standard_D2s_v3 \
-  --version 17
-
-# Enable pgvector extension
-az postgres flexible-server parameter set \
-  --resource-group connapse-prod \
-  --server-name connapse-postgres \
-  --name azure.extensions --value VECTOR
-```
-
-3. **Create Storage Account**:
-```bash
-az storage account create \
-  --name connapsestorage \
-  --resource-group connapse-prod \
-  --location eastus \
-  --sku Standard_LRS
-
-az storage container create \
-  --name knowledge-files \
-  --account-name connapsestorage
-```
-
-4. **Deploy Container App**:
-```bash
-az containerapp create \
-  --name connapse-web \
-  --resource-group connapse-prod \
-  --image yourregistry/connapse:v1.0.0 \
-  --environment connapse-env \
-  --target-port 8080 \
-  --ingress external \
-  --min-replicas 2 \
-  --max-replicas 10 \
-  --secrets \
-    postgres-password=<SecurePassword> \
-    storage-key=<StorageAccountKey> \
-  --env-vars \
-    "ASPNETCORE_ENVIRONMENT=Production" \
-    "ConnectionStrings__DefaultConnection=secretref:postgres-password" \
-    "Knowledge__Storage__BlobStorage__ConnectionString=secretref:storage-key"
-```
-
-#### Cost Estimate (Monthly)
-
-- **Container Apps**: $50-200 (2-10 instances)
-- **PostgreSQL Flexible Server (D2s_v3)**: $120
-- **Blob Storage**: $5-50 (depending on usage)
-- **Azure OpenAI**: $0.0001 per 1K tokens (~$10-100/month)
-
-**Total**: ~$185-470/month
-
-### AWS (ECS + Managed Services)
-
-#### Architecture
-
-```
-[Application Load Balancer]
-    ↓
-[ECS Fargate (Connapse.Web)]
-    ↓
-[RDS PostgreSQL 17 + pgvector]
-[S3 (native, no MinIO)]
-[Bedrock / Ollama in ECS]
-```
-
-#### Deployment (Terraform)
-
-```hcl
-# main.tf
-resource "aws_ecs_cluster" "connapse" {
-  name = "connapse-cluster"
-}
-
-resource "aws_db_instance" "postgres" {
-  identifier           = "connapse-postgres"
-  engine              = "postgres"
-  engine_version      = "17.0"
-  instance_class      = "db.t4g.medium"
-  allocated_storage   = 100
-  db_name             = "connapse"
-  username            = "connapseadmin"
-  password            = var.db_password
-  publicly_accessible = false
-  vpc_security_group_ids = [aws_security_group.db.id]
-
-  # Enable pgvector via RDS Parameter Group
-  parameter_group_name = aws_db_parameter_group.postgres17_pgvector.name
-}
-
-resource "aws_s3_bucket" "documents" {
-  bucket = "connapse-documents-${var.environment}"
-}
-
-resource "aws_ecs_service" "connapse_web" {
-  name            = "connapse-web"
-  cluster         = aws_ecs_cluster.connapse.id
-  task_definition = aws_ecs_task_definition.connapse_web.arn
-  desired_count   = 2
-  launch_type     = "FARGATE"
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.connapse_web.arn
-    container_name   = "web"
-    container_port   = 8080
-  }
-}
-```
-
-**Deploy**:
-```bash
-terraform init
-terraform plan -var="db_password=SecurePassword"
-terraform apply
-```
-
-#### Cost Estimate (Monthly)
-
-- **ECS Fargate (2 tasks, 1 vCPU, 2GB)**: $60
-- **RDS PostgreSQL (db.t4g.medium)**: $80
-- **S3 Standard**: $5-50
-- **Application Load Balancer**: $20
-- **Data Transfer**: $10-50
-
-**Total**: ~$175-260/month
-
-### Google Cloud (Cloud Run + Managed Services)
-
-#### Architecture
-
-```
-[Cloud Load Balancing]
-    ↓
-[Cloud Run (Connapse.Web)]
-    ↓
-[Cloud SQL PostgreSQL 17 + pgvector]
-[Cloud Storage (S3-compatible via XML API)]
-[Vertex AI Embeddings]
-```
-
-#### Deployment
-
-```bash
-# Build and push image
-gcloud builds submit --tag gcr.io/your-project/connapse:v1.0.0
-
-# Create Cloud SQL instance
-gcloud sql instances create connapse-postgres \
-  --database-version=POSTGRES_17 \
-  --tier=db-g1-small \
-  --region=us-central1
-
-# Enable pgvector
-gcloud sql instances patch connapse-postgres \
-  --database-flags=cloudsql.enable_pgvector=on
-
-# Create storage bucket
-gsutil mb gs://connapse-documents/
-
-# Deploy to Cloud Run
-gcloud run deploy connapse-web \
-  --image gcr.io/your-project/connapse:v1.0.0 \
-  --region us-central1 \
-  --platform managed \
-  --allow-unauthenticated \
-  --min-instances 1 \
-  --max-instances 10 \
-  --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" \
-  --set-secrets "ConnectionStrings__DefaultConnection=postgres-connection:latest"
-```
-
-#### Cost Estimate (Monthly)
-
-- **Cloud Run**: $30-100 (1-10 instances)
-- **Cloud SQL (db-g1-small)**: $50
-- **Cloud Storage**: $5-50
-- **Vertex AI Embeddings**: $0.00005 per 1K characters (~$10-50/month)
-
-**Total**: ~$95-250/month
 
 ---
 
@@ -769,9 +555,11 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Chunking__Overlap` | Overlap tokens between chunks | `50` |
 | `Knowledge__Search__Mode` | Default search mode | `Hybrid` |
 | `Knowledge__Search__TopK` | Default result count | `10` |
-| `Knowledge__Search__MinScore` | Minimum similarity score | `0.7` |
+| `Knowledge__Search__MinimumScore` | Minimum similarity score | `0.5` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
+
+> **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 
 ### appsettings.json Structure
 
@@ -785,7 +573,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     }
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Host=postgres;Database=connapse;Username=connapse;Password=***"
+    "DefaultConnection": "Host=postgres;Database=aikp;Username=aikp;Password=***"
   },
   "Knowledge": {
     "Embedding": {
@@ -805,7 +593,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     "Search": {
       "Mode": "Hybrid",
       "TopK": 10,
-      "MinScore": 0.7,
+      "MinimumScore": 0.5,
       "RerankerStrategy": "RRF",
       "RrfK": 60
     },
@@ -817,13 +605,14 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "MaxTokens": 2048
     },
     "Storage": {
-      "MinIO": {
-        "Endpoint": "minio:9000",
-        "AccessKey": "connapse_dev",
-        "SecretKey": "connapse_dev_secret",
-        "UseSSL": false,
-        "BucketName": "knowledge-files"
-      }
+      "VectorStoreProvider": "PgVector",
+      "DocumentStoreProvider": "Postgres",
+      "FileStorageProvider": "MinIO",
+      "MinioEndpoint": "minio:9000",
+      "MinioAccessKey": "aikp_dev",
+      "MinioSecretKey": "aikp_dev_secret",
+      "MinioUseSSL": false,
+      "MinioBucketName": "aikp-files"
     },
     "Upload": {
       "MaxFileSizeBytes": 104857600,
@@ -849,28 +638,28 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 **Manual Backup**:
 ```bash
 # Dump entire database
-docker compose exec -T postgres pg_dump -U connapse connapse > backup_$(date +%Y%m%d_%H%M%S).sql
+docker compose exec -T postgres pg_dump -U aikp aikp > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Dump specific tables
-docker compose exec -T postgres pg_dump -U connapse connapse -t documents -t chunks > backup_tables.sql
+docker compose exec -T postgres pg_dump -U aikp aikp -t documents -t chunks > backup_tables.sql
 
 # Custom format (compressed)
-docker compose exec -T postgres pg_dump -U connapse -Fc connapse > backup.dump
+docker compose exec -T postgres pg_dump -U aikp -Fc aikp > backup.dump
 ```
 
 **Automated Backup** (cron):
 ```bash
-# /etc/cron.d/connapse-backup
-0 2 * * * docker compose -f /opt/connapse/docker-compose.yml exec -T postgres pg_dump -U connapse -Fc connapse > /backups/connapse_$(date +\%Y\%m\%d).dump
+# /etc/cron.d/aikp-backup
+0 2 * * * docker compose -f /opt/aikp/docker-compose.yml exec -T postgres pg_dump -U aikp -Fc aikp > /backups/aikp_$(date +\%Y\%m\%d).dump
 ```
 
 **Restore**:
 ```bash
 # From SQL file
-docker compose exec -T postgres psql -U connapse connapse < backup.sql
+docker compose exec -T postgres psql -U aikp aikp < backup.sql
 
 # From custom format
-docker compose exec -T postgres pg_restore -U connapse -d connapse backup.dump
+docker compose exec -T postgres pg_restore -U aikp -d aikp backup.dump
 ```
 
 ### MinIO Backup
@@ -882,18 +671,18 @@ brew install minio/stable/mc  # macOS
 # Or download from https://min.io/docs/minio/linux/reference/minio-mc.html
 
 # Configure alias
-mc alias set myminio http://localhost:9000 connapse_dev connapse_dev_secret
+mc alias set myminio http://localhost:9000 aikp_dev aikp_dev_secret
 
 # Mirror to local directory
 mc mirror myminio/knowledge-files /backups/minio/knowledge-files
 
 # Mirror to S3
-mc mirror myminio/knowledge-files s3/my-backup-bucket/connapse-minio/
+mc mirror myminio/knowledge-files s3/my-backup-bucket/aikp-minio/
 ```
 
 **Automated Backup** (cron):
 ```bash
-# /etc/cron.d/connapse-minio-backup
+# /etc/cron.d/aikp-minio-backup
 0 3 * * * mc mirror myminio/knowledge-files /backups/minio/knowledge-files
 ```
 
@@ -903,11 +692,11 @@ mc mirror myminio/knowledge-files s3/my-backup-bucket/connapse-minio/
 #!/bin/bash
 # backup.sh
 
-BACKUP_DIR="/backups/connapse/$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="/backups/aikp/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
 # Backup PostgreSQL
-docker compose exec -T postgres pg_dump -U connapse -Fc connapse > "$BACKUP_DIR/postgres.dump"
+docker compose exec -T postgres pg_dump -U aikp -Fc aikp > "$BACKUP_DIR/postgres.dump"
 
 # Backup MinIO (incremental)
 mc mirror myminio/knowledge-files "$BACKUP_DIR/minio"
@@ -928,7 +717,7 @@ echo "Backup completed: $BACKUP_DIR.tar.gz"
 1. **Deploy fresh infrastructure** (Docker Compose or cloud)
 2. **Restore PostgreSQL**:
 ```bash
-docker compose exec -T postgres pg_restore -U connapse -d connapse < postgres.dump
+docker compose exec -T postgres pg_restore -U aikp -d aikp < postgres.dump
 ```
 3. **Restore MinIO files**:
 ```bash
@@ -958,7 +747,7 @@ docker compose ps postgres
 docker compose logs postgres
 
 # Test connection
-docker compose exec postgres psql -U connapse -d connapse -c "SELECT 1;"
+docker compose exec postgres psql -U aikp -d aikp -c "SELECT 1;"
 
 # Verify connection string
 docker compose exec web env | grep ConnectionStrings
@@ -971,7 +760,7 @@ docker compose exec web env | grep ConnectionStrings
 **Solutions**:
 ```bash
 # Create bucket
-mc alias set local http://localhost:9000 connapse_dev connapse_dev_secret
+mc alias set local http://localhost:9000 aikp_dev aikp_dev_secret
 mc mb local/knowledge-files
 
 # Or via Docker
@@ -1055,7 +844,7 @@ Check service health:
 
 ```bash
 # PostgreSQL
-docker compose exec postgres pg_isready -U connapse
+docker compose exec postgres pg_isready -U aikp
 
 # MinIO
 curl http://localhost:9000/minio/health/live

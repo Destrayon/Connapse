@@ -5,9 +5,11 @@ namespace Connapse.Storage.Data;
 
 public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : DbContext(options)
 {
+    public DbSet<ContainerEntity> Containers => Set<ContainerEntity>();
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
     public DbSet<ChunkEntity> Chunks => Set<ChunkEntity>();
     public DbSet<ChunkVectorEntity> ChunkVectors => Set<ChunkVectorEntity>();
+    public DbSet<FolderEntity> Folders => Set<FolderEntity>();
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
     public DbSet<BatchEntity> Batches => Set<BatchEntity>();
     public DbSet<BatchDocumentEntity> BatchDocuments => Set<BatchDocumentEntity>();
@@ -18,12 +20,81 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
         modelBuilder.HasPostgresExtension("vector");
 
+        ConfigureContainers(modelBuilder);
+        ConfigureFolders(modelBuilder);
         ConfigureDocuments(modelBuilder);
         ConfigureChunks(modelBuilder);
         ConfigureChunkVectors(modelBuilder);
         ConfigureSettings(modelBuilder);
         ConfigureBatches(modelBuilder);
         ConfigureBatchDocuments(modelBuilder);
+    }
+
+    private static void ConfigureContainers(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ContainerEntity>(entity =>
+        {
+            entity.ToTable("containers");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasColumnName("description");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at")
+                .HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => e.Name)
+                .HasDatabaseName("ix_containers_name")
+                .IsUnique();
+        });
+    }
+
+    private static void ConfigureFolders(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FolderEntity>(entity =>
+        {
+            entity.ToTable("folders");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.ContainerId)
+                .HasColumnName("container_id")
+                .IsRequired();
+
+            entity.Property(e => e.Path)
+                .HasColumnName("path")
+                .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.ContainerId, e.Path })
+                .HasDatabaseName("ix_folders_container_path")
+                .IsUnique();
+
+            entity.HasOne(e => e.Container)
+                .WithMany(c => c.Folders)
+                .HasForeignKey(e => e.ContainerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureDocuments(ModelBuilder modelBuilder)
@@ -37,6 +108,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("id")
                 .HasDefaultValueSql("gen_random_uuid()");
 
+            entity.Property(e => e.ContainerId)
+                .HasColumnName("container_id")
+                .IsRequired();
+
             entity.Property(e => e.FileName)
                 .HasColumnName("file_name")
                 .IsRequired();
@@ -44,11 +119,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.ContentType)
                 .HasColumnName("content_type");
 
-            entity.Property(e => e.CollectionId)
-                .HasColumnName("collection_id");
-
-            entity.Property(e => e.VirtualPath)
-                .HasColumnName("virtual_path")
+            entity.Property(e => e.Path)
+                .HasColumnName("path")
                 .IsRequired();
 
             entity.Property(e => e.ContentHash)
@@ -81,6 +153,18 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("metadata")
                 .HasColumnType("jsonb")
                 .HasDefaultValueSql("'{}'::jsonb");
+
+            entity.HasIndex(e => e.ContainerId)
+                .HasDatabaseName("idx_documents_container_id");
+
+            entity.HasIndex(e => new { e.ContainerId, e.Path })
+                .HasDatabaseName("idx_documents_container_path")
+                .IsUnique();
+
+            entity.HasOne(e => e.Container)
+                .WithMany(c => c.Documents)
+                .HasForeignKey(e => e.ContainerId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 
@@ -105,6 +189,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
+            entity.Property(e => e.ContainerId)
+                .HasColumnName("container_id")
+                .IsRequired();
+
             entity.Property(e => e.TokenCount)
                 .HasColumnName("token_count");
 
@@ -126,6 +214,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunks_document_id");
+
+            entity.HasIndex(e => e.ContainerId)
+                .HasDatabaseName("idx_chunks_container_id");
 
             entity.HasIndex(e => e.SearchVector)
                 .HasDatabaseName("idx_chunks_fts")
@@ -151,6 +242,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
+            entity.Property(e => e.ContainerId)
+                .HasColumnName("container_id")
+                .IsRequired();
+
             entity.Property(e => e.Embedding)
                 .HasColumnName("embedding")
                 .IsRequired()
@@ -162,6 +257,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
+
+            entity.HasIndex(e => e.ContainerId)
+                .HasDatabaseName("idx_chunk_vectors_container_id");
 
             entity.HasIndex(e => e.Embedding)
                 .HasDatabaseName("idx_chunk_vectors_embedding")

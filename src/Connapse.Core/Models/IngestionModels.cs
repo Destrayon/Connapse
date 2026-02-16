@@ -4,7 +4,8 @@ public record IngestionOptions(
     string? DocumentId = null,
     string? FileName = null,
     string? ContentType = null,
-    string? CollectionId = null,
+    string? ContainerId = null,
+    string? Path = null,
     ChunkingStrategy Strategy = ChunkingStrategy.Semantic,
     Dictionary<string, string>? Metadata = null);
 

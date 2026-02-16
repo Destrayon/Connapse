@@ -78,7 +78,7 @@ public class MinioFileSystem : IKnowledgeFileSystem
             }
 
             // Files
-            foreach (var obj in response.S3Objects)
+            foreach (var obj in response.S3Objects ?? [])
             {
                 // Skip the prefix itself if it shows up as an object
                 if (obj.Key == prefix)
@@ -183,7 +183,7 @@ public class MinioFileSystem : IKnowledgeFileSystem
         {
             listResponse = await _s3.ListObjectsV2Async(listRequest, ct);
 
-            foreach (var obj in listResponse.S3Objects)
+            foreach (var obj in listResponse.S3Objects ?? [])
             {
                 await _s3.DeleteObjectAsync(_options.BucketName, obj.Key, ct);
             }

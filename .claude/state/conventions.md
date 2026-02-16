@@ -407,48 +407,61 @@ var settings = JsonSerializer.Deserialize<ChunkingSettings>(json, JsonOptions);
 - Secrets via environment variables, never baked into images
 - Ollama is optional via `--profile with-ollama`
 
-## Containers & File Paths (Feature #2 — Planned)
+## Containers & File Paths (Feature #2 — Implemented)
 
 ### Container Model
 - Containers are top-level isolation units representing projects
 - Each container has its own logical vector space (search isolation)
-- Container names: alphanumeric + hyphens, unique across system
+- Container names: lowercase alphanumeric + hyphens, 2-128 chars, unique across system
 - Containers cannot be deleted if they contain files or folders
+- `IContainerStore` interface: `CreateAsync`, `GetAsync`, `GetByNameAsync`, `ListAsync`, `DeleteAsync`, `ExistsAsync`
+- Implementation: `PostgresContainerStore`
 
 ### Path Structure
 - Full path format: `/{container-name}/{folder-path}/{filename}`
 - Paths stored normalized: no trailing slashes on files, trailing slash on folders
 - Forward slashes only (even on Windows)
 - Path determines uniqueness, not content hash
+- `PathUtilities` static class handles validation and normalization
 
 ### Duplicate Handling
-- Same filename in same folder → `file (1).pdf`, `file (2).pdf`, etc.
+- Same filename in same folder -> `file (1).pdf`, `file (2).pdf`, etc.
 - Pattern: `{basename} ({n}){extension}`
 - Check for conflicts before upload, increment N until unique
 - Same file content in different containers = completely separate files
 
 ### Container Operations
 - Create: generates UUID, validates name uniqueness
-- Delete: fails if not empty (must delete contents first)
+- Delete: fails if not empty (must delete contents first, returns 400)
 - No cross-container file moves (delete + re-upload required)
 - No cross-container search
 
 ### Folder Operations
-- Folders are implicit (created when file path requires them)
 - Empty folders explicitly supported via `folders` table
-- Folder deletion: confirm + cascade delete all nested files/folders
-- Cascades also delete all chunks and vector embeddings
+- `IFolderStore` interface: `CreateAsync`, `ListAsync`, `DeleteAsync`, `ExistsAsync`
+- Implementation: `PostgresFolderStore`
+- Folder deletion: cascade delete all nested files/folders/chunks
+- `ListAsync` returns only immediate children (filters out nested subfolders)
 
 ### Search Scoping
 - Search requires container ID (no global search)
-- Optional path filter: restricts to subtree (recursive)
+- Optional path filter: restricts to subtree (recursive LIKE query)
+- Optional minScore filter: configurable per request or via SearchSettings
 - Path filter example: `/docs/2026/` searches all files under that folder
 
+### Ingestion Job Cancellation
+- `IIngestionQueue.CancelJobForDocumentAsync(documentId)` cancels in-progress jobs
+- `IngestionWorker` creates per-job `CancellationTokenSource` linked to app shutdown token
+- Queue tracks job-to-document mapping for cancellation lookup
+
 ### Database Schema
-- `documents.container_id`: required FK to containers
+- `containers` table: id, name (unique), description, created_at, updated_at
+- `documents.container_id`: required FK to containers (cascade delete)
 - `chunks.container_id`: denormalized for query performance
-- `folders` table: only for empty folders (id, container_id, path, created_at)
+- `chunk_vectors.container_id`: denormalized for query performance
+- `folders` table: id, container_id, path (unique per container), created_at
 - `CollectionId` removed entirely (replaced by containers)
+- Indexes: `idx_documents_container_id`, `idx_documents_container_path` (unique composite), `idx_chunks_container_id`, `idx_chunk_vectors_container_id`
 
 ---
 

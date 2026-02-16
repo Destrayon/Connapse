@@ -26,18 +26,15 @@ public class PostgresDocumentStore : IDocumentStore
 
     public async Task<string> StoreAsync(Document document, CancellationToken ct = default)
     {
-        if (document == null)
-        {
-            throw new ArgumentNullException(nameof(document));
-        }
+        ArgumentNullException.ThrowIfNull(document);
 
         var entity = new DocumentEntity
         {
             Id = string.IsNullOrEmpty(document.Id) ? Guid.NewGuid() : Guid.Parse(document.Id),
+            ContainerId = Guid.Parse(document.ContainerId),
             FileName = document.FileName,
             ContentType = document.ContentType,
-            CollectionId = document.CollectionId,
-            VirtualPath = string.Empty, // Will be set by ingestion pipeline
+            Path = document.Path,
             ContentHash = string.Empty, // Will be set by ingestion pipeline
             SizeBytes = document.SizeBytes,
             ChunkCount = 0,
@@ -50,10 +47,11 @@ public class PostgresDocumentStore : IDocumentStore
         await _context.SaveChangesAsync(ct);
 
         _logger.LogInformation(
-            "Stored document {DocumentId} ({FileName}, {SizeBytes} bytes)",
+            "Stored document {DocumentId} ({FileName}, {SizeBytes} bytes) in container {ContainerId}",
             entity.Id,
             entity.FileName,
-            entity.SizeBytes);
+            entity.SizeBytes,
+            entity.ContainerId);
 
         return entity.Id.ToString();
     }
@@ -70,44 +68,28 @@ public class PostgresDocumentStore : IDocumentStore
             .AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == guid, ct);
 
-        if (entity == null)
-        {
-            return null;
-        }
-
-        return new Document(
-            entity.Id.ToString(),
-            entity.FileName,
-            entity.ContentType,
-            entity.CollectionId,
-            entity.SizeBytes,
-            entity.CreatedAt,
-            entity.Metadata);
+        return entity is null ? null : MapToModel(entity);
     }
 
     public async Task<IReadOnlyList<Document>> ListAsync(
-        string? collectionId = null,
+        Guid containerId,
+        string? pathPrefix = null,
         CancellationToken ct = default)
     {
-        var query = _context.Documents.AsNoTracking();
+        var query = _context.Documents
+            .AsNoTracking()
+            .Where(d => d.ContainerId == containerId);
 
-        if (!string.IsNullOrEmpty(collectionId))
+        if (!string.IsNullOrEmpty(pathPrefix))
         {
-            query = query.Where(d => d.CollectionId == collectionId);
+            query = query.Where(d => d.Path.StartsWith(pathPrefix));
         }
 
         var entities = await query
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync(ct);
 
-        return entities.Select(e => new Document(
-            e.Id.ToString(),
-            e.FileName,
-            e.ContentType,
-            e.CollectionId,
-            e.SizeBytes,
-            e.CreatedAt,
-            e.Metadata)).ToList();
+        return entities.Select(MapToModel).ToList();
     }
 
     public async Task DeleteAsync(string documentId, CancellationToken ct = default)
@@ -134,5 +116,32 @@ public class PostgresDocumentStore : IDocumentStore
             "Deleted document {DocumentId} ({FileName})",
             documentId,
             entity.FileName);
+    }
+
+    public async Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default)
+    {
+        return await _context.Documents
+            .AnyAsync(d => d.ContainerId == containerId && d.Path == path, ct);
+    }
+
+    private static Document MapToModel(DocumentEntity entity)
+    {
+        // Merge entity columns into metadata so the API exposes them
+        var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
+        metadata["Status"] = entity.Status;
+        metadata["ContentHash"] = entity.ContentHash;
+        metadata["ChunkCount"] = entity.ChunkCount.ToString();
+        if (!string.IsNullOrEmpty(entity.ErrorMessage))
+            metadata["ErrorMessage"] = entity.ErrorMessage;
+
+        return new(
+            entity.Id.ToString(),
+            entity.ContainerId.ToString(),
+            entity.FileName,
+            entity.ContentType,
+            entity.Path,
+            entity.SizeBytes,
+            entity.CreatedAt,
+            metadata);
     }
 }

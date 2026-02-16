@@ -6,51 +6,47 @@ Public interfaces and contracts. Track breaking changes here.
 
 ## Core Interfaces
 
-### IContainerStore (Feature #2 — Planned)
+### IContainerStore
 
 ```csharp
 public interface IContainerStore
 {
     Task<Container> CreateAsync(CreateContainerRequest request, CancellationToken ct = default);
-    Task<Container?> GetAsync(Guid containerId, CancellationToken ct = default);
+    Task<Container?> GetAsync(Guid id, CancellationToken ct = default);
     Task<Container?> GetByNameAsync(string name, CancellationToken ct = default);
     Task<IReadOnlyList<Container>> ListAsync(CancellationToken ct = default);
-    Task<bool> DeleteAsync(Guid containerId, CancellationToken ct = default); // Fails if not empty
-    Task<bool> IsEmptyAsync(Guid containerId, CancellationToken ct = default);
+    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default); // Fails if not empty
+    Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
 }
 
 public record Container(
-    Guid Id,
+    string Id,
     string Name,
     string? Description,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    int DocumentCount,    // Computed
-    long TotalSizeBytes); // Computed
+    int DocumentCount = 0);
 
-public record CreateContainerRequest(
-    string Name,          // Alphanumeric + hyphens, unique
-    string? Description);
+public record CreateContainerRequest(string Name, string? Description = null);
 ```
 
-### IFolderStore (Feature #2 — Planned)
+Implementation: `PostgresContainerStore`
+
+### IFolderStore
 
 ```csharp
 public interface IFolderStore
 {
     Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<IReadOnlyList<Folder>> ListAsync(Guid containerId, string? parentPath = null, CancellationToken ct = default);
+    Task<bool> DeleteAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default);
-    Task DeleteAsync(Guid containerId, string path, bool cascade = false, CancellationToken ct = default);
 }
 
-public record Folder(
-    Guid Id,
-    Guid ContainerId,
-    string Path,          // e.g., "/folder/subfolder/"
-    string Name,          // Last segment, e.g., "subfolder"
-    DateTime CreatedAt);
+public record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 ```
+
+Implementation: `PostgresFolderStore` — cascade deletes nested docs/subfolders, lists immediate children only.
 
 ---
 
@@ -68,7 +64,8 @@ public record IngestionOptions(
     string? DocumentId = null,
     string? FileName = null,
     string? ContentType = null,
-    string? CollectionId = null,
+    string? ContainerId = null,
+    string? Path = null,
     ChunkingStrategy Strategy = ChunkingStrategy.Semantic,
     Dictionary<string, string>? Metadata = null);
 
@@ -89,8 +86,8 @@ public interface IKnowledgeSearch
 
 public record SearchOptions(
     int TopK = 10,
-    float MinScore = 0.7f,
-    string? CollectionId = null,
+    float MinScore = 0.0f,
+    string? ContainerId = null,
     SearchMode Mode = SearchMode.Hybrid,
     Dictionary<string, string>? Filters = null);
 
@@ -98,6 +95,8 @@ public record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Dura
 public record SearchHit(string ChunkId, string DocumentId, string Content, float Score, Dictionary<string, string> Metadata);
 public enum SearchMode { Semantic, Keyword, Hybrid }
 ```
+
+Note: `MinScore` default is 0.0 at the options level. Endpoints apply the effective default from `SearchSettings.MinimumScore` (default 0.5). Caller-provided minScore overrides the settings value.
 
 ### IEmbeddingProvider
 
@@ -110,12 +109,11 @@ public interface IEmbeddingProvider
     string ModelId { get; }
 }
 
-// Phase 3 Implementation ✅
-// - OllamaEmbeddingProvider: calls Ollama POST /api/embeddings
-//   - HttpClient with typed client pattern
-//   - Batch processing (sends multiple parallel requests)
-//   - Dimension validation with warnings
-//   - Configurable timeout (default: 30s)
+// Implementation: OllamaEmbeddingProvider
+// - HttpClient with typed client pattern
+// - Batch processing (sends multiple parallel requests)
+// - Dimension validation with warnings
+// - Configurable timeout (default: 30s)
 ```
 
 ### IVectorStore
@@ -129,13 +127,12 @@ public interface IVectorStore
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
 }
 
-// Phase 3 Implementation ✅
-// - PgVectorStore: PostgreSQL + pgvector extension
-//   - Raw SQL with parameterized queries for <=> operator
-//   - Cosine distance → similarity conversion (1 - distance)
-//   - Filters: documentId, collectionId via WHERE clauses
-//   - JOINs chunks + documents for complete result metadata
-//   - Batch deletion by document ID for reindexing
+// Implementation: PgVectorStore
+// - Raw SQL with NAMED NpgsqlParameter objects (CRITICAL: positional params silently drop Vector type)
+// - Cosine distance -> similarity conversion (1 - distance)
+// - Filters: containerId, documentId, pathPrefix via WHERE clauses
+// - JOINs chunks + documents for complete result metadata
+// - Quoted column aliases in SQL ("ChunkId", "Distance", etc.)
 ```
 
 ### IDocumentStore
@@ -145,20 +142,28 @@ public interface IDocumentStore
 {
     Task<string> StoreAsync(Document document, CancellationToken ct = default);
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
-    Task<IReadOnlyList<Document>> ListAsync(string? collectionId = null, CancellationToken ct = default);
+    Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
+    Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default);
 }
 
-// Phase 3 Implementation ✅
-// - PostgresDocumentStore: EF Core with KnowledgeDbContext
-//   - CRUD operations on documents table
-//   - GUID validation for all IDs
-//   - AsNoTracking for read queries
-//   - Collection filtering in ListAsync
-//   - Cascade deletes to chunks + vectors (DB-level)
+public record Document(
+    string Id,
+    string ContainerId,
+    string FileName,
+    string? ContentType,
+    string Path,
+    long SizeBytes,
+    DateTime CreatedAt,
+    Dictionary<string, string> Metadata);
+
+// Implementation: PostgresDocumentStore
+// - ListAsync filters by containerId (required) and optional pathPrefix
+// - ExistsByPathAsync checks for duplicate files at same path
+// - Metadata includes Status, ContentHash, ChunkCount
 ```
 
-### IDocumentParser (Phase 4 ✅)
+### IDocumentParser
 
 ```csharp
 public interface IDocumentParser
@@ -172,13 +177,13 @@ public record ParsedDocument(
     Dictionary<string, string> Metadata,
     List<string> Warnings);
 
-// Phase 4 Implementations ✅
-// - TextParser: .txt, .md, .csv, .json, .xml, .yaml — detects file type, counts lines, CSV delimiter detection
-// - PdfParser: .pdf via PdfPig — extracts text + metadata (title, author, creator, creation date), page markers, handles scanned PDFs
-// - OfficeParser: .docx, .pptx via OpenXML — extracts paragraphs, tables (Word), slides (PowerPoint), document properties
+// Implementations:
+// - TextParser: .txt, .md, .csv, .json, .xml, .yaml
+// - PdfParser: .pdf via PdfPig
+// - OfficeParser: .docx, .pptx via OpenXML
 ```
 
-### IChunkingStrategy (Phase 4 ✅)
+### IChunkingStrategy
 
 ```csharp
 public interface IChunkingStrategy
@@ -198,13 +203,10 @@ public record ChunkInfo(
     int EndOffset,
     Dictionary<string, string> Metadata);
 
-// Phase 4 Implementations ✅
-// - FixedSizeChunker: Token-based with configurable overlap, natural boundary detection (newlines → sentences → spaces)
-// - RecursiveChunker: Hierarchical splitting using configurable separators, preserves document structure
-// - SemanticChunker: Embedding-based boundaries using cosine similarity, splits where similarity < threshold
+// Implementations: FixedSizeChunker, RecursiveChunker, SemanticChunker
 ```
 
-### ISearchReranker (Phase 5 ✅)
+### ISearchReranker
 
 ```csharp
 public interface ISearchReranker
@@ -216,26 +218,10 @@ public interface ISearchReranker
         CancellationToken cancellationToken = default);
 }
 
-// Phase 5 Implementations ✅
-// - RrfReranker (Name = "RRF"): Reciprocal Rank Fusion
-//   - Formula: score = sum(1 / (k + rank)) across all lists
-//   - Expects hits tagged with "source" metadata ("vector" or "keyword")
-//   - Groups by source, builds ranked lists (1-indexed)
-//   - Accumulates scores for duplicates across lists
-//   - Normalizes final scores to 0-1 range
-//   - Configured via SearchSettings.RrfK (default: 60)
-//
-// - CrossEncoderReranker (Name = "CrossEncoder"): LLM-based scoring
-//   - Scores each (query, chunk) pair via Ollama POST /api/generate
-//   - Prompt: "Rate relevance 0-10, respond with number only"
-//   - Low temperature (0.1) for consistency
-//   - Normalizes scores to 0-1 after all pairs scored
-//   - Configured via SearchSettings.CrossEncoderModel (falls back to LlmSettings.Model)
-//   - HttpClient injected via AddHttpClient<ISearchReranker, CrossEncoderReranker>()
-//   - Fallback to original score on parse errors or API failures
+// Implementations: RrfReranker ("RRF"), CrossEncoderReranker ("CrossEncoder")
 ```
 
-### IReindexService (Phase 7 ✅)
+### IReindexService
 
 ```csharp
 public interface IReindexService
@@ -246,50 +232,21 @@ public interface IReindexService
 
 public record ReindexOptions
 {
-    public string? CollectionId { get; init; }
+    public string? ContainerId { get; init; }        // Filter to container (was CollectionId)
     public IReadOnlyList<string>? DocumentIds { get; init; }
     public bool Force { get; init; } = false;
     public bool DetectSettingsChanges { get; init; } = true;
     public ChunkingStrategy? Strategy { get; init; }
 }
 
-public record ReindexResult
-{
-    public required string BatchId { get; init; }
-    public int TotalDocuments { get; init; }
-    public int EnqueuedCount { get; init; }
-    public int SkippedCount { get; init; }
-    public int FailedCount { get; init; }
-    public IReadOnlyDictionary<ReindexReason, int> ReasonCounts { get; init; }
-    public IReadOnlyList<ReindexDocumentResult> Documents { get; init; }
-}
-
-public record ReindexDocumentResult(
-    string DocumentId, string FileName, ReindexAction Action, ReindexReason Reason,
-    string? JobId = null, string? ErrorMessage = null);
-
-public record ReindexCheck(
-    string DocumentId, bool NeedsReindex, ReindexReason Reason,
-    string? CurrentHash = null, string? StoredHash = null,
-    string? CurrentChunkingStrategy = null, string? StoredChunkingStrategy = null,
-    string? CurrentEmbeddingModel = null, string? StoredEmbeddingModel = null);
-
+public record ReindexResult { /* BatchId, TotalDocuments, EnqueuedCount, SkippedCount, FailedCount, ReasonCounts, Documents */ }
+public record ReindexDocumentResult(string DocumentId, string FileName, ReindexAction Action, ReindexReason Reason, string? JobId = null, string? ErrorMessage = null);
+public record ReindexCheck(string DocumentId, bool NeedsReindex, ReindexReason Reason, ...);
 public enum ReindexAction { Enqueued, Skipped, Failed }
-public enum ReindexReason {
-    Unchanged, ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged,
-    Forced, FileNotFound, NeverIndexed, Error
-}
-
-// Phase 7 Implementation ✅
-// - ReindexService: compares SHA-256 content hashes, detects settings changes
-// - Settings metadata keys stored in document during ingestion:
-//   - IndexedWith:ChunkingStrategy, IndexedWith:ChunkingMaxSize, IndexedWith:ChunkingOverlap
-//   - IndexedWith:EmbeddingProvider, IndexedWith:EmbeddingModel, IndexedWith:EmbeddingDimensions
-// - Clears existing chunks/vectors before re-ingestion
-// - Collection-scoped, document-filtered, or force reindex modes
+public enum ReindexReason { Unchanged, ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged, Forced, FileNotFound, NeverIndexed, Error }
 ```
 
-### IIngestionQueue (Phase 4 ✅)
+### IIngestionQueue
 
 ```csharp
 public interface IIngestionQueue
@@ -297,13 +254,14 @@ public interface IIngestionQueue
     Task EnqueueAsync(IngestionJob job, CancellationToken cancellationToken = default);
     Task<IngestionJob?> DequeueAsync(CancellationToken cancellationToken = default);
     Task<IngestionJobStatus?> GetStatusAsync(string jobId);
+    Task<bool> CancelJobForDocumentAsync(string documentId);  // NEW: cancel in-progress jobs
     int QueueDepth { get; }
 }
 
 public record IngestionJob(
     string JobId,
     string DocumentId,
-    string VirtualPath,
+    string Path,              // Was VirtualPath
     IngestionOptions Options,
     string? BatchId = null);
 
@@ -318,13 +276,12 @@ public record IngestionJobStatus(
 
 public enum IngestionJobState { Queued, Processing, Completed, Failed }
 
-// Phase 4 Implementation ✅
-// - IngestionQueue: Channel-based (capacity: 1000), concurrent job status tracking (ConcurrentDictionary)
-// - UpdateJobStatus, CleanupOldStatuses methods for status management
-// - CompleteQueue() for graceful shutdown
+// Implementation: IngestionQueue (Channel-based, capacity: 1000)
+// - Tracks job cancellation tokens per job
+// - Maps document IDs to job IDs for cancellation
 ```
 
-### ISettingsStore (Phase 2 ✅)
+### ISettingsStore
 
 ```csharp
 public interface ISettingsStore
@@ -335,303 +292,54 @@ public interface ISettingsStore
     Task<IReadOnlyList<string>> GetCategoriesAsync(CancellationToken ct = default);
 }
 
-// Implementation: PostgresSettingsStore
-// - Stores settings as JSONB in `settings` table
-// - JSON serialization for flexible schema
-// - Integrated with IOptionsMonitor for live reload
+// Implementation: PostgresSettingsStore (JSONB via JsonDocument)
 ```
 
-### IConnectionTester (Connection Testing Feature ✅)
+### IConnectionTester
 
 ```csharp
 public interface IConnectionTester
 {
-    Task<ConnectionTestResult> TestConnectionAsync(
-        object settings,
-        TimeSpan? timeout = null,
-        CancellationToken ct = default);
+    Task<ConnectionTestResult> TestConnectionAsync(object settings, TimeSpan? timeout = null, CancellationToken ct = default);
 }
 
-public record ConnectionTestResult
-{
-    public required bool Success { get; init; }
-    public required string Message { get; init; }
-    public Dictionary<string, object>? Details { get; init; }
-    public TimeSpan? Duration { get; init; }
-
-    public static ConnectionTestResult CreateSuccess(string message, Dictionary<string, object>? details = null, TimeSpan? duration = null);
-    public static ConnectionTestResult CreateFailure(string message, Dictionary<string, object>? details = null, TimeSpan? duration = null);
-}
-
-// Implementations:
-// - OllamaConnectionTester: Tests Ollama endpoints (Embedding & LLM settings)
-//   - Calls GET /api/tags to list available models
-//   - Returns model count and version info in details
-//   - Default timeout: 10 seconds
-//
-// - MinioConnectionTester: Tests MinIO/S3 connectivity (Storage settings)
-//   - Calls ListBucketsAsync() to validate credentials
-//   - Checks bucket existence
-//   - Returns bucket list and connection details
-//   - Default timeout: 10 seconds
-//
-// Usage: Test connection before saving settings in UI
+// Implementations: OllamaConnectionTester, MinioConnectionTester
 ```
 
-### IAgentTool
+### IAgentTool / IAgentMemory / IKnowledgeFileSystem / IFileStore / IWebSearchProvider
 
-```csharp
-public interface IAgentTool
-{
-    string Name { get; }
-    string Description { get; }
-    JsonElement ParameterSchema { get; }
-    Task<ToolResult> ExecuteAsync(JsonElement parameters, ToolContext context, CancellationToken ct = default);
-}
-
-public record ToolResult(bool Success, JsonElement? Data = null, string? Error = null, string? HumanReadable = null);
-public record ToolContext(string? UserId, string? ConversationId, IServiceProvider Services);
-```
-
-### IAgentMemory
-
-```csharp
-public interface IAgentMemory
-{
-    Task SaveNoteAsync(string key, string content, NoteOptions? options = null, CancellationToken ct = default);
-    Task<string?> GetNoteAsync(string key, CancellationToken ct = default);
-    Task<IReadOnlyList<Note>> SearchNotesAsync(string query, int topK = 5, CancellationToken ct = default);
-    Task DeleteNoteAsync(string key, CancellationToken ct = default);
-}
-
-public record Note(string Key, string Content, DateTime Created, DateTime Modified, Dictionary<string, string> Metadata);
-public record NoteOptions(string? Category = null, Dictionary<string, string>? Metadata = null, TimeSpan? Expiry = null);
-```
-
-### IKnowledgeFileSystem
-
-```csharp
-public interface IKnowledgeFileSystem
-{
-    string RootPath { get; }
-    string ResolvePath(string virtualPath);
-    Task EnsureDirectoryExistsAsync(string virtualPath, CancellationToken ct = default);
-    Task<IReadOnlyList<FileSystemEntry>> ListAsync(string virtualPath = "/", CancellationToken ct = default);
-    Task<bool> ExistsAsync(string virtualPath, CancellationToken ct = default);
-    Task SaveFileAsync(string virtualPath, Stream content, CancellationToken ct = default);
-    Task<Stream> OpenFileAsync(string virtualPath, CancellationToken ct = default);
-    Task DeleteAsync(string virtualPath, CancellationToken ct = default);
-}
-
-public record FileSystemEntry(string Name, string VirtualPath, bool IsDirectory, long SizeBytes, DateTime LastModifiedUtc);
-
-public class KnowledgeFileSystemOptions
-{
-    public const string SectionName = "Knowledge:FileSystem";
-    public string RootPath { get; set; } = "knowledge-data";
-}
-```
-
-### IFileStore
-
-```csharp
-public interface IFileStore
-{
-    Task<string> SaveAsync(Stream content, string fileName, string? contentType = null, CancellationToken ct = default);
-    Task<Stream> GetAsync(string fileId, CancellationToken ct = default);
-    Task DeleteAsync(string fileId, CancellationToken ct = default);
-    Task<bool> ExistsAsync(string fileId, CancellationToken ct = default);
-}
-```
-
-### IWebSearchProvider
-
-```csharp
-public interface IWebSearchProvider
-{
-    Task<WebSearchResult> SearchAsync(string query, WebSearchOptions? options = null, CancellationToken ct = default);
-}
-```
+These interfaces remain unchanged from the initial design. See CLAUDE.md for definitions.
 
 ---
 
-## Internal Search Services (Phase 5 ✅)
-
-These services are not exposed as interfaces but are key components of the search system.
-
-### VectorSearchService
-
-```csharp
-public class VectorSearchService
-{
-    Task<List<SearchHit>> SearchAsync(string query, SearchOptions options, CancellationToken ct = default);
-}
-```
-
-- Registered as Scoped (not interface-based)
-- Embeds query text using `IEmbeddingProvider.EmbedAsync()`
-- Builds filters dict from `SearchOptions.CollectionId` + `SearchOptions.Filters`
-- Calls `IVectorStore.SearchAsync()` with query vector, topK, and filters
-- Converts `VectorSearchResult` → `SearchHit` (extracts metadata: documentId, content, fileName, etc.)
-- Applies `MinScore` threshold
-- Used by `HybridSearchService` for semantic search component
-
-### KeywordSearchService
-
-```csharp
-public class KeywordSearchService
-{
-    Task<List<SearchHit>> SearchAsync(string query, SearchOptions options, CancellationToken ct = default);
-}
-```
-
-- Registered as Scoped, depends on `KnowledgeDbContext`
-- Sanitizes query: removes tsquery special chars (`&|!():<>*`), collapses spaces
-- Uses raw SQL with `plainto_tsquery('english', query)` for FTS matching
-- Uses `ts_rank(search_vector, query)` for relevance scoring
-- JOINs chunks + documents for complete metadata
-- Normalizes ts_rank scores to 0-1 range: `(rank - min) / (max - min)`
-- Handles edge case where all ranks are identical (score = 1.0)
-- Applies `MinScore` threshold after normalization
-- Returns metadata including raw ts_rank value for debugging
-- Used by `HybridSearchService` for keyword search component
-
-### HybridSearchService
-
-```csharp
-public class HybridSearchService : IKnowledgeSearch
-{
-    // Implements IKnowledgeSearch interface
-}
-```
-
-- Registered as `IKnowledgeSearch` (main search entry point)
-- Depends on: `VectorSearchService`, `KeywordSearchService`, `IEnumerable<ISearchReranker>`
-- Routes searches based on `SearchOptions.Mode`:
-  - `Semantic` → VectorSearchService only
-  - `Keyword` → KeywordSearchService only
-  - `Hybrid` → both in parallel via `Task.WhenAll()`
-- For Hybrid mode:
-  - Tags vector results with `metadata["source"] = "vector"`
-  - Tags keyword results with `metadata["source"] = "keyword"`
-  - Merges both lists (includes duplicates for reranker)
-- Applies reranking if `SearchSettings.Reranker != "None"`:
-  - Finds reranker by name from injected `IEnumerable<ISearchReranker>`
-  - Calls `reranker.RerankAsync()` with merged hits
-- Final filtering: applies `MinScore` threshold, limits to `TopK`
-- Reports `Duration` via `Stopwatch`
-- `SearchStreamAsync` currently returns batch results (enhancement opportunity for true streaming)
-
----
-
-## Settings Types (Phase 2 ✅)
+## Settings Types
 
 All settings are records with `{ get; set; }` properties for form binding.
 
 ```csharp
-public record EmbeddingSettings
-{
-    public string Provider { get; set; } = "Ollama";                     // Ollama | OpenAI | AzureOpenAI | Anthropic
-    public string Model { get; set; } = "nomic-embed-text";
-    public int Dimensions { get; set; } = 768;
-    public string? BaseUrl { get; set; } = "http://localhost:11434";
-    public string? ApiKey { get; set; }
-    public string? AzureDeploymentName { get; set; }
-    public int BatchSize { get; set; } = 32;
-    public int TimeoutSeconds { get; set; } = 30;
-}
-
-public record ChunkingSettings
-{
-    public string Strategy { get; set; } = "Semantic";                   // FixedSize | Recursive | Semantic | DocumentAware
-    public int MaxChunkSize { get; set; } = 512;
-    public int Overlap { get; set; } = 50;
-    public int MinChunkSize { get; set; } = 100;
-    public double SemanticThreshold { get; set; } = 0.5;
-    public string[] RecursiveSeparators { get; set; } = ["\n\n", "\n", ". ", " "];
-    public bool RespectDocumentStructure { get; set; } = true;
-}
-
-public record SearchSettings
-{
-    public string Mode { get; set; } = "Hybrid";                         // Vector | Keyword | Hybrid
-    public int TopK { get; set; } = 10;
-    public string Reranker { get; set; } = "RRF";                        // None | RRF | CrossEncoder
-    public int RrfK { get; set; } = 60;
-    public double VectorWeight { get; set; } = 0.7;
-    public double MinimumScore { get; set; } = 0.0;
-    public string? CrossEncoderModel { get; set; }
-    public bool EnableQueryExpansion { get; set; } = false;
-    public bool IncludeWebSearch { get; set; } = false;
-}
-
-public record LlmSettings
-{
-    public string Provider { get; set; } = "Ollama";                     // Ollama | OpenAI | AzureOpenAI | Anthropic
-    public string Model { get; set; } = "llama3.2";
-    public string? BaseUrl { get; set; } = "http://localhost:11434";
-    public string? ApiKey { get; set; }
-    public string? AzureDeploymentName { get; set; }
-    public double Temperature { get; set; } = 0.7;
-    public int MaxTokens { get; set; } = 2000;
-    public int TimeoutSeconds { get; set; } = 60;
-    public string? SystemPrompt { get; set; }
-}
-
-public record UploadSettings
-{
-    public int MaxFileSizeMb { get; set; } = 100;
-    public string[] AllowedExtensions { get; set; } = [".txt", ".md", ".pdf", ".docx", ".pptx", ".csv"];
-    public string DefaultPath { get; set; } = "/uploads";
-    public int ParallelWorkers { get; set; } = 4;
-    public bool EnableVirusScanning { get; set; } = false;
-    public bool AutoStartIngestion { get; set; } = true;
-    public int BatchSize { get; set; } = 100;
-}
-
-public record WebSearchSettings
-{
-    public string Provider { get; set; } = "None";                       // None | Brave | Serper | Tavily
-    public string? ApiKey { get; set; }
-    public int MaxResults { get; set; } = 5;
-    public int TimeoutSeconds { get; set; } = 10;
-    public bool SafeSearch { get; set; } = true;
-    public string? Region { get; set; }
-}
-
-public record StorageSettings
-{
-    public string VectorStoreProvider { get; set; } = "PgVector";        // SqliteVec | PgVector | Qdrant | Pinecone | AzureAISearch
-    public string DocumentStoreProvider { get; set; } = "Postgres";      // Postgres | MongoDB
-    public string FileStorageProvider { get; set; } = "MinIO";           // Local | MinIO | AzureBlob | S3
-    public string? MinioEndpoint { get; set; } = "localhost:9000";
-    public string? MinioAccessKey { get; set; }
-    public string? MinioSecretKey { get; set; }
-    public string MinioBucketName { get; set; } = "connapse-files";
-    public bool MinioUseSSL { get; set; } = false;
-    public string? LocalStorageRootPath { get; set; } = "knowledge-data";
-    public string? AzureBlobConnectionString { get; set; }
-    public string? AzureBlobContainerName { get; set; }
-}
+public record EmbeddingSettings { Provider, Model, Dimensions, BaseUrl, ApiKey, AzureDeploymentName, BatchSize, TimeoutSeconds }
+public record ChunkingSettings  { Strategy, MaxChunkSize, Overlap, MinChunkSize, SemanticThreshold, RecursiveSeparators, RespectDocumentStructure }
+public record SearchSettings    { Mode, TopK, Reranker, RrfK, VectorWeight, MinimumScore (default 0.5), CrossEncoderModel, EnableQueryExpansion, IncludeWebSearch }
+public record LlmSettings       { Provider, Model, BaseUrl, ApiKey, AzureDeploymentName, Temperature, MaxTokens, TimeoutSeconds, SystemPrompt }
+public record UploadSettings    { MaxFileSizeMb, AllowedExtensions, DefaultPath, ParallelWorkers, EnableVirusScanning, AutoStartIngestion, BatchSize }
+public record WebSearchSettings { Provider, ApiKey, MaxResults, TimeoutSeconds, SafeSearch, Region }
+public record StorageSettings   { VectorStoreProvider, DocumentStoreProvider, FileStorageProvider, MinioEndpoint, MinioAccessKey, MinioSecretKey, MinioBucketName, MinioUseSSL, ... }
 ```
 
 **Settings Configuration Categories:**
-- `Knowledge:Embedding` → EmbeddingSettings
-- `Knowledge:Chunking` → ChunkingSettings
-- `Knowledge:Search` → SearchSettings
-- `Knowledge:LLM` → LlmSettings
-- `Knowledge:Upload` → UploadSettings
-- `Knowledge:WebSearch` → WebSearchSettings
-- `Knowledge:Storage` → StorageSettings
-
-**Live Reload:**
-- Settings saved via `ISettingsStore.SaveAsync()` → stored in DB → triggers `ISettingsReloader.Reload()` → `IOptionsMonitor<T>.CurrentValue` updates without app restart
+- `Knowledge:Embedding` -> EmbeddingSettings
+- `Knowledge:Chunking` -> ChunkingSettings
+- `Knowledge:Search` -> SearchSettings
+- `Knowledge:LLM` -> LlmSettings
+- `Knowledge:Upload` -> UploadSettings
+- `Knowledge:WebSearch` -> WebSearchSettings
+- `Knowledge:Storage` -> StorageSettings
 
 ---
 
-## REST API Endpoints (Phase 6 ✅)
+## REST API Endpoints
 
-### Containers (Feature #2 — Planned)
+### Containers
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -640,453 +348,135 @@ public record StorageSettings
 | `GET` | `/api/containers/{id}` | Get container details. Returns `Container` or 404. |
 | `DELETE` | `/api/containers/{id}` | Delete container. Fails with 400 if not empty. Returns 204. |
 
-### Container Files (Feature #2 — Planned)
+### Container Files
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/containers/{id}/files` | Upload files to container. Multipart form-data: `files`, `path?` (destination folder). Streams to MinIO, enqueues ingestion. Returns `UploadResponse`. |
-| `GET` | `/api/containers/{id}/files` | List files/folders at path. Query: `?path=/folder/`. Returns array of `FileSystemEntry`. |
-| `GET` | `/api/containers/{id}/files/{fileId}` | Get file details including indexing status. Returns `FileDetails`. |
+| `POST` | `/api/containers/{id}/files` | Upload files. Multipart form-data: `files`, `path?`, `strategy?`. Returns `UploadResponse`. |
+| `GET` | `/api/containers/{id}/files` | List files/folders at path. Query: `?path=/folder/`. Returns array of entries. |
+| `GET` | `/api/containers/{id}/files/{fileId}` | Get file details including indexing status. |
+| `GET` | `/api/containers/{id}/files/{fileId}/reindex-check` | Check if file needs reindex. |
 | `DELETE` | `/api/containers/{id}/files/{fileId}` | Delete file + chunks (cascade). Returns 204. |
 
-### Container Folders (Feature #2 — Planned)
+### Container Folders
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/containers/{id}/folders` | Create empty folder. Body: `{ path }`. Returns `Folder`. |
-| `DELETE` | `/api/containers/{id}/folders` | Delete folder. Query: `?path=/folder/&cascade=true`. Cascade deletes nested files/folders. Returns 204. |
+| `DELETE` | `/api/containers/{id}/folders` | Delete folder. Query: `?path=/folder/`. Cascade deletes nested files/folders. Returns 204. |
 
-### Container Search (Feature #2 — Planned)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/containers/{id}/search` | Search within container. Query: `?q=...&path=/folder/&mode=Hybrid&topK=10`. Path filters to subtree. Returns `SearchResult`. |
-| `POST` | `/api/containers/{id}/search` | Search with complex filters. Body: `ContainerSearchRequest`. Returns `SearchResult`. |
-
-### Container Reindex (Feature #2 — Planned)
+### Container Search
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/containers/{id}/reindex` | Reindex all documents in container. Body: `{ force?, detectSettingsChanges?, path? }`. Returns `ReindexResult`. |
+| `GET` | `/api/containers/{id}/search` | Search within container. Query: `?q=...&path=/folder/&mode=Hybrid&topK=10&minScore=0.5`. |
+| `POST` | `/api/containers/{id}/search` | Search with complex filters. Body: `ContainerSearchRequest`. |
 
-**New DTOs (Feature #2):**
-```csharp
-public record FileDetails(
-    Guid Id,
-    Guid ContainerId,
-    string Path,
-    string FileName,
-    long SizeBytes,
-    string MimeType,
-    string Status,          // Pending, Processing, Ready, Error
-    string? ErrorMessage,
-    int ChunkCount,
-    string? EmbeddingModel,
-    string ContentHash,
-    DateTime CreatedAt,
-    DateTime UpdatedAt);
-
-public record FileSystemEntry(
-    string Name,
-    string Path,
-    bool IsFolder,
-    long? SizeBytes,        // Null for folders
-    DateTime? LastModified, // Null for folders
-    string? Status);        // Null for folders, document status for files
-
-public record ContainerSearchRequest(
-    string Query,
-    string? Path = null,    // Filter to subtree
-    SearchMode? Mode = null,
-    int? TopK = null,
-    Dictionary<string, string>? Filters = null);
-```
-
----
-
-### Documents (Legacy — Will Be Replaced by Container Endpoints)
+### Container Reindex
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/documents` | Upload files (multipart/form-data). FormData: `files` (IFormFileCollection), `collectionId?`, `destinationPath?`, `strategy?`. Streams to MinIO, enqueues ingestion. Returns `UploadResponse` with batch ID, document IDs, job IDs. |
-| `GET` | `/api/documents` | List documents. Query params: `collectionId?`. Returns array of `Document` objects. |
-| `GET` | `/api/documents/{id}` | Get single document metadata by ID. Returns `Document` or 404. |
-| `DELETE` | `/api/documents/{id}` | Delete document + associated chunks + vectors (cascade). Also deletes file from storage. Returns 204 No Content. |
-| `POST` | `/api/documents/reindex` | Trigger reindex with content-hash comparison and settings-change detection. Body: `ReindexRequest`. Returns `{ batchId, totalDocuments, enqueuedCount, skippedCount, failedCount, reasonCounts, message }`. |
-| `GET` | `/api/documents/{id}/reindex-check` | Check if a specific document needs reindexing. Returns hash comparison and settings comparison details for debugging. |
+| `POST` | `/api/containers/{id}/reindex` | Reindex documents in container. Body: `{ force?, detectSettingsChanges? }`. |
 
-**Request/Response DTOs:**
-```csharp
-public record UploadResponse(string? BatchId, List<UploadedDocumentResponse> Documents, int TotalCount, int SuccessCount);
-public record UploadedDocumentResponse(string DocumentId, string? JobId, string FileName, long SizeBytes, string VirtualPath, string? Error = null);
-public record ReindexRequest(
-    string? CollectionId = null,
-    IReadOnlyList<string>? DocumentIds = null,
-    bool? Force = null,
-    bool? DetectSettingsChanges = null,
-    ChunkingStrategy? Strategy = null);
-```
-
-### Search
+### Settings
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/search` | Simple search. Query params: `q` (required), `mode?` (Semantic/Keyword/Hybrid, default: Hybrid), `topK?` (default: 10), `collectionId?`. Returns `SearchResult`. |
-| `POST` | `/api/search` | Search with complex filters. Body: `SearchRequest` with `Query`, `Mode?`, `TopK?`, `CollectionId?`, `Filters?`. Returns `SearchResult`. |
-
-**Request/Response DTOs:**
-```csharp
-public record SearchRequest(string Query, SearchMode? Mode = null, int? TopK = null, string? CollectionId = null, Dictionary<string, string>? Filters = null);
-// SearchResult defined in IKnowledgeSearch (see above)
-```
+| `GET` | `/api/settings/{category}` | Get settings for category. |
+| `PUT` | `/api/settings/{category}` | Update settings. Triggers live reload. |
+| `POST` | `/api/settings/test-connection` | Test connectivity before saving. |
 
 ### Batches
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/batches/{id}/status` | Get batch ingestion progress. Returns `IngestionJobStatus` or 404 if batch not found. |
-
-### Settings (Connection Testing Feature ✅)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/settings/{category}` | Get current settings for a category. Categories: `embedding`, `chunking`, `search`, `llm`, `upload`, `websearch`, `storage`. Returns settings record (EmbeddingSettings, ChunkingSettings, etc.). |
-| `PUT` | `/api/settings/{category}` | Update settings for a category. Body: JSON settings object. Saves to database and triggers IOptionsMonitor live reload. Returns `{ success: true, message: string }`. |
-| `POST` | `/api/settings/test-connection` | Test connectivity to external services before saving settings. Body: `TestConnectionRequest`. Returns `ConnectionTestResult` with success status, message, and details. |
-
-**Request/Response DTOs:**
-```csharp
-public record TestConnectionRequest(
-    string Category,              // "embedding", "llm", or "storage"
-    JsonElement Settings,         // Current form values (EmbeddingSettings, LlmSettings, or StorageSettings)
-    int? TimeoutSeconds = null);  // Optional timeout (default: 10)
-
-// ConnectionTestResult defined in IConnectionTester (see above)
-```
-
-**Supported Categories for Test Connection:**
-- `embedding` → Tests Ollama endpoint via GET /api/tags
-- `llm` → Tests Ollama endpoint via GET /api/tags
-- `storage` → Tests MinIO S3 connectivity via ListBucketsAsync()
-
-**Example Success Response:**
-```json
-{
-  "success": true,
-  "message": "Connected to Ollama at http://localhost:11434 (3 models available)",
-  "details": {
-    "baseUrl": "http://localhost:11434",
-    "modelCount": 3,
-    "models": ["nomic-embed-text", "llama3.2", "llama3.2:1b"]
-  },
-  "duration": "00:00:01.234"
-}
-```
-
-**Example Failure Response:**
-```json
-{
-  "success": false,
-  "message": "Connection failed: Connection refused",
-  "details": {
-    "error": "Connection refused",
-    "errorType": "HttpRequestException"
-  },
-  "duration": "00:00:05.001"
-}
-```
+| `GET` | `/api/batches/{id}/status` | Get batch ingestion progress. |
 
 ### SignalR Hub
 
 | Hub | Path | Methods |
 |-----|------|---------|
-| `IngestionHub` | `/hubs/ingestion` | `SubscribeToJob(string jobId)` - Join group for job updates<br>`UnsubscribeFromJob(string jobId)` - Leave group |
+| `IngestionHub` | `/hubs/ingestion` | `SubscribeToJob(jobId)`, `UnsubscribeFromJob(jobId)` |
 
 **Server-to-client events:**
-- `IngestionProgress` - Sends job status update: `{ jobId, state, currentPhase?, percentComplete, errorMessage?, startedAt?, completedAt? }`
-- Broadcast by `IngestionProgressBroadcaster` every 500ms for active jobs
+- `IngestionProgress` - Sends `IngestionProgressUpdate` DTO every 500ms for active jobs
+
+### Legacy Endpoints (REMOVED)
+
+These endpoints from Feature #1 have been replaced by container-scoped versions:
+- `POST /api/documents` -> `POST /api/containers/{id}/files`
+- `GET /api/documents` -> `GET /api/containers/{id}/files`
+- `DELETE /api/documents/{id}` -> `DELETE /api/containers/{id}/files/{id}`
+- `GET /api/search` -> `GET /api/containers/{id}/search`
+- `POST /api/search` -> `POST /api/containers/{id}/search`
+- `POST /api/documents/reindex` -> `POST /api/containers/{id}/reindex`
 
 ---
 
-## CLI Commands (Phase 6 ✅)
+## CLI Commands
 
-Binary: `connapse` (Connapse.CLI project)
+Binary: `aikp` (AIKnowledge.CLI project)
 
-**Configuration:**
-- Reads `ApiBaseUrl` from appsettings.json or env var (default: `https://localhost:5001`)
-- SSL validation bypassed for localhost in development
-
-### Commands
-
-#### ingest
 ```bash
-connapse ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]
+# Container management
+aikp container create <name> [--description "..."]
+aikp container list
+aikp container delete <name>
+
+# Upload files to container
+aikp upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
+
+# Search within container
+aikp search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
+
+# Reindex container
+aikp reindex --container <name> [--force] [--no-detect-changes]
 ```
-
-Uploads file(s) to knowledge base via `POST /api/documents`.
-
-**Arguments:**
-- `path` (required): File or directory path
-
-**Options:**
-- `--collection <id>`: Collection ID for organization
-- `--strategy <name>`: Chunking strategy (Semantic, FixedSize, Recursive) [default: Semantic]
-- `--destination <path>`: Virtual destination path in knowledge base [default: uploads]
-
-**Example:**
-```bash
-connapse ingest ./docs --collection research --strategy Semantic
-```
-
-#### search
-```bash
-connapse search "<query>" [--mode <mode>] [--top <n>] [--collection <id>]
-```
-
-Searches knowledge base via `GET /api/search`, displays formatted results.
-
-**Arguments:**
-- `query` (required): Search query text (quote if contains spaces)
-
-**Options:**
-- `--mode <mode>`: Search mode (Semantic, Keyword, Hybrid) [default: Hybrid]
-- `--top <n>`: Number of results to return [default: 10]
-- `--collection <id>`: Filter by collection ID
-
-**Example:**
-```bash
-connapse search "machine learning best practices" --mode Hybrid --top 5
-```
-
-#### reindex
-```bash
-connapse reindex [--collection <id>] [--force] [--no-detect-changes]
-```
-
-Triggers reindexing via `POST /api/documents/reindex` with content-hash comparison.
-
-**Options:**
-- `--collection <id>`: Reindex only documents in this collection
-- `--force`: Skip content-hash comparison, reindex all documents
-- `--no-detect-changes`: Disable chunking/embedding settings change detection
-
-**Example:**
-```bash
-connapse reindex --collection research
-connapse reindex --force                    # Reindex everything
-connapse reindex --no-detect-changes        # Only reindex if content hash changed
-```
-
-**Output:** Reports total documents evaluated, enqueued, skipped (unchanged), failed, with breakdown by reason (ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged, Forced, etc.)
 
 ---
 
-## MCP Server (Phase 6 ✅)
+## MCP Server
 
 **Protocol**: JSON-RPC 2.0
 **Endpoint**: `POST /mcp`
-**Convenience**: `GET /mcp/tools` (list available tools)
-
-### RPC Methods
-
-#### tools/list
-Returns array of available tools with JSON Schema for parameters.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/list",
-  "id": "1"
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "tools": [ /* array of McpTool */ ]
-  },
-  "id": "1"
-}
-```
-
-#### tools/call
-Executes a tool and returns result.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "search_knowledge",
-    "arguments": {
-      "query": "test",
-      "mode": "Hybrid",
-      "topK": 5
-    }
-  },
-  "id": "2"
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "content": [
-      { "type": "text", "text": "Found 3 results..." }
-    ],
-    "isError": false
-  },
-  "id": "2"
-}
-```
+**Convenience**: `GET /mcp/tools`
 
 ### Available Tools
 
-#### container_create (Feature #2 — Planned)
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `container_create` | `name` (required), `description?` | Create a new container |
+| `container_list` | (none) | List all containers with document counts |
+| `container_delete` | `name` (required) | Delete an empty container |
+| `upload_file` | `containerId` (required), `fileName` (required), `content` (required, base64), `path?`, `strategy?` | Upload file to container |
+| `list_files` | `containerId` (required), `path?` | List files/folders in container |
+| `delete_file` | `containerId` (required), `fileId` (required) | Delete file from container |
+| `search_knowledge` | `query` (required), `containerId` (required), `path?`, `mode?`, `topK?`, `minScore?` | Search within container |
 
-Create a new container for organizing files.
-
-**Parameters:**
-- `name` (string, required): Container name (alphanumeric + hyphens)
-- `description` (string, optional): Container description
-
-**Returns:** Text with container ID and confirmation.
-
-#### container_list (Feature #2 — Planned)
-
-List all containers.
-
-**Parameters:** None
-
-**Returns:** Text with formatted container list (name, document count, total size).
-
-#### container_delete (Feature #2 — Planned)
-
-Delete an empty container.
-
-**Parameters:**
-- `name` (string, required): Container name
-
-**Returns:** Text with confirmation or error if not empty.
-
-#### upload_file (Feature #2 — Planned)
-
-Upload a file to a container. Replaces `ingest_document`.
-
-**Parameters:**
-- `containerId` (string, required): Container ID or name
-- `path` (string, optional): Destination folder path (e.g., "/docs/2026/")
-- `content` (string, required): Base64-encoded file content
-- `fileName` (string, required): Original file name with extension
-- `strategy` (string, optional): Chunking strategy [default: Semantic]
-
-**Returns:** Text with file ID, job ID, full path, and ingestion status.
-
-#### list_files (Feature #2 — Planned)
-
-List files and folders in a container.
-
-**Parameters:**
-- `containerId` (string, required): Container ID or name
-- `path` (string, optional): Folder path to list [default: "/"]
-
-**Returns:** Text with formatted file/folder list.
-
-#### delete_file (Feature #2 — Planned)
-
-Delete a file from a container.
-
-**Parameters:**
-- `containerId` (string, required): Container ID or name
-- `fileId` (string, required): File ID
-
-**Returns:** Text with confirmation.
-
-#### search_knowledge
-
-Search the knowledge base using semantic, keyword, or hybrid search.
-
-**Parameters:**
-- `query` (string, required): Search query text
-- `containerId` (string, required): Container ID or name **(Feature #2: becomes required)**
-- `path` (string, optional): Filter to folder subtree (e.g., "/docs/") **(Feature #2: new)**
-- `mode` (string, optional): "Semantic", "Keyword", or "Hybrid" [default: Hybrid]
-- `topK` (number, optional): Number of results [default: 10]
-- ~~`collectionId` (string, optional): Filter by collection~~ **(Feature #2: removed)**
-
-**Returns:** Text with formatted search results including scores, content, file names, and sources.
-
-#### list_documents
-
-List all documents in the knowledge base.
-
-**Parameters:**
-- `collectionId` (string, optional): Filter by collection ID
-
-**Returns:** Text with formatted document list including ID, file name, size, created date, collection.
-
-#### ingest_document
-
-Add a document to the knowledge base.
-
-**Parameters:**
-- `path` (string, required): Virtual path for document (e.g., "/documents/report.pdf")
-- `content` (string, required): Base64-encoded document content
-- `fileName` (string, required): Original file name with extension
-- `collectionId` (string, optional): Collection ID for organization
-- `strategy` (string, optional): "Semantic", "FixedSize", or "Recursive" [default: Semantic]
-
-**Returns:** Text with document ID, job ID, and confirmation that ingestion is queued.
-
-**Implementation:**
-- `McpServer` class in `Connapse.Web.Mcp`
-- Depends on: `IKnowledgeSearch`, `IDocumentStore`, `IKnowledgeFileSystem`, `IIngestionQueue`
-- Registered as singleton in DI container
-- Full error handling with JSON-RPC 2.0 error responses
+All tools accept container name or ID for `containerId` (resolved via name lookup).
 
 ---
 
 ## Breaking Changes
 
-### 2026-02-06 — Container-Based File Browser (Feature #2 — Planned)
+### 2026-02-06 -- Container-Based File Browser (Feature #2)
 
-**Change**: Documents now require a container. All file operations, search, and reindex endpoints move under `/api/containers/{id}/...`. `CollectionId` removed entirely.
+**Change**: Documents now require a container. All file operations, search, and reindex endpoints moved under `/api/containers/{id}/...`. `CollectionId` removed entirely. `VirtualPath` renamed to `Path`.
 
 **Migration**:
 - No user data to migrate (pre-release)
-- All API consumers must update to use container-scoped endpoints
-- CLI commands updated to require `--container` flag
-- MCP tools updated to require `containerId` parameter
-- Search no longer works without specifying a container
+- All API consumers must use container-scoped endpoints
+- CLI commands require `--container` flag
+- MCP tools require `containerId` parameter
+- `IngestionJob.VirtualPath` -> `IngestionJob.Path`
+- `IngestionOptions.CollectionId` -> `IngestionOptions.ContainerId`
+- `SearchOptions.CollectionId` -> `SearchOptions.ContainerId`
+- `ReindexOptions.CollectionId` -> `ReindexOptions.ContainerId`
+- `SearchOptions.MinScore` default changed from 0.7 to 0.0 (endpoints control effective value)
 
-**New Endpoints**:
-- `POST/GET/DELETE /api/containers` — container management
-- `POST/GET/DELETE /api/containers/{id}/files` — file operations
-- `POST/DELETE /api/containers/{id}/folders` — folder operations
-- `GET/POST /api/containers/{id}/search` — scoped search
-- `POST /api/containers/{id}/reindex` — scoped reindex
+### 2026-02-04 -- Storage Backend: SQLite -> PostgreSQL + MinIO
 
-**Removed Endpoints** (replaced by container-scoped versions):
-- `POST /api/documents` → `POST /api/containers/{id}/files`
-- `GET /api/documents` → `GET /api/containers/{id}/files`
-- `DELETE /api/documents/{id}` → `DELETE /api/containers/{id}/files/{id}`
-- `GET /api/search` → `GET /api/containers/{id}/search`
-- `POST /api/search` → `POST /api/containers/{id}/search`
-- `POST /api/documents/reindex` → `POST /api/containers/{id}/reindex`
-
----
-
-### 2026-02-04 — Storage Backend: SQLite → PostgreSQL + MinIO
-
-**Change**: Default storage backend changed from SQLite + sqlite-vec + local filesystem to PostgreSQL + pgvector + MinIO. `IVectorStore`, `IDocumentStore`, and `IKnowledgeFileSystem` implementations now target Postgres and S3 respectively.
-
-**Migration**: No data migration needed (project is pre-release). New implementations: `PgVectorStore`, `PostgresDocumentStore`, `MinioFileSystem`. Old `LocalKnowledgeFileSystem` remains available for non-Docker development.
+**Change**: Default storage backend changed from SQLite to PostgreSQL + pgvector + MinIO.
 
 ---
 

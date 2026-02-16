@@ -2,8 +2,8 @@ namespace Connapse.Core;
 
 public record SearchOptions(
     int TopK = 10,
-    float MinScore = 0.7f,
-    string? CollectionId = null,
+    float MinScore = 0.0f,
+    string? ContainerId = null,
     SearchMode Mode = SearchMode.Hybrid,
     Dictionary<string, string>? Filters = null);
 

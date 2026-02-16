@@ -1,10 +1,23 @@
 namespace Connapse.Core;
 
+public record Container(
+    string Id,
+    string Name,
+    string? Description,
+    DateTime CreatedAt,
+    DateTime UpdatedAt,
+    int DocumentCount = 0);
+
+public record CreateContainerRequest(string Name, string? Description = null);
+
+public record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
+
 public record Document(
     string Id,
+    string ContainerId,
     string FileName,
     string? ContentType,
-    string? CollectionId,
+    string Path,
     long SizeBytes,
     DateTime CreatedAt,
     Dictionary<string, string> Metadata);

@@ -4,6 +4,8 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
 using Pgvector;
 
 namespace Connapse.Storage.Vectors;
@@ -53,6 +55,13 @@ public class PgVectorStore : IVectorStore
             throw new ArgumentException("Metadata must contain a 'modelId'", nameof(metadata));
         }
 
+        // Extract containerId from metadata
+        Guid containerId = Guid.Empty;
+        if (metadata.TryGetValue("containerId", out var containerIdStr))
+        {
+            Guid.TryParse(containerIdStr, out containerId);
+        }
+
         var existing = await _context.ChunkVectors
             .FirstOrDefaultAsync(cv => cv.ChunkId == chunkId, ct);
 
@@ -62,6 +71,7 @@ public class PgVectorStore : IVectorStore
             existing.Embedding = new Vector(vector);
             existing.ModelId = modelId;
             existing.DocumentId = documentId;
+            existing.ContainerId = containerId;
         }
         else
         {
@@ -70,6 +80,7 @@ public class PgVectorStore : IVectorStore
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
+                ContainerId = containerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId
             };
@@ -96,46 +107,56 @@ public class PgVectorStore : IVectorStore
             throw new ArgumentException("Query vector cannot be null or empty", nameof(queryVector));
         }
 
-        // Build WHERE clause for filters
-        var whereClauses = new List<string> { "1=1" }; // Always true base condition
-        var parameters = new List<object> { new Vector(queryVector), topK };
+        // Build WHERE clause and named parameters for filters
+        var whereClauses = new List<string> { "1=1" };
+        var vectorParam = new NpgsqlParameter("@queryVector", new Vector(queryVector));
+        var topKParam = new NpgsqlParameter("@topK", NpgsqlDbType.Integer) { Value = topK };
+        var parameters = new List<NpgsqlParameter> { vectorParam, topKParam };
 
         if (filters != null)
         {
             if (filters.TryGetValue("documentId", out var documentIdStr) &&
                 Guid.TryParse(documentIdStr, out var documentId))
             {
-                whereClauses.Add($"cv.document_id = ${parameters.Count + 1}");
-                parameters.Add(documentId);
+                whereClauses.Add("cv.document_id = @documentId");
+                parameters.Add(new NpgsqlParameter("@documentId", NpgsqlDbType.Uuid) { Value = documentId });
             }
 
-            if (filters.TryGetValue("collectionId", out var collectionId))
+            if (filters.TryGetValue("containerId", out var containerIdStr) &&
+                Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add($"d.collection_id = ${parameters.Count + 1}");
-                parameters.Add(collectionId);
+                whereClauses.Add("cv.container_id = @containerId");
+                parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = containerId });
+            }
+
+            if (filters.TryGetValue("pathPrefix", out var pathPrefix) &&
+                !string.IsNullOrWhiteSpace(pathPrefix))
+            {
+                whereClauses.Add("d.path LIKE @pathPrefix");
+                parameters.Add(new NpgsqlParameter("@pathPrefix", NpgsqlDbType.Text) { Value = pathPrefix + "%" });
             }
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
 
         // Use raw SQL to leverage pgvector's <=> cosine distance operator
-        // Note: We use parameter placeholders {0}, {1}, etc. for parameterized queries
+        // Named parameters avoid positional binding issues with the Vector type
         var sql = $@"
             SELECT
-                cv.chunk_id as ChunkId,
-                cv.document_id as DocumentId,
-                (cv.embedding <=> {{0}}) as Distance,
-                c.content as Content,
-                c.chunk_index as ChunkIndex,
-                d.file_name as FileName,
-                d.content_type as ContentType,
-                d.collection_id as CollectionId
+                cv.chunk_id as ""ChunkId"",
+                cv.document_id as ""DocumentId"",
+                cv.container_id as ""ContainerId"",
+                (cv.embedding <=> @queryVector) as ""Distance"",
+                c.content as ""Content"",
+                c.chunk_index as ""ChunkIndex"",
+                d.file_name as ""FileName"",
+                d.content_type as ""ContentType""
             FROM chunk_vectors cv
             INNER JOIN chunks c ON cv.chunk_id = c.id
             INNER JOIN documents d ON cv.document_id = d.id
             WHERE {whereClause}
-            ORDER BY Distance ASC
-            LIMIT {{1}}";
+            ORDER BY ""Distance"" ASC
+            LIMIT @topK";
 
         var results = await _context.Database
             .SqlQueryRaw<VectorSearchRow>(sql, parameters.ToArray())
@@ -145,13 +166,13 @@ public class PgVectorStore : IVectorStore
         // Cosine distance ranges from 0 (identical) to 2 (opposite)
         var searchResults = results.Select(r => new VectorSearchResult(
             r.ChunkId.ToString(),
-            (float)(1.0 - r.Distance), // Convert distance to similarity
+            (float)(1.0 - r.Distance),
             new Dictionary<string, string>
             {
                 { "documentId", r.DocumentId.ToString() },
+                { "containerId", r.ContainerId.ToString() },
                 { "fileName", r.FileName },
                 { "contentType", r.ContentType ?? "" },
-                { "collectionId", r.CollectionId ?? "" },
                 { "content", r.Content },
                 { "chunkIndex", r.ChunkIndex.ToString() }
             }
@@ -169,12 +190,12 @@ public class PgVectorStore : IVectorStore
     private record VectorSearchRow(
         Guid ChunkId,
         Guid DocumentId,
+        Guid ContainerId,
         double Distance,
         string Content,
         int ChunkIndex,
         string FileName,
-        string? ContentType,
-        string? CollectionId);
+        string? ContentType);
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {

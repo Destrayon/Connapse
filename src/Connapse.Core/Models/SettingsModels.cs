@@ -119,9 +119,11 @@ public record SearchSettings
     public double VectorWeight { get; set; } = 0.7;
 
     /// <summary>
-    /// Minimum similarity score threshold (0.0-1.0).
+    /// Minimum similarity score threshold (0.0-1.0, default: 0.5).
+    /// Scores below this are filtered out. Lower values return more results.
+    /// For nomic-embed-text, relevant results typically score 0.55-0.75.
     /// </summary>
-    public double MinimumScore { get; set; } = 0.0;
+    public double MinimumScore { get; set; } = 0.5;
 
     /// <summary>
     /// Cross-encoder model for reranking (if Reranker = CrossEncoder).

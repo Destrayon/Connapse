@@ -12,6 +12,8 @@ public class IngestionQueue : IIngestionQueue
 {
     private readonly Channel<IngestionJob> _channel;
     private readonly ConcurrentDictionary<string, IngestionJobStatus> _jobStatuses;
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellationTokens;
+    private readonly ConcurrentDictionary<string, string> _documentToJobId;
 
     public IngestionQueue(int capacity = 1000)
     {
@@ -23,6 +25,8 @@ public class IngestionQueue : IIngestionQueue
 
         _channel = Channel.CreateBounded<IngestionJob>(options);
         _jobStatuses = new ConcurrentDictionary<string, IngestionJobStatus>();
+        _jobCancellationTokens = new ConcurrentDictionary<string, CancellationTokenSource>();
+        _documentToJobId = new ConcurrentDictionary<string, string>();
     }
 
     public int QueueDepth => _channel.Reader.Count;
@@ -38,6 +42,9 @@ public class IngestionQueue : IIngestionQueue
             ErrorMessage: null,
             StartedAt: null,
             CompletedAt: null);
+
+        // Track document → job mapping for cancellation
+        _documentToJobId[job.DocumentId] = job.JobId;
 
         // Write to channel
         await _channel.Writer.WriteAsync(job, cancellationToken);
@@ -112,6 +119,54 @@ public class IngestionQueue : IIngestionQueue
     public IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses()
     {
         return _jobStatuses;
+    }
+
+    /// <summary>
+    /// Registers a CancellationTokenSource for a job so it can be cancelled on demand.
+    /// Called by the worker when it starts processing a job.
+    /// </summary>
+    public void RegisterJobCancellation(string jobId, CancellationTokenSource cts)
+    {
+        _jobCancellationTokens[jobId] = cts;
+    }
+
+    /// <summary>
+    /// Removes the CancellationTokenSource for a completed/failed job.
+    /// Called by the worker when a job finishes.
+    /// </summary>
+    public void UnregisterJobCancellation(string jobId)
+    {
+        if (_jobCancellationTokens.TryRemove(jobId, out var cts))
+            cts.Dispose();
+    }
+
+    /// <summary>
+    /// Cancels any queued or in-progress ingestion job for the given document.
+    /// </summary>
+    public Task<bool> CancelJobForDocumentAsync(string documentId)
+    {
+        if (!_documentToJobId.TryRemove(documentId, out var jobId))
+            return Task.FromResult(false);
+
+        // Cancel the in-flight CTS if the job is currently processing
+        if (_jobCancellationTokens.TryRemove(jobId, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        // Mark the job as failed/cancelled
+        if (_jobStatuses.TryGetValue(jobId, out var status))
+        {
+            _jobStatuses[jobId] = status with
+            {
+                State = IngestionJobState.Failed,
+                ErrorMessage = "Cancelled: document was deleted",
+                CompletedAt = DateTime.UtcNow
+            };
+        }
+
+        return Task.FromResult(true);
     }
 
     /// <summary>

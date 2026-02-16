@@ -94,7 +94,7 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Save file to storage (only if not already saved)
             // Note: When called from IngestionWorker, file is already saved
-            var virtualPath = options.FileName ?? $"upload-{documentId}";
+            var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
 
             // Build metadata including indexing settings for reindex detection
             var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
@@ -111,21 +111,43 @@ public class IngestionPipeline : IKnowledgeIngester
             metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
             metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
 
-            var documentEntity = new DocumentEntity
-            {
-                Id = documentId,
-                FileName = options.FileName ?? "unknown",
-                ContentType = options.ContentType,
-                CollectionId = options.CollectionId,
-                VirtualPath = virtualPath,
-                ContentHash = contentHash,
-                SizeBytes = workingStream.Length,
-                Status = "Processing",
-                CreatedAt = DateTime.UtcNow,
-                Metadata = metadata
-            };
+            var containerId = !string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
+                ? cId
+                : Guid.Empty;
 
-            _context.Documents.Add(documentEntity);
+            // Check if document already exists (e.g., during reindex)
+            var documentEntity = await _context.Documents.FindAsync([documentId], ct);
+            if (documentEntity != null)
+            {
+                // Update existing document for reindex
+                documentEntity.ContainerId = containerId;
+                documentEntity.FileName = options.FileName ?? "unknown";
+                documentEntity.ContentType = options.ContentType;
+                documentEntity.Path = virtualPath;
+                documentEntity.ContentHash = contentHash;
+                documentEntity.SizeBytes = workingStream.Length;
+                documentEntity.Status = "Processing";
+                documentEntity.Metadata = metadata;
+            }
+            else
+            {
+                documentEntity = new DocumentEntity
+                {
+                    Id = documentId,
+                    ContainerId = containerId,
+                    FileName = options.FileName ?? "unknown",
+                    ContentType = options.ContentType,
+                    Path = virtualPath,
+                    ContentHash = contentHash,
+                    SizeBytes = workingStream.Length,
+                    Status = "Processing",
+                    CreatedAt = DateTime.UtcNow,
+                    Metadata = metadata
+                };
+
+                _context.Documents.Add(documentEntity);
+            }
+
             await _context.SaveChangesAsync(ct);
 
             // Parse document
@@ -165,6 +187,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     Id = chunkId,
                     DocumentId = documentId,
+                    ContainerId = containerId,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
                     TokenCount = chunkInfo.TokenCount,
@@ -179,6 +202,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 var chunkMetadata = new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["documentId"] = documentId.ToString(),
+                    ["containerId"] = containerId.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
                 };
