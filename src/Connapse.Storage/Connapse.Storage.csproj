@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\AIKnowledge.Core\AIKnowledge.Core.csproj" />
+    <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

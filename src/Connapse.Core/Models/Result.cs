@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 public readonly struct Result<T>
 {

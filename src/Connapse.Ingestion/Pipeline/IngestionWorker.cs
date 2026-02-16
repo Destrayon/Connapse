@@ -1,11 +1,11 @@
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using AIKnowledge.Core;
+using Connapse.Core;
 
-namespace AIKnowledge.Ingestion.Pipeline;
+namespace Connapse.Ingestion.Pipeline;
 
 /// <summary>
 /// Background service that processes ingestion jobs from the queue.

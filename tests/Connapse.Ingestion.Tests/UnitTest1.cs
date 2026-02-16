@@ -1,4 +1,4 @@
-﻿namespace AIKnowledge.Ingestion.Tests;
+﻿namespace Connapse.Ingestion.Tests;
 
 public class UnitTest1
 {

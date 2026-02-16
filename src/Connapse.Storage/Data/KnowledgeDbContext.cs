@@ -1,7 +1,7 @@
-using AIKnowledge.Storage.Data.Entities;
+using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace AIKnowledge.Storage.Data;
+namespace Connapse.Storage.Data;
 
 public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : DbContext(options)
 {

@@ -1,11 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace AIKnowledge.Storage.Data;
+namespace Connapse.Storage.Data;
 
 /// <summary>
 /// Used by EF Core tooling (dotnet ef migrations) to create the DbContext at design time.
-/// Usage: dotnet ef migrations add InitialCreate --project src/AIKnowledge.Storage
+/// Usage: dotnet ef migrations add InitialCreate --project src/Connapse.Storage
 /// </summary>
 public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<KnowledgeDbContext>
 {

@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core.Interfaces;
+namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// Service for reindexing documents in the knowledge base.

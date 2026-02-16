@@ -1,4 +1,4 @@
-namespace AIKnowledge.Storage.Settings;
+namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Implementation of ISettingsReloader that reloads database-backed configuration.

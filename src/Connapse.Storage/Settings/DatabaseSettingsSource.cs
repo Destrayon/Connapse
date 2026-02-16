@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-namespace AIKnowledge.Storage.Settings;
+namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Configuration source for database-backed settings.

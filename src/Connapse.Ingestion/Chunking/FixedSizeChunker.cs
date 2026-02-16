@@ -1,8 +1,8 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Ingestion.Utilities;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Utilities;
 
-namespace AIKnowledge.Ingestion.Chunking;
+namespace Connapse.Ingestion.Chunking;
 
 /// <summary>
 /// Splits text into fixed-size chunks based on token count with configurable overlap.

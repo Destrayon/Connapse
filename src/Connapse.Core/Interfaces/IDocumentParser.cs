@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core.Interfaces;
+namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// Parses document content from a stream into structured text suitable for chunking.

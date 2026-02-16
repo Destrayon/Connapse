@@ -1,11 +1,11 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Storage.Data;
-using AIKnowledge.Storage.Data.Entities;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
+using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Storage.Documents;
+namespace Connapse.Storage.Documents;
 
 /// <summary>
 /// PostgreSQL-backed document store implementation.

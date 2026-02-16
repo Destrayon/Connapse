@@ -1,6 +1,6 @@
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core.Interfaces;
 
-namespace AIKnowledge.Ingestion.Parsers;
+namespace Connapse.Ingestion.Parsers;
 
 /// <summary>
 /// Parser for plain text files (.txt, .md, .csv).

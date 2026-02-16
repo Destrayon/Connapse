@@ -1,8 +1,8 @@
 using System.Text;
-using AIKnowledge.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers;
 using FluentAssertions;
 
-namespace AIKnowledge.Ingestion.Tests.Parsers;
+namespace Connapse.Ingestion.Tests.Parsers;
 
 public class TextParserTests
 {

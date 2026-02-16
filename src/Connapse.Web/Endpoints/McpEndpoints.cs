@@ -1,8 +1,8 @@
-using AIKnowledge.Web.Mcp;
+using Connapse.Web.Mcp;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 
-namespace AIKnowledge.Web.Endpoints;
+namespace Connapse.Web.Endpoints;
 
 public static class McpEndpoints
 {

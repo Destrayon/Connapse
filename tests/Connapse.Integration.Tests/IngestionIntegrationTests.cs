@@ -3,14 +3,14 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using AIKnowledge.Core;
+using Connapse.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
-namespace AIKnowledge.Integration.Tests;
+namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for the complete ingestion pipeline: upload → parse → chunk → embed → store → search

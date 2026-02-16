@@ -1,12 +1,12 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Storage.Data;
-using AIKnowledge.Storage.Data.Entities;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
+using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Pgvector;
 
-namespace AIKnowledge.Storage.Vectors;
+namespace Connapse.Storage.Vectors;
 
 /// <summary>
 /// pgvector-backed vector store implementation.

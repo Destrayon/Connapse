@@ -1,11 +1,11 @@
 using System.Text.Json;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Storage.ConnectionTesters;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.ConnectionTesters;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Web.Endpoints;
+namespace Connapse.Web.Endpoints;
 
 public static class SettingsEndpoints
 {

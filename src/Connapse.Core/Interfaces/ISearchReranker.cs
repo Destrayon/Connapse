@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core.Interfaces;
+namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// Reranks search results to improve relevance.

@@ -1,8 +1,8 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
-namespace AIKnowledge.Web.Endpoints;
+namespace Connapse.Web.Endpoints;
 
 public static class DocumentsEndpoints
 {

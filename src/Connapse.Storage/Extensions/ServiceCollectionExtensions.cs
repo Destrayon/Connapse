@@ -1,11 +1,11 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Storage.ConnectionTesters;
-using AIKnowledge.Storage.Data;
-using AIKnowledge.Storage.Documents;
-using AIKnowledge.Storage.FileSystem;
-using AIKnowledge.Storage.Settings;
-using AIKnowledge.Storage.Vectors;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Data;
+using Connapse.Storage.Documents;
+using Connapse.Storage.FileSystem;
+using Connapse.Storage.Settings;
+using Connapse.Storage.Vectors;
 using Amazon.Runtime;
 using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
@@ -13,11 +13,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
-namespace AIKnowledge.Storage.Extensions;
+namespace Connapse.Storage.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddAIKnowledgeStorage(
+    public static IServiceCollection AddConnapseStorage(
         this IServiceCollection services,
         IConfiguration configuration)
     {

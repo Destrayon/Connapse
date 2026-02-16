@@ -1,4 +1,4 @@
-namespace AIKnowledge.Storage.Data.Entities;
+namespace Connapse.Storage.Data.Entities;
 
 public class BatchDocumentEntity
 {

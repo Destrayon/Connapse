@@ -1,6 +1,6 @@
 # MCP (Model Context Protocol) Server
 
-This directory contains the MCP server implementation that exposes the AIKnowledge Platform as tools for AI agents like Claude.
+This directory contains the MCP server implementation that exposes the Connapse Platform as tools for AI agents like Claude.
 
 ## Endpoints
 

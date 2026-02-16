@@ -1,9 +1,9 @@
-using AIKnowledge.Core;
-using AIKnowledge.Storage.Data;
+using Connapse.Core;
+using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Search.Keyword;
+namespace Connapse.Search.Keyword;
 
 /// <summary>
 /// Full-text keyword search service using PostgreSQL FTS.

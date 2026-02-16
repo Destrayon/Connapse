@@ -6,7 +6,7 @@ using Pgvector;
 
 #nullable disable
 
-namespace AIKnowledge.Storage.Migrations
+namespace Connapse.Storage.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration

@@ -1,8 +1,8 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Search.Vector;
+namespace Connapse.Search.Vector;
 
 /// <summary>
 /// Semantic vector search service.

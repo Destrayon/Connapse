@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
-namespace AIKnowledge.Integration.Tests;
+namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for the reindex service - verifying content-hash detection and re-processing.

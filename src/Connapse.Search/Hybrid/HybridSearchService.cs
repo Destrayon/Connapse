@@ -1,14 +1,14 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Search.Keyword;
-using AIKnowledge.Search.Vector;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Search.Keyword;
+using Connapse.Search.Vector;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Search.Hybrid;
+namespace Connapse.Search.Hybrid;
 
 /// <summary>
 /// Hybrid search service that combines vector and keyword search with configurable reranking.

@@ -1,9 +1,9 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Search.Reranking;
+namespace Connapse.Search.Reranking;
 
 /// <summary>
 /// Reciprocal Rank Fusion (RRF) reranker.

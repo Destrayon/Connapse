@@ -1,9 +1,9 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 
-namespace AIKnowledge.Ingestion.Pipeline;
+namespace Connapse.Ingestion.Pipeline;
 
 /// <summary>
 /// Thread-safe queue for managing document ingestion jobs using System.Threading.Channels.

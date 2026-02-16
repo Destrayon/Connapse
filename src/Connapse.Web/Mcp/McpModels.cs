@@ -1,4 +1,4 @@
-namespace AIKnowledge.Web.Mcp;
+namespace Connapse.Web.Mcp;
 
 /// <summary>
 /// MCP (Model Context Protocol) request/response models.

@@ -1,9 +1,9 @@
 using System.Text.Json;
-using AIKnowledge.Storage.Data;
+using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-namespace AIKnowledge.Storage.Settings;
+namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Configuration provider that loads settings from the database.

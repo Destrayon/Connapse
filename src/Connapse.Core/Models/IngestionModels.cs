@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 public record IngestionOptions(
     string? DocumentId = null,

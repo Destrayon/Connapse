@@ -1,12 +1,12 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Ingestion.Pipeline;
-using AIKnowledge.Web.Hubs;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Pipeline;
+using Connapse.Web.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Web.Services;
+namespace Connapse.Web.Services;
 
 /// <summary>
 /// Background service that monitors ingestion job progress and broadcasts

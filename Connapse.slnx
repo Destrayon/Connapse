@@ -1,16 +1,16 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/AIKnowledge.Agents/AIKnowledge.Agents.csproj" />
-    <Project Path="src/AIKnowledge.CLI/AIKnowledge.CLI.csproj" />
-    <Project Path="src/AIKnowledge.Core/AIKnowledge.Core.csproj" />
-    <Project Path="src/AIKnowledge.Ingestion/AIKnowledge.Ingestion.csproj" />
-    <Project Path="src/AIKnowledge.Search/AIKnowledge.Search.csproj" />
-    <Project Path="src/AIKnowledge.Storage/AIKnowledge.Storage.csproj" />
-    <Project Path="src/AIKnowledge.Web/AIKnowledge.Web.csproj" />
+    <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
+    <Project Path="src/Connapse.CLI/Connapse.CLI.csproj" />
+    <Project Path="src/Connapse.Core/Connapse.Core.csproj" />
+    <Project Path="src/Connapse.Ingestion/Connapse.Ingestion.csproj" />
+    <Project Path="src/Connapse.Search/Connapse.Search.csproj" />
+    <Project Path="src/Connapse.Storage/Connapse.Storage.csproj" />
+    <Project Path="src/Connapse.Web/Connapse.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/AIKnowledge.Core.Tests/AIKnowledge.Core.Tests.csproj" />
-    <Project Path="tests/AIKnowledge.Ingestion.Tests/AIKnowledge.Ingestion.Tests.csproj" />
-    <Project Path="tests/AIKnowledge.Integration.Tests/AIKnowledge.Integration.Tests.csproj" />
+    <Project Path="tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj" />
+    <Project Path="tests/Connapse.Ingestion.Tests/Connapse.Ingestion.Tests.csproj" />
+    <Project Path="tests/Connapse.Integration.Tests/Connapse.Integration.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 public record SearchOptions(
     int TopK = 10,

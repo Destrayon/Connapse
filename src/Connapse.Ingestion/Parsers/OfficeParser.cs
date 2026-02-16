@@ -1,10 +1,10 @@
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core.Interfaces;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentFormat.OpenXml.Presentation;
 using System.Text;
 
-namespace AIKnowledge.Ingestion.Parsers;
+namespace Connapse.Ingestion.Parsers;
 
 /// <summary>
 /// Parser for Microsoft Office documents (.docx, .pptx) using OpenXML.

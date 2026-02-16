@@ -25,7 +25,7 @@ var httpClient = new HttpClient(handler)
 
 if (args.Length == 0)
 {
-    Console.WriteLine("AIKnowledge Platform CLI");
+    Console.WriteLine("Connapse Platform CLI");
     Console.WriteLine();
     Console.WriteLine("Usage: aikp <command> [options]");
     Console.WriteLine();

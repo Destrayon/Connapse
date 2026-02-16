@@ -1,7 +1,7 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Storage.Data;
-using AIKnowledge.Storage.Data.Entities;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
+using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,7 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace AIKnowledge.Ingestion.Pipeline;
+namespace Connapse.Ingestion.Pipeline;
 
 /// <summary>
 /// Orchestrates the complete document ingestion pipeline:

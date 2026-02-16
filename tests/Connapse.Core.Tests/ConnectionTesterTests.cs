@@ -1,13 +1,13 @@
 using System.Net;
 using System.Text.Json;
-using AIKnowledge.Core;
-using AIKnowledge.Storage.ConnectionTesters;
+using Connapse.Core;
+using Connapse.Storage.ConnectionTesters;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
-namespace AIKnowledge.Core.Tests;
+namespace Connapse.Core.Tests;
 
 /// <summary>
 /// Unit tests for connection testers (OllamaConnectionTester, MinioConnectionTester).

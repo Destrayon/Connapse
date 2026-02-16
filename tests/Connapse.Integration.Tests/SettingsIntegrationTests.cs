@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
-using AIKnowledge.Core;
+using Connapse.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
-namespace AIKnowledge.Integration.Tests;
+namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for runtime-mutable settings with IOptionsMonitor live reload.

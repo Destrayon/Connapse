@@ -1,8 +1,8 @@
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core.Interfaces;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 
-namespace AIKnowledge.Ingestion.Parsers;
+namespace Connapse.Ingestion.Parsers;
 
 /// <summary>
 /// Parser for PDF documents using PdfPig.

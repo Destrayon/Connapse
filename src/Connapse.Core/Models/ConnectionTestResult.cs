@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 /// <summary>
 /// Result of a connection test to an external service.

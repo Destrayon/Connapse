@@ -1,5 +1,5 @@
 using System.Text;
-using AIKnowledge.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -7,7 +7,7 @@ using FluentAssertions;
 using D = DocumentFormat.OpenXml.Drawing;
 using P = DocumentFormat.OpenXml.Presentation;
 
-namespace AIKnowledge.Ingestion.Tests.Parsers;
+namespace Connapse.Ingestion.Tests.Parsers;
 
 public class OfficeParserTests
 {

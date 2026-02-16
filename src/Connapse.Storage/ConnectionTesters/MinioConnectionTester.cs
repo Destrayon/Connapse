@@ -1,12 +1,12 @@
 using System.Diagnostics;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Storage.ConnectionTesters;
+namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>
 /// Tests connectivity to MinIO/S3 object storage.

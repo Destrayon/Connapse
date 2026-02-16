@@ -24,9 +24,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AIKnowledge.Web\AIKnowledge.Web.csproj" />
-    <ProjectReference Include="..\..\src\AIKnowledge.Core\AIKnowledge.Core.csproj" />
-    <ProjectReference Include="..\..\src\AIKnowledge.Ingestion\AIKnowledge.Ingestion.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Web\Connapse.Web.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Ingestion\Connapse.Ingestion.csproj" />
   </ItemGroup>
 
 </Project>

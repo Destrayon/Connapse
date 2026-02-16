@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
-namespace AIKnowledge.Storage.ConnectionTesters;
+namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>
 /// Tests connectivity to Ollama service (used for both Embedding and LLM settings).

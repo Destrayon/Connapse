@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace AIKnowledge.Storage.Data.Entities;
+namespace Connapse.Storage.Data.Entities;
 
 public class SettingEntity
 {

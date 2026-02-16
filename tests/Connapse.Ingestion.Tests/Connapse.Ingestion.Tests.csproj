@@ -21,8 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AIKnowledge.Ingestion\AIKnowledge.Ingestion.csproj" />
-    <ProjectReference Include="..\..\src\AIKnowledge.Core\AIKnowledge.Core.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Ingestion\Connapse.Ingestion.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
   </ItemGroup>
 
 </Project>

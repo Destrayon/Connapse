@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 public record Chunk(
     string Id,

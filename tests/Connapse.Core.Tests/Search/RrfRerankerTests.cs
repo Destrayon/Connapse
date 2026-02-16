@@ -1,11 +1,11 @@
-using AIKnowledge.Core;
-using AIKnowledge.Search.Reranking;
+using Connapse.Core;
+using Connapse.Search.Reranking;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
-namespace AIKnowledge.Core.Tests.Search;
+namespace Connapse.Core.Tests.Search;
 
 public class RrfRerankerTests
 {

@@ -1,4 +1,4 @@
-namespace AIKnowledge.Core.Interfaces;
+namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// Splits parsed document content into chunks suitable for embedding and storage.

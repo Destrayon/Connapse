@@ -1,4 +1,4 @@
-namespace AIKnowledge.Storage.FileSystem;
+namespace Connapse.Storage.FileSystem;
 
 public class MinioOptions
 {

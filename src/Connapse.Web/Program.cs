@@ -1,16 +1,16 @@
-using AIKnowledge.Core;
-using AIKnowledge.Ingestion.Extensions;
-using AIKnowledge.Ingestion.Pipeline;
-using AIKnowledge.Search.Extensions;
-using AIKnowledge.Storage.Data;
-using AIKnowledge.Storage.Extensions;
-using AIKnowledge.Storage.FileSystem;
-using AIKnowledge.Storage.Settings;
-using AIKnowledge.Web.Components;
-using AIKnowledge.Web.Endpoints;
-using AIKnowledge.Web.Hubs;
-using AIKnowledge.Web.Mcp;
-using AIKnowledge.Web.Services;
+using Connapse.Core;
+using Connapse.Ingestion.Extensions;
+using Connapse.Ingestion.Pipeline;
+using Connapse.Search.Extensions;
+using Connapse.Storage.Data;
+using Connapse.Storage.Extensions;
+using Connapse.Storage.FileSystem;
+using Connapse.Storage.Settings;
+using Connapse.Web.Components;
+using Connapse.Web.Endpoints;
+using Connapse.Web.Hubs;
+using Connapse.Web.Mcp;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,7 +42,7 @@ builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 // Add MCP server
 builder.Services.AddSingleton<McpServer>();
 
-builder.Services.AddAIKnowledgeStorage(builder.Configuration);
+builder.Services.AddConnapseStorage(builder.Configuration);
 
 // Add document ingestion pipeline
 builder.Services.AddDocumentIngestion();

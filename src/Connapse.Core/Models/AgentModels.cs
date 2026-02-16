@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace AIKnowledge.Core;
+namespace Connapse.Core;
 
 public record ToolResult(
     bool Success,

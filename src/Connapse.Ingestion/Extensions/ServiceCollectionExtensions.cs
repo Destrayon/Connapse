@@ -1,11 +1,11 @@
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Ingestion.Chunking;
-using AIKnowledge.Ingestion.Parsers;
-using AIKnowledge.Ingestion.Pipeline;
-using AIKnowledge.Ingestion.Reindex;
+using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Pipeline;
+using Connapse.Ingestion.Reindex;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace AIKnowledge.Ingestion.Extensions;
+namespace Connapse.Ingestion.Extensions;
 
 /// <summary>
 /// Extension methods for registering ingestion services.

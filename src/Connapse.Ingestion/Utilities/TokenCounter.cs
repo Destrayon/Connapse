@@ -1,4 +1,4 @@
-namespace AIKnowledge.Ingestion.Utilities;
+namespace Connapse.Ingestion.Utilities;
 
 /// <summary>
 /// Estimates token count for text using a simple heuristic.

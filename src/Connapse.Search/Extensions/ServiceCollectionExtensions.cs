@@ -1,11 +1,11 @@
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Search.Hybrid;
-using AIKnowledge.Search.Keyword;
-using AIKnowledge.Search.Reranking;
-using AIKnowledge.Search.Vector;
+using Connapse.Core.Interfaces;
+using Connapse.Search.Hybrid;
+using Connapse.Search.Keyword;
+using Connapse.Search.Reranking;
+using Connapse.Search.Vector;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace AIKnowledge.Search.Extensions;
+namespace Connapse.Search.Extensions;
 
 /// <summary>
 /// Extension methods for registering search services.

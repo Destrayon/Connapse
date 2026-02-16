@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 
-namespace AIKnowledge.Web.Hubs;
+namespace Connapse.Web.Hubs;
 
 /// <summary>
 /// SignalR hub for real-time ingestion progress updates.

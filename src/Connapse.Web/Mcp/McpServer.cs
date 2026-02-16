@@ -1,9 +1,9 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
-namespace AIKnowledge.Web.Mcp;
+namespace Connapse.Web.Mcp;
 
 /// <summary>
 /// MCP (Model Context Protocol) server that exposes knowledge base as AI tools.

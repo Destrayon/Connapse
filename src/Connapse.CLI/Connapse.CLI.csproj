@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\AIKnowledge.Core\AIKnowledge.Core.csproj" />
-    <ProjectReference Include="..\AIKnowledge.Ingestion\AIKnowledge.Ingestion.csproj" />
-    <ProjectReference Include="..\AIKnowledge.Search\AIKnowledge.Search.csproj" />
-    <ProjectReference Include="..\AIKnowledge.Agents\AIKnowledge.Agents.csproj" />
-    <ProjectReference Include="..\AIKnowledge.Storage\AIKnowledge.Storage.csproj" />
+    <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
+    <ProjectReference Include="..\Connapse.Ingestion\Connapse.Ingestion.csproj" />
+    <ProjectReference Include="..\Connapse.Search\Connapse.Search.csproj" />
+    <ProjectReference Include="..\Connapse.Agents\Connapse.Agents.csproj" />
+    <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,7 +1,7 @@
 @page "/settings"
-@using AIKnowledge.Core
-@using AIKnowledge.Core.Interfaces
-@using AIKnowledge.Storage.Settings
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.Settings
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
@@ -14,7 +14,7 @@
 @inject IOptionsMonitor<StorageSettings> StorageOptions
 @rendermode InteractiveServer
 
-<PageTitle>Settings - AIKnowledge</PageTitle>
+<PageTitle>Settings - Connapse</PageTitle>
 
 <div class="container-fluid py-4">
     <h1 class="mb-4">

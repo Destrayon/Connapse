@@ -1,8 +1,8 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Storage.FileSystem;
+namespace Connapse.Storage.FileSystem;
 
 public class LocalKnowledgeFileSystem : IKnowledgeFileSystem
 {

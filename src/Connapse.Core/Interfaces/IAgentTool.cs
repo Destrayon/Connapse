@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace AIKnowledge.Core.Interfaces;
+namespace Connapse.Core.Interfaces;
 
 public interface IAgentTool
 {

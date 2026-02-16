@@ -1,11 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Search.Reranking;
+namespace Connapse.Search.Reranking;
 
 /// <summary>
 /// Cross-encoder reranker that uses an LLM to score (query, chunk) pairs.

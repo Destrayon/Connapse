@@ -1,4 +1,4 @@
-namespace AIKnowledge.Storage.Settings;
+namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Service for triggering configuration reload after settings changes.

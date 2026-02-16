@@ -1,13 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
-using AIKnowledge.Core;
+using Connapse.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 using Xunit;
 
-namespace AIKnowledge.Integration.Tests;
+namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for connection testing API endpoints.

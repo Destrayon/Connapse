@@ -1,4 +1,4 @@
-﻿namespace AIKnowledge.Core.Tests;
+﻿namespace Connapse.Core.Tests;
 
 public class UnitTest1
 {

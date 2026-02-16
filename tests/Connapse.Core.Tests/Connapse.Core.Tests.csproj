@@ -21,9 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AIKnowledge.Core\AIKnowledge.Core.csproj" />
-    <ProjectReference Include="..\..\src\AIKnowledge.Search\AIKnowledge.Search.csproj" />
-    <ProjectReference Include="..\..\src\AIKnowledge.Storage\AIKnowledge.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Search\Connapse.Search.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Storage\Connapse.Storage.csproj" />
   </ItemGroup>
 
 </Project>

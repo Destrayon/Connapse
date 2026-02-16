@@ -1,9 +1,9 @@
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
-using AIKnowledge.Ingestion.Chunking;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Chunking;
 using FluentAssertions;
 
-namespace AIKnowledge.Ingestion.Tests.Chunking;
+namespace Connapse.Ingestion.Tests.Chunking;
 
 public class RecursiveChunkerTests
 {

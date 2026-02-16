@@ -1,8 +1,8 @@
-using AIKnowledge.Storage.Data;
+using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
-namespace AIKnowledge.Storage.Settings;
+namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Wrapper that allows us to use a pre-created DatabaseSettingsProvider as a configuration source.

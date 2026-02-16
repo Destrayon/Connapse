@@ -1,11 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using AIKnowledge.Core;
-using AIKnowledge.Core.Interfaces;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace AIKnowledge.Storage.Vectors;
+namespace Connapse.Storage.Vectors;
 
 /// <summary>
 /// Embedding provider that uses Ollama's local embedding service.
