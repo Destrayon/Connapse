@@ -19,7 +19,7 @@ namespace Connapse.Storage.Extensions;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddAIKnowledgeStorage(
+    public static IServiceCollection AddConnapseStorage(
         this IServiceCollection services,
         IConfiguration configuration)
     {
