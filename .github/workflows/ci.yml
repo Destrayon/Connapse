@@ -34,9 +34,7 @@ jobs:
         key: ${{ runner.os }}-ollama-nomic-embed-text
 
     - name: Setup Ollama
-      uses: ai-action/setup-ollama@v1
-      with:
-        version: latest
+      uses: ai-action/setup-ollama@v2
 
     - name: Start Ollama service
       run: |
