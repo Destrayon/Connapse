@@ -36,7 +36,7 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ### 2026-02-04 — Project Structure: src/ Layout
 
-**Context**: The initial VS template created a flat `AIKnowledgePlatform/` directory. The CLAUDE.md and init.md specify a `src/` based layout with separate projects per domain.
+**Context**: The initial VS template created a flat `Connapse/` directory. The CLAUDE.md and init.md specify a `src/` based layout with separate projects per domain.
 
 **Decision**: Restructured to `src/{ProjectName}/` layout with 7 source projects and 3 test projects.
 
@@ -54,11 +54,11 @@ Record significant decisions with context and rationale. Future sessions should 
 
 **Context**: Needed to decide where to place shared record types (IngestionResult, SearchHit, etc.) used across multiple projects.
 
-**Decision**: Model records live in `AIKnowledge.Core` namespace (files in `Models/` folder) so they can be used without additional `using` statements when the Core project is referenced.
+**Decision**: Model records live in `Connapse.Core` namespace (files in `Models/` folder) so they can be used without additional `using` statements when the Core project is referenced.
 
 **Alternatives**:
-- Option A: `AIKnowledge.Core.Models` namespace — requires extra using
-- Option B: `AIKnowledge.Core` namespace — available immediately with project reference
+- Option A: `Connapse.Core.Models` namespace — requires extra using
+- Option B: `Connapse.Core` namespace — available immediately with project reference
 
 **Rationale**: These are fundamental domain types used everywhere. Keeping them in the root namespace reduces boilerplate.
 

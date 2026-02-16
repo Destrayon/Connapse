@@ -1,6 +1,6 @@
 # API Reference
 
-AIKnowledgePlatform exposes multiple API surfaces for programmatic access:
+Connapse exposes multiple API surfaces for programmatic access:
 
 1. **REST API** — HTTP endpoints for documents, search, and settings
 2. **MCP (Model Context Protocol)** — Tool interface for AI agents
@@ -537,17 +537,17 @@ await connection.start();
 
 ## Model Context Protocol (MCP)
 
-AIKnowledgePlatform exposes an MCP server for AI agent integration.
+Connapse exposes an MCP server for AI agent integration.
 
-**Server Name**: `aikp-mcp-server`
+**Server Name**: `connapse-mcp-server`
 
 **Configuration** (Claude Desktop):
 ```json
 {
   "mcpServers": {
-    "aikp": {
+    "connapse": {
       "command": "dotnet",
-      "args": ["run", "--project", "src/AIKnowledge.Web", "--mcp"],
+      "args": ["run", "--project", "src/Connapse.Web", "--mcp"],
       "env": {
         "ASPNETCORE_URLS": "http://localhost:5002"
       }
@@ -558,7 +558,7 @@ AIKnowledgePlatform exposes an MCP server for AI agent integration.
 
 ### MCP Tools
 
-#### `aikp_search`
+#### `connapse_search`
 
 Search the knowledge base.
 
@@ -603,7 +603,7 @@ Search the knowledge base.
 
 ---
 
-#### `aikp_upload`
+#### `connapse_upload`
 
 Upload a document to the knowledge base.
 
@@ -638,7 +638,7 @@ Upload a document to the knowledge base.
 
 ---
 
-#### `aikp_list_documents`
+#### `connapse_list_documents`
 
 List all documents in the knowledge base.
 
@@ -672,7 +672,7 @@ List all documents in the knowledge base.
 
 ---
 
-#### `aikp_delete_document`
+#### `connapse_delete_document`
 
 Delete a document and its chunks/vectors.
 
@@ -707,12 +707,12 @@ Command-line interface for automation and scripting.
 ### Install
 
 ```bash
-dotnet tool install -g aikp-cli
+dotnet tool install -g connapse-cli
 ```
 
 ### Commands
 
-#### `aikp ingest <path>`
+#### `connapse ingest <path>`
 
 Ingest a file or directory into the knowledge base.
 
@@ -723,12 +723,12 @@ Ingest a file or directory into the knowledge base.
 
 **Example**:
 ```bash
-aikp ingest ./docs --strategy Semantic --collection my-docs
+connapse ingest ./docs --strategy Semantic --collection my-docs
 ```
 
 ---
 
-#### `aikp search "<query>"`
+#### `connapse search "<query>"`
 
 Search the knowledge base.
 
@@ -739,12 +739,12 @@ Search the knowledge base.
 
 **Example**:
 ```bash
-aikp search "machine learning" --mode Hybrid --topK 5 --format markdown
+connapse search "machine learning" --mode Hybrid --topK 5 --format markdown
 ```
 
 ---
 
-#### `aikp list`
+#### `connapse list`
 
 List all documents.
 
@@ -754,23 +754,23 @@ List all documents.
 
 **Example**:
 ```bash
-aikp list --collection my-docs --format table
+connapse list --collection my-docs --format table
 ```
 
 ---
 
-#### `aikp delete <documentId>`
+#### `connapse delete <documentId>`
 
 Delete a document.
 
 **Example**:
 ```bash
-aikp delete 3fa85f64-5717-4562-b3fc-2c963f66afa6
+connapse delete 3fa85f64-5717-4562-b3fc-2c963f66afa6
 ```
 
 ---
 
-#### `aikp reindex`
+#### `connapse reindex`
 
 Trigger reindexing.
 
@@ -780,35 +780,35 @@ Trigger reindexing.
 
 **Example**:
 ```bash
-aikp reindex --force
+connapse reindex --force
 ```
 
 ---
 
-#### `aikp config set <key> <value>`
+#### `connapse config set <key> <value>`
 
 Update a configuration setting.
 
 **Example**:
 ```bash
-aikp config set embedding.model nomic-embed-text
-aikp config set chunking.maxTokens 512
+connapse config set embedding.model nomic-embed-text
+connapse config set chunking.maxTokens 512
 ```
 
 ---
 
-#### `aikp config get <key>`
+#### `connapse config get <key>`
 
 Get a configuration value.
 
 **Example**:
 ```bash
-aikp config get embedding.model
+connapse config get embedding.model
 ```
 
 ---
 
-#### `aikp serve`
+#### `connapse serve`
 
 Start the web server.
 
@@ -818,7 +818,7 @@ Start the web server.
 
 **Example**:
 ```bash
-aikp serve --port 8080
+connapse serve --port 8080
 ```
 
 ---

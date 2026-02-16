@@ -1,4 +1,4 @@
-﻿# AIKnowledgePlatform
+﻿# Connapse
 
 Open-source knowledge management platform that empowers AI agents with organizational knowledge. Built with .NET 10 Blazor WebApp. Users upload files → files become instantly searchable agent knowledge. No technical expertise required.
 
@@ -7,34 +7,34 @@ Open-source knowledge management platform that empowers AI agents with organizat
 ```bash
 # Development
 dotnet build                              # Build all projects
-dotnet run --project src/AIKnowledge.Web  # Run web app (https://localhost:5001)
+dotnet run --project src/Connapse.Web  # Run web app (https://localhost:5001)
 dotnet test                               # Run all tests
 dotnet test --filter "Category=Unit"      # Unit tests only
 
-# CLI (src/AIKnowledge.CLI)
-aikp ingest <path>            # Add file/folder to knowledge base
-aikp search "<query>"         # Search knowledge base
-aikp chat                     # Interactive agent session
-aikp serve                    # Start local web server
-aikp config set <key> <value> # Update settings
+# CLI (src/Connapse.CLI)
+connapse ingest <path>            # Add file/folder to knowledge base
+connapse search "<query>"         # Search knowledge base
+connapse chat                     # Interactive agent session
+connapse serve                    # Start local web server
+connapse config set <key> <value> # Update settings
 ```
 
 ## Architecture
 
 ```
 src/
-├── AIKnowledge.Web/          # Blazor WebApp (UI + API endpoints)
-├── AIKnowledge.Core/         # Domain models, interfaces, shared logic
-├── AIKnowledge.Ingestion/    # Document parsing, chunking, embedding pipeline
-├── AIKnowledge.Search/       # Vector search, hybrid search, web search
-├── AIKnowledge.Agents/       # Agent orchestration, tool definitions, memory
-├── AIKnowledge.Storage/      # Vector DB, document store, file storage adapters
-└── AIKnowledge.CLI/          # Command-line interface
+├── Connapse.Web/          # Blazor WebApp (UI + API endpoints)
+├── Connapse.Core/         # Domain models, interfaces, shared logic
+├── Connapse.Ingestion/    # Document parsing, chunking, embedding pipeline
+├── Connapse.Search/       # Vector search, hybrid search, web search
+├── Connapse.Agents/       # Agent orchestration, tool definitions, memory
+├── Connapse.Storage/      # Vector DB, document store, file storage adapters
+└── Connapse.CLI/          # Command-line interface
 
 tests/
-├── AIKnowledge.Core.Tests/
-├── AIKnowledge.Ingestion.Tests/
-└── AIKnowledge.Integration.Tests/
+├── Connapse.Core.Tests/
+├── Connapse.Ingestion.Tests/
+└── Connapse.Integration.Tests/
 ```
 
 ## Agent Persistent State
@@ -139,7 +139,7 @@ Every feature asks: "How would an AI agent use this?"
 When asked to initialize, create this structure:
 
 ```
-AIKnowledgePlatform/
+Connapse/
 ├── .claude/
 │   ├── state/
 │   │   ├── decisions.md
@@ -150,17 +150,17 @@ AIKnowledgePlatform/
 │   └── commands/
 │       └── init.md
 ├── src/
-│   ├── AIKnowledge.Web/
-│   ├── AIKnowledge.Core/
-│   ├── AIKnowledge.Ingestion/
-│   ├── AIKnowledge.Search/
-│   ├── AIKnowledge.Agents/
-│   ├── AIKnowledge.Storage/
-│   └── AIKnowledge.CLI/
+│   ├── Connapse.Web/
+│   ├── Connapse.Core/
+│   ├── Connapse.Ingestion/
+│   ├── Connapse.Search/
+│   ├── Connapse.Agents/
+│   ├── Connapse.Storage/
+│   └── Connapse.CLI/
 ├── tests/
 ├── docs/
 ├── .gitignore
-└── AIKnowledgePlatform.sln
+└── Connapse.sln
 ```
 
 See `.claude/commands/init.md` for full initialization script.

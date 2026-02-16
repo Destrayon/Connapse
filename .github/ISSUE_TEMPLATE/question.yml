@@ -1,0 +1,77 @@
+name: Question
+description: Ask a question about usage, configuration, or implementation
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about Connapse? We're here to help!
+
+        **Note**: For general discussions, consider using [GitHub Discussions](../../discussions) instead.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues and discussions for similar questions
+          required: true
+        - label: I have read the [documentation](../../docs/) and [README](../../README.md)
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What is your question about?
+      options:
+        - Installation & Setup
+        - Configuration
+        - Usage (Web UI)
+        - Usage (CLI)
+        - Usage (MCP Server)
+        - Usage (API)
+        - Architecture & Design
+        - Docker & Deployment
+        - Embeddings & Search
+        - Troubleshooting
+        - Contributing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Ask your question in detail
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context about your setup or what you're trying to achieve
+      placeholder: |
+        - What are you trying to accomplish?
+        - What have you tried so far?
+        - What's your current setup (OS, Docker version, etc.)?
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant Configuration
+      description: If applicable, share relevant configuration (appsettings.json, docker-compose.yml, etc.)
+      placeholder: Paste relevant configuration here (remove any secrets!)
+      render: yaml
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other information that might help answer your question
+      placeholder: Screenshots, logs, error messages, etc.

@@ -607,7 +607,7 @@ public record StorageSettings
     public string? MinioEndpoint { get; set; } = "localhost:9000";
     public string? MinioAccessKey { get; set; }
     public string? MinioSecretKey { get; set; }
-    public string MinioBucketName { get; set; } = "aikp-files";
+    public string MinioBucketName { get; set; } = "connapse-files";
     public bool MinioUseSSL { get; set; } = false;
     public string? LocalStorageRootPath { get; set; } = "knowledge-data";
     public string? AzureBlobConnectionString { get; set; }
@@ -810,7 +810,7 @@ public record TestConnectionRequest(
 
 ## CLI Commands (Phase 6 ✅)
 
-Binary: `aikp` (AIKnowledge.CLI project)
+Binary: `connapse` (Connapse.CLI project)
 
 **Configuration:**
 - Reads `ApiBaseUrl` from appsettings.json or env var (default: `https://localhost:5001`)
@@ -820,7 +820,7 @@ Binary: `aikp` (AIKnowledge.CLI project)
 
 #### ingest
 ```bash
-aikp ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]
+connapse ingest <path> [--collection <id>] [--strategy <name>] [--destination <path>]
 ```
 
 Uploads file(s) to knowledge base via `POST /api/documents`.
@@ -835,12 +835,12 @@ Uploads file(s) to knowledge base via `POST /api/documents`.
 
 **Example:**
 ```bash
-aikp ingest ./docs --collection research --strategy Semantic
+connapse ingest ./docs --collection research --strategy Semantic
 ```
 
 #### search
 ```bash
-aikp search "<query>" [--mode <mode>] [--top <n>] [--collection <id>]
+connapse search "<query>" [--mode <mode>] [--top <n>] [--collection <id>]
 ```
 
 Searches knowledge base via `GET /api/search`, displays formatted results.
@@ -855,12 +855,12 @@ Searches knowledge base via `GET /api/search`, displays formatted results.
 
 **Example:**
 ```bash
-aikp search "machine learning best practices" --mode Hybrid --top 5
+connapse search "machine learning best practices" --mode Hybrid --top 5
 ```
 
 #### reindex
 ```bash
-aikp reindex [--collection <id>] [--force] [--no-detect-changes]
+connapse reindex [--collection <id>] [--force] [--no-detect-changes]
 ```
 
 Triggers reindexing via `POST /api/documents/reindex` with content-hash comparison.
@@ -872,9 +872,9 @@ Triggers reindexing via `POST /api/documents/reindex` with content-hash comparis
 
 **Example:**
 ```bash
-aikp reindex --collection research
-aikp reindex --force                    # Reindex everything
-aikp reindex --no-detect-changes        # Only reindex if content hash changed
+connapse reindex --collection research
+connapse reindex --force                    # Reindex everything
+connapse reindex --no-detect-changes        # Only reindex if content hash changed
 ```
 
 **Output:** Reports total documents evaluated, enqueued, skipped (unchanged), failed, with breakdown by reason (ContentChanged, ChunkingSettingsChanged, EmbeddingSettingsChanged, Forced, etc.)
@@ -1045,7 +1045,7 @@ Add a document to the knowledge base.
 **Returns:** Text with document ID, job ID, and confirmation that ingestion is queued.
 
 **Implementation:**
-- `McpServer` class in `AIKnowledge.Web.Mcp`
+- `McpServer` class in `Connapse.Web.Mcp`
 - Depends on: `IKnowledgeSearch`, `IDocumentStore`, `IKnowledgeFileSystem`, `IIngestionQueue`
 - Registered as singleton in DI container
 - Full error handling with JSON-RPC 2.0 error responses

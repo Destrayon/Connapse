@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/yourusername/Connapse/discussions
+    about: Ask questions, share ideas, and discuss with the community
+  - name: 📖 Documentation
+    url: https://github.com/yourusername/Connapse/tree/main/docs
+    about: Read the documentation for setup guides and API reference
+  - name: 🔒 Security Vulnerability
+    url: https://github.com/yourusername/Connapse/security/advisories/new
+    about: Report security vulnerabilities privately (not for general bugs)

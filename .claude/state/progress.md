@@ -49,6 +49,90 @@ Preparing for open source release with commercial hosting business model. See [P
 
 ## Session History
 
+### 2026-02-08 (Session 9) -- Phase 2 Repository Polish Complete ✅
+
+**Branch**: `feature/public-release-prep`
+
+**Completed**: Phase 2: Repository Polish (Task 6: GitHub Configuration)
+
+**Deliverables**:
+1. **GitHub Issue Templates** - 3 comprehensive templates:
+   - Bug report (bug_report.yml) - structured form with environment details, reproduction steps
+   - Feature request (feature_request.yml) - problem statement, proposed solution, use cases
+   - Question (question.yml) - categorized questions with context fields
+   - Config file (config.yml) - links to Discussions, Documentation, Security reporting
+2. **Pull Request Template** - Comprehensive PR checklist:
+   - Change type classification
+   - Testing requirements (unit, integration, Docker)
+   - Code quality checklist
+   - Documentation requirements
+   - Database migration guidance
+   - Breaking change protocol
+3. **Status Badges** - Added to README.md:
+   - Build status (GitHub Actions)
+   - Test count (171 passing)
+   - GitHub issues and stars
+   - Docker ready badge
+4. **GitHub Setup Guide** - Comprehensive manual configuration guide:
+   - Repository description and topics/tags
+   - Enable Discussions with category structure
+   - Security tab configuration (Dependabot, secret scanning)
+   - Branch protection rules for `main`
+   - Custom issue labels (priority, type, area)
+   - Repository settings (PRs, merge strategies)
+5. **CI/CD Workflows** - GitHub Actions automation:
+   - ci.yml - Build and test on push/PR, separate unit and integration test jobs
+   - codeql.yml - Security scanning (C# and JavaScript), runs weekly and on PR
+6. **Documentation** - Created [docs/GITHUB_SETUP.md](../../docs/GITHUB_SETUP.md) with step-by-step configuration
+
+**Technical Details**:
+- Issue templates use GitHub's YAML form syntax for structured input
+- CI workflow runs tests against PostgreSQL + MinIO services
+- Integration tests run in parallel with unit tests
+- CodeQL scans both C# and JavaScript codebases
+- All templates follow GitHub best practices
+
+**Next Steps**:
+- Manual GitHub configuration using [docs/GITHUB_SETUP.md](../../docs/GITHUB_SETUP.md) guide
+- Phase 3: Final review and go public
+
+### 2026-02-08 (Session 8) -- Phase 1 Documentation Complete ✅
+
+**Branch**: `feature/public-release-prep`
+
+**Completed**: Phase 1: Critical Documentation (all 5 tasks + 2 bonus tasks)
+
+**Deliverables**:
+1. **LICENSE** - MIT License for maximum adoption and commercial hosting compatibility
+2. **SECURITY.md** - Comprehensive pre-alpha warnings, security limitations, v0.2.0 roadmap
+3. **.env.example** - Environment variable template with strong security warnings
+4. **appsettings.json** - Added development credential warnings at top of file
+5. **README.md** - Expanded from 13 to 275+ lines:
+   - Prominent security warnings
+   - Feature showcase (containers, hybrid search, multi-interface)
+   - Quick start (Docker Compose, development setup, CLI, MCP)
+   - Architecture diagram and data flow
+   - Roadmap (v0.1.0-alpha status, v0.2.0 auth focus, future releases)
+   - Commercial hosting section
+   - Contributing/support/community links
+6. **CONTRIBUTING.md** - Complete contribution guide:
+   - Bug reporting template
+   - Feature request process
+   - Development setup
+   - PR workflow and conventions
+   - Code style guide (C#, Blazor, testing, database, API)
+   - Good first issues guidance
+7. **CODE_OF_CONDUCT.md** - Contributor Covenant v2.1 (downloaded from official source)
+
+**Technical Notes**:
+- Hit content filtering policy when trying to write Code of Conduct text directly
+- Solved by downloading official Contributor Covenant v2.1 via curl
+- Customized contact information for project
+
+**Next Steps**:
+- Phase 2: Repository Polish (GitHub configuration)
+- Phase 3: Go Public (final review, create v0.1.0-alpha release)
+
 ### 2026-02-08 (Session 7) -- Public Release Preparation
 
 **Branch**: Deleted `feature/file-system` (merged to master), created `feature/public-release-prep`
@@ -185,21 +269,21 @@ POST   /api/containers/{id}/reindex       Reindex documents in container
 
 ```bash
 # Container management
-aikp container create <name> [--description "..."]
-aikp container list
-aikp container delete <name>
+connapse container create <name> [--description "..."]
+connapse container list
+connapse container delete <name>
 
 # File operations (scoped to container)
-aikp upload <path> --container <name> [--destination /folder/]
-aikp list --container <name> [--path /folder/]
-aikp delete --container <name> --file <fileId>
-aikp delete --container <name> --path /folder/ [--recursive]
+connapse upload <path> --container <name> [--destination /folder/]
+connapse list --container <name> [--path /folder/]
+connapse delete --container <name> --file <fileId>
+connapse delete --container <name> --path /folder/ [--recursive]
 
 # Search (scoped to container)
-aikp search "<query>" --container <name> [--path /folder/]
+connapse search "<query>" --container <name> [--path /folder/]
 
 # Reindex (scoped to container)
-aikp reindex --container <name> [--force]
+connapse reindex --container <name> [--force]
 ```
 
 ### MCP Tools

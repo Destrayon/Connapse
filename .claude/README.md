@@ -1,6 +1,6 @@
 # .claude/ Directory
 
-This directory contains development documentation and configuration for the AIKnowledgePlatform project. It was created during development using [Claude Code](https://www.anthropic.com/claude/code), an AI-powered development assistant.
+This directory contains development documentation and configuration for the Connapse project. It was created during development using [Claude Code](https://www.anthropic.com/claude/code), an AI-powered development assistant.
 
 ## What's Here
 

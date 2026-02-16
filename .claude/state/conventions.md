@@ -1,6 +1,6 @@
 # Project Conventions
 
-Patterns and style choices specific to AIKnowledgePlatform. Update when new patterns emerge to keep future sessions consistent.
+Patterns and style choices specific to Connapse. Update when new patterns emerge to keep future sessions consistent.
 
 ---
 
@@ -154,7 +154,7 @@ public class HybridSearchService
 - All file operations go through `IKnowledgeFileSystem` — never use raw `System.IO` paths for user content
 - Virtual paths use forward slashes (`/folder/a/b`)
 - Physical paths resolved relative to configured `RootPath` (default: `knowledge-data/`)
-- DI registration via `services.AddAIKnowledgeStorage(configuration)` in Storage project
+- DI registration via `services.AddConnapseStorage(configuration)` in Storage project
 
 ## Database (PostgreSQL)
 

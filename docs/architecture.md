@@ -1,6 +1,6 @@
 # Architecture
 
-AIKnowledgePlatform is a .NET 10 Blazor WebApp that transforms uploaded documents into searchable knowledge for AI agents. This document describes the system architecture, design patterns, and data flow.
+Connapse is a .NET 10 Blazor WebApp that transforms uploaded documents into searchable knowledge for AI agents. This document describes the system architecture, design patterns, and data flow.
 
 ## System Overview
 
@@ -10,7 +10,7 @@ AIKnowledgePlatform is a .NET 10 Blazor WebApp that transforms uploaded document
 └──────┬──────┘
        │
 ┌──────┴──────────────────────────────────────────────┐
-│              AIKnowledge.Web                         │
+│              Connapse.Web                         │
 │  ┌────────────────┐      ┌──────────────────┐      │
 │  │ Blazor Pages   │      │  API Endpoints   │      │
 │  │  - Upload      │      │  - Documents     │      │
@@ -59,18 +59,18 @@ AIKnowledgePlatform is a .NET 10 Blazor WebApp that transforms uploaded document
 
 ```
 src/
-├── AIKnowledge.Web/          # Blazor UI + API endpoints + hosting
-├── AIKnowledge.Core/         # Domain models, interfaces, shared types
-├── AIKnowledge.Ingestion/    # Document parsing, chunking, pipeline orchestration
-├── AIKnowledge.Search/       # Vector search, keyword search, hybrid fusion
-├── AIKnowledge.Storage/      # Database, vector store, object storage, settings
-├── AIKnowledge.Agents/       # (Planned) Agent orchestration, tools, memory
-└── AIKnowledge.CLI/          # (Planned) Command-line interface
+├── Connapse.Web/          # Blazor UI + API endpoints + hosting
+├── Connapse.Core/         # Domain models, interfaces, shared types
+├── Connapse.Ingestion/    # Document parsing, chunking, pipeline orchestration
+├── Connapse.Search/       # Vector search, keyword search, hybrid fusion
+├── Connapse.Storage/      # Database, vector store, object storage, settings
+├── Connapse.Agents/       # (Planned) Agent orchestration, tools, memory
+└── Connapse.CLI/          # (Planned) Command-line interface
 
 tests/
-├── AIKnowledge.Core.Tests/           # Unit tests (parsers, chunkers, RRF)
-├── AIKnowledge.Ingestion.Tests/      # Unit tests for ingestion logic
-└── AIKnowledge.Integration.Tests/    # Integration tests with Testcontainers
+├── Connapse.Core.Tests/           # Unit tests (parsers, chunkers, RRF)
+├── Connapse.Ingestion.Tests/      # Unit tests for ingestion logic
+└── Connapse.Integration.Tests/    # Integration tests with Testcontainers
 ```
 
 ### Dependency Graph
@@ -101,7 +101,7 @@ CLI → Core
 
 ### Domain Interfaces
 
-All swappable implementations are defined as interfaces in `AIKnowledge.Core`:
+All swappable implementations are defined as interfaces in `Connapse.Core`:
 
 | Interface | Purpose | Implementations |
 |-----------|---------|----------------|
@@ -118,7 +118,7 @@ All swappable implementations are defined as interfaces in `AIKnowledge.Core`:
 
 ### Core Models
 
-All domain types live in the `AIKnowledge.Core` namespace (files in `Models/` folder):
+All domain types live in the `Connapse.Core` namespace (files in `Models/` folder):
 
 ```csharp
 // Ingestion
