@@ -192,11 +192,11 @@ main
 
 Replace `yourusername` with your actual GitHub username/organization:
 ```markdown
-[![Build](https://img.shields.io/github/actions/workflow/status/yourusername/Connapse/ci.yml?branch=main&label=build)](https://github.com/yourusername/Connapse/actions)
-[![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/yourusername/Connapse/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
+[![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/Destrayon/Connapse/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![GitHub Issues](https://img.shields.io/github/issues/yourusername/Connapse)](https://github.com/yourusername/Connapse/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/yourusername/Connapse?style=social)](https://github.com/yourusername/Connapse/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)
 ```
 
 Also update URLs in:

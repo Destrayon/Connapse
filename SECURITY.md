@@ -58,13 +58,13 @@ We take security seriously. If you discover a security vulnerability:
 ### For Pre-Release Issues
 Since this is pre-alpha software with known security limitations, please:
 1. Check if it's a [known limitation](#critical-security-limitations) above
-2. If it's a new issue, open a [GitHub Issue](https://github.com/yourusername/Connapse/issues) with details
+2. If it's a new issue, open a [GitHub Issue](https://github.com/Destrayon/Connapse/issues) with details
 3. Use the `security` label
 
 ### For Production Issues (v0.2.0+)
 Once authentication is implemented:
 1. **DO NOT** open a public issue
-2. Email security@your-domain.com (or use GitHub Security Advisories)
+2. Email psummers1050@gmail.com (or use GitHub Security Advisories)
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce

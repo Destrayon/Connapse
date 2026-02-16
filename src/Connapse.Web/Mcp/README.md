@@ -123,10 +123,12 @@ curl -X POST https://localhost:5001/mcp \
 
 ## Using with Claude
 
-The MCP server allows Claude and other AI assistants to interact with your knowledge base. Configure your AI assistant to connect to:
+The MCP server allows Claude and other AI assistants to interact with your knowledge base. Configure your AI assistant to connect to your deployed instance:
 
 ```
-https://your-domain.com/mcp
+https://your-server.com/mcp
 ```
+
+Replace `your-server.com` with your actual server address. For local development, use `https://localhost:5001/mcp`.
 
 The AI assistant can then use the exposed tools to search documents, list available content, and add new documents to your knowledge base.

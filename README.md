@@ -4,12 +4,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
-[![Build](https://img.shields.io/github/actions/workflow/status/yourusername/Connapse/ci.yml?branch=main&label=build)](https://github.com/yourusername/Connapse/actions)
-[![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/yourusername/Connapse/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
+[![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/Destrayon/Connapse/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![GitHub Issues](https://img.shields.io/github/issues/yourusername/Connapse)](https://github.com/yourusername/Connapse/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/yourusername/Connapse?style=social)](https://github.com/yourusername/Connapse/stargazers)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://github.com/yourusername/Connapse#-quick-start)
+[![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://github.com/Destrayon/Connapse#-quick-start)
 
 ---
 
@@ -57,7 +57,7 @@ Authentication and access control are the **#1 priority** for v0.2.0.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Connapse.git
+git clone https://github.com/Destrayon/Connapse.git
 cd Connapse
 
 # Start all services (PostgreSQL, MinIO, Web App)
@@ -210,22 +210,6 @@ See [docs/roadmap.md](docs/roadmap.md) for detailed feature planning.
 
 ---
 
-## 💼 Commercial Hosting
-
-While Connapse is **open source and free to self-host**, we plan to offer a **managed cloud service** for teams who want:
-
-- ✨ Zero-ops deployment (no Docker, no infrastructure)
-- 🔄 Automatic backups and scaling
-- 🛟 Priority support with SLA guarantees
-- 🔒 Enterprise security and compliance
-- 👥 Multi-user workspaces with advanced permissions
-
-**Interested in hosted version?** Join the waitlist at [https://your-domain.com](https://your-domain.com) *(coming soon)*
-
-The hosted service will help fund continued development of the open-source project.
-
----
-
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
@@ -238,7 +222,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 - Update documentation if needed
 - Submit a pull request
 
-**Good first issues**: Check [issues labeled `good-first-issue`](https://github.com/yourusername/Connapse/labels/good-first-issue)
+**Good first issues**: Check [issues labeled `good-first-issue`](https://github.com/Destrayon/Connapse/labels/good-first-issue)
 
 ---
 
@@ -260,8 +244,8 @@ The only requirement is to include the copyright notice and license in any subst
 ## 💬 Support & Community
 
 - 📖 **Documentation**: [docs/](docs/)
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/Connapse/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/yourusername/Connapse/discussions)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Destrayon/Connapse/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/Destrayon/Connapse/discussions)
 - 🔒 **Security Issues**: See [SECURITY.md](SECURITY.md)
 
 ---

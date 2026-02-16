@@ -22,7 +22,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 ## 🐛 Reporting Bugs
 
 **Before submitting a bug report:**
-- Search [existing issues](https://github.com/yourusername/Connapse/issues) to see if it's already reported
+- Search [existing issues](https://github.com/Destrayon/Connapse/issues) to see if it's already reported
 - Test with the latest code on the `master` branch
 - Check [SECURITY.md](SECURITY.md) - some limitations are known and documented
 
@@ -74,7 +74,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 ## 💡 Suggesting Features
 
 **Before suggesting a feature:**
-- Check [existing discussions](https://github.com/yourusername/Connapse/discussions) and issues
+- Check [existing discussions](https://github.com/Destrayon/Connapse/discussions) and issues
 - Review the [roadmap](README.md#-roadmap) to see if it's already planned
 - Consider whether it fits the project's scope and vision
 
@@ -85,7 +85,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 - **Implementation Ideas**: Technical approach (if you have thoughts)
 - **Willing to Implement**: Let us know if you'd like to work on it!
 
-**Submit as a [GitHub Discussion](https://github.com/yourusername/Connapse/discussions) first, not an issue.** This allows for community feedback before committing to implementation.
+**Submit as a [GitHub Discussion](https://github.com/Destrayon/Connapse/discussions) first, not an issue.** This allows for community feedback before committing to implementation.
 
 ## 💻 Development Setup
 
@@ -105,7 +105,7 @@ git clone https://github.com/YOUR-USERNAME/Connapse.git
 cd Connapse
 
 # 3. Add upstream remote
-git remote add upstream https://github.com/yourusername/Connapse.git
+git remote add upstream https://github.com/Destrayon/Connapse.git
 
 # 4. Start infrastructure (database + storage)
 docker-compose up -d postgres minio
@@ -239,7 +239,7 @@ git push origin feature/your-feature-name
 
 ### 7. Open a Pull Request
 
-1. Go to [github.com/yourusername/Connapse](https://github.com/yourusername/Connapse)
+1. Go to [github.com/Destrayon/Connapse](https://github.com/Destrayon/Connapse)
 2. Click "New Pull Request"
 3. Select your fork and branch
 4. Fill out the PR template:
@@ -394,13 +394,13 @@ We use these labels to categorize issues:
 
 ## 🎯 Good First Issues
 
-New to the project? Look for issues labeled [`good-first-issue`](https://github.com/yourusername/Connapse/labels/good-first-issue). These are small, well-defined tasks perfect for getting started.
+New to the project? Look for issues labeled [`good-first-issue`](https://github.com/Destrayon/Connapse/labels/good-first-issue). These are small, well-defined tasks perfect for getting started.
 
 ## 💬 Getting Help
 
 - 📖 Read [CLAUDE.md](CLAUDE.md) for detailed architecture and conventions
-- 💡 Start a [GitHub Discussion](https://github.com/yourusername/Connapse/discussions)
-- 🐛 Open an [issue](https://github.com/yourusername/Connapse/issues) if you're stuck
+- 💡 Start a [GitHub Discussion](https://github.com/Destrayon/Connapse/discussions)
+- 🐛 Open an [issue](https://github.com/Destrayon/Connapse/issues) if you're stuck
 
 ## 📜 License
 
