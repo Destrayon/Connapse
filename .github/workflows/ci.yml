@@ -10,6 +10,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     # GitHub runners have Docker pre-installed - Testcontainers will use it automatically
+    # Ollama is installed directly on the runner for embedding generation
 
     steps:
     - name: Checkout code
@@ -26,12 +27,34 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
+    - name: Cache Ollama models
+      uses: actions/cache@v4
+      with:
+        path: ~/.ollama
+        key: ${{ runner.os }}-ollama-nomic-embed-text
+
+    - name: Setup Ollama
+      uses: ai-action/setup-ollama@v1
+      with:
+        version: latest
+
+    - name: Start Ollama service
+      run: |
+        ollama serve &
+        sleep 5
+
+    - name: Pull embedding model
+      run: |
+        ollama pull nomic-embed-text
+        ollama list
+
     - name: Run unit tests
       run: dotnet test --no-build --configuration Release --filter "Category=Unit" --verbosity normal --logger "trx;LogFileName=unit-tests.trx"
 
     - name: Run integration tests
       run: dotnet test --no-build --configuration Release --filter "Category=Integration" --verbosity normal --logger "trx;LogFileName=integration-tests.trx"
       # Testcontainers will automatically spin up PostgreSQL and MinIO containers
+      # Ollama runs directly on the host for embedding generation
 
     - name: Run all tests with coverage
       run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --verbosity normal
