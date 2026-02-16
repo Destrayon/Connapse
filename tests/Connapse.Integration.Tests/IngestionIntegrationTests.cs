@@ -267,6 +267,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         string? ContentType,
         string Path,
         long SizeBytes,
+        int ChunkCount,
         DateTime CreatedAt,
         Dictionary<string, string> Metadata);
 
