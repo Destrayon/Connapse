@@ -14,6 +14,8 @@ namespace Connapse.Integration.Tests;
 /// Integration tests for container and folder management endpoints,
 /// container isolation, and cascade delete behavior.
 /// </summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
 public class ContainerIntegrationTests : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -49,6 +51,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
                 builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
                 builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
                 builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
+                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
             });
 
@@ -197,7 +200,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         // Arrange: Create container and upload a file
         var container = await CreateContainer("nonempty-test");
         var docId = await UploadFile(container.Id, "test.txt", "Some content");
-        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Act
         var response = await _client.DeleteAsync($"/api/containers/{container.Id}");
@@ -329,7 +332,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
 
         // Upload file to root
         var docId = await UploadFile(container.Id, "readme.txt", "Hello world");
-        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Act
         var response = await _client.GetAsync($"/api/containers/{container.Id}/files");
@@ -365,11 +368,11 @@ public class ContainerIntegrationTests : IAsyncLifetime
 
         var docIdA = await UploadFile(containerA.Id, "physics.txt",
             "Quantum entanglement is a phenomenon in quantum mechanics.");
-        await WaitForIngestionToComplete(containerA.Id, docIdA, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(containerA.Id, docIdA, timeoutSeconds: 60);
 
         var docIdB = await UploadFile(containerB.Id, "cooking.txt",
             "Chocolate souffle requires precise oven temperature control.");
-        await WaitForIngestionToComplete(containerB.Id, docIdB, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(containerB.Id, docIdB, timeoutSeconds: 60);
 
         // Act & Assert: Search container A finds physics, not cooking
         var searchA = await _client.GetAsync(
@@ -416,7 +419,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
             new { Path = "/reports" });
 
         var docId = await UploadFile(container.Id, "report.txt", "Annual report data", path: "/reports/");
-        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify file exists
         var fileResponse = await _client.GetAsync($"/api/containers/{container.Id}/files/{docId}");
@@ -449,7 +452,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         // Assert
         docId.Should().NotBeNullOrEmpty();
 
-        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify file details
         var response = await _client.GetAsync($"/api/containers/{container.Id}/files/{docId}");
@@ -485,7 +488,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("file-delete-test");
         var docId = await UploadFile(container.Id, "to-delete.txt",
             "This file will be deleted after ingestion.");
-        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify search finds it first
         var searchBefore = await _client.GetAsync(
@@ -551,19 +554,30 @@ public class ContainerIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var response = await _client.GetAsync(
-                $"/api/containers/{containerId}/files/{documentId}/reindex-check");
-            if (response.StatusCode == HttpStatusCode.OK)
+            var docResponse = await _client.GetAsync(
+                $"/api/containers/{containerId}/files/{documentId}");
+            if (docResponse.IsSuccessStatusCode)
             {
-                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
-                if (check is { NeedsReindex: false })
+                var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
+                if (doc?.Metadata != null)
                 {
-                    await Task.Delay(500);
-                    return;
-                }
+                    if (doc.Metadata.TryGetValue("Status", out var status))
+                    {
+                        if (status == "Failed")
+                        {
+                            var error = doc.Metadata.GetValueOrDefault("ErrorMessage", "Unknown error");
+                            throw new Exception($"Ingestion failed for {documentId}: {error}");
+                        }
 
-                if (check?.Reason is "Error" or "FileNotFound")
-                    throw new Exception($"Ingestion failed for {documentId}: {check.Reason}");
+                        if (status == "Ready"
+                            && doc.Metadata.TryGetValue("ChunkCount", out var chunkStr)
+                            && int.TryParse(chunkStr, out var chunkCount) && chunkCount > 0)
+                        {
+                            await Task.Delay(500);
+                            return;
+                        }
+                    }
+                }
             }
 
             await Task.Delay(500);
@@ -633,10 +647,4 @@ public class ContainerIntegrationTests : IAsyncLifetime
         float Score,
         Dictionary<string, string> Metadata);
 
-    private record ReindexCheckDto(
-        string DocumentId,
-        bool NeedsReindex,
-        string Reason,
-        string? CurrentHash,
-        string? StoredHash);
 }

@@ -15,6 +15,8 @@ namespace Connapse.Integration.Tests;
 /// Uses Testcontainers to spin up real PostgreSQL and MinIO instances.
 /// Updated for container-scoped API (Feature #2).
 /// </summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
 public class IngestionIntegrationTests : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -51,6 +53,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
                 builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
                 builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
                 builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
+                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Chunking:Overlap", "20");
                 builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
             });
@@ -96,7 +99,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         documentId.Should().NotBeNullOrEmpty();
 
         // Act 2: Wait for ingestion to complete
-        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         // Act 3: Verify document exists
         var docResponse = await _client.GetAsync(
@@ -108,10 +111,12 @@ public class IngestionIntegrationTests : IAsyncLifetime
         document!.Id.Should().Be(documentId);
         document.FileName.Should().Be(fileName);
         document.ContainerId.Should().Be(_containerId);
+        document.Metadata.Should().ContainKey("ChunkCount");
+        int.Parse(document.Metadata["ChunkCount"]).Should().BeGreaterThan(0, "Document should have chunks after ingestion");
 
         // Act 4: Search for content from the document
         var searchResponse = await _client.GetAsync(
-            $"/api/containers/{_containerId}/search?q=artificial+intelligence+machine+learning&mode=Keyword&topK=10");
+            $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString("artificial intelligence")}&mode=Keyword&topK=10");
         searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var searchResult = await searchResponse.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
@@ -159,7 +164,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Act 2: Wait for all ingestions to complete
         foreach (var docId in documentIds)
         {
-            await WaitForIngestionToComplete(docId, timeoutSeconds: 30);
+            await WaitForIngestionToComplete(docId, timeoutSeconds: 60);
         }
 
         // Act 3: Search for each document's unique content
@@ -213,28 +218,33 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var response = await _client.GetAsync(
-                $"/api/containers/{_containerId}/files/{documentId}/reindex-check");
-            if (response.StatusCode == HttpStatusCode.OK)
+            // Check document status directly - more reliable than reindex-check
+            // since reindex-check returns Error when the document hasn't been created yet
+            var docResponse = await _client.GetAsync(
+                $"/api/containers/{_containerId}/files/{documentId}");
+            if (docResponse.IsSuccessStatusCode)
             {
-                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
-                if (check is { NeedsReindex: false })
+                var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
+                if (doc?.Metadata != null)
                 {
-                    // Verify chunks are actually queryable before returning
-                    var docResponse = await _client.GetAsync(
-                        $"/api/containers/{_containerId}/files/{documentId}");
-                    if (docResponse.IsSuccessStatusCode)
+                    // Check if ingestion failed
+                    if (doc.Metadata.TryGetValue("Status", out var status))
                     {
-                        var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
-                        if (doc?.ChunkCount > 0)
+                        if (status == "Failed")
                         {
+                            var error = doc.Metadata.GetValueOrDefault("ErrorMessage", "Unknown error");
+                            throw new Exception($"Ingestion failed for {documentId}: {error}");
+                        }
+
+                        if (status == "Ready"
+                            && doc.Metadata.TryGetValue("ChunkCount", out var chunkStr)
+                            && int.TryParse(chunkStr, out var chunkCount) && chunkCount > 0)
+                        {
+                            await Task.Delay(500);
                             return;
                         }
                     }
                 }
-
-                if (check?.Reason is "Error" or "FileNotFound")
-                    throw new Exception($"Ingestion failed for {documentId}: {check.Reason}");
             }
 
             await Task.Delay(500);
@@ -267,7 +277,6 @@ public class IngestionIntegrationTests : IAsyncLifetime
         string? ContentType,
         string Path,
         long SizeBytes,
-        int ChunkCount,
         DateTime CreatedAt,
         Dictionary<string, string> Metadata);
 

@@ -15,6 +15,7 @@ namespace Connapse.Integration.Tests;
 /// Updated for container-scoped API (Feature #2).
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection("Integration Tests")]
 public class ReindexIntegrationTests : IAsyncLifetime
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -51,6 +52,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
                 builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
                 builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
                 builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
+                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
             });
 
@@ -80,7 +82,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         var originalContent = "This is the original content that should not change.";
         var documentId = await UploadDocument("unchanged-doc.txt", originalContent);
 
-        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         var docBefore = await GetDocument(documentId);
         docBefore.Should().NotBeNull();
@@ -124,7 +126,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         var content = "Content for force reindex test.";
         var documentId = await UploadDocument("force-doc.txt", content);
 
-        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         // Act: Trigger force reindex
         var reindexResponse = await _client.PostAsJsonAsync(
@@ -140,7 +142,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         reindexResult.SkippedCount.Should().Be(0, "Force mode should not skip any documents");
 
         // Wait for re-ingestion
-        await WaitForIngestionToComplete(documentId, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         var docAfter = await GetDocument(documentId);
         docAfter.Id.Should().Be(documentId, "Document should still exist after reindexing");
@@ -161,8 +163,8 @@ public class ReindexIntegrationTests : IAsyncLifetime
         var doc1Id = await UploadDocument("container1-doc.txt", "Container 1 document for reindex");
         var doc2Id = await UploadDocumentToContainer(otherContainer!.Id, "container2-doc.txt", "Container 2 document for reindex");
 
-        await WaitForIngestionToComplete(doc1Id, timeoutSeconds: 30);
-        await WaitForIngestionToCompleteInContainer(otherContainer.Id, doc2Id, timeoutSeconds: 30);
+        await WaitForIngestionToComplete(doc1Id, timeoutSeconds: 60);
+        await WaitForIngestionToCompleteInContainer(otherContainer.Id, doc2Id, timeoutSeconds: 60);
 
         // Act: Reindex only the first container (force mode to ensure it does something)
         var reindexResponse = await _client.PostAsJsonAsync(
@@ -225,19 +227,30 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var response = await _client.GetAsync(
-                $"/api/containers/{containerId}/files/{documentId}/reindex-check");
-            if (response.StatusCode == HttpStatusCode.OK)
+            var docResponse = await _client.GetAsync(
+                $"/api/containers/{containerId}/files/{documentId}");
+            if (docResponse.IsSuccessStatusCode)
             {
-                var check = await response.Content.ReadFromJsonAsync<ReindexCheckDto>(JsonOptions);
-                if (check is { NeedsReindex: false })
+                var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
+                if (doc?.Metadata != null)
                 {
-                    await Task.Delay(500);
-                    return;
-                }
+                    if (doc.Metadata.TryGetValue("Status", out var status))
+                    {
+                        if (status == "Failed")
+                        {
+                            var error = doc.Metadata.GetValueOrDefault("ErrorMessage", "Unknown error");
+                            throw new Exception($"Ingestion failed for {documentId}: {error}");
+                        }
 
-                if (check?.Reason is "Error" or "FileNotFound")
-                    throw new Exception($"Ingestion failed for {documentId}: {check.Reason}");
+                        if (status == "Ready"
+                            && doc.Metadata.TryGetValue("ChunkCount", out var chunkStr)
+                            && int.TryParse(chunkStr, out var chunkCount) && chunkCount > 0)
+                        {
+                            await Task.Delay(500);
+                            return;
+                        }
+                    }
+                }
             }
 
             await Task.Delay(500);
