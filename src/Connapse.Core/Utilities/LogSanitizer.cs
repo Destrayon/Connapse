@@ -11,6 +11,24 @@ public static class LogSanitizer
         if (string.IsNullOrEmpty(value))
             return value ?? string.Empty;
 
-        return value.Replace("\r", "").Replace("\n", "");
+        // Remove CR/LF and normalize other control characters to prevent log forging
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            // Strip newline characters entirely
+            if (ch == '\r' || ch == '\n')
+                continue;
+
+            // Replace any other control character with a safe placeholder (space)
+            if (char.IsControl(ch))
+            {
+                sb.Append(' ');
+                continue;
+            }
+
+            sb.Append(ch);
+        }
+
+        return sb.ToString();
     }
 }
