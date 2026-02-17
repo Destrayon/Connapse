@@ -5,6 +5,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Storage.Containers;
 
@@ -39,7 +40,7 @@ public class PostgresContainerStore(
         context.Containers.Add(entity);
         await context.SaveChangesAsync(ct);
 
-        logger.LogInformation("Created container {ContainerId} ({Name})", entity.Id, entity.Name);
+        logger.LogInformation("Created container {ContainerId} ({Name})", entity.Id, Sanitize(entity.Name));
 
         return MapToModel(entity, 0);
     }

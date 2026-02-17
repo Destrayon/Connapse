@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Ingestion.Reindex;
 
@@ -143,7 +144,7 @@ public class ReindexService : IReindexService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", documentId);
+            _logger.LogWarning(ex, "Failed to compute hash for document {DocumentId}", Sanitize(documentId));
             return new ReindexCheck(
                 documentId,
                 NeedsReindex: false,

@@ -4,6 +4,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Storage.Documents;
 
@@ -60,7 +61,7 @@ public class PostgresDocumentStore : IDocumentStore
     {
         if (!Guid.TryParse(documentId, out var guid))
         {
-            _logger.LogWarning("Invalid document ID format: {DocumentId}", documentId);
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
             return null;
         }
 
@@ -96,7 +97,7 @@ public class PostgresDocumentStore : IDocumentStore
     {
         if (!Guid.TryParse(documentId, out var guid))
         {
-            _logger.LogWarning("Invalid document ID format: {DocumentId}", documentId);
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
             return;
         }
 
@@ -105,7 +106,7 @@ public class PostgresDocumentStore : IDocumentStore
 
         if (entity == null)
         {
-            _logger.LogWarning("Document not found: {DocumentId}", documentId);
+            _logger.LogWarning("Document not found: {DocumentId}", Sanitize(documentId));
             return;
         }
 
@@ -114,7 +115,7 @@ public class PostgresDocumentStore : IDocumentStore
 
         _logger.LogInformation(
             "Deleted document {DocumentId} ({FileName})",
-            documentId,
+            Sanitize(documentId),
             entity.FileName);
     }
 
