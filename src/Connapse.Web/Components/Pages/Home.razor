@@ -1,0 +1,324 @@
+@page "/"
+@rendermode InteractiveServer
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+
+<PageTitle>Connapse</PageTitle>
+
+<div class="container-list-header">
+    <div>
+        <h1>Containers</h1>
+        <p class="page-subtitle">Organize your knowledge into isolated containers. Each container has its own files and search index.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="ShowCreateModal">
+        <span class="bi-plus-lg me-1"></span> New Container
+    </button>
+</div>
+
+@if (isLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-accent" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (containers.Count == 0)
+{
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
+            </svg>
+        </div>
+        <h3>No containers yet</h3>
+        <p>Create your first container to start organizing documents.</p>
+        <button class="btn btn-primary" @onclick="ShowCreateModal">
+            <span class="bi-plus-lg me-1"></span> Create Container
+        </button>
+    </div>
+}
+else
+{
+    <div class="container-grid">
+        @foreach (var container in containers)
+        {
+            <div class="container-card" @onclick="() => NavigateToContainer(container.Id)">
+                <div class="container-card-header">
+                    <div class="container-card-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
+                        </svg>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger container-delete-btn"
+                            title="Delete container"
+                            @onclick="() => ConfirmDelete(container)"
+                            @onclick:stopPropagation="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                            <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                        </svg>
+                    </button>
+                </div>
+                <h3 class="container-card-name">@container.Name</h3>
+                @if (!string.IsNullOrEmpty(container.Description))
+                {
+                    <p class="container-card-desc">@container.Description</p>
+                }
+                <div class="container-card-meta">
+                    <span>@container.DocumentCount @(container.DocumentCount == 1 ? "file" : "files")</span>
+                    <span>@container.CreatedAt.ToString("MMM d, yyyy")</span>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@* Create Container Modal *@
+@if (showCreateModal)
+{
+    <div class="modal-backdrop" @onclick="HideCreateModal"></div>
+    <div class="modal-dialog-centered">
+        <div class="modal-content-custom">
+            <div class="modal-header-custom">
+                <h4>Create Container</h4>
+                <button class="btn-close btn-close-white" @onclick="HideCreateModal"></button>
+            </div>
+            <div class="modal-body-custom">
+                <div class="mb-3">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" placeholder="my-project"
+                           @bind="newContainerName" @bind:event="oninput" />
+                    <small class="text-muted d-block mt-1">Lowercase letters, numbers, and hyphens only.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description (optional)</label>
+                    <input type="text" class="form-control" placeholder="What is this container for?"
+                           @bind="newContainerDescription" />
+                </div>
+                @if (createError is not null)
+                {
+                    <div class="alert alert-danger py-2">@createError</div>
+                }
+            </div>
+            <div class="modal-footer-custom">
+                <button class="btn btn-outline-secondary" @onclick="HideCreateModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="CreateContainer" disabled="@isCreating">
+                    @if (isCreating)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Create
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* Delete Confirmation Modal *@
+@if (containerToDelete is not null)
+{
+    <div class="modal-backdrop" @onclick="CancelDelete"></div>
+    <div class="modal-dialog-centered">
+        <div class="modal-content-custom">
+            <div class="modal-header-custom">
+                <h4>Delete Container</h4>
+                <button class="btn-close btn-close-white" @onclick="CancelDelete"></button>
+            </div>
+            <div class="modal-body-custom">
+                <p>Are you sure you want to delete <strong>@containerToDelete.Name</strong>?</p>
+                @if (containerToDelete.DocumentCount > 0)
+                {
+                    <div class="alert alert-warning py-2">
+                        This container has @containerToDelete.DocumentCount file(s). It must be empty before deletion.
+                    </div>
+                }
+                @if (deleteError is not null)
+                {
+                    <div class="alert alert-danger py-2">@deleteError</div>
+                }
+            </div>
+            <div class="modal-footer-custom">
+                <button class="btn btn-outline-secondary" @onclick="CancelDelete">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteContainer" disabled="@isDeleting">
+                    @if (isDeleting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ContainerDto> containers = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    // Create modal state
+    private bool showCreateModal;
+    private string newContainerName = "";
+    private string? newContainerDescription;
+    private string? createError;
+    private bool isCreating;
+
+    // Delete modal state
+    private ContainerDto? containerToDelete;
+    private string? deleteError;
+    private bool isDeleting;
+
+    private HttpClient? _httpClient;
+    private HttpClient Http
+    {
+        get
+        {
+            if (_httpClient is null)
+            {
+                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
+                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
+            }
+            return _httpClient;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadContainers();
+    }
+
+    private async Task LoadContainers()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<ContainerDto>>("/api/containers");
+            containers = result ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load containers: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void NavigateToContainer(string containerId)
+    {
+        Navigation.NavigateTo($"/containers/{containerId}");
+    }
+
+    // Create modal
+    private void ShowCreateModal()
+    {
+        showCreateModal = true;
+        newContainerName = "";
+        newContainerDescription = null;
+        createError = null;
+    }
+
+    private void HideCreateModal()
+    {
+        showCreateModal = false;
+    }
+
+    private async Task CreateContainer()
+    {
+        if (string.IsNullOrWhiteSpace(newContainerName))
+        {
+            createError = "Container name is required.";
+            return;
+        }
+
+        isCreating = true;
+        createError = null;
+
+        try
+        {
+            var request = new { name = newContainerName.Trim(), description = newContainerDescription?.Trim() };
+            var response = await Http.PostAsJsonAsync("/api/containers", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                showCreateModal = false;
+                await LoadContainers();
+            }
+            else
+            {
+                var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+                createError = error?.Error ?? $"Failed to create container (HTTP {(int)response.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            createError = ex.Message;
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    // Delete modal
+    private void ConfirmDelete(ContainerDto container)
+    {
+        containerToDelete = container;
+        deleteError = null;
+    }
+
+    private void CancelDelete()
+    {
+        containerToDelete = null;
+    }
+
+    private async Task DeleteContainer()
+    {
+        if (containerToDelete is null) return;
+
+        isDeleting = true;
+        deleteError = null;
+
+        try
+        {
+            var response = await Http.DeleteAsync($"/api/containers/{containerToDelete.Id}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                containerToDelete = null;
+                await LoadContainers();
+            }
+            else
+            {
+                var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+                deleteError = error?.Error ?? $"Failed to delete container (HTTP {(int)response.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            deleteError = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private record ContainerDto(
+        string Id,
+        string Name,
+        string? Description,
+        DateTime CreatedAt,
+        DateTime UpdatedAt,
+        int DocumentCount);
+
+    private record ErrorResponse(string? Error);
+}

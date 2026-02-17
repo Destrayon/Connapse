@@ -4,9 +4,39 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-08 — Open Source + Commercial Hosting Business Model
+
+**Context**: Project features are complete (Feature #1 and #2, 171 passing tests). Need to decide on licensing, public release strategy, and business model.
+
+**Decision**: Open-source the full codebase under a permissive license (MIT or Apache 2.0) while building a commercial hosted service for revenue.
+
+**Alternatives**:
+- Option A: Keep proprietary, SaaS-only — limits adoption, no community
+- Option B: Open core (basic features free, advanced paid) — complex, fragments community
+- Option C: Fully open source + paid hosting — proven model, maximizes adoption
+- Option D: Source-available with commercial restrictions (BSL, etc.) — limits business flexibility
+
+**Rationale**: The "open source + commercial hosting" model (Supabase, GitLab, PostHog, Sentry) provides:
+- Community trust and adoption through transparency
+- Free self-hosting for individuals and small teams
+- Revenue from managed hosting (zero-ops, support, SLA)
+- Contributions and feedback to improve the product
+- Clear value prop: convenience vs DIY
+
+**Consequences**:
+- Public repository with permissive license
+- Must implement authentication before commercial hosting (security baseline)
+- Hosted service adds operational value (backups, scaling, support) not just features
+- Community contributions welcome but core team maintains direction
+- Future commercial features (if any) would be hosting-specific (multi-tenant, billing, analytics)
+
+**Next Steps**: See [PUBLIC_RELEASE_PREP.md](../../PUBLIC_RELEASE_PREP.md) for launch checklist.
+
+---
+
 ### 2026-02-04 — Project Structure: src/ Layout
 
-**Context**: The initial VS template created a flat `AIKnowledgePlatform/` directory. The CLAUDE.md and init.md specify a `src/` based layout with separate projects per domain.
+**Context**: The initial VS template created a flat `Connapse/` directory. The CLAUDE.md and init.md specify a `src/` based layout with separate projects per domain.
 
 **Decision**: Restructured to `src/{ProjectName}/` layout with 7 source projects and 3 test projects.
 
@@ -24,11 +54,11 @@ Record significant decisions with context and rationale. Future sessions should 
 
 **Context**: Needed to decide where to place shared record types (IngestionResult, SearchHit, etc.) used across multiple projects.
 
-**Decision**: Model records live in `AIKnowledge.Core` namespace (files in `Models/` folder) so they can be used without additional `using` statements when the Core project is referenced.
+**Decision**: Model records live in `Connapse.Core` namespace (files in `Models/` folder) so they can be used without additional `using` statements when the Core project is referenced.
 
 **Alternatives**:
-- Option A: `AIKnowledge.Core.Models` namespace — requires extra using
-- Option B: `AIKnowledge.Core` namespace — available immediately with project reference
+- Option A: `Connapse.Core.Models` namespace — requires extra using
+- Option B: `Connapse.Core` namespace — available immediately with project reference
 
 **Rationale**: These are fundamental domain types used everywhere. Keeping them in the root namespace reduces boilerplate.
 

@@ -1,0 +1,201 @@
+@page "/settings"
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.Settings
+@using Microsoft.Extensions.Options
+@inject ISettingsStore SettingsStore
+@inject ISettingsReloader ReloadService
+@inject IOptionsMonitor<EmbeddingSettings> EmbeddingOptions
+@inject IOptionsMonitor<ChunkingSettings> ChunkingOptions
+@inject IOptionsMonitor<SearchSettings> SearchOptions
+@inject IOptionsMonitor<LlmSettings> LlmOptions
+@inject IOptionsMonitor<UploadSettings> UploadOptions
+@inject IOptionsMonitor<WebSearchSettings> WebSearchOptions
+@inject IOptionsMonitor<StorageSettings> StorageOptions
+@rendermode InteractiveServer
+
+<PageTitle>Settings - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <h1 class="mb-4">
+        <span class="bi-gear-fill me-2"></span>
+        Settings
+    </h1>
+
+    @if (!string.IsNullOrEmpty(saveMessage))
+    {
+        <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+            @saveMessage
+            <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+        </div>
+    }
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "embedding" ? "active" : "")"
+                    @onclick='() => activeTab = "embedding"'
+                    type="button">
+                Embedding
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "chunking" ? "active" : "")"
+                    @onclick='() => activeTab = "chunking"'
+                    type="button">
+                Chunking
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "search" ? "active" : "")"
+                    @onclick='() => activeTab = "search"'
+                    type="button">
+                Search
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "llm" ? "active" : "")"
+                    @onclick='() => activeTab = "llm"'
+                    type="button">
+                LLM
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "upload" ? "active" : "")"
+                    @onclick='() => activeTab = "upload"'
+                    type="button">
+                Upload
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "websearch" ? "active" : "")"
+                    @onclick='() => activeTab = "websearch"'
+                    type="button">
+                Web Search
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "storage" ? "active" : "")"
+                    @onclick='() => activeTab = "storage"'
+                    type="button">
+                Storage
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+        @if (activeTab == "embedding")
+        {
+            <EmbeddingSettingsTab Settings="embeddingSettings" OnSave="SaveEmbeddingSettings" />
+        }
+        else if (activeTab == "chunking")
+        {
+            <ChunkingSettingsTab Settings="chunkingSettings" OnSave="SaveChunkingSettings" />
+        }
+        else if (activeTab == "search")
+        {
+            <SearchSettingsTab Settings="searchSettings" OnSave="SaveSearchSettings" />
+        }
+        else if (activeTab == "llm")
+        {
+            <LlmSettingsTab Settings="llmSettings" OnSave="SaveLlmSettings" />
+        }
+        else if (activeTab == "upload")
+        {
+            <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
+        }
+        else if (activeTab == "websearch")
+        {
+            <WebSearchSettingsTab Settings="webSearchSettings" OnSave="SaveWebSearchSettings" />
+        }
+        else if (activeTab == "storage")
+        {
+            <StorageSettingsTab Settings="storageSettings" OnSave="SaveStorageSettings" />
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "embedding";
+    private string? saveMessage;
+    private bool saveSuccess;
+
+    private EmbeddingSettings embeddingSettings = new();
+    private ChunkingSettings chunkingSettings = new();
+    private SearchSettings searchSettings = new();
+    private LlmSettings llmSettings = new();
+    private UploadSettings uploadSettings = new();
+    private WebSearchSettings webSearchSettings = new();
+    private StorageSettings storageSettings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load current settings from IOptionsMonitor (includes DB overrides)
+        embeddingSettings = EmbeddingOptions.CurrentValue;
+        chunkingSettings = ChunkingOptions.CurrentValue;
+        searchSettings = SearchOptions.CurrentValue;
+        llmSettings = LlmOptions.CurrentValue;
+        uploadSettings = UploadOptions.CurrentValue;
+        webSearchSettings = WebSearchOptions.CurrentValue;
+        storageSettings = StorageOptions.CurrentValue;
+    }
+
+    private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
+    {
+        await SaveSettings("Embedding", settings);
+        embeddingSettings = settings;
+    }
+
+    private async Task SaveChunkingSettings(ChunkingSettings settings)
+    {
+        await SaveSettings("Chunking", settings);
+        chunkingSettings = settings;
+    }
+
+    private async Task SaveSearchSettings(SearchSettings settings)
+    {
+        await SaveSettings("Search", settings);
+        searchSettings = settings;
+    }
+
+    private async Task SaveLlmSettings(LlmSettings settings)
+    {
+        await SaveSettings("LLM", settings);
+        llmSettings = settings;
+    }
+
+    private async Task SaveUploadSettings(UploadSettings settings)
+    {
+        await SaveSettings("Upload", settings);
+        uploadSettings = settings;
+    }
+
+    private async Task SaveWebSearchSettings(WebSearchSettings settings)
+    {
+        await SaveSettings("WebSearch", settings);
+        webSearchSettings = settings;
+    }
+
+    private async Task SaveStorageSettings(StorageSettings settings)
+    {
+        await SaveSettings("Storage", settings);
+        storageSettings = settings;
+    }
+
+    private async Task SaveSettings<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            await SettingsStore.SaveAsync(category, settings);
+            ReloadService.Reload();
+            saveMessage = $"{category} settings saved successfully!";
+            saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveSuccess = false;
+        }
+    }
+}

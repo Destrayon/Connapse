@@ -2,15 +2,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: aikp
-      POSTGRES_USER: aikp
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aikp_dev}
+      POSTGRES_DB: connapse
+      POSTGRES_USER: connapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-connapse_dev}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aikp -d aikp"]
+      test: ["CMD-SHELL", "pg_isready -U connapse -d connapse"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,8 +19,8 @@ services:
     image: minio/minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aikp_dev}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aikp_dev_secret}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-connapse_dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-connapse_dev_secret}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -47,10 +47,10 @@ services:
       - "5001:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=aikp;Username=aikp;Password=${POSTGRES_PASSWORD:-aikp_dev}"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse;Password=${POSTGRES_PASSWORD:-connapse_dev}"
       Knowledge__Storage__MinIO__Endpoint: "minio:9000"
-      Knowledge__Storage__MinIO__AccessKey: "${MINIO_ROOT_USER:-aikp_dev}"
-      Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD:-aikp_dev_secret}"
+      Knowledge__Storage__MinIO__AccessKey: "${MINIO_ROOT_USER:-connapse_dev}"
+      Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD:-connapse_dev_secret}"
       Knowledge__Storage__MinIO__UseSSL: "false"
       Knowledge__Embedding__BaseUrl: "http://ollama:11434"
     depends_on:

@@ -1,0 +1,114 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us diagnose and fix the issue.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting
+      options:
+        - label: I have searched existing issues to ensure this bug hasn't been reported
+          required: true
+        - label: I am using the latest version from the main branch
+          required: true
+        - label: I have read the [SECURITY.md](../../SECURITY.md) and understand this is pre-alpha software
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is
+      placeholder: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Start application with `docker-compose up`
+        2. Navigate to '...'
+        3. Click on '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: Describe the expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened (include error messages, stack traces, logs)
+      placeholder: Paste error messages, logs, or screenshots here
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: How are you running the application?
+      options:
+        - Docker Compose (recommended)
+        - Local development (dotnet run)
+        - Custom deployment
+        - Other (please specify in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version or commit hash are you using?
+      placeholder: e.g., v0.1.0-alpha or commit hash abc123
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What OS are you running on?
+      options:
+        - Windows
+        - macOS
+        - Linux (Ubuntu/Debian)
+        - Linux (other)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Please copy and paste any relevant log output
+      placeholder: Paste logs from `docker-compose logs` or application console
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here (screenshots, configuration files, etc.)
+      placeholder: Any additional information that might help diagnose the issue

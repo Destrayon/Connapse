@@ -1,0 +1,102 @@
+@using Connapse.Core
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Search Mode</label>
+            <InputSelect @bind-Value="localSettings.Mode" class="form-select">
+                <option value="Vector">Vector (Semantic)</option>
+                <option value="Keyword">Keyword (Full-Text)</option>
+                <option value="Hybrid">Hybrid (Vector + Keyword)</option>
+            </InputSelect>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Results per Query (TopK)</label>
+            <InputNumber @bind-Value="localSettings.TopK" class="form-control" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Reranker</label>
+            <InputSelect @bind-Value="localSettings.Reranker" class="form-select">
+                <option value="None">None</option>
+                <option value="RRF">RRF (Reciprocal Rank Fusion)</option>
+                <option value="CrossEncoder">Cross-Encoder</option>
+            </InputSelect>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">RRF K-value</label>
+            <InputNumber @bind-Value="localSettings.RrfK" class="form-control" />
+            <small class="form-text text-muted">For RRF fusion (typically 60)</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Vector Weight</label>
+            <InputNumber @bind-Value="localSettings.VectorWeight" class="form-control" step="0.1" min="0" max="1" />
+            <small class="form-text text-muted">For hybrid search (0.0-1.0)</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Minimum Score Threshold</label>
+            <InputNumber @bind-Value="localSettings.MinimumScore" class="form-control" step="0.1" min="0" max="1" />
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Cross-Encoder Model</label>
+            <InputText @bind-Value="localSettings.CrossEncoderModel" class="form-control" placeholder="Optional" />
+        </div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.EnableQueryExpansion" class="form-check-input" id="queryExpansion" />
+                <label class="form-check-label" for="queryExpansion">
+                    Enable Query Expansion
+                </label>
+            </div>
+
+            <div class="form-check mt-2">
+                <InputCheckbox @bind-Value="localSettings.IncludeWebSearch" class="form-check-input" id="includeWeb" />
+                <label class="form-check-label" for="includeWeb">
+                    Include Web Search Results
+                </label>
+            </div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public SearchSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<SearchSettings> OnSave { get; set; }
+
+    private SearchSettings localSettings = new();
+
+    protected override void OnParametersSet()
+    {
+        localSettings = Settings with { };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        localSettings = Settings with { };
+    }
+}

@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying AIKnowledgePlatform in various environments.
+This guide covers deploying ConnapsePlatform in various environments.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This guide covers deploying AIKnowledgePlatform in various environments.
 
 ## Quick Start (Docker Compose)
 
-The fastest way to run AIKnowledgePlatform with all dependencies.
+The fastest way to run ConnapsePlatform with all dependencies.
 
 ### Prerequisites
 
@@ -28,8 +28,8 @@ The fastest way to run AIKnowledgePlatform with all dependencies.
 
 1. **Clone the repository**:
 ```bash
-git clone https://github.com/yourorg/AIKnowledgePlatform.git
-cd AIKnowledgePlatform
+git clone https://github.com/yourorg/ConnapsePlatform.git
+cd ConnapsePlatform
 ```
 
 2. **Create environment file**:
@@ -106,15 +106,15 @@ docker compose up -d postgres minio ollama
 
 2. **Configure connection strings**:
 ```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=aikp;Username=aikp;Password=aikp_dev" --project src/AIKnowledge.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:Endpoint" "localhost:9000" --project src/AIKnowledge.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "aikp_dev" --project src/AIKnowledge.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "aikp_dev_secret" --project src/AIKnowledge.Web
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=aikp;Username=aikp;Password=aikp_dev" --project src/Connapse.Web
+dotnet user-secrets set "Knowledge:Storage:MinIO:Endpoint" "localhost:9000" --project src/Connapse.Web
+dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "aikp_dev" --project src/Connapse.Web
+dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "aikp_dev_secret" --project src/Connapse.Web
 ```
 
 3. **Run the application**:
 ```bash
-dotnet run --project src/AIKnowledge.Web
+dotnet run --project src/Connapse.Web
 ```
 
 4. **Open your browser**: https://localhost:5001
@@ -191,7 +191,7 @@ ollama list
 #### Run Application
 
 ```bash
-dotnet run --project src/AIKnowledge.Web
+dotnet run --project src/Connapse.Web
 ```
 
 ### Development Tools
@@ -214,11 +214,11 @@ dotnet test --filter "Category=Unit"
 dotnet test --filter "Category=Integration"
 
 # Watch mode (auto-rebuild on changes)
-dotnet watch --project src/AIKnowledge.Web
+dotnet watch --project src/Connapse.Web
 
 # EF Core migrations
-dotnet ef migrations add MigrationName --project src/AIKnowledge.Storage --startup-project src/AIKnowledge.Web
-dotnet ef database update --project src/AIKnowledge.Storage --startup-project src/AIKnowledge.Web
+dotnet ef migrations add MigrationName --project src/Connapse.Storage --startup-project src/Connapse.Web
+dotnet ef database update --project src/Connapse.Storage --startup-project src/Connapse.Web
 
 # Format code
 dotnet format
@@ -383,20 +383,20 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy project files
-COPY ["src/AIKnowledge.Web/AIKnowledge.Web.csproj", "AIKnowledge.Web/"]
-COPY ["src/AIKnowledge.Core/AIKnowledge.Core.csproj", "AIKnowledge.Core/"]
-COPY ["src/AIKnowledge.Ingestion/AIKnowledge.Ingestion.csproj", "AIKnowledge.Ingestion/"]
-COPY ["src/AIKnowledge.Search/AIKnowledge.Search.csproj", "AIKnowledge.Search/"]
-COPY ["src/AIKnowledge.Storage/AIKnowledge.Storage.csproj", "AIKnowledge.Storage/"]
+COPY ["src/Connapse.Web/Connapse.Web.csproj", "Connapse.Web/"]
+COPY ["src/Connapse.Core/Connapse.Core.csproj", "Connapse.Core/"]
+COPY ["src/Connapse.Ingestion/Connapse.Ingestion.csproj", "Connapse.Ingestion/"]
+COPY ["src/Connapse.Search/Connapse.Search.csproj", "Connapse.Search/"]
+COPY ["src/Connapse.Storage/Connapse.Storage.csproj", "Connapse.Storage/"]
 
 # Restore dependencies
-RUN dotnet restore "AIKnowledge.Web/AIKnowledge.Web.csproj"
+RUN dotnet restore "Connapse.Web/Connapse.Web.csproj"
 
 # Copy everything else
 COPY src/ .
 
 # Build and publish
-WORKDIR "/src/AIKnowledge.Web"
+WORKDIR "/src/Connapse.Web"
 RUN dotnet publish -c Release -o /app/publish --no-restore
 
 # Runtime stage
@@ -411,7 +411,7 @@ USER aikp
 COPY --from=build /app/publish .
 
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "AIKnowledge.Web.dll"]
+ENTRYPOINT ["dotnet", "Connapse.Web.dll"]
 ```
 
 **Build and push**:
@@ -831,7 +831,7 @@ Enable detailed logging:
   "Logging": {
     "LogLevel": {
       "Default": "Debug",
-      "AIKnowledge": "Trace",
+      "Connapse": "Trace",
       "Microsoft.AspNetCore": "Information"
     }
   }

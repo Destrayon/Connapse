@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
+    <Project Path="src/Connapse.CLI/Connapse.CLI.csproj" />
+    <Project Path="src/Connapse.Core/Connapse.Core.csproj" />
+    <Project Path="src/Connapse.Ingestion/Connapse.Ingestion.csproj" />
+    <Project Path="src/Connapse.Search/Connapse.Search.csproj" />
+    <Project Path="src/Connapse.Storage/Connapse.Storage.csproj" />
+    <Project Path="src/Connapse.Web/Connapse.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj" />
+    <Project Path="tests/Connapse.Ingestion.Tests/Connapse.Ingestion.Tests.csproj" />
+    <Project Path="tests/Connapse.Integration.Tests/Connapse.Integration.Tests.csproj" />
+  </Folder>
+</Solution>
