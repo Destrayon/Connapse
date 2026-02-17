@@ -96,7 +96,7 @@ public class PostgresContainerStore(
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);
 
-        logger.LogInformation("Deleted container {ContainerId} ({Name})", id, entity.Name);
+        logger.LogInformation("Deleted container {ContainerId} ({Name})", id, Sanitize(entity.Name));
         return true;
     }
 
