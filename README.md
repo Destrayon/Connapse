@@ -13,6 +13,14 @@
 
 ---
 
+## 🎬 Demo
+
+https://github.com/user-attachments/assets/db93c576-3a51-4b17-a56e-5b67ea8b847c
+
+> *Upload documents, search your knowledge base, and chat with your data — all in under 30 seconds.*
+
+---
+
 ## ⚠️ Security Notice
 
 **This project is in pre-alpha development (v0.1.0-alpha) and NOT production-ready.**
