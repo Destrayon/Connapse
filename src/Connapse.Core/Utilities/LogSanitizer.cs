@@ -9,7 +9,7 @@ public static class LogSanitizer
     public static string Sanitize(string? value)
     {
         if (string.IsNullOrEmpty(value))
-            return value ?? string.Empty;
+            return string.Empty;
 
         // Remove CR/LF and normalize other control characters to prevent log forging
         var sb = new System.Text.StringBuilder(value.Length);
