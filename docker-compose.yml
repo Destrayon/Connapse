@@ -5,8 +5,6 @@ services:
       POSTGRES_DB: connapse
       POSTGRES_USER: connapse
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-connapse_dev}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +12,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
 
   minio:
     image: minio/minio
@@ -21,9 +26,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-connapse_dev}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-connapse_dev_secret}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
       - miniodata:/data
     healthcheck:
@@ -31,22 +33,34 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
 
   ollama:
     image: ollama/ollama
-    ports:
-      - "11434:11434"
     volumes:
       - ollamadata:/root/.ollama
     profiles:
       - with-ollama
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
 
   web:
     build: .
     ports:
       - "5001:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse;Password=${POSTGRES_PASSWORD:-connapse_dev}"
       Knowledge__Storage__MinIO__Endpoint: "minio:9000"
       Knowledge__Storage__MinIO__AccessKey: "${MINIO_ROOT_USER:-connapse_dev}"
@@ -58,8 +72,23 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
 
 volumes:
   pgdata:
   miniodata:
   ollamadata:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true

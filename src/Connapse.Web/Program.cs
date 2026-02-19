@@ -66,6 +66,31 @@ builder.Services.Configure<WebSearchSettings>(
 builder.Services.Configure<StorageSettings>(
     builder.Configuration.GetSection("Knowledge:Storage"));
 
+// Add CORS policy — restrict to same-origin by default
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+        if (allowedOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        }
+        else
+        {
+            // Default: same-origin only (no cross-origin requests)
+            policy.SetIsOriginAllowed(origin =>
+                new Uri(origin).Host == "localhost" || new Uri(origin).Host == "127.0.0.1")
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        }
+    });
+});
+
 var app = builder.Build();
 
 // Apply pending migrations and ensure infrastructure is ready
@@ -88,6 +113,7 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
+app.UseCors();
 
 app.UseAntiforgery();
 
