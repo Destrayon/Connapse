@@ -181,40 +181,29 @@ See [docs/mcp-integration.md](docs/mcp-integration.md) for setup details.
 
 ## 🗺️ Roadmap
 
-### Current Status (v0.1.0-alpha)
+Connapse is pre-1.0. Major design work is tracked in [Discussions](https://github.com/Destrayon/Connapse/discussions).
+
+### Current (v0.1.0)
 - ✅ Document ingestion pipeline (PDF, Office, Markdown, text)
-- ✅ Hybrid search (vector + keyword)
+- ✅ Hybrid search (vector + keyword with RRF fusion)
 - ✅ Container-based file browser with folders
-- ✅ Web UI with real-time progress
-- ✅ REST API
-- ✅ CLI tool
-- ✅ MCP server for Claude Desktop
+- ✅ Web UI, REST API, CLI, MCP server
 - ✅ 171 passing tests
 
-### Next Release (v0.2.0 - Q2 2026)
-**Focus**: Production readiness and security
+### v0.2.0 — Security & Auth
+- Authentication (ASP.NET Core Identity, PAT, JWT) — [Issue #7](https://github.com/Destrayon/Connapse/issues/7)
+- Role-based access control (Admin, Editor, Viewer, Agent)
+- Rate limiting, CORS, audit logging
 
-- 🔐 **Authentication & Authorization**
-  - Password-based auth (ASP.NET Core Identity)
-  - API key support for CLI/MCP
-  - Role-based access control (Admin, User, Read-Only)
-- 🔒 **Security Enhancements**
-  - Rate limiting on all endpoints
-  - CORS configuration
-  - Audit logging
-  - Secure credential management
-- 📊 **Observability**
-  - Usage analytics
-  - Performance monitoring
-  - Health check endpoints
+### v0.3.0 — Connector Architecture
+- Pluggable connector system for multi-source search — [Design Discussion](https://github.com/Destrayon/Connapse/discussions/8)
+- Scope-based filtering (folders, channels, repos per connector)
+- Local filesystem and S3 connectors
 
-### Future Releases
-- **v0.3.0**: Multi-user workspaces and collaboration
-- **v0.4.0**: Advanced RAG features (reranking, query expansion)
-- **v0.5.0**: OAuth/SSO integration
+### Future
+- **v0.4.0**: Communication connectors (Slack, Discord)
+- **v0.5.0**: Knowledge platform connectors (Notion, Confluence, GitHub)
 - **v1.0.0**: Production-ready stable release
-
-See [docs/roadmap.md](docs/roadmap.md) for detailed feature planning.
 
 ---
 

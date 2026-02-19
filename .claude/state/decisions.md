@@ -4,6 +4,46 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-18 — Search Architecture: Connector + Scope + Query Model
+
+**Context**: Current search is scoped to single MinIO-backed containers with folder path filtering. Need a north-star architecture that supports searching across any data source (S3, Slack, Discord, Notion, GitHub, etc.) through a unified interface.
+
+**Decision**: Adopt a **Connector + Scope + Query** model where:
+- **Container** = any configured connector instance (MinIO bucket, Slack server, S3 bucket, etc.)
+- **Scope** = connector-specific recursive filters (folders, channels, repos) within a container
+- **Query** = one search query applied across a list of container+scope pairs
+
+**Design**: Published as [GitHub Discussion #8](https://github.com/Destrayon/Connapse/discussions/8).
+
+**Key Principles**:
+- Current container system becomes the first connector type (no breaking changes)
+- Connectors are pluggable via `IConnector` interface
+- Scopes are connector-specific (folders for filesystems, channels for Slack, etc.)
+- RBAC attaches naturally at scope level (ties into security model from issue #7)
+- Cross-container results merged via existing RRF/CrossEncoder pipeline
+
+**Implementation**: Incremental — Phase 0 (current) is complete. Phase 1 abstracts the connector interface. Phases 2-5 add connector types.
+
+**Consequences**:
+- All future search API design must respect the container+scope model
+- Auth/RBAC design (issue #7) should include scope-level permissions from the start
+- Connector interface must accommodate read-only (Slack) and read-write (S3) sources
+
+---
+
+### 2026-02-18 — Versioning Strategy (SemVer, Pre-1.0)
+
+**Context**: Project had no formal version tagging. Issue #7 referenced v0.2.0, v0.3.0 etc. without an established baseline.
+
+**Decision**: Use Semantic Versioning (SemVer). Tag current state as `v0.1.0`. Pre-1.0 convention:
+- `0.x.0` = feature milestones (0.1.0 = current, 0.2.0 = auth, 0.3.0 = OIDC/connectors)
+- `0.x.y` = patches/fixes within a milestone
+- `1.0.0` = production-ready public release
+
+**Consequences**: All releases get git tags. README and SECURITY.md already reference v0.1.0-alpha.
+
+---
+
 ### 2026-02-08 — Open Source + Commercial Hosting Business Model
 
 **Context**: Project features are complete (Feature #1 and #2, 171 passing tests). Need to decide on licensing, public release strategy, and business model.

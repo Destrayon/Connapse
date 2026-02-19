@@ -1,0 +1,20 @@
+# Development overrides — exposes service ports for local debugging.
+# Docker Compose loads this automatically alongside docker-compose.yml.
+# For production, use: docker compose -f docker-compose.yml up
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  ollama:
+    ports:
+      - "11434:11434"
+
+  web:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
