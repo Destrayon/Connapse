@@ -6,6 +6,7 @@
     <ProjectReference Include="..\Connapse.Search\Connapse.Search.csproj" />
     <ProjectReference Include="..\Connapse.Agents\Connapse.Agents.csproj" />
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
+    <ProjectReference Include="..\Connapse.Identity\Connapse.Identity.csproj" />
   </ItemGroup>
 
   <ItemGroup>

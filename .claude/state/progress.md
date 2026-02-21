@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-18)
+## Current Status (2026-02-21)
 
 ### Completed Features
 
@@ -35,15 +35,15 @@ Current status and recent work. Update at end of each session. For detailed impl
 - 53 ingestion unit tests
 - 40 integration tests (containers, folders, files, search isolation, cascade deletes, ingestion, reindex)
 - **171 total tests**
-- All 10 projects build with 0 errors
+- All 11 projects build with 0 errors (10 existing + Identity)
 
-### In Progress (2026-02-20)
+### In Progress (2026-02-21)
 
 **v0.2.0 Security & Auth** — Full plan at [docs/v0.2.0-plan.md](../../docs/v0.2.0-plan.md)
 
 | Session | Phases | Status |
 |---------|--------|--------|
-| A | 1-2: Identity project + EF migration | Pending |
+| A | 1-2: Identity project + EF migration | **COMPLETE** |
 | B | 3: Cookie auth + Blazor wiring | Pending |
 | C | 4-5: PAT + JWT systems | Pending |
 | D | 6: RBAC + endpoint protection | Pending |
@@ -71,6 +71,21 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-21 (Session 8) — v0.2.0 Session A: Identity Project + EF Migration
+- Created `src/Connapse.Identity/` project (Phases 1-2 complete)
+- Entities: ConnapseUser, ConnapseRole, PersonalAccessTokenEntity, RefreshTokenEntity, AuditLogEntity
+- ConnapseIdentityDbContext with full snake_case table/column mapping, separate migration history
+- Core additions: IAuditLogger interface, AuthModels DTOs (LoginRequest, TokenResponse, PatCreateResponse, etc.)
+- ApiKeyAuthenticationHandler: SHA-256 hash lookup, scope claims, fire-and-forget last_used_at update
+- ScopeAuthorizationHandler: role-to-scope mapping (Admin→all, Editor→read+write, Viewer→read, Agent→read+ingest)
+- Services: PatService (cnp_ token generation), JwtTokenService (HS256, refresh rotation), AdminSeedService (env var seed), AuditLogger
+- IdentityServiceExtensions: AddConnapseIdentity(), AddConnapseAuthentication() (multi-scheme: Cookie+ApiKey+JWT), AddConnapseAuthorization()
+- Program.cs: Identity services registered, auth middleware added, DbContext migration + admin seed on startup
+- EF migration generated: 10 tables (users, roles, user_roles, user_claims, role_claims, user_logins, user_tokens, personal_access_tokens, refresh_tokens, audit_logs)
+- appsettings.json: Identity config section added
+- All 11 projects build with 0 errors, 0 warnings
+- **No auth enforced yet** — that comes in Session D (Phase 6)
 
 ### 2026-02-18 (Session 7) — Roadmap, Versioning, Search Architecture Design
 - Cleaned up progress.md (collapsed completed feature details)

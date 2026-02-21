@@ -1,4 +1,7 @@
 using Connapse.Core;
+using Connapse.Identity;
+using Connapse.Identity.Data;
+using Connapse.Identity.Services;
 using Connapse.Ingestion.Extensions;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Search.Extensions;
@@ -50,6 +53,11 @@ builder.Services.AddDocumentIngestion();
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
 
+// Add Identity, authentication, and authorization
+builder.Services.AddConnapseIdentity(builder.Configuration);
+builder.Services.AddConnapseAuthentication(builder.Configuration);
+builder.Services.AddConnapseAuthorization();
+
 // Configure settings with IOptionsMonitor for live reload
 builder.Services.Configure<EmbeddingSettings>(
     builder.Configuration.GetSection("Knowledge:Embedding"));
@@ -99,6 +107,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
     await db.Database.MigrateAsync();
 
+    // Migrate Identity tables (separate migration history)
+    var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+    await identityDb.Database.MigrateAsync();
+
+    // Seed default roles and admin user
+    var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
+    await adminSeed.SeedAsync();
+
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)
         await minio.EnsureBucketExistsAsync();
@@ -114,6 +130,9 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseAntiforgery();
 

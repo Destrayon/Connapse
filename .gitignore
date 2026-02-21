@@ -27,6 +27,7 @@ secrets.json
 *.db-wal
 uploads/
 knowledge-data/
+appdata/
 
 # Logs
 logs/
