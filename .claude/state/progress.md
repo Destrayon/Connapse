@@ -37,11 +37,30 @@ Current status and recent work. Update at end of each session. For detailed impl
 - **171 total tests**
 - All 10 projects build with 0 errors
 
-### In Progress (2026-02-18)
-- Establishing versioning (v0.1.0 tag)
+### In Progress (2026-02-20)
+
+**v0.2.0 Security & Auth** — Full plan at [docs/v0.2.0-plan.md](../../docs/v0.2.0-plan.md)
+
+| Session | Phases | Status |
+|---------|--------|--------|
+| A | 1-2: Identity project + EF migration | Pending |
+| B | 3: Cookie auth + Blazor wiring | Pending |
+| C | 4-5: PAT + JWT systems | Pending |
+| D | 6: RBAC + endpoint protection | Pending |
+| E | 7-8: Rate limiting, audit, UI pages | Pending |
+| F | 9: CLI updates | Pending |
+| G | 10-11: Testing + deployment | Pending |
+
+Key decisions made:
+- Three-tier auth: Cookie + PAT + JWT (HS256, migrate to RS256 in v0.3.0)
+- New Connapse.Identity project (separate DbContext, shared DB)
+- Admin seed via env vars, minimal UI
+- JWT for future SDK clients (60-90 min tokens)
+
+### Completed (2026-02-18)
+- Established versioning (v0.1.0 tag)
 - Search architecture design: Connector + Scope + Query model (see GitHub Discussions)
 - Security quick wins from issue #7
-- Security model planning (Identity + PAT + JWT, see [issue #7](https://github.com/Destrayon/Connapse/issues/7))
 
 ---
 
