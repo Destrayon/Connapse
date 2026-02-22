@@ -44,7 +44,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 | Session | Phases | Status |
 |---------|--------|--------|
 | A | 1-2: Identity project + EF migration | **COMPLETE** |
-| B | 3: Cookie auth + Blazor wiring | Pending |
+| B | 3: Cookie auth + Blazor wiring + MapIdentityApi | **COMPLETE** |
 | C | 4-5: PAT + JWT systems | Pending |
 | D | 6: RBAC + endpoint protection | Pending |
 | E | 7-8: Rate limiting, audit, UI pages | Pending |
@@ -56,6 +56,7 @@ Key decisions made:
 - New Connapse.Identity project (separate DbContext, shared DB)
 - Admin seed via env vars, minimal UI
 - JWT for future SDK clients (60-90 min tokens)
+- **NEW (Session B)**: Maximize built-in ASP.NET Core Identity; use `MapIdentityApi` for standard endpoints, hand-roll only PAT/JWT/admin
 
 ### Completed (2026-02-18)
 - Established versioning (v0.1.0 tag)
@@ -71,6 +72,25 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-21 (Session 9) — v0.2.0 Session B: Cookie Auth + Blazor Wiring + MapIdentityApi
+- **Architectural Decision**: Maximize built-in ASP.NET Core Identity features; use `MapIdentityApi` for standard auth endpoints (documented in decisions.md)
+- Added `.AddApiEndpoints()` to IdentityServiceExtensions for built-in endpoint support
+- Added `AddCascadingAuthenticationState()` + `MapIdentityApi<ConnapseUser>()` at `/api/v1/identity/` (10 built-in endpoints: register, login, refresh, 2FA, password reset, etc.)
+- Replaced `<RouteView>` with `<AuthorizeRouteView>` in Routes.razor (redirects unauthenticated to /login)
+- Created static SSR auth pages (Login, Register, Logout, AccessDenied) — no `@rendermode` to avoid SignalR chicken-and-egg
+- Login uses `SignInManager.PasswordSignInAsync()` directly (standard Blazor Server pattern)
+- Register uses `UserManager.CreateAsync()`, assigns Viewer role, auto-signs-in
+- Logout is POST-only (CSRF-safe via antiforgery token)
+- Created AuthLayout (centered card, no sidebar) for auth pages
+- Created RedirectToLogin/RedirectToAccessDenied helper components with `forceLoad: true`
+- Added `@attribute [Authorize]` to Home, Search, Settings, FileBrowser pages
+- Updated NavMenu with `<AuthorizeView>`: shows nav links + user info + logout when authenticated, login link when not
+- Added auth usings to `_Imports.razor` (`Microsoft.AspNetCore.Authorization`, `Microsoft.AspNetCore.Components.Authorization`)
+- Register respects `Identity:AllowRegistration` config flag
+- All 11 projects build with 0 errors, 0 warnings
+- 129 unit tests passing (77 core + 52 ingestion)
+- **Auth is now enforced on Blazor UI** — no auth on API endpoints yet (Session D)
 
 ### 2026-02-21 (Session 8) — v0.2.0 Session A: Identity Project + EF Migration
 - Created `src/Connapse.Identity/` project (Phases 1-2 complete)

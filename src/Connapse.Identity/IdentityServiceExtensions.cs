@@ -34,7 +34,7 @@ public static class IdentityServiceExtensions
             options.UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Identity")));
 
-        // Register ASP.NET Core Identity
+        // Register ASP.NET Core Identity with API endpoint support
         services.AddIdentity<ConnapseUser, ConnapseRole>(options =>
             {
                 options.Password.RequireDigit = true;
@@ -46,7 +46,8 @@ public static class IdentityServiceExtensions
                 options.SignIn.RequireConfirmedEmail = false;
             })
             .AddEntityFrameworkStores<ConnapseIdentityDbContext>()
-            .AddDefaultTokenProviders();
+            .AddDefaultTokenProviders()
+            .AddApiEndpoints();
 
         // Register services
         services.AddScoped<PatService>();

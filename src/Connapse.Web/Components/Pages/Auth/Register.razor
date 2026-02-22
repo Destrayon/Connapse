@@ -1,0 +1,147 @@
+@page "/register"
+@layout AuthLayout
+@using Microsoft.AspNetCore.Identity
+@using Connapse.Identity.Data.Entities
+@attribute [AllowAnonymous]
+
+<PageTitle>Register - Connapse</PageTitle>
+
+<div class="auth-card">
+    <div class="auth-header">
+        <h1>Connapse</h1>
+        <p class="text-muted">Create your account</p>
+    </div>
+
+    @if (!allowRegistration)
+    {
+        <div class="alert alert-warning">Registration is currently disabled by the administrator.</div>
+        <div class="mt-3 text-center">
+            <a href="/login">Back to login</a>
+        </div>
+    }
+    else
+    {
+        @if (validationErrors.Count > 0)
+        {
+            <div class="alert alert-danger">
+                <ul class="mb-0">
+                    @foreach (var error in validationErrors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        <form method="post" @formname="register">
+            <AntiforgeryToken />
+            <div class="mb-3">
+                <label for="displayName" class="form-label">Display Name</label>
+                <input type="text" class="form-control" id="displayName" name="Input.DisplayName"
+                       value="@(Input?.DisplayName)" autocomplete="name" />
+            </div>
+            <div class="mb-3">
+                <label for="email" class="form-label">Email</label>
+                <input type="email" class="form-control" id="email" name="Input.Email"
+                       value="@(Input?.Email)" required autocomplete="username" />
+            </div>
+            <div class="mb-3">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" class="form-control" id="password" name="Input.Password"
+                       required autocomplete="new-password" />
+            </div>
+            <div class="mb-3">
+                <label for="confirmPassword" class="form-label">Confirm Password</label>
+                <input type="password" class="form-control" id="confirmPassword" name="Input.ConfirmPassword"
+                       required autocomplete="new-password" />
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Register</button>
+        </form>
+
+        <div class="mt-3 text-center">
+            <a href="/login">Already have an account? Sign in</a>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private RegisterInputModel? Input { get; set; }
+
+    [Inject] private UserManager<ConnapseUser> UserManager { get; set; } = default!;
+    [Inject] private SignInManager<ConnapseUser> SignInManager { get; set; } = default!;
+    [Inject] private IConfiguration Configuration { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    private List<string> validationErrors = new();
+    private bool allowRegistration;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        allowRegistration = Configuration.GetValue("Identity:AllowRegistration", true);
+
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            NavigationManager.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        if (HttpMethods.IsPost(HttpContext.Request.Method) && allowRegistration)
+        {
+            await HandleRegisterAsync();
+        }
+    }
+
+    private async Task HandleRegisterAsync()
+    {
+        validationErrors.Clear();
+
+        if (Input is null)
+            return;
+
+        if (Input.Password != Input.ConfirmPassword)
+        {
+            validationErrors.Add("Passwords do not match.");
+            return;
+        }
+
+        var user = new ConnapseUser
+        {
+            UserName = Input.Email,
+            Email = Input.Email,
+            DisplayName = string.IsNullOrWhiteSpace(Input.DisplayName) ? null : Input.DisplayName,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (result.Succeeded)
+        {
+            // Assign default Viewer role
+            await UserManager.AddToRoleAsync(user, "Viewer");
+
+            // Auto-login after registration
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            NavigationManager.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+            {
+                validationErrors.Add(error.Description);
+            }
+        }
+    }
+
+    private sealed class RegisterInputModel
+    {
+        public string DisplayName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

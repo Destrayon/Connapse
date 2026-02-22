@@ -1,5 +1,6 @@
 @page "/containers/{ContainerId}"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @using Microsoft.AspNetCore.SignalR.Client
 @using Connapse.Core
 @inject IHttpClientFactory HttpClientFactory

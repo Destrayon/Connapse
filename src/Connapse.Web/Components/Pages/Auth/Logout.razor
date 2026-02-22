@@ -1,0 +1,28 @@
+@page "/logout"
+@layout AuthLayout
+@using Microsoft.AspNetCore.Identity
+@using Connapse.Identity.Data.Entities
+@attribute [AllowAnonymous]
+
+<PageTitle>Logout - Connapse</PageTitle>
+
+<form @formname="logout" method="post" @onsubmit="OnSubmit">
+    <AntiforgeryToken />
+</form>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [Inject] private SignInManager<ConnapseUser> SignInManager { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private bool LogoutSubmitted { get; set; }
+
+    private async Task OnSubmit()
+    {
+        await SignInManager.SignOutAsync();
+        NavigationManager.NavigateTo("/login", forceLoad: true);
+    }
+}

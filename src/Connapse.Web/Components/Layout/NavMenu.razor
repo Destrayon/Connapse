@@ -7,23 +7,54 @@
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="nav-icon bi-folder-fill" aria-hidden="true"></span> Files
-            </NavLink>
-        </div>
+    <AuthorizeView>
+        <Authorized>
+            <nav class="nav flex-column">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                        <span class="nav-icon bi-folder-fill" aria-hidden="true"></span> Files
+                    </NavLink>
+                </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="search">
-                <span class="nav-icon bi-search" aria-hidden="true"></span> Search
-            </NavLink>
-        </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="search">
+                        <span class="nav-icon bi-search" aria-hidden="true"></span> Search
+                    </NavLink>
+                </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="settings">
-                <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
-            </NavLink>
-        </div>
-    </nav>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="settings">
+                        <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
+                    </NavLink>
+                </div>
+            </nav>
+
+            <nav class="nav flex-column nav-bottom">
+                <div class="nav-separator"></div>
+                <div class="nav-item px-3">
+                    <div class="nav-user-info">
+                        <span class="nav-icon bi-person-fill" aria-hidden="true"></span>
+                        <span class="text-muted small">@context.User.Identity?.Name</span>
+                    </div>
+                </div>
+                <div class="nav-item px-3">
+                    <form method="post" action="/logout" @formname="logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-link nav-logout-btn">
+                            <span class="nav-icon bi-box-arrow-left" aria-hidden="true"></span> Logout
+                        </button>
+                    </form>
+                </div>
+            </nav>
+        </Authorized>
+        <NotAuthorized>
+            <nav class="nav flex-column">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="login">
+                        <span class="nav-icon bi-box-arrow-in-right" aria-hidden="true"></span> Login
+                    </NavLink>
+                </div>
+            </nav>
+        </NotAuthorized>
+    </AuthorizeView>
 </div>

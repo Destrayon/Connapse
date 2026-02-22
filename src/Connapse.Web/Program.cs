@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Identity;
 using Connapse.Identity.Data;
+using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using Connapse.Ingestion.Extensions;
 using Connapse.Ingestion.Pipeline;
@@ -57,6 +58,9 @@ builder.Services.AddKnowledgeSearch();
 builder.Services.AddConnapseIdentity(builder.Configuration);
 builder.Services.AddConnapseAuthentication(builder.Configuration);
 builder.Services.AddConnapseAuthorization();
+
+// Provide auth state to Blazor components via cascading parameter
+builder.Services.AddCascadingAuthenticationState();
 
 // Configure settings with IOptionsMonitor for live reload
 builder.Services.Configure<EmbeddingSettings>(
@@ -148,6 +152,10 @@ app.MapSearchEndpoints();
 app.MapBatchesEndpoints();
 app.MapSettingsEndpoints();
 app.MapMcpEndpoints();
+
+// Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
+app.MapGroup("/api/v1/identity")
+    .MapIdentityApi<ConnapseUser>();
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");
