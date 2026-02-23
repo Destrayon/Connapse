@@ -1,10 +1,13 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Connapse.Web.Hubs;
 
 /// <summary>
 /// SignalR hub for real-time ingestion progress updates.
+/// Requires authentication — connect with cookie (Blazor UI) or ?access_token= (JWT clients).
 /// </summary>
+[Authorize]
 public class IngestionHub : Hub
 {
     /// <summary>

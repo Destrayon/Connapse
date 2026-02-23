@@ -16,9 +16,30 @@ using Connapse.Web.Hubs;
 using Connapse.Web.Mcp;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Persist Data Protection keys to the appdata volume so they survive container restarts.
+// In dev this lands in <ContentRoot>/appdata/DataProtection-Keys; in the container it
+// maps to /app/appdata/DataProtection-Keys which is on the named 'appdata' Docker volume.
+var dpKeysDir = new DirectoryInfo(
+    Path.Combine(builder.Environment.ContentRootPath, "appdata", "DataProtection-Keys"));
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(dpKeysDir)
+    .SetApplicationName("Connapse");
+
+// Support running behind a reverse proxy (e.g. nginx, Caddy, Traefik).
+// This makes UseHttpsRedirection a no-op when the proxy already terminated TLS.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Allow any proxy/network — restrict this if your proxy IPs are known
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Add database-backed settings (overrides appsettings.json)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -132,6 +153,7 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors();
 
@@ -145,6 +167,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 // Map API endpoints
+app.MapAuthEndpoints();
 app.MapContainersEndpoints();
 app.MapDocumentsEndpoints();
 app.MapFoldersEndpoints();

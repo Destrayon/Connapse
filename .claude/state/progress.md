@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-21)
+## Current Status (2026-02-22)
 
 ### Completed Features
 
@@ -37,7 +37,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 - **171 total tests**
 - All 11 projects build with 0 errors (10 existing + Identity)
 
-### In Progress (2026-02-22)
+### Next Up
 
 **v0.2.0 Security & Auth** — Full plan at [docs/v0.2.0-plan.md](../../docs/v0.2.0-plan.md)
 
@@ -46,7 +46,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 | A | 1-2: Identity project + EF migration | **COMPLETE** |
 | B | 3: Cookie auth + Blazor wiring + MapIdentityApi | **COMPLETE** |
 | B2 | Invite-only registration system | **COMPLETE** |
-| C | 4-5: PAT + JWT systems | Pending |
+| C | 4-5: PAT + JWT systems | **COMPLETE** |
 | D | 6: RBAC + endpoint protection | Pending |
 | E | 7-8: Rate limiting, audit, UI pages | Pending |
 | F | 9: CLI updates | Pending |
@@ -74,6 +74,21 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-22 (Session 11) — v0.2.0 Session C: PAT + JWT Auth Endpoints
+
+- Created `src/Connapse.Web/Endpoints/AuthEndpoints.cs` (7 routes under `/api/v1/auth`):
+  - `POST /token` — email+password → JWT TokenResponse (anonymous, updates LastLoginAt, audit log)
+  - `POST /token/refresh` — rotate refresh token → new token pair (anonymous)
+  - `GET /pats` — list authenticated user's PATs (RequireAuthorization)
+  - `POST /pats` — create PAT, returns raw token once (RequireAuthorization)
+  - `DELETE /pats/{id}` — revoke PAT by ID (RequireAuthorization)
+  - `GET /users` — list all users with roles (RequireAdmin policy)
+  - `PUT /users/{id}/roles` — assign roles; Owner role protected from removal/assignment (RequireAdmin policy)
+- Added `[Authorize]` to `IngestionHub` — connections require cookie or `?access_token=` JWT (already configured in IdentityServiceExtensions)
+- Registered `app.MapAuthEndpoints()` in Program.cs
+- All 11 projects build with 0 errors, 0 warnings
+- Note: The underlying PAT/JWT services (PatService, JwtTokenService, ITokenService) and SignalR JWT query-string support were already implemented in Sessions A/B
 
 ### 2026-02-22 (Session 10) — v0.2.0 Session B2: Invite-Only Registration System
 - Replaced open registration with invite-only model
