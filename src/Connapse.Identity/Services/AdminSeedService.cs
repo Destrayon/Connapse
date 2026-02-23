@@ -11,10 +11,11 @@ public class AdminSeedService(
     IConfiguration configuration,
     ILogger<AdminSeedService> logger)
 {
-    public static readonly string[] DefaultRoles = ["Admin", "Editor", "Viewer", "Agent"];
+    public static readonly string[] DefaultRoles = ["Owner", "Admin", "Editor", "Viewer", "Agent"];
 
     private static readonly Dictionary<string, string> RoleDescriptions = new()
     {
+        ["Owner"] = "Instance owner with full control including admin management",
         ["Admin"] = "Full system access including user management and settings",
         ["Editor"] = "Can read and write knowledge (upload, delete, organize)",
         ["Viewer"] = "Read-only access to knowledge and search",
@@ -24,7 +25,7 @@ public class AdminSeedService(
     public async Task SeedAsync()
     {
         await SeedRolesAsync();
-        await SeedAdminUserAsync();
+        await SeedOwnerUserAsync();
     }
 
     private async Task SeedRolesAsync()
@@ -50,7 +51,7 @@ public class AdminSeedService(
         }
     }
 
-    private async Task SeedAdminUserAsync()
+    private async Task SeedOwnerUserAsync()
     {
         var adminEmail = configuration["CONNAPSE_ADMIN_EMAIL"];
         var adminPassword = configuration["CONNAPSE_ADMIN_PASSWORD"];
@@ -58,14 +59,19 @@ public class AdminSeedService(
         if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword))
         {
             logger.LogInformation(
-                "Admin seed skipped: CONNAPSE_ADMIN_EMAIL and CONNAPSE_ADMIN_PASSWORD environment variables not set");
+                "Owner seed skipped: CONNAPSE_ADMIN_EMAIL and CONNAPSE_ADMIN_PASSWORD environment variables not set");
             return;
         }
 
         var existingUser = await userManager.FindByEmailAsync(adminEmail);
         if (existingUser is not null)
         {
-            // Ensure existing user has Admin role
+            // Ensure existing user has Owner and Admin roles
+            if (!await userManager.IsInRoleAsync(existingUser, "Owner"))
+            {
+                await userManager.AddToRoleAsync(existingUser, "Owner");
+                logger.LogInformation("Added Owner role to existing user: {Email}", adminEmail);
+            }
             if (!await userManager.IsInRoleAsync(existingUser, "Admin"))
             {
                 await userManager.AddToRoleAsync(existingUser, "Admin");
@@ -74,29 +80,30 @@ public class AdminSeedService(
             return;
         }
 
-        var adminUser = new ConnapseUser
+        var ownerUser = new ConnapseUser
         {
             UserName = adminEmail,
             Email = adminEmail,
             EmailConfirmed = true,
-            DisplayName = "System Admin",
+            DisplayName = "Instance Owner",
             IsSystemAdmin = true,
             CreatedAt = DateTime.UtcNow,
         };
 
-        var createResult = await userManager.CreateAsync(adminUser, adminPassword);
+        var createResult = await userManager.CreateAsync(ownerUser, adminPassword);
         if (!createResult.Succeeded)
         {
-            logger.LogError("Failed to create admin user: {Errors}",
+            logger.LogError("Failed to create owner user: {Errors}",
                 string.Join(", ", createResult.Errors.Select(e => e.Description)));
             return;
         }
 
-        var roleResult = await userManager.AddToRoleAsync(adminUser, "Admin");
+        await userManager.AddToRoleAsync(ownerUser, "Owner");
+        var roleResult = await userManager.AddToRoleAsync(ownerUser, "Admin");
         if (roleResult.Succeeded)
-            logger.LogInformation("Created admin user: {Email}", adminEmail);
+            logger.LogInformation("Created owner user: {Email}", adminEmail);
         else
-            logger.LogError("Failed to assign Admin role to {Email}: {Errors}", adminEmail,
+            logger.LogError("Failed to assign roles to {Email}: {Errors}", adminEmail,
                 string.Join(", ", roleResult.Errors.Select(e => e.Description)));
     }
 }

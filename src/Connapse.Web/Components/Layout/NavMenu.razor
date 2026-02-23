@@ -27,6 +27,14 @@
                         <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
                     </NavLink>
                 </div>
+
+                <AuthorizeView Roles="Admin" Context="adminContext">
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/users">
+                            <span class="nav-icon bi-people-fill" aria-hidden="true"></span> Users
+                        </NavLink>
+                    </div>
+                </AuthorizeView>
             </nav>
 
             <nav class="nav flex-column nav-bottom">
@@ -34,7 +42,7 @@
                 <div class="nav-item px-3">
                     <div class="nav-user-info">
                         <span class="nav-icon bi-person-fill" aria-hidden="true"></span>
-                        <span class="text-muted small">@context.User.Identity?.Name</span>
+                        <span class="text-muted small">@(context.User.FindFirst("DisplayName")?.Value ?? context.User.Identity?.Name)</span>
                     </div>
                 </div>
                 <div class="nav-item px-3">

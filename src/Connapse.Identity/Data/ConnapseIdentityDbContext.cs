@@ -13,6 +13,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<PersonalAccessTokenEntity> PersonalAccessTokens => Set<PersonalAccessTokenEntity>();
     public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
     public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
+    public DbSet<UserInvitation> UserInvitations => Set<UserInvitation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -22,6 +23,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigurePersonalAccessTokens(modelBuilder);
         ConfigureRefreshTokens(modelBuilder);
         ConfigureAuditLogs(modelBuilder);
+        ConfigureUserInvitations(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -52,6 +54,11 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
             entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
             entity.Property(e => e.IsSystemAdmin).HasColumnName("is_system_admin").HasDefaultValue(false);
+
+            entity.HasIndex(e => e.DisplayName)
+                .HasDatabaseName("ix_users_display_name")
+                .IsUnique()
+                .HasFilter("display_name IS NOT NULL");
         });
 
         modelBuilder.Entity<ConnapseRole>(entity =>
@@ -272,6 +279,66 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.HasOne(e => e.User)
                 .WithMany(u => u.AuditLogs)
                 .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+
+    private static void ConfigureUserInvitations(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserInvitation>(entity =>
+        {
+            entity.ToTable("user_invitations");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.Email)
+                .HasColumnName("email")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.Role)
+                .HasColumnName("role")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.TokenHash)
+                .HasColumnName("token_hash")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.CreatedByUserId)
+                .HasColumnName("created_by_user_id")
+                .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnName("expires_at")
+                .IsRequired();
+
+            entity.Property(e => e.AcceptedAt)
+                .HasColumnName("accepted_at");
+
+            entity.Property(e => e.AcceptedByUserId)
+                .HasColumnName("accepted_by_user_id");
+
+            entity.HasIndex(e => e.TokenHash)
+                .HasDatabaseName("ix_user_invitations_token_hash")
+                .IsUnique();
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.AcceptedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.AcceptedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
     }

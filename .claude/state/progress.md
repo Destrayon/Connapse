@@ -37,7 +37,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 - **171 total tests**
 - All 11 projects build with 0 errors (10 existing + Identity)
 
-### In Progress (2026-02-21)
+### In Progress (2026-02-22)
 
 **v0.2.0 Security & Auth** — Full plan at [docs/v0.2.0-plan.md](../../docs/v0.2.0-plan.md)
 
@@ -45,6 +45,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 |---------|--------|--------|
 | A | 1-2: Identity project + EF migration | **COMPLETE** |
 | B | 3: Cookie auth + Blazor wiring + MapIdentityApi | **COMPLETE** |
+| B2 | Invite-only registration system | **COMPLETE** |
 | C | 4-5: PAT + JWT systems | Pending |
 | D | 6: RBAC + endpoint protection | Pending |
 | E | 7-8: Rate limiting, audit, UI pages | Pending |
@@ -57,6 +58,7 @@ Key decisions made:
 - Admin seed via env vars, minimal UI
 - JWT for future SDK clients (60-90 min tokens)
 - **NEW (Session B)**: Maximize built-in ASP.NET Core Identity; use `MapIdentityApi` for standard endpoints, hand-roll only PAT/JWT/admin
+- **NEW (Session B2)**: Invite-only registration — first user becomes admin via setup page, all subsequent users must be invited by admin
 
 ### Completed (2026-02-18)
 - Established versioning (v0.1.0 tag)
@@ -72,6 +74,19 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-22 (Session 10) — v0.2.0 Session B2: Invite-Only Registration System
+- Replaced open registration with invite-only model
+- First-user setup: Login page detects no users → shows admin account creation form (IsSystemAdmin + Admin role)
+- UserInvitation entity + EF migration (user_invitations table with token_hash, email, role, expiry)
+- InviteService: create/validate/accept/list/revoke invitations (SHA-256 hashed tokens, 7-day expiry)
+- Register page (/register) now requires `?token=` query param → validates invite → creates account with assigned role
+- Admin UserManagement page (/admin/users): invite users, view pending invites (revoke), list all users
+- Invite links auto-generated using NavigationManager.BaseUri
+- NavMenu: "Users" link visible only to Admin role
+- Blocked public API registration (MapIdentityApi /register returns 403)
+- Removed `Identity:AllowRegistration` config flag (no longer needed)
+- All projects build with 0 errors
 
 ### 2026-02-21 (Session 9) — v0.2.0 Session B: Cookie Auth + Blazor Wiring + MapIdentityApi
 - **Architectural Decision**: Maximize built-in ASP.NET Core Identity features; use `MapIdentityApi` for standard auth endpoints (documented in decisions.md)

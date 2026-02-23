@@ -4,6 +4,30 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-22 — Invite-Only Registration Model
+
+**Context**: Open registration (`Identity:AllowRegistration`) allows anyone to create an account. For a knowledge management platform, the admin should control who has access.
+
+**Decision**: Replace open registration with an invite-only system:
+1. **First-user setup**: If no users exist, the login page shows a setup form. The first user becomes admin (`IsSystemAdmin = true`, Admin role).
+2. **Admin invites**: Admins create invitations via `/admin/users` page. Each invite generates a unique token-based link (SHA-256 hashed, 7-day expiry).
+3. **Invite acceptance**: Invited users visit `/register?token=...` to set their password and create their account with the admin-assigned role.
+4. **No public registration**: The `/register` page requires a valid token. The MapIdentityApi `POST /register` endpoint returns 403.
+
+**Alternatives**:
+- Option A: Keep open registration with config flag — too permissive for multi-user knowledge platform
+- Option B: Invite-only with admin-generated links (chosen) — admin controls access, simple UX
+- Option C: Approval queue (user registers, admin approves) — more complex, user waits in limbo
+
+**Consequences**:
+- New `user_invitations` table (EF migration)
+- `InviteService` handles token generation, validation, acceptance, revocation
+- Admin can choose role (Viewer/Editor/Agent/Admin) at invite time
+- `Identity:AllowRegistration` config removed
+- Environment-variable admin seeding still works for initial deployment (before first-user setup)
+
+---
+
 ### 2026-02-21 — Auth Strategy: Maximize Built-In ASP.NET Core Identity, Minimize Hand-Rolled Code
 
 **Context**: v0.2.0 Session A created `Connapse.Identity` with custom services for JWT, PAT, audit logging, and scope-based authorization. Before building the login/register/token endpoints (Sessions B-C), we need to decide how much to rely on built-in ASP.NET Core Identity features vs hand-rolling.

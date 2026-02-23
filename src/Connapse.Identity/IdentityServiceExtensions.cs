@@ -46,6 +46,7 @@ public static class IdentityServiceExtensions
                 options.SignIn.RequireConfirmedEmail = false;
             })
             .AddEntityFrameworkStores<ConnapseIdentityDbContext>()
+            .AddClaimsPrincipalFactory<ConnapseUserClaimsPrincipalFactory>()
             .AddDefaultTokenProviders()
             .AddApiEndpoints();
 
@@ -53,6 +54,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<PatService>();
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<AdminSeedService>();
+        services.AddScoped<InviteService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddHttpContextAccessor();
 
@@ -173,20 +175,24 @@ public static class IdentityServiceExtensions
         services.AddSingleton<IAuthorizationHandler, ScopeAuthorizationHandler>();
 
         services.AddAuthorizationBuilder()
+            .AddPolicy("RequireOwner", policy =>
+                policy.RequireRole("Owner"))
             .AddPolicy("RequireAdmin", policy =>
-                policy.RequireRole("Admin"))
+                policy.RequireRole("Owner", "Admin"))
             .AddPolicy("RequireEditor", policy =>
-                policy.RequireRole("Admin", "Editor"))
+                policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>
-                policy.RequireRole("Admin", "Editor", "Viewer"))
+                policy.RequireRole("Owner", "Admin", "Editor", "Viewer"))
             .AddPolicy("RequireAgent", policy =>
-                policy.RequireRole("Admin", "Agent"))
+                policy.RequireRole("Owner", "Admin", "Agent"))
             .AddPolicy("Scope:KnowledgeRead", policy =>
                 policy.Requirements.Add(new ScopeRequirement("knowledge:read")))
             .AddPolicy("Scope:KnowledgeWrite", policy =>
                 policy.Requirements.Add(new ScopeRequirement("knowledge:write")))
             .AddPolicy("Scope:AdminUsers", policy =>
                 policy.Requirements.Add(new ScopeRequirement("admin:users")))
+            .AddPolicy("Scope:AdminManageAdmins", policy =>
+                policy.Requirements.Add(new ScopeRequirement("admin:manage-admins")))
             .AddPolicy("Scope:AgentIngest", policy =>
                 policy.Requirements.Add(new ScopeRequirement("agent:ingest")));
 
