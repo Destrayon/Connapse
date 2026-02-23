@@ -107,8 +107,8 @@ cd Connapse
 # 3. Add upstream remote
 git remote add upstream https://github.com/Destrayon/Connapse.git
 
-# 4. Start infrastructure (database + storage)
-docker-compose up -d postgres minio
+# 4. Start backing services with dev overrides (exposes ports to host)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # 5. Build the solution
 dotnet build

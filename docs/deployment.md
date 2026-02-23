@@ -53,6 +53,10 @@ docker compose up -d
 docker compose --profile with-ollama up -d
 ```
 
+> **Compose file layout**: `docker-compose.yml` is the production base (no host-exposed ports,
+> services isolated on an internal network). `docker-compose.dev.yml` is a development overlay —
+> see [Local Development](#local-development).
+
 4. **Wait for services to be ready**:
 ```bash
 docker compose ps
@@ -91,33 +95,28 @@ Run the application directly on your machine for development.
 ### Prerequisites
 
 - **.NET 10 SDK** ([Download](https://dotnet.microsoft.com/download/dotnet/10.0))
-- **PostgreSQL 17** with pgvector extension
-- **MinIO** (or use Docker for just the dependencies)
-- **Ollama** (optional, for local embeddings)
+- **Docker** & **Docker Compose** (for backing services)
+- **Ollama** (optional — run natively or via Docker)
 
 ### Option 1: Hybrid (Docker Dependencies + .NET Runtime)
 
 Run infrastructure in Docker, application in .NET runtime for hot reload and debugging.
 
-1. **Start dependencies**:
+1. **Start backing services** using the dev override (exposes ports to the host):
 ```bash
-docker compose up -d postgres minio ollama
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
-2. **Configure connection strings**:
-```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=aikp;Username=aikp;Password=aikp_dev" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:Endpoint" "localhost:9000" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "aikp_dev" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "aikp_dev_secret" --project src/Connapse.Web
-```
+> **Why the extra `-f`?** `docker-compose.yml` is the production base — it keeps all services
+> on an internal network with no exposed ports. `docker-compose.dev.yml` overlays port bindings
+> so `dotnet run` can reach PostgreSQL (5432), MinIO (9000/9001), and Ollama (11434) on localhost.
 
-3. **Run the application**:
+2. **Run the application** (`appsettings.json` already points at localhost defaults):
 ```bash
 dotnet run --project src/Connapse.Web
 ```
 
-4. **Open your browser**: https://localhost:5001
+3. **Open your browser**: https://localhost:5001
 
 ### Option 2: Fully Local (No Docker)
 
