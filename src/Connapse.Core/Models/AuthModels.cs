@@ -12,13 +12,13 @@ public record TokenResponse(
 
 public record RefreshTokenRequest(string RefreshToken);
 
-public record PatCreateRequest(string Name, string? Scopes = null, DateTime? ExpiresAt = null);
+public record PatCreateRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
 
 public record PatCreateResponse(
     Guid Id,
     string Name,
     string Token,
-    string Scopes,
+    string[] Scopes,
     DateTime CreatedAt,
     DateTime? ExpiresAt);
 
@@ -26,7 +26,7 @@ public record PatListItem(
     Guid Id,
     string Name,
     string TokenPrefix,
-    string Scopes,
+    string[] Scopes,
     DateTime CreatedAt,
     DateTime? ExpiresAt,
     DateTime? LastUsedAt,

@@ -153,6 +153,20 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+
+// API routes return structured JSON errors — skip the Blazor error-page re-execution
+// so that empty 401/403 responses are not intercepted by UseStatusCodePagesWithReExecute.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/api"))
+    {
+        var feature = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IStatusCodePagesFeature>();
+        if (feature is not null)
+            feature.Enabled = false;
+    }
+    await next(ctx);
+});
+
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors();
@@ -166,18 +180,20 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Map API endpoints
-app.MapAuthEndpoints();
-app.MapContainersEndpoints();
-app.MapDocumentsEndpoints();
-app.MapFoldersEndpoints();
-app.MapSearchEndpoints();
-app.MapBatchesEndpoints();
-app.MapSettingsEndpoints();
-app.MapMcpEndpoints();
+// Map API endpoints — antiforgery is disabled for all API routes because they
+// authenticate via JWT / PAT bearer tokens, not browser form submissions.
+var api = app.MapGroup("").DisableAntiforgery();
+api.MapAuthEndpoints();
+api.MapContainersEndpoints();
+api.MapDocumentsEndpoints();
+api.MapFoldersEndpoints();
+api.MapSearchEndpoints();
+api.MapBatchesEndpoints();
+api.MapSettingsEndpoints();
+api.MapMcpEndpoints();
 
 // Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
-app.MapGroup("/api/v1/identity")
+api.MapGroup("/api/v1/identity")
     .MapIdentityApi<ConnapseUser>();
 
 // Map SignalR hub

@@ -34,7 +34,8 @@ Current status and recent work. Update at end of each session. For detailed impl
 - 78 core unit tests (PathUtilities, parsers, chunkers, rerankers)
 - 53 ingestion unit tests
 - 40 integration tests (containers, folders, files, search isolation, cascade deletes, ingestion, reindex)
-- **171 total tests**
+- 28 auth endpoint integration tests (token, refresh, PATs, users, roles)
+- **199 total tests**
 - All 11 projects build with 0 errors (10 existing + Identity)
 
 ### Next Up
@@ -74,6 +75,29 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-23 (Session 12) — Auth Endpoint Integration Tests + Two Critical Bug Fixes
+
+**Tests Added**: `tests/Connapse.Integration.Tests/AuthEndpointTests.cs` — 28 tests covering all 7 auth endpoints under `/api/v1/auth/`:
+- `POST /token` — valid login, wrong password, unknown email, LastLoginAt update
+- `POST /token/refresh` — valid rotation, invalid token, revoked token reuse
+- `GET /pats` — list PATs (authed), unauthenticated
+- `POST /pats` — create PAT, duplicate name
+- `DELETE /pats/{id}` — revoke, already-revoked, not-found, cross-user
+- `GET /users` — admin access, viewer denied, unauthenticated
+- `PUT /users/{id}/roles` — assign roles (admin), viewer denied, Owner protection, user not found
+- PAT authentication end-to-end (create via JWT, then auth with `X-Api-Key`)
+
+**All 28 tests pass.** Test infrastructure: Testcontainers (PostgreSQL + MinIO), `WebApplicationFactory<Program>`, seeded admin + viewer users, pinned JWT secret via `UseSetting`.
+
+**Bug #1 Fixed**: `AddIdentity<>()` overrides `DefaultAuthenticateScheme = "Identity.Application"`, silently breaking JWT/PAT auth.
+- Fixed in `src/Connapse.Identity/IdentityServiceExtensions.cs`: explicitly set `DefaultAuthenticateScheme = "MultiScheme"` and `DefaultSignInScheme`/`DefaultSignOutScheme` = `IdentityConstants.ApplicationScheme`.
+
+**Bug #2 Fixed**: `UseStatusCodePagesWithReExecute` intercepted empty-body API 401 responses, re-POSTing to `/not-found`, where antiforgery returned 400.
+- Fixed in `src/Connapse.Web/Program.cs`: added middleware to disable `IStatusCodePagesFeature` for all `/api` paths.
+- Also fixed `POST /token/refresh` to return `Results.Json(...)` with body instead of empty `Results.Unauthorized()`.
+
+**Test counts now**: 78 core + 53 ingestion + 40 integration + 28 auth = **199 total tests**
 
 ### 2026-02-22 (Session 11) — v0.2.0 Session C: PAT + JWT Auth Endpoints
 

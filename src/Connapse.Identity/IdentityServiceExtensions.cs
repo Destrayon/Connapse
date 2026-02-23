@@ -81,8 +81,14 @@ public static class IdentityServiceExtensions
 
         services.AddAuthentication(options =>
             {
+                // Explicitly set DefaultAuthenticateScheme so it is not overridden by the
+                // "Identity.Application" value that AddIdentity<> registers internally.
                 options.DefaultScheme = "MultiScheme";
+                options.DefaultAuthenticateScheme = "MultiScheme";
                 options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                // Keep Identity.Application for sign-in/sign-out so SignInManager works normally.
+                options.DefaultSignInScheme = IdentityConstants.ApplicationScheme;
+                options.DefaultSignOutScheme = IdentityConstants.ApplicationScheme;
             })
             .AddPolicyScheme("MultiScheme", "Route to correct auth handler", options =>
             {
@@ -97,8 +103,9 @@ public static class IdentityServiceExtensions
                     if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                         return JwtBearerDefaults.AuthenticationScheme;
 
-                    // Default to cookie
-                    return CookieAuthenticationDefaults.AuthenticationScheme;
+                    // Default to the Identity.Application cookie scheme so that Blazor UI
+                    // sessions (issued by SignInManager) are validated correctly.
+                    return IdentityConstants.ApplicationScheme;
                 };
             })
             .AddCookie(options =>

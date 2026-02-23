@@ -31,7 +31,7 @@ public class PatService(
             Name = request.Name,
             TokenHash = tokenHash,
             TokenPrefix = tokenPrefix,
-            Scopes = request.Scopes ?? "",
+            Scopes = request.Scopes is { Length: > 0 } s ? string.Join(",", s) : "",
             ExpiresAt = request.ExpiresAt,
             CreatedAt = DateTime.UtcNow,
         };
@@ -46,7 +46,7 @@ public class PatService(
             Id: entity.Id,
             Name: entity.Name,
             Token: token,
-            Scopes: entity.Scopes,
+            Scopes: SplitScopes(entity.Scopes),
             CreatedAt: entity.CreatedAt,
             ExpiresAt: entity.ExpiresAt);
     }
@@ -55,19 +55,21 @@ public class PatService(
         Guid userId,
         CancellationToken cancellationToken = default)
     {
-        return await dbContext.PersonalAccessTokens
+        var entities = await dbContext.PersonalAccessTokens
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new PatListItem(
-                p.Id,
-                p.Name,
-                p.TokenPrefix,
-                p.Scopes,
-                p.CreatedAt,
-                p.ExpiresAt,
-                p.LastUsedAt,
-                p.RevokedAt != null))
             .ToListAsync(cancellationToken);
+
+        return entities.Select(p => new PatListItem(
+            p.Id,
+            p.Name,
+            p.TokenPrefix,
+            SplitScopes(p.Scopes),
+            p.CreatedAt,
+            p.ExpiresAt,
+            p.LastUsedAt,
+            p.RevokedAt != null))
+            .ToList();
     }
 
     public async Task<bool> RevokeAsync(
@@ -86,6 +88,9 @@ public class PatService(
 
         return rows > 0;
     }
+
+    private static string[] SplitScopes(string scopes) =>
+        string.IsNullOrWhiteSpace(scopes) ? [] : scopes.Split(',', StringSplitOptions.RemoveEmptyEntries);
 
     private static string Base64UrlEncode(byte[] bytes)
     {

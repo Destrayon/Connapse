@@ -61,7 +61,8 @@ public static class AuthEndpoints
         {
             var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, ct);
             if (tokenResponse is null)
-                return Results.Unauthorized();
+                return Results.Json(new { error = "Invalid or expired refresh token" },
+                    statusCode: StatusCodes.Status401Unauthorized);
 
             return Results.Ok(tokenResponse);
         })
