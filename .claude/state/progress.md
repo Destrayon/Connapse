@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-22)
+## Current Status (2026-02-25)
 
 ### Completed Features
 
@@ -30,13 +30,38 @@ Current status and recent work. Update at end of each session. For detailed impl
 - Critical Fix: `PgVectorStore.SearchAsync` — `Vector` type silently dropped by `SqlQueryRaw` positional params. Fixed with named `NpgsqlParameter` objects.
 - MinScore Tuning: Default 0.7 was too aggressive for nomic-embed-text. Changed to configurable `MinimumScore` (default 0.5).
 
+### Session 14 (2026-02-26): First-Class Agent Entities
+
+Replaced the Agent IdentityRole with a dedicated AgentEntity system:
+- Removed "Agent" from `AdminSeedService.DefaultRoles` and `RoleDescriptions`
+- Blocked "Agent" role assignment in `AuthEndpoints` and via `InviteService` (automatic via DefaultRoles check)
+- New `AgentEntity` + `AgentApiKeyEntity` tables (EF migrations: `AddAgentEntities`, `RemoveAgentIdentityRole`)
+- New `IAgentService` / `AgentService` with full CRUD + key lifecycle management
+- Updated `ApiKeyAuthenticationHandler` with two-table lookup; agent keys inject synthetic `ClaimTypes.Role = "Agent"` so `RequireAgent` policy on MCP continues to work
+- New `AgentEndpoints` at `/api/v1/agents` (7 endpoints, all `RequireAdmin`)
+- New `AgentIntegrationTests.cs` (16 tests); added `AssignRoles_AssignAgentRole_Returns400` to `AuthEndpointTests`
+
 ### Test Counts
 - 78 core unit tests (PathUtilities, parsers, chunkers, rerankers)
 - 53 ingestion unit tests
 - 40 integration tests (containers, folders, files, search isolation, cascade deletes, ingestion, reindex)
-- 28 auth endpoint integration tests (token, refresh, PATs, users, roles)
-- **199 total tests**
-- All 11 projects build with 0 errors (10 existing + Identity)
+- 29 auth endpoint integration tests (token, refresh, PATs, users, roles; +1 Agent role blocked)
+- 16 agent integration tests (agent CRUD, key lifecycle, MCP auth, disable/delete flows)
+- **216 total tests**
+- All 11 projects build with 0 errors
+
+### Session 15 (2026-02-26): Agent Management UI
+
+- Removed "Agent" from user role dropdowns in `UserManagement.razor` (invite + change-role selects)
+- Added server-side guard in `ChangeRoleAsync` blocking "Agent" and "Owner" role assignment via user management
+- Created `AgentManagement.razor` at `/admin/agents`:
+  - Create agent (name + description)
+  - List agents (status badge, active key count, created date)
+  - Enable/Disable toggle per agent
+  - Expand row → inline key management (add key, revoke keys, one-time token display)
+  - Delete agent with confirmation
+- Added "Agents" nav link in NavMenu (Admin section, `bi-robot` icon)
+- Build: 0 errors, 1 pre-existing warning
 
 ### Next Up
 
@@ -48,7 +73,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 | B | 3: Cookie auth + Blazor wiring + MapIdentityApi | **COMPLETE** |
 | B2 | Invite-only registration system | **COMPLETE** |
 | C | 4-5: PAT + JWT systems | **COMPLETE** |
-| D | 6: RBAC + endpoint protection | Pending |
+| D | 6: RBAC + endpoint protection | **COMPLETE** |
 | E | 7-8: Rate limiting, audit, UI pages | Pending |
 | F | 9: CLI updates | Pending |
 | G | 10-11: Testing + deployment | Pending |
@@ -75,6 +100,27 @@ See [issues.md](issues.md) for detailed tracking of bugs and tech debt.
 ---
 
 ## Session History
+
+### 2026-02-25 (Session 13) — v0.2.0 Session D: RBAC + Endpoint Protection
+
+**Phase 6 complete.** All API endpoints now require authentication and enforce role-based access:
+
+- **ContainersEndpoints**: GET→RequireViewer, POST/DELETE/reindex→RequireEditor (per-endpoint)
+- **DocumentsEndpoints**: GET→RequireViewer, POST/DELETE→RequireEditor (per-endpoint)
+- **FoldersEndpoints**: RequireEditor (group-level — all ops are writes)
+- **SearchEndpoints**: RequireViewer (group-level)
+- **BatchesEndpoints**: RequireViewer (group-level)
+- **SettingsEndpoints**: RequireAdmin (group-level)
+- **McpEndpoints**: RequireAgent (group-level)
+- **Settings.razor**: Changed `[Authorize]` → `[Authorize(Policy = "RequireAdmin")]`
+
+**Integration tests updated**: All 5 test classes (ContainerIntegrationTests, IngestionIntegrationTests, ReindexIntegrationTests, SettingsIntegrationTests, ConnectionTestIntegrationTests) now:
+- Seed admin via `CONNAPSE_ADMIN_EMAIL` / `CONNAPSE_ADMIN_PASSWORD` + `Identity:Jwt:Secret` env vars
+- Obtain JWT token via `POST /api/v1/auth/token` in `InitializeAsync`
+- Set `DefaultRequestHeaders.Authorization = Bearer <token>` on all test clients
+
+**Build**: 0 errors, 0 warnings across all 11 projects.
+**Unit tests**: 77 core + 52 ingestion = **129 unit tests**, all passing.
 
 ### 2026-02-23 (Session 12) — Auth Endpoint Integration Tests + Two Critical Bug Fixes
 

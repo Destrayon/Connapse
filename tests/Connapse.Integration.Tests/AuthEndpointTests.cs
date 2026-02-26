@@ -497,6 +497,21 @@ public class AuthEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task AssignRoles_AssignAgentRole_Returns400()
+    {
+        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        using var client = CreateAuthenticatedClient(token.AccessToken);
+
+        var viewerId = await GetUserIdAsync(client, ViewerEmail);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/v1/auth/users/{viewerId}/roles",
+            new AssignRolesRequest(["Agent"]));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task AssignRoles_ValidRoleChange_Returns204()
     {
         var token = await GetTokenAsync(AdminEmail, AdminPassword);

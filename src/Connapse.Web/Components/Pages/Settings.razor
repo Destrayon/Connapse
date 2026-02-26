@@ -1,5 +1,5 @@
 @page "/settings"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.Settings

@@ -61,6 +61,10 @@ builder.Services.AddSignalR();
 // This avoids conflicts with typed HttpClient registrations used by background services
 builder.Services.AddHttpClient("BlazorClient");
 
+// In-process event bus so Blazor Server components can receive ingestion progress
+// notifications without creating a server-to-server SignalR client connection.
+builder.Services.AddSingleton<IngestionProgressNotifier>();
+
 // Add background services
 builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 
@@ -184,6 +188,7 @@ app.MapRazorComponents<App>()
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery();
 api.MapAuthEndpoints();
+api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();

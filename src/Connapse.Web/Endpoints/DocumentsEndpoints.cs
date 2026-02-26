@@ -91,7 +91,8 @@ public static class DocumentsEndpoints
         })
         .DisableAntiforgery()
         .WithName("UploadFiles")
-        .WithDescription("Upload one or more files to a container");
+        .WithDescription("Upload one or more files to a container")
+        .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/files - List files and folders at path
         group.MapGet("/", async (
@@ -153,7 +154,8 @@ public static class DocumentsEndpoints
             return Results.Ok(entries);
         })
         .WithName("ListFiles")
-        .WithDescription("List files and folders at a path within a container");
+        .WithDescription("List files and folders at a path within a container")
+        .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/files/{fileId} - Get file details
         group.MapGet("/{fileId}", async (
@@ -173,7 +175,8 @@ public static class DocumentsEndpoints
             return Results.Ok(document);
         })
         .WithName("GetFile")
-        .WithDescription("Get file details including indexing status");
+        .WithDescription("Get file details including indexing status")
+        .RequireAuthorization("RequireViewer");
 
         // DELETE /api/containers/{containerId}/files/{fileId} - Delete file
         group.MapDelete("/{fileId}", async (
@@ -209,7 +212,8 @@ public static class DocumentsEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteFile")
-        .WithDescription("Delete a file and all associated chunks and vectors");
+        .WithDescription("Delete a file and all associated chunks and vectors")
+        .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/files/{fileId}/reindex-check - Check if file needs reindexing
         group.MapGet("/{fileId}/reindex-check", async (
@@ -237,7 +241,8 @@ public static class DocumentsEndpoints
             });
         })
         .WithName("CheckFileReindex")
-        .WithDescription("Check if a specific file needs reindexing and why");
+        .WithDescription("Check if a specific file needs reindexing and why")
+        .RequireAuthorization("RequireViewer");
 
         return app;
     }

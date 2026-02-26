@@ -11,7 +11,7 @@ public class AdminSeedService(
     IConfiguration configuration,
     ILogger<AdminSeedService> logger)
 {
-    public static readonly string[] DefaultRoles = ["Owner", "Admin", "Editor", "Viewer", "Agent"];
+    public static readonly string[] DefaultRoles = ["Owner", "Admin", "Editor", "Viewer"];
 
     private static readonly Dictionary<string, string> RoleDescriptions = new()
     {
@@ -19,7 +19,6 @@ public class AdminSeedService(
         ["Admin"] = "Full system access including user management and settings",
         ["Editor"] = "Can read and write knowledge (upload, delete, organize)",
         ["Viewer"] = "Read-only access to knowledge and search",
-        ["Agent"] = "Programmatic access for AI agents (read + ingest)",
     };
 
     public async Task SeedAsync()

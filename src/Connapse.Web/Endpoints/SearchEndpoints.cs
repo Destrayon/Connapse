@@ -9,7 +9,8 @@ public static class SearchEndpoints
 {
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search");
+        var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search")
+            .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (

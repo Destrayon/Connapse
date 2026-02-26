@@ -14,6 +14,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
     public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
     public DbSet<UserInvitation> UserInvitations => Set<UserInvitation>();
+    public DbSet<AgentEntity> Agents => Set<AgentEntity>();
+    public DbSet<AgentApiKeyEntity> AgentApiKeys => Set<AgentApiKeyEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +26,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureRefreshTokens(modelBuilder);
         ConfigureAuditLogs(modelBuilder);
         ConfigureUserInvitations(modelBuilder);
+        ConfigureAgents(modelBuilder);
+        ConfigureAgentApiKeys(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -340,6 +344,114 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .WithMany()
                 .HasForeignKey(e => e.AcceptedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+    }
+
+    private static void ConfigureAgents(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AgentEntity>(entity =>
+        {
+            entity.ToTable("agents");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasColumnName("description")
+                .HasMaxLength(1024);
+
+            entity.Property(e => e.IsActive)
+                .HasColumnName("is_active")
+                .HasDefaultValue(true);
+
+            entity.Property(e => e.CreatedByUserId)
+                .HasColumnName("created_by_user_id")
+                .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.DeletedAt)
+                .HasColumnName("deleted_at");
+
+            entity.HasIndex(e => e.Name)
+                .HasDatabaseName("ix_agents_name")
+                .IsUnique()
+                .HasFilter("deleted_at IS NULL");
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureAgentApiKeys(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AgentApiKeyEntity>(entity =>
+        {
+            entity.ToTable("agent_api_keys");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.AgentId)
+                .HasColumnName("agent_id")
+                .IsRequired();
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.TokenHash)
+                .HasColumnName("token_hash")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.TokenPrefix)
+                .HasColumnName("token_prefix")
+                .HasMaxLength(16)
+                .IsRequired();
+
+            entity.Property(e => e.Scopes)
+                .HasColumnName("scopes")
+                .HasMaxLength(1024);
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnName("expires_at");
+
+            entity.Property(e => e.LastUsedAt)
+                .HasColumnName("last_used_at");
+
+            entity.Property(e => e.RevokedAt)
+                .HasColumnName("revoked_at");
+
+            entity.HasIndex(e => e.TokenHash)
+                .HasDatabaseName("ix_agent_api_keys_token_hash")
+                .IsUnique();
+
+            entity.HasIndex(e => e.AgentId)
+                .HasDatabaseName("ix_agent_api_keys_agent_id");
+
+            entity.HasOne(e => e.Agent)
+                .WithMany(a => a.ApiKeys)
+                .HasForeignKey(e => e.AgentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

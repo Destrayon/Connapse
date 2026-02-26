@@ -8,7 +8,8 @@ public static class FoldersEndpoints
 {
     public static IEndpointRouteBuilder MapFoldersEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/containers/{containerId:guid}/folders").WithTags("Folders");
+        var group = app.MapGroup("/api/containers/{containerId:guid}/folders").WithTags("Folders")
+            .RequireAuthorization("RequireEditor");
 
         // POST /api/containers/{containerId}/folders - Create folder
         group.MapPost("/", async (

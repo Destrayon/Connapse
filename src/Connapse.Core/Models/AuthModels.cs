@@ -41,3 +41,36 @@ public record UserListItem(
     DateTime? LastLoginAt);
 
 public record AssignRolesRequest(IReadOnlyList<string> Roles);
+
+public record CreateAgentRequest(string Name, string? Description = null);
+
+public record CreateAgentKeyRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null);
+
+public record SetAgentActiveRequest(bool IsActive);
+
+public record AgentKeyListItem(
+    Guid Id,
+    string Name,
+    string TokenPrefix,
+    string[] Scopes,
+    DateTime CreatedAt,
+    DateTime? ExpiresAt,
+    DateTime? LastUsedAt,
+    bool IsRevoked);
+
+public record AgentDto(
+    Guid Id,
+    string Name,
+    string? Description,
+    bool IsActive,
+    Guid CreatedByUserId,
+    DateTime CreatedAt,
+    IReadOnlyList<AgentKeyListItem> Keys);
+
+public record CreateAgentKeyResponse(
+    Guid KeyId,
+    string AgentId,
+    string Token,
+    string[] Scopes,
+    DateTime CreatedAt,
+    DateTime? ExpiresAt);

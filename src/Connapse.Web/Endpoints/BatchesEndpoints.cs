@@ -7,7 +7,8 @@ public static class BatchesEndpoints
 {
     public static IEndpointRouteBuilder MapBatchesEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/batches").WithTags("Batches");
+        var group = app.MapGroup("/api/batches").WithTags("Batches")
+            .RequireAuthorization("RequireViewer");
 
         // GET /api/batches/{id}/status - Get batch upload progress
         group.MapGet("/{id}/status", async (

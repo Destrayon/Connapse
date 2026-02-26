@@ -172,9 +172,12 @@ public static class AuthEndpoints
             if (targetUser is null)
                 return Results.NotFound(new { error = "User not found" });
 
-            // Owner role cannot be assigned via this endpoint
-            if (request.Roles.Contains("Owner", StringComparer.OrdinalIgnoreCase))
-                return Results.BadRequest(new { error = "The Owner role cannot be assigned via this endpoint" });
+            // Owner and Agent roles cannot be assigned via this endpoint
+            var reservedRoles = new[] { "Owner", "Agent" };
+            var blocked = request.Roles.FirstOrDefault(r =>
+                reservedRoles.Contains(r, StringComparer.OrdinalIgnoreCase));
+            if (blocked is not null)
+                return Results.BadRequest(new { error = $"The '{blocked}' role cannot be assigned via this endpoint." });
 
             var currentRoles = await userManager.GetRolesAsync(targetUser);
 

@@ -8,7 +8,8 @@ public static class McpEndpoints
 {
     public static IEndpointRouteBuilder MapMcpEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/mcp").WithTags("MCP");
+        var group = app.MapGroup("/mcp").WithTags("MCP")
+            .RequireAuthorization("RequireAgent");
 
         // POST /mcp - JSON-RPC 2.0 endpoint
         group.MapPost("/", async (

@@ -44,7 +44,6 @@
                     <select class="form-select" id="inviteRole" @bind="inviteRole">
                         <option value="Viewer">Viewer</option>
                         <option value="Editor">Editor</option>
-                        <option value="Agent">Agent</option>
                         @if (isOwner)
                         {
                             <option value="Admin">Admin</option>
@@ -172,7 +171,6 @@
                                                         @onchange="(e) => user.SelectedRole = e.Value?.ToString() ?? user.Roles.First()">
                                                     <option value="Viewer">Viewer</option>
                                                     <option value="Editor">Editor</option>
-                                                    <option value="Agent">Agent</option>
                                                     @if (isOwner)
                                                     {
                                                         <option value="Admin">Admin</option>
@@ -305,10 +303,10 @@
                 return;
             }
 
-            // Don't allow assigning Owner role
-            if (newRole == "Owner")
+            // Don't allow assigning Owner or Agent roles via user management
+            if (newRole is "Owner" or "Agent")
             {
-                statusMessage = "The Owner role cannot be assigned.";
+                statusMessage = $"The '{newRole}' role cannot be assigned to users.";
                 statusSuccess = false;
                 return;
             }

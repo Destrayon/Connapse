@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using Connapse.Identity.Data;
+using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,71 +38,144 @@ public class ApiKeyAuthenticationHandler(
         using var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
 
+        // --- PAT lookup (user API keys) ---
         var pat = await dbContext.PersonalAccessTokens
             .Include(p => p.User)
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash);
 
-        if (pat is null)
-            return AuthenticateResult.Fail("Invalid API key.");
-
-        if (pat.RevokedAt is not null)
-            return AuthenticateResult.Fail("API key has been revoked.");
-
-        if (pat.ExpiresAt is not null && pat.ExpiresAt < DateTime.UtcNow)
-            return AuthenticateResult.Fail("API key has expired.");
-
-        // Fire-and-forget: update last used timestamp
-        _ = Task.Run(async () =>
+        if (pat is not null)
         {
-            try
-            {
-                using var updateScope = serviceProvider.CreateScope();
-                var updateDb = updateScope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
-                await updateDb.PersonalAccessTokens
-                    .Where(p => p.Id == pat.Id)
-                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.LastUsedAt, DateTime.UtcNow));
-            }
-            catch
-            {
-                // Best-effort update, don't fail auth
-            }
-        });
+            if (pat.RevokedAt is not null)
+                return AuthenticateResult.Fail("API key has been revoked.");
 
-        // Build claims
+            if (pat.ExpiresAt is not null && pat.ExpiresAt < DateTime.UtcNow)
+                return AuthenticateResult.Fail("API key has expired.");
+
+            // Fire-and-forget: update last used timestamp
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var updateScope = serviceProvider.CreateScope();
+                    var updateDb = updateScope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+                    await updateDb.PersonalAccessTokens
+                        .Where(p => p.Id == pat.Id)
+                        .ExecuteUpdateAsync(s => s.SetProperty(p => p.LastUsedAt, DateTime.UtcNow));
+                }
+                catch
+                {
+                    // Best-effort update, don't fail auth
+                }
+            });
+
+            var claims = BuildPatClaims(pat, await GetUserRolesAsync(dbContext, pat.UserId));
+            return BuildTicket(claims);
+        }
+
+        // --- Agent API key lookup ---
+        var agentKey = await dbContext.AgentApiKeys
+            .Include(k => k.Agent)
+            .FirstOrDefaultAsync(k => k.TokenHash == tokenHash);
+
+        if (agentKey is not null)
+        {
+            if (agentKey.RevokedAt is not null)
+                return AuthenticateResult.Fail("Agent API key has been revoked.");
+
+            if (agentKey.ExpiresAt is not null && agentKey.ExpiresAt < DateTime.UtcNow)
+                return AuthenticateResult.Fail("Agent API key has expired.");
+
+            if (!agentKey.Agent.IsActive)
+                return AuthenticateResult.Fail("Agent is disabled.");
+
+            if (agentKey.Agent.DeletedAt is not null)
+                return AuthenticateResult.Fail("Agent has been deleted.");
+
+            // Fire-and-forget: update last used timestamp
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var updateScope = serviceProvider.CreateScope();
+                    var updateDb = updateScope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+                    await updateDb.AgentApiKeys
+                        .Where(k => k.Id == agentKey.Id)
+                        .ExecuteUpdateAsync(s => s.SetProperty(k => k.LastUsedAt, DateTime.UtcNow));
+                }
+                catch
+                {
+                    // Best-effort update, don't fail auth
+                }
+            });
+
+            var claims = BuildAgentClaims(agentKey);
+            return BuildTicket(claims);
+        }
+
+        return AuthenticateResult.Fail("Invalid API key.");
+    }
+
+    private static List<Claim> BuildPatClaims(PersonalAccessTokenEntity pat, IList<string> userRoles)
+    {
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, pat.UserId.ToString()),
             new(ClaimTypes.Name, pat.User.UserName ?? pat.User.Email ?? ""),
             new(ClaimTypes.Email, pat.User.Email ?? ""),
             new("auth_method", "api_key"),
+            new("actor_type", "user"),
             new("pat_id", pat.Id.ToString()),
         };
 
-        // Add scope claims
         if (!string.IsNullOrWhiteSpace(pat.Scopes))
         {
             foreach (var patScope in pat.Scopes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
                 claims.Add(new Claim("scope", patScope));
-            }
         }
-
-        // Add role claims from user
-        var userRoles = await dbContext.UserRoles
-            .Where(ur => ur.UserId == pat.UserId)
-            .Join(dbContext.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
-            .ToListAsync();
 
         foreach (var role in userRoles)
-        {
             claims.Add(new Claim(ClaimTypes.Role, role));
+
+        return claims;
+    }
+
+    private static List<Claim> BuildAgentClaims(AgentApiKeyEntity agentKey)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, agentKey.Agent.Id.ToString()),
+            new(ClaimTypes.Name, agentKey.Agent.Name),
+            new("actor_type", "agent"),
+            new("agent_id", agentKey.Agent.Id.ToString()),
+            new("agent_key_id", agentKey.Id.ToString()),
+            new("auth_method", "agent_api_key"),
+            // Synthetic role claim — satisfies RequireAgent policy without the DB role row existing
+            new(ClaimTypes.Role, "Agent"),
+        };
+
+        if (!string.IsNullOrWhiteSpace(agentKey.Scopes))
+        {
+            foreach (var s in agentKey.Scopes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                claims.Add(new Claim("scope", s));
         }
 
+        return claims;
+    }
+
+    private AuthenticateResult BuildTicket(List<Claim> claims)
+    {
         var identity = new ClaimsIdentity(claims, ApiKeyAuthenticationOptions.SchemeName);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, ApiKeyAuthenticationOptions.SchemeName);
-
         return AuthenticateResult.Success(ticket);
+    }
+
+    private static async Task<IList<string>> GetUserRolesAsync(ConnapseIdentityDbContext dbContext, Guid userId)
+    {
+        return await dbContext.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Join(dbContext.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
+            .ToListAsync();
     }
 
     internal static string ComputeSha256Hash(string input)

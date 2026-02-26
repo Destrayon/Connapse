@@ -35,7 +35,8 @@ public static class ContainersEndpoints
             return Results.Created($"/api/containers/{container.Id}", container);
         })
         .WithName("CreateContainer")
-        .WithDescription("Create a new container for organizing files");
+        .WithDescription("Create a new container for organizing files")
+        .RequireAuthorization("RequireEditor");
 
         // GET /api/containers - List all containers
         group.MapGet("/", async (
@@ -46,7 +47,8 @@ public static class ContainersEndpoints
             return Results.Ok(containers);
         })
         .WithName("ListContainers")
-        .WithDescription("List all containers");
+        .WithDescription("List all containers")
+        .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId} - Get container details
         group.MapGet("/{containerId:guid}", async (
@@ -60,7 +62,8 @@ public static class ContainersEndpoints
                 : Results.NotFound(new { error = $"Container {containerId} not found" });
         })
         .WithName("GetContainer")
-        .WithDescription("Get a specific container by ID");
+        .WithDescription("Get a specific container by ID")
+        .RequireAuthorization("RequireViewer");
 
         // DELETE /api/containers/{containerId} - Delete container (must be empty)
         group.MapDelete("/{containerId:guid}", async (
@@ -86,7 +89,8 @@ public static class ContainersEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteContainer")
-        .WithDescription("Delete an empty container");
+        .WithDescription("Delete an empty container")
+        .RequireAuthorization("RequireEditor");
 
         // POST /api/containers/{containerId}/reindex - Reindex documents in container
         group.MapPost("/{containerId:guid}/reindex", async (
@@ -123,7 +127,8 @@ public static class ContainersEndpoints
             });
         })
         .WithName("ReindexContainer")
-        .WithDescription("Reindex all documents in a container");
+        .WithDescription("Reindex all documents in a container")
+        .RequireAuthorization("RequireEditor");
 
         return app;
     }

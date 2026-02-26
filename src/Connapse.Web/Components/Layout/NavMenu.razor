@@ -22,16 +22,20 @@
                     </NavLink>
                 </div>
 
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="settings">
-                        <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
-                    </NavLink>
-                </div>
-
                 <AuthorizeView Roles="Admin" Context="adminContext">
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="settings">
+                            <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
+                        </NavLink>
+                    </div>
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="admin/users">
                             <span class="nav-icon bi-people-fill" aria-hidden="true"></span> Users
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="admin/agents">
+                            <span class="nav-icon bi-robot" aria-hidden="true"></span> Agents
                         </NavLink>
                     </div>
                 </AuthorizeView>

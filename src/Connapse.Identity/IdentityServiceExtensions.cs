@@ -55,6 +55,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<AdminSeedService>();
         services.AddScoped<InviteService>();
+        services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddHttpContextAccessor();
 
