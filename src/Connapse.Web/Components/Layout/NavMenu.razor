@@ -22,9 +22,15 @@
                     </NavLink>
                 </div>
 
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="settings/tokens">
+                        <span class="nav-icon bi-key-fill" aria-hidden="true"></span> API Tokens
+                    </NavLink>
+                </div>
+
                 <AuthorizeView Roles="Admin" Context="adminContext">
                     <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="settings">
+                        <NavLink class="nav-link" href="settings" Match="NavLinkMatch.All">
                             <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
                         </NavLink>
                     </div>

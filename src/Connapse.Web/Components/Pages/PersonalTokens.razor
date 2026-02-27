@@ -1,0 +1,261 @@
+@page "/settings/tokens"
+@attribute [Authorize]
+@using Connapse.Core
+@using Connapse.Identity.Services
+@inject PatService PatService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>API Tokens - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <h1 class="mb-1">
+            <span class="bi-key-fill me-2"></span>
+            API Tokens
+        </h1>
+        <p class="text-muted mb-0">
+            Personal access tokens let scripts and tools authenticate as you.
+            Pass the token in the <code>X-Api-Key</code> header.
+            Tokens are only shown once when created — store them somewhere safe.
+        </p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- One-time token display -->
+    @if (newTokenResponse is not null)
+    {
+        <div class="alert alert-success alert-dismissible mb-4">
+            <strong>Token created — copy it now.</strong> It won't be shown again.
+            <div class="input-group mt-2">
+                <input type="text" class="form-control font-monospace"
+                       value="@newTokenResponse.Token" readonly id="new-pat-token" />
+                <button class="btn btn-outline-secondary" @onclick="CopyTokenAsync" type="button">
+                    <span class="bi-clipboard me-1"></span>Copy
+                </button>
+            </div>
+            <button type="button" class="btn-close"
+                    @onclick="() => newTokenResponse = null"></button>
+        </div>
+    }
+
+    <!-- Create token form -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">New Token</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" @bind="newTokenName"
+                           placeholder="e.g. my-script" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">
+                        Expires <span class="text-muted">(optional)</span>
+                    </label>
+                    <input type="date" class="form-control" @bind="newTokenExpiry" />
+                </div>
+                <div class="col-md-auto">
+                    <button class="btn btn-primary" @onclick="CreateTokenAsync"
+                            disabled="@isProcessing">
+                        @if (isProcessing)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Create Token
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Token list -->
+    @if (tokens.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-muted">No tokens yet. Create one above.</div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Prefix</th>
+                        <th>Created</th>
+                        <th>Last used</th>
+                        <th>Expires</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var token in tokens)
+                    {
+                        <tr class="@(token.IsRevoked ? "text-muted" : "")">
+                            <td class="align-middle">
+                                @token.Name
+                                @if (token.IsRevoked)
+                                {
+                                    <span class="badge bg-secondary ms-1">Revoked</span>
+                                }
+                            </td>
+                            <td class="align-middle font-monospace small">@token.TokenPrefix…</td>
+                            <td class="align-middle small">@token.CreatedAt.ToString("MMM dd, yyyy")</td>
+                            <td class="align-middle small">@(token.LastUsedAt?.ToString("MMM dd, yyyy") ?? "Never")</td>
+                            <td class="align-middle small">
+                                @if (token.ExpiresAt is not null)
+                                {
+                                    <span class="@(token.ExpiresAt < DateTime.UtcNow ? "text-danger" : "")">
+                                        @token.ExpiresAt.Value.ToString("MMM dd, yyyy")
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Never</span>
+                                }
+                            </td>
+                            <td class="align-middle text-end">
+                                @if (!token.IsRevoked)
+                                {
+                                    @if (confirmRevokeId == token.Id)
+                                    {
+                                        <button class="btn btn-sm btn-danger me-1"
+                                                @onclick="() => RevokeTokenAsync(token.Id)"
+                                                disabled="@isProcessing">
+                                            Confirm Revoke
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                                @onclick="() => confirmRevokeId = null">
+                                            Cancel
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => confirmRevokeId = token.Id"
+                                                disabled="@isProcessing">
+                                            Revoke
+                                        </button>
+                                    }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private string newTokenName = "";
+    private DateTime? newTokenExpiry;
+    private bool isProcessing;
+    private Guid? confirmRevokeId;
+    private string? statusMessage;
+    private bool statusSuccess;
+    private PatCreateResponse? newTokenResponse;
+    private Guid currentUserId;
+
+    private List<PatListItem> tokens = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr is not null)
+            Guid.TryParse(userIdStr, out currentUserId);
+
+        await LoadTokensAsync();
+    }
+
+    private async Task LoadTokensAsync()
+    {
+        tokens = (await PatService.ListAsync(currentUserId)).ToList();
+    }
+
+    private async Task CreateTokenAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newTokenName))
+        {
+            statusMessage = "Token name is required.";
+            statusSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            var request = new PatCreateRequest(
+                newTokenName.Trim(),
+                Scopes: null,
+                ExpiresAt: newTokenExpiry.HasValue
+                    ? DateTime.SpecifyKind(newTokenExpiry.Value, DateTimeKind.Utc)
+                    : null);
+
+            newTokenResponse = await PatService.CreateAsync(currentUserId, request);
+            newTokenName = "";
+            newTokenExpiry = null;
+            await LoadTokensAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to create token: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task RevokeTokenAsync(Guid tokenId)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmRevokeId = null;
+        try
+        {
+            var revoked = await PatService.RevokeAsync(currentUserId, tokenId);
+            if (!revoked)
+            {
+                statusMessage = "Token not found or already revoked.";
+                statusSuccess = false;
+                return;
+            }
+            if (newTokenResponse?.Id == tokenId)
+                newTokenResponse = null;
+            await LoadTokensAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to revoke token: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CopyTokenAsync()
+    {
+        if (newTokenResponse is null) return;
+        var copied = await JS.InvokeAsync<bool>("connapse.copyToClipboard", newTokenResponse.Token);
+        statusMessage = copied ? "Token copied to clipboard!" : "Could not copy. Please copy it manually.";
+        statusSuccess = copied;
+    }
+}

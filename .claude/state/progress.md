@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-25)
+## Current Status (2026-02-26)
 
 ### Completed Features
 
@@ -50,6 +50,19 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 - **216 total tests**
 - All 11 projects build with 0 errors
 
+### Session 16 (2026-02-26): Session E — Audit Logging + Personal Tokens UI
+
+- Skipped rate limiting (not appropriate for self-hosted; no plan to add)
+- Added `IAuditLogger` to `DocumentsEndpoints`: `doc.uploaded` on successful upload, `doc.deleted` on delete
+- Added `IAuditLogger` to `ContainersEndpoints`: `container.created` on create, `container.deleted` on delete
+- Created `PersonalTokens.razor` at `/settings/tokens` (InteractiveServer):
+  - Create token (name + optional expiry date)
+  - One-time token display with copy button on creation
+  - List all tokens (prefix, created, last used, expiry, revoked badge)
+  - Revoke with confirmation step
+- Added "API Tokens" nav link (`bi-key-fill`) in NavMenu for all authenticated users
+- Build: 0 errors, 1 pre-existing warning
+
 ### Session 15 (2026-02-26): Agent Management UI
 
 - Removed "Agent" from user role dropdowns in `UserManagement.razor` (invite + change-role selects)
@@ -74,7 +87,7 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 | B2 | Invite-only registration system | **COMPLETE** |
 | C | 4-5: PAT + JWT systems | **COMPLETE** |
 | D | 6: RBAC + endpoint protection | **COMPLETE** |
-| E | 7-8: Rate limiting, audit, UI pages | Pending |
+| E | 7-8: Audit logging + Personal Tokens UI | **COMPLETE** |
 | F | 9: CLI updates | Pending |
 | G | 10-11: Testing + deployment | Pending |
 

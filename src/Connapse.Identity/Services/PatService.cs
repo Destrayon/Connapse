@@ -56,6 +56,7 @@ public class PatService(
         CancellationToken cancellationToken = default)
     {
         var entities = await dbContext.PersonalAccessTokens
+            .AsNoTracking()
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);

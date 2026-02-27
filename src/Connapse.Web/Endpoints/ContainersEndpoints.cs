@@ -15,6 +15,7 @@ public static class ContainersEndpoints
         group.MapPost("/", async (
             [FromBody] CreateContainerApiRequest request,
             [FromServices] IContainerStore containerStore,
+            [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
@@ -31,6 +32,9 @@ public static class ContainersEndpoints
 
             var container = await containerStore.CreateAsync(
                 new CreateContainerRequest(normalizedName, request.Description), ct);
+
+            await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
+                new { container.Name }, ct);
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
@@ -69,6 +73,7 @@ public static class ContainersEndpoints
         group.MapDelete("/{containerId:guid}", async (
             Guid containerId,
             [FromServices] IContainerStore containerStore,
+            [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -85,6 +90,9 @@ public static class ContainersEndpoints
             {
                 return Results.BadRequest(new { error = ex.Message });
             }
+
+            await auditLogger.LogAsync("container.deleted", "container", containerId.ToString(),
+                new { Name = container.Name }, ct);
 
             return Results.NoContent();
         })

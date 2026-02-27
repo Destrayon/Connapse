@@ -20,6 +20,7 @@ public static class DocumentsEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue queue,
+            [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -83,11 +84,16 @@ public static class DocumentsEndpoints
                 }
             }
 
+            var successCount = uploadedDocs.Count(d => d.Error == null);
+            if (successCount > 0)
+                await auditLogger.LogAsync("doc.uploaded", "container", containerId.ToString(),
+                    new { FileCount = successCount, ContainerId = containerId }, ct);
+
             return Results.Ok(new UploadResponse(
                 BatchId: batchId,
                 Documents: uploadedDocs,
                 TotalCount: files.Count,
-                SuccessCount: uploadedDocs.Count(d => d.Error == null)));
+                SuccessCount: successCount));
         })
         .DisableAntiforgery()
         .WithName("UploadFiles")
@@ -186,6 +192,7 @@ public static class DocumentsEndpoints
             [FromServices] IDocumentStore documentStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
+            [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
             if (!await containerStore.ExistsAsync(containerId, ct))
@@ -208,6 +215,9 @@ public static class DocumentsEndpoints
                     await fileSystem.DeleteAsync(document.Path, ct);
             }
             catch { /* File already deleted or not found */ }
+
+            await auditLogger.LogAsync("doc.deleted", "document", fileId,
+                new { FileName = document.FileName, ContainerId = containerId }, ct);
 
             return Results.NoContent();
         })
