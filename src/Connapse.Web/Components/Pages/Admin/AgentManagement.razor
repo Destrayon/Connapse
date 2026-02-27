@@ -1,0 +1,437 @@
+@page "/admin/agents"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
+@using Connapse.Identity.Services
+@inject IAgentService AgentService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>Agents - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="mb-4">
+        <h1 class="mb-1">
+            <span class="bi-robot me-2"></span>
+            Agents
+        </h1>
+        <p class="text-muted mb-0">
+            Agents are non-human identities (scripts, workflows, bots) that access the API.
+            Each agent has its own API keys used for authentication.
+        </p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- Create Agent -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">New Agent</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-control" @bind="newAgentName" placeholder="my-agent" />
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control" @bind="newAgentDescription" placeholder="What does this agent do?" />
+                </div>
+                <div class="col-md-auto">
+                    <button class="btn btn-primary" @onclick="CreateAgentAsync" disabled="@isProcessing">
+                        @if (isProcessing && processingAction == "create")
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Create Agent
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agents List -->
+    @if (agents.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-muted">No agents yet. Create one above.</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var agent in agents)
+        {
+            var isExpanded = selectedAgentId == agent.Id;
+            var activeKeyCount = agent.Keys.Count(k => !k.IsRevoked);
+            var activeKeys = agent.Keys.Where(k => !k.IsRevoked).ToList();
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-3 flex-wrap">
+                        <!-- Identity -->
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="fw-semibold">@agent.Name</span>
+                                @if (agent.IsActive)
+                                {
+                                    <span class="badge bg-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Disabled</span>
+                                }
+                            </div>
+                            @if (!string.IsNullOrEmpty(agent.Description))
+                            {
+                                <div class="text-muted small">@agent.Description</div>
+                            }
+                            <div class="text-muted small mt-1">
+                                Created @agent.CreatedAt.ToString("MMM dd, yyyy")
+                                &nbsp;·&nbsp;
+                                <span class="@(activeKeyCount == 0 ? "text-warning" : "")">
+                                    @activeKeyCount API @(activeKeyCount == 1 ? "key" : "keys")
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-sm @(isExpanded ? "btn-secondary" : "btn-outline-secondary")"
+                                    @onclick="() => ToggleExpand(agent.Id)">
+                                <span class="bi-key me-1"></span>
+                                API Keys
+                            </button>
+                            <button class="btn btn-sm @(agent.IsActive ? "btn-outline-warning" : "btn-outline-success")"
+                                    @onclick="() => ToggleActiveAsync(agent)"
+                                    disabled="@isProcessing">
+                                @(agent.IsActive ? "Disable" : "Enable")
+                            </button>
+                            @if (confirmDeleteAgentId == agent.Id)
+                            {
+                                <button class="btn btn-sm btn-danger"
+                                        @onclick="() => DeleteAgentAsync(agent.Id)"
+                                        disabled="@isProcessing">
+                                    Confirm Delete
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => confirmDeleteAgentId = null">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => confirmDeleteAgentId = agent.Id"
+                                        disabled="@isProcessing">
+                                    Delete
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- API Keys Panel -->
+                    @if (isExpanded)
+                    {
+                        <hr class="mt-3 mb-3" />
+
+                        <div class="mb-3">
+                            <h6 class="mb-1">API Keys</h6>
+                            <p class="text-muted small mb-0">
+                                Use these keys to authenticate API requests as this agent.
+                                Pass the key in the <code>X-Api-Key</code> header.
+                                Keys are only shown once when created.
+                            </p>
+                        </div>
+
+                        <!-- One-time key display -->
+                        @if (newKeyAgentId == agent.Id && newKeyResponse is not null)
+                        {
+                            <div class="alert alert-success alert-dismissible mb-3">
+                                <strong>Key created — copy it now.</strong> It won't be shown again.
+                                <div class="input-group mt-2">
+                                    <input type="text" class="form-control font-monospace"
+                                           value="@newKeyResponse.Token" readonly id="new-agent-key-token" />
+                                    <button class="btn btn-outline-secondary" @onclick="CopyKeyToken" type="button">
+                                        <span class="bi-clipboard me-1"></span>Copy
+                                    </button>
+                                </div>
+                                <button type="button" class="btn-close"
+                                        @onclick="() => { newKeyResponse = null; newKeyAgentId = null; }"></button>
+                            </div>
+                        }
+
+                        <!-- Active keys table -->
+                        @if (activeKeys.Count > 0)
+                        {
+                            <table class="table table-sm mb-3">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Prefix</th>
+                                        <th>Created</th>
+                                        <th>Last used</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var key in activeKeys)
+                                    {
+                                        <tr>
+                                            <td class="align-middle">@key.Name</td>
+                                            <td class="align-middle font-monospace text-muted small">@key.TokenPrefix…</td>
+                                            <td class="align-middle text-muted small">@key.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                            <td class="align-middle text-muted small">@(key.LastUsedAt?.ToString("MMM dd, yyyy") ?? "Never")</td>
+                                            <td class="align-middle text-end">
+                                                <button class="btn btn-sm btn-outline-danger"
+                                                        @onclick="() => RevokeKeyAsync(agent.Id, key.Id)"
+                                                        disabled="@isProcessing">
+                                                    Revoke
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <p class="text-muted small mb-3">No active keys. Add one below.</p>
+                        }
+
+                        <!-- Add key form -->
+                        <div class="d-flex gap-2 align-items-end">
+                            <div>
+                                <label class="form-label small mb-1">Key name</label>
+                                <input type="text" class="form-control form-control-sm"
+                                       style="width: 220px;"
+                                       @bind="newKeyName" placeholder="e.g. production" />
+                            </div>
+                            <button class="btn btn-sm btn-primary"
+                                    @onclick="() => CreateKeyAsync(agent.Id)"
+                                    disabled="@isProcessing">
+                                Add Key
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private string newAgentName = "";
+    private string newAgentDescription = "";
+    private string newKeyName = "";
+    private bool isProcessing;
+    private string processingAction = "";
+    private Guid? selectedAgentId;
+    private Guid? confirmDeleteAgentId;
+    private Guid? newKeyAgentId;
+    private CreateAgentKeyResponse? newKeyResponse;
+    private string? statusMessage;
+    private bool statusSuccess;
+    private Guid currentUserId;
+
+    private List<AgentDto> agents = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr is not null)
+            Guid.TryParse(userIdStr, out currentUserId);
+
+        await LoadAgentsAsync();
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        agents = (await AgentService.ListAsync()).ToList();
+    }
+
+    private void ToggleExpand(Guid agentId)
+    {
+        if (selectedAgentId == agentId)
+        {
+            selectedAgentId = null;
+        }
+        else
+        {
+            selectedAgentId = agentId;
+            newKeyName = "";
+            newKeyResponse = null;
+            newKeyAgentId = null;
+        }
+    }
+
+    private async Task CreateAgentAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newAgentName))
+        {
+            statusMessage = "Agent name is required.";
+            statusSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        processingAction = "create";
+        statusMessage = null;
+        try
+        {
+            var request = new CreateAgentRequest(
+                newAgentName.Trim(),
+                string.IsNullOrWhiteSpace(newAgentDescription) ? null : newAgentDescription.Trim());
+
+            var agent = await AgentService.CreateAsync(request, currentUserId);
+            statusMessage = $"Agent '{agent.Name}' created.";
+            statusSuccess = true;
+            newAgentName = "";
+            newAgentDescription = "";
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex) when (ex.InnerException?.Message.Contains("ix_agents_name",
+            StringComparison.OrdinalIgnoreCase) == true)
+        {
+            statusMessage = $"An agent named '{newAgentName}' already exists.";
+            statusSuccess = false;
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to create agent: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+            processingAction = "";
+        }
+    }
+
+    private async Task ToggleActiveAsync(AgentDto agent)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            await AgentService.SetActiveAsync(agent.Id, !agent.IsActive);
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to update agent: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task DeleteAgentAsync(Guid agentId)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmDeleteAgentId = null;
+        try
+        {
+            var deleted = await AgentService.DeleteAsync(agentId);
+            if (!deleted)
+            {
+                statusMessage = "Agent not found.";
+                statusSuccess = false;
+                return;
+            }
+            statusMessage = "Agent deleted.";
+            statusSuccess = true;
+            if (selectedAgentId == agentId)
+                selectedAgentId = null;
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to delete agent: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CreateKeyAsync(Guid agentId)
+    {
+        if (string.IsNullOrWhiteSpace(newKeyName))
+        {
+            statusMessage = "Key name is required.";
+            statusSuccess = false;
+            return;
+        }
+
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim()));
+            newKeyResponse = key;
+            newKeyAgentId = agentId;
+            newKeyName = "";
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to create key: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task RevokeKeyAsync(Guid agentId, Guid keyId)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            var revoked = await AgentService.RevokeKeyAsync(agentId, keyId);
+            if (!revoked)
+            {
+                statusMessage = "Key not found.";
+                statusSuccess = false;
+                return;
+            }
+            if (newKeyAgentId == agentId)
+            {
+                newKeyResponse = null;
+                newKeyAgentId = null;
+            }
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to revoke key: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CopyKeyToken()
+    {
+        if (newKeyResponse is null) return;
+        var copied = await JS.InvokeAsync<bool>("connapse.copyToClipboard", newKeyResponse.Token);
+        statusMessage = copied ? "Token copied to clipboard!" : "Could not copy. Please copy it manually.";
+        statusSuccess = copied;
+    }
+}

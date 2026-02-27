@@ -1,0 +1,26 @@
+# Development overrides — must be explicitly loaded alongside the base file.
+# Exposes backing services to the host so `dotnet run` can connect directly.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+    networks:
+      - frontend
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - frontend
+
+  ollama:
+    ports:
+      - "11434:11434"
+    networks:
+      - frontend
+
+  web:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development

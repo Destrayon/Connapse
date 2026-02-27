@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Connapse.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Testcontainers.Minio;
@@ -19,6 +20,10 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class IngestionIntegrationTests : IAsyncLifetime
 {
+    private const string AdminEmail = "admin@ingestion-tests.connapse.io";
+    private const string AdminPassword = "AdminTest1!";
+    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -56,10 +61,16 @@ public class IngestionIntegrationTests : IAsyncLifetime
                 builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Chunking:Overlap", "20");
                 builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
+                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
+                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
+                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
             });
 
         _client = _factory.CreateClient();
         await Task.Delay(2000);
+
+        var token = await GetAdminTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         // Create a container for ingestion tests
         var response = await _client.PostAsJsonAsync("/api/containers",
@@ -190,6 +201,16 @@ public class IngestionIntegrationTests : IAsyncLifetime
         {
             await _client.DeleteAsync($"/api/containers/{_containerId}/files/{docId}");
         }
+    }
+
+    private async Task<string> GetAdminTokenAsync()
+    {
+        using var anonClient = _factory.CreateClient();
+        var response = await anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
+        response.EnsureSuccessStatusCode();
+        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
+        return token!.AccessToken;
     }
 
     private async Task<string> UploadDocument(string fileName, string content)

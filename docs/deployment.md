@@ -40,9 +40,18 @@ cp .env.example .env
 Edit `.env` and set your passwords:
 ```env
 POSTGRES_PASSWORD=your_secure_password_here
-MINIO_ROOT_USER=aikp_admin
+MINIO_ROOT_USER=connapse_admin
 MINIO_ROOT_PASSWORD=your_secure_minio_password_here
+
+# Auth (required for v0.2.0+)
+CONNAPSE_ADMIN_EMAIL=admin@example.com
+CONNAPSE_ADMIN_PASSWORD=YourSecureAdminPassword123!
+
+# JWT signing secret — generate with: openssl rand -base64 64
+Identity__Jwt__Secret=replace-with-a-long-random-secret-at-least-64-chars
 ```
+
+> **Important**: `Identity__Jwt__Secret` must be at least 32 characters and kept secret. It signs all JWT tokens.
 
 3. **Start services**:
 ```bash
@@ -52,6 +61,10 @@ docker compose up -d
 # With Ollama (includes local embedding + LLM)
 docker compose --profile with-ollama up -d
 ```
+
+> **Compose file layout**: `docker-compose.yml` is the production base (no host-exposed ports,
+> services isolated on an internal network). `docker-compose.dev.yml` is a development overlay —
+> see [Local Development](#local-development).
 
 4. **Wait for services to be ready**:
 ```bash
@@ -77,10 +90,11 @@ The database schema is created automatically on first startup via EF Core migrat
 
 ### Verify Installation
 
-1. Open http://localhost:5001 — the home page displays the container list
-2. Go to **Settings**
-3. Click "Test Connection" for PostgreSQL, MinIO, and Ollama
-4. All tests should show ✅ Success
+1. Open http://localhost:5001 — you are redirected to the login page
+2. If `CONNAPSE_ADMIN_EMAIL` / `CONNAPSE_ADMIN_PASSWORD` were set, log in with those credentials
+3. If no env vars were set, the login page shows a **First-Time Setup** form — create the admin account there
+4. After login, open **Settings** and click "Test Connection" for PostgreSQL, MinIO, and Ollama
+5. All tests should show ✅ Success
 
 ---
 
@@ -91,33 +105,28 @@ Run the application directly on your machine for development.
 ### Prerequisites
 
 - **.NET 10 SDK** ([Download](https://dotnet.microsoft.com/download/dotnet/10.0))
-- **PostgreSQL 17** with pgvector extension
-- **MinIO** (or use Docker for just the dependencies)
-- **Ollama** (optional, for local embeddings)
+- **Docker** & **Docker Compose** (for backing services)
+- **Ollama** (optional — run natively or via Docker)
 
 ### Option 1: Hybrid (Docker Dependencies + .NET Runtime)
 
 Run infrastructure in Docker, application in .NET runtime for hot reload and debugging.
 
-1. **Start dependencies**:
+1. **Start backing services** using the dev override (exposes ports to the host):
 ```bash
-docker compose up -d postgres minio ollama
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
-2. **Configure connection strings**:
-```bash
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=aikp;Username=aikp;Password=aikp_dev" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:Endpoint" "localhost:9000" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:AccessKey" "aikp_dev" --project src/Connapse.Web
-dotnet user-secrets set "Knowledge:Storage:MinIO:SecretKey" "aikp_dev_secret" --project src/Connapse.Web
-```
+> **Why the extra `-f`?** `docker-compose.yml` is the production base — it keeps all services
+> on an internal network with no exposed ports. `docker-compose.dev.yml` overlays port bindings
+> so `dotnet run` can reach PostgreSQL (5432), MinIO (9000/9001), and Ollama (11434) on localhost.
 
-3. **Run the application**:
+2. **Run the application** (`appsettings.json` already points at localhost defaults):
 ```bash
 dotnet run --project src/Connapse.Web
 ```
 
-4. **Open your browser**: https://localhost:5001
+3. **Open your browser**: https://localhost:5001
 
 ### Option 2: Fully Local (No Docker)
 
@@ -216,12 +225,24 @@ dotnet test --filter "Category=Integration"
 # Watch mode (auto-rebuild on changes)
 dotnet watch --project src/Connapse.Web
 
-# EF Core migrations
+# EF Core migrations — Storage DbContext (documents, containers, etc.)
 dotnet ef migrations add MigrationName --project src/Connapse.Storage --startup-project src/Connapse.Web
-dotnet ef database update --project src/Connapse.Storage --startup-project src/Connapse.Web
+
+# EF Core migrations — Identity DbContext (users, PATs, audit logs, agents)
+dotnet ef migrations add MigrationName --project src/Connapse.Identity --startup-project src/Connapse.Web
 
 # Format code
 dotnet format
+```
+
+### CLI Setup (Development)
+
+```bash
+# Authenticate against your local dev server
+connapse auth login --url https://localhost:5001
+
+# Or run directly from source
+dotnet run --project src/Connapse.CLI -- auth login --url https://localhost:5001
 ```
 
 ---
@@ -558,6 +579,19 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Search__MinimumScore` | Minimum similarity score | `0.5` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
+
+#### Auth Settings (v0.2.0+)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CONNAPSE_ADMIN_EMAIL` | Admin email for auto-seed on first startup | (optional) |
+| `CONNAPSE_ADMIN_PASSWORD` | Admin password for auto-seed on first startup | (optional) |
+| `Identity__Jwt__Secret` | HS256 JWT signing secret (min 32 chars) | **(required in production)** |
+| `Identity__Jwt__Issuer` | JWT issuer claim | `Connapse` |
+| `Identity__Jwt__Audience` | JWT audience claim | `Connapse` |
+| `Identity__Jwt__AccessTokenExpiryMinutes` | JWT access token lifetime | `90` |
+| `Identity__Jwt__RefreshTokenExpiryDays` | JWT refresh token lifetime | `30` |
+| `Identity__Cookie__SlidingExpirationDays` | Cookie session lifetime | `14` |
 
 > **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 

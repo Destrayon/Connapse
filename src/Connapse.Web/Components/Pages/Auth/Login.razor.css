@@ -1,0 +1,17 @@
+.auth-card {
+    background-color: var(--surface);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.75rem;
+    padding: 2rem;
+}
+
+.auth-header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.auth-header h1 {
+    color: var(--accent);
+    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+}

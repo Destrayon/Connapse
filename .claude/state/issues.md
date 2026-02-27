@@ -484,6 +484,40 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 **Status**: Fixed (2026-02-07)
 
+### MultiScheme DefaultAuthenticateScheme Overridden by AddIdentity
+
+**Severity**: Critical (JWT and PAT authentication silently broken)
+
+**Description**: `AddIdentity<ConnapseUser, ConnapseRole>()` internally and unconditionally sets `DefaultAuthenticateScheme = "Identity.Application"`. Because `DefaultAuthenticateScheme` takes precedence over `DefaultScheme`, the `MultiScheme` PolicyScheme was never invoked for authentication. All requests using `Authorization: Bearer` or `X-Api-Key` headers were evaluated by the `Identity.Application` cookie handler, which found no cookie and reported unauthenticated — causing 401 for all JWT/PAT API calls.
+
+**Root Cause**: ASP.NET Core authentication options precedence: `DefaultAuthenticateScheme` > `DefaultScheme`. `AddIdentity<>()` sets the former, overriding the latter.
+
+**Repro**: All JWT-authenticated API requests returned 401. Debug logs showed "AuthenticationScheme: Identity.Application was not authenticated" even when a valid Bearer token was present.
+
+**Fix**: Added `options.DefaultAuthenticateScheme = "MultiScheme"` explicitly in `AddConnapseAuthentication()`. Updated `ForwardDefaultSelector` default from `CookieAuthenticationDefaults.AuthenticationScheme` to `IdentityConstants.ApplicationScheme` (so Blazor UI cookie sessions still route correctly). Also added `DefaultSignInScheme` and `DefaultSignOutScheme` to preserve `SignInManager` functionality.
+
+**Status**: Fixed (2026-02-23) — discovered by auth endpoint integration tests
+
+---
+
+### UseStatusCodePagesWithReExecute Intercepts Empty API 401 Responses
+
+**Severity**: High (API endpoints return 400 instead of 401/403 for unauthenticated requests)
+
+**Description**: `UseStatusCodePagesWithReExecute("/not-found")` intercepts any response with an error status code and no body, re-executing the request at `/not-found` while preserving the **original HTTP method**. For API POST endpoints returning empty `Results.Unauthorized()`, the re-execution POSTs to `/not-found`, where Blazor's antiforgery middleware validates the missing CSRF token and returns 400.
+
+**Root Cause**: `Results.Unauthorized()` returns an empty body. StatusCodePages treats empty-body error responses as candidates for re-execution. Re-execution uses the same method (POST), hitting antiforgery validation on the Blazor SSR error page.
+
+**Repro**: Any API endpoint returning `Results.Unauthorized()` via POST/PUT/DELETE would return 400 to the client instead of 401 after `UseStatusCodePagesWithReExecute` was active.
+
+**Fix**: Two changes:
+1. For the specific `/token/refresh` endpoint, replaced `Results.Unauthorized()` with `Results.Json(new { error = "Invalid or expired refresh token" }, statusCode: StatusCodes.Status401Unauthorized)` — a non-empty body prevents StatusCodePages from intercepting it.
+2. Added middleware in `Program.cs` to disable `IStatusCodePagesFeature` for all `/api` paths, so all API error responses are returned directly without re-execution.
+
+**Status**: Fixed (2026-02-23) — discovered by auth endpoint integration tests
+
+---
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests

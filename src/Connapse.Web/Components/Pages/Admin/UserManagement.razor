@@ -1,0 +1,471 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Connapse.Identity.Data.Entities
+@using Connapse.Identity.Services
+@inject UserManager<ConnapseUser> UserManager
+@inject InviteService InviteService
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>User Management - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <h1 class="mb-4">
+        <span class="bi-people-fill me-2"></span>
+        User Management
+    </h1>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- Invite User Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Invite New User</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="inviteEmail" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="inviteEmail"
+                           @bind="inviteEmail" placeholder="user@example.com" />
+                </div>
+                <div class="col-md-3">
+                    <label for="inviteRole" class="form-label">Role</label>
+                    <select class="form-select" id="inviteRole" @bind="inviteRole">
+                        <option value="Viewer">Viewer</option>
+                        <option value="Editor">Editor</option>
+                        @if (isOwner)
+                        {
+                            <option value="Admin">Admin</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary" @onclick="CreateInviteAsync" disabled="@isCreatingInvite">
+                        @if (isCreatingInvite)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Send Invite
+                    </button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(generatedInviteLink))
+            {
+                <div class="alert alert-success mt-3">
+                    <strong>Invite link created!</strong> Share this link with the user:
+                    <div class="input-group mt-2">
+                        <input type="text" class="form-control" value="@generatedInviteLink" readonly id="inviteLink" />
+                        <button class="btn btn-outline-secondary" @onclick="CopyInviteLink" type="button">
+                            Copy
+                        </button>
+                    </div>
+                    <small class="text-muted mt-1 d-block">This link expires in 7 days.</small>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Pending Invitations -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Pending Invitations</h5>
+        </div>
+        <div class="card-body">
+            @if (pendingInvites.Count == 0)
+            {
+                <p class="text-muted mb-0">No pending invitations.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Invited By</th>
+                                <th>Expires</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var invite in pendingInvites)
+                            {
+                                <tr>
+                                    <td>@invite.Email</td>
+                                    <td><span class="badge bg-secondary">@invite.Role</span></td>
+                                    <td>@(invite.CreatedByUser?.DisplayName ?? invite.CreatedByUser?.Email ?? "Unknown")</td>
+                                    <td>@invite.ExpiresAt.ToString("MMM dd, yyyy")</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => RevokeInviteAsync(invite.Id)">
+                                            Revoke
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Existing Users -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Users</h5>
+        </div>
+        <div class="card-body">
+            @if (users.Count == 0)
+            {
+                <p class="text-muted mb-0">No users found.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped mb-0">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Display Name</th>
+                                <th>Roles</th>
+                                <th>Created</th>
+                                <th>Last Login</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in users)
+                            {
+                                var canManage = CanManageUser(user);
+                                <tr>
+                                    <td>@user.Email</td>
+                                    <td>@(user.DisplayName ?? "—")</td>
+                                    <td>
+                                        @foreach (var role in user.Roles)
+                                        {
+                                            <span class="badge bg-primary me-1">@role</span>
+                                        }
+                                    </td>
+                                    <td>@user.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                    <td>@(user.LastLoginAt?.ToString("MMM dd, yyyy") ?? "Never")</td>
+                                    <td>
+                                        @if (canManage)
+                                        {
+                                            <div class="d-flex align-items-center gap-2">
+                                                <select class="form-select form-select-sm" style="width: auto;"
+                                                        value="@user.SelectedRole"
+                                                        @onchange="(e) => user.SelectedRole = e.Value?.ToString() ?? user.Roles.First()">
+                                                    <option value="Viewer">Viewer</option>
+                                                    <option value="Editor">Editor</option>
+                                                    @if (isOwner)
+                                                    {
+                                                        <option value="Admin">Admin</option>
+                                                    }
+                                                </select>
+                                                @if (user.SelectedRole != user.Roles.FirstOrDefault())
+                                                {
+                                                    <button class="btn btn-sm btn-primary"
+                                                            @onclick="() => ChangeRoleAsync(user.Id, user.SelectedRole)"
+                                                            disabled="@isProcessing">
+                                                        Save
+                                                    </button>
+                                                }
+                                                @if (confirmDeleteUserId == user.Id)
+                                                {
+                                                    <button class="btn btn-sm btn-danger"
+                                                            @onclick="() => DeleteUserAsync(user.Id)"
+                                                            disabled="@isProcessing">
+                                                        Confirm
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-secondary"
+                                                            @onclick="() => confirmDeleteUserId = null">
+                                                        Cancel
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger"
+                                                            @onclick="() => confirmDeleteUserId = user.Id"
+                                                            disabled="@isProcessing">
+                                                        Delete
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string inviteEmail = "";
+    private string inviteRole = "Viewer";
+    private bool isCreatingInvite;
+    private bool isOwner;
+    private Guid currentUserId;
+    private string? generatedInviteLink;
+    private string? statusMessage;
+    private bool statusSuccess;
+    private bool isProcessing;
+    private Guid? confirmDeleteUserId;
+
+    private List<UserInvitation> pendingInvites = new();
+    private List<UserViewModel> users = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isOwner = authState.User.IsInRole("Owner");
+        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr is not null)
+            Guid.TryParse(userIdStr, out currentUserId);
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        pendingInvites = await InviteService.ListPendingInvitesAsync();
+
+        var allUsers = await UserManager.Users
+            .OrderBy(u => u.CreatedAt)
+            .ToListAsync();
+
+        users = new List<UserViewModel>();
+        foreach (var user in allUsers)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            var primaryRole = roles.FirstOrDefault() ?? "Viewer";
+            users.Add(new UserViewModel
+            {
+                Id = user.Id,
+                Email = user.Email ?? "",
+                DisplayName = user.DisplayName,
+                Roles = roles.ToList(),
+                SelectedRole = primaryRole,
+                CreatedAt = user.CreatedAt,
+                LastLoginAt = user.LastLoginAt,
+            });
+        }
+    }
+
+    private bool CanManageUser(UserViewModel user)
+    {
+        // Can't manage yourself
+        if (user.Id == currentUserId) return false;
+        // Can't manage the Owner
+        if (user.Roles.Contains("Owner")) return false;
+        // Admins can't manage other Admins
+        if (!isOwner && user.Roles.Contains("Admin")) return false;
+        return true;
+    }
+
+    private async Task ChangeRoleAsync(Guid userId, string newRole)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            var user = await UserManager.FindByIdAsync(userId.ToString());
+            if (user is null)
+            {
+                statusMessage = "User not found.";
+                statusSuccess = false;
+                return;
+            }
+
+            var currentRoles = await UserManager.GetRolesAsync(user);
+
+            // Permission check: admin can't change admin roles
+            if (!isOwner && currentRoles.Contains("Admin"))
+            {
+                statusMessage = "Only the Owner can change Admin roles.";
+                statusSuccess = false;
+                return;
+            }
+
+            // Don't allow assigning Owner or Agent roles via user management
+            if (newRole is "Owner" or "Agent")
+            {
+                statusMessage = $"The '{newRole}' role cannot be assigned to users.";
+                statusSuccess = false;
+                return;
+            }
+
+            // Only Owner can assign Admin role
+            if (newRole == "Admin" && !isOwner)
+            {
+                statusMessage = "Only the Owner can assign the Admin role.";
+                statusSuccess = false;
+                return;
+            }
+
+            var removeResult = await UserManager.RemoveFromRolesAsync(user, currentRoles);
+            if (!removeResult.Succeeded)
+            {
+                statusMessage = "Failed to update roles.";
+                statusSuccess = false;
+                return;
+            }
+
+            var addResult = await UserManager.AddToRoleAsync(user, newRole);
+            if (!addResult.Succeeded)
+            {
+                statusMessage = "Failed to assign new role.";
+                statusSuccess = false;
+                return;
+            }
+
+            statusMessage = $"Role for {user.Email} changed to {newRole}.";
+            statusSuccess = true;
+            await LoadDataAsync();
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task DeleteUserAsync(Guid userId)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmDeleteUserId = null;
+        try
+        {
+            var user = await UserManager.FindByIdAsync(userId.ToString());
+            if (user is null)
+            {
+                statusMessage = "User not found.";
+                statusSuccess = false;
+                return;
+            }
+
+            var roles = await UserManager.GetRolesAsync(user);
+
+            // Permission check: admin can't delete admins
+            if (!isOwner && roles.Contains("Admin"))
+            {
+                statusMessage = "Only the Owner can delete Admins.";
+                statusSuccess = false;
+                return;
+            }
+
+            var result = await UserManager.DeleteAsync(user);
+            if (!result.Succeeded)
+            {
+                statusMessage = "Failed to delete user.";
+                statusSuccess = false;
+                return;
+            }
+
+            statusMessage = $"User {user.Email} has been deleted.";
+            statusSuccess = true;
+            await LoadDataAsync();
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CreateInviteAsync()
+    {
+        generatedInviteLink = null;
+        statusMessage = null;
+
+        if (string.IsNullOrWhiteSpace(inviteEmail))
+        {
+            statusMessage = "Email is required.";
+            statusSuccess = false;
+            return;
+        }
+
+        isCreatingInvite = true;
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (userId is null || !Guid.TryParse(userId, out var createdByUserId))
+            {
+                statusMessage = "Could not determine current user.";
+                statusSuccess = false;
+                return;
+            }
+
+            var (token, _) = await InviteService.CreateInviteAsync(inviteEmail, inviteRole, createdByUserId);
+
+            var baseUri = NavigationManager.BaseUri.TrimEnd('/');
+            generatedInviteLink = $"{baseUri}/register?token={Uri.EscapeDataString(token)}";
+
+            inviteEmail = "";
+            inviteRole = "Viewer";
+
+            await LoadDataAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            statusMessage = ex.Message;
+            statusSuccess = false;
+        }
+        finally
+        {
+            isCreatingInvite = false;
+        }
+    }
+
+    private async Task RevokeInviteAsync(Guid invitationId)
+    {
+        var revoked = await InviteService.RevokeInviteAsync(invitationId);
+        if (revoked)
+        {
+            statusMessage = "Invitation revoked.";
+            statusSuccess = true;
+        }
+        else
+        {
+            statusMessage = "Could not revoke invitation.";
+            statusSuccess = false;
+        }
+        await LoadDataAsync();
+    }
+
+    private async Task CopyInviteLink()
+    {
+        if (string.IsNullOrEmpty(generatedInviteLink)) return;
+
+        var copied = await JS.InvokeAsync<bool>("connapse.copyToClipboard", generatedInviteLink);
+        statusMessage = copied ? "Link copied to clipboard!" : "Could not copy link. Please copy it manually.";
+        statusSuccess = copied;
+    }
+
+    private sealed class UserViewModel
+    {
+        public Guid Id { get; set; }
+        public string Email { get; set; } = "";
+        public string? DisplayName { get; set; }
+        public List<string> Roles { get; set; } = [];
+        public string SelectedRole { get; set; } = "Viewer";
+        public DateTime CreatedAt { get; set; }
+        public DateTime? LastLoginAt { get; set; }
+    }
+}

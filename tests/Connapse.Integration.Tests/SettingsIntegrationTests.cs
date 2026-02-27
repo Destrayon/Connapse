@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -17,6 +19,12 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class SettingsIntegrationTests : IAsyncLifetime
 {
+    private const string AdminEmail = "admin@settings-tests.connapse.io";
+    private const string AdminPassword = "AdminTest1!";
+    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
+
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
         .WithDatabase("aikp_test")
@@ -44,10 +52,16 @@ public class SettingsIntegrationTests : IAsyncLifetime
                 builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
                 builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
                 builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
+                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
+                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
+                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
             });
 
         _client = _factory.CreateClient();
         await Task.Delay(2000);
+
+        var token = await GetAdminTokenAsync();
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
     public async Task DisposeAsync()
@@ -56,6 +70,16 @@ public class SettingsIntegrationTests : IAsyncLifetime
         await _factory.DisposeAsync();
         await _postgresContainer.DisposeAsync();
         await _minioContainer.DisposeAsync();
+    }
+
+    private async Task<string> GetAdminTokenAsync()
+    {
+        using var anonClient = _factory.CreateClient();
+        var response = await anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
+        response.EnsureSuccessStatusCode();
+        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
+        return token!.AccessToken;
     }
 
     [Fact]

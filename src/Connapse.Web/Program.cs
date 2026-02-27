@@ -1,4 +1,8 @@
 using Connapse.Core;
+using Connapse.Identity;
+using Connapse.Identity.Data;
+using Connapse.Identity.Data.Entities;
+using Connapse.Identity.Services;
 using Connapse.Ingestion.Extensions;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Search.Extensions;
@@ -12,9 +16,30 @@ using Connapse.Web.Hubs;
 using Connapse.Web.Mcp;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Persist Data Protection keys to the appdata volume so they survive container restarts.
+// In dev this lands in <ContentRoot>/appdata/DataProtection-Keys; in the container it
+// maps to /app/appdata/DataProtection-Keys which is on the named 'appdata' Docker volume.
+var dpKeysDir = new DirectoryInfo(
+    Path.Combine(builder.Environment.ContentRootPath, "appdata", "DataProtection-Keys"));
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(dpKeysDir)
+    .SetApplicationName("Connapse");
+
+// Support running behind a reverse proxy (e.g. nginx, Caddy, Traefik).
+// This makes UseHttpsRedirection a no-op when the proxy already terminated TLS.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Allow any proxy/network — restrict this if your proxy IPs are known
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Add database-backed settings (overrides appsettings.json)
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -36,6 +61,10 @@ builder.Services.AddSignalR();
 // This avoids conflicts with typed HttpClient registrations used by background services
 builder.Services.AddHttpClient("BlazorClient");
 
+// In-process event bus so Blazor Server components can receive ingestion progress
+// notifications without creating a server-to-server SignalR client connection.
+builder.Services.AddSingleton<IngestionProgressNotifier>();
+
 // Add background services
 builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 
@@ -49,6 +78,14 @@ builder.Services.AddDocumentIngestion();
 
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
+
+// Add Identity, authentication, and authorization
+builder.Services.AddConnapseIdentity(builder.Configuration);
+builder.Services.AddConnapseAuthentication(builder.Configuration);
+builder.Services.AddConnapseAuthorization();
+
+// Provide auth state to Blazor components via cascading parameter
+builder.Services.AddCascadingAuthenticationState();
 
 // Configure settings with IOptionsMonitor for live reload
 builder.Services.Configure<EmbeddingSettings>(
@@ -99,6 +136,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
     await db.Database.MigrateAsync();
 
+    // Migrate Identity tables (separate migration history)
+    var identityDb = scope.ServiceProvider.GetRequiredService<ConnapseIdentityDbContext>();
+    await identityDb.Database.MigrateAsync();
+
+    // Seed default roles and admin user
+    var adminSeed = scope.ServiceProvider.GetRequiredService<AdminSeedService>();
+    await adminSeed.SeedAsync();
+
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)
         await minio.EnsureBucketExistsAsync();
@@ -112,8 +157,27 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+
+// API/MCP routes return structured JSON errors — skip the Blazor error-page re-execution
+// so that empty 401/403 responses are not intercepted by UseStatusCodePagesWithReExecute.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/api") ||
+        ctx.Request.Path.StartsWithSegments("/mcp"))
+    {
+        var feature = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IStatusCodePagesFeature>();
+        if (feature is not null)
+            feature.Enabled = false;
+    }
+    await next(ctx);
+});
+
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.UseAntiforgery();
 
@@ -121,14 +185,22 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Map API endpoints
-app.MapContainersEndpoints();
-app.MapDocumentsEndpoints();
-app.MapFoldersEndpoints();
-app.MapSearchEndpoints();
-app.MapBatchesEndpoints();
-app.MapSettingsEndpoints();
-app.MapMcpEndpoints();
+// Map API endpoints — antiforgery is disabled for all API routes because they
+// authenticate via JWT / PAT bearer tokens, not browser form submissions.
+var api = app.MapGroup("").DisableAntiforgery();
+api.MapAuthEndpoints();
+api.MapAgentEndpoints();
+api.MapContainersEndpoints();
+api.MapDocumentsEndpoints();
+api.MapFoldersEndpoints();
+api.MapSearchEndpoints();
+api.MapBatchesEndpoints();
+api.MapSettingsEndpoints();
+api.MapMcpEndpoints();
+
+// Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
+api.MapGroup("/api/v1/identity")
+    .MapIdentityApi<ConnapseUser>();
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");

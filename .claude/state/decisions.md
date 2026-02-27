@@ -4,6 +4,87 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-22 — Invite-Only Registration Model
+
+**Context**: Open registration (`Identity:AllowRegistration`) allows anyone to create an account. For a knowledge management platform, the admin should control who has access.
+
+**Decision**: Replace open registration with an invite-only system:
+1. **First-user setup**: If no users exist, the login page shows a setup form. The first user becomes admin (`IsSystemAdmin = true`, Admin role).
+2. **Admin invites**: Admins create invitations via `/admin/users` page. Each invite generates a unique token-based link (SHA-256 hashed, 7-day expiry).
+3. **Invite acceptance**: Invited users visit `/register?token=...` to set their password and create their account with the admin-assigned role.
+4. **No public registration**: The `/register` page requires a valid token. The MapIdentityApi `POST /register` endpoint returns 403.
+
+**Alternatives**:
+- Option A: Keep open registration with config flag — too permissive for multi-user knowledge platform
+- Option B: Invite-only with admin-generated links (chosen) — admin controls access, simple UX
+- Option C: Approval queue (user registers, admin approves) — more complex, user waits in limbo
+
+**Consequences**:
+- New `user_invitations` table (EF migration)
+- `InviteService` handles token generation, validation, acceptance, revocation
+- Admin can choose role (Viewer/Editor/Agent/Admin) at invite time
+- `Identity:AllowRegistration` config removed
+- Environment-variable admin seeding still works for initial deployment (before first-user setup)
+
+---
+
+### 2026-02-21 — Auth Strategy: Maximize Built-In ASP.NET Core Identity, Minimize Hand-Rolled Code
+
+**Context**: v0.2.0 Session A created `Connapse.Identity` with custom services for JWT, PAT, audit logging, and scope-based authorization. Before building the login/register/token endpoints (Sessions B-C), we need to decide how much to rely on built-in ASP.NET Core Identity features vs hand-rolling.
+
+**Decision**: Use built-in framework features first; only hand-roll what the framework genuinely doesn't provide.
+
+**What changes from the original plan**:
+
+1. **Use `AddIdentityApiEndpoints` + `MapIdentityApi`** for standard auth endpoints instead of hand-rolling `AuthEndpoints.cs`. This gives us 10 battle-tested endpoints for free:
+   - `POST /register`, `POST /login`, `POST /refresh`
+   - `GET /confirmEmail`, `POST /resendConfirmationEmail`
+   - `POST /forgotPassword`, `POST /resetPassword`
+   - `POST /manage/2fa`, `GET /manage/info`, `POST /manage/info`
+
+2. **Keep `AddIdentity` alongside `AddIdentityApiEndpoints`** — we need full role support (`ConnapseRole`) which `AddIdentityApiEndpoints` alone doesn't provide. Register Identity first for roles, then layer API endpoints on top.
+
+3. **Keep the custom PAT system** (`PatService`, `ApiKeyAuthenticationHandler`) — ASP.NET Core Identity has no built-in API key mechanism. The `cnp_` prefix token system is genuinely custom.
+
+4. **Keep the custom JWT service** (`JwtTokenService`, `ITokenService`) — `MapIdentityApi`'s built-in tokens are proprietary (not standard JWTs). We need real JWTs with standard claims for SDK/external clients. The built-in bearer tokens from `MapIdentityApi` are fine for first-party use (Blazor UI, CLI), but our JWT tier serves third-party SDK consumers.
+
+5. **Keep audit logging** (`AuditLogger`, `IAuditLogger`) — no built-in equivalent.
+
+6. **Keep scope-based authorization** (`ScopeAuthorizationHandler`) — goes beyond built-in role-based policies.
+
+7. **Remove hand-rolled endpoints that `MapIdentityApi` provides for free**: login, register, refresh, password reset, email confirmation, 2FA setup, account info management.
+
+8. **Add only custom endpoints**: PAT CRUD (`/api/v1/auth/pats`), JWT token exchange (`/api/v1/auth/token`), user admin (`/api/v1/auth/users`).
+
+**What Session A built that's still valid** (audited):
+- `ConnapseIdentityDbContext` — correctly extends `IdentityDbContext`, no duplication
+- `ConnapseUser` / `ConnapseRole` — pure extensions of built-in classes
+- `PersonalAccessTokenEntity`, `RefreshTokenEntity`, `AuditLogEntity` — all genuinely custom
+- `ApiKeyAuthenticationHandler` — custom scheme, no built-in equivalent
+- `ScopeAuthorizationHandler` — custom authorization beyond roles
+- `PatService`, `JwtTokenService`, `AdminSeedService`, `AuditLogger` — all needed
+- `IdentityServiceExtensions` — well-structured, uses official APIs throughout
+
+**What needs to change in Session A code**:
+- `IdentityServiceExtensions.AddConnapseIdentity()` — add `.AddApiEndpoints()` to the Identity builder chain so `MapIdentityApi` works
+- `Program.cs` — add `app.MapIdentityApi<ConnapseUser>()` call
+- Blazor login page — can POST to `/login?useCookies=true` (built-in endpoint) instead of hand-rolling SignInManager calls
+
+**Alternatives considered**:
+- Option A: Hand-roll all auth endpoints (original plan) — more code to maintain, more security surface area to get wrong
+- Option B: Use `MapIdentityApi` for standard flows + custom endpoints only for PAT/JWT/admin (chosen) — less code, battle-tested, Microsoft-maintained security flows
+- Option C: OpenIddict — premature for single-service app, adds complexity, planned for v0.3.0 via `ITokenService` abstraction
+- Option D: Keycloak — too heavyweight (Java, 500MB+), breaks local-first principle
+
+**Consequences**:
+- Fewer hand-written security-critical endpoints (reduced attack surface)
+- Get 2FA, password reset, email confirmation for free (weren't even in original v0.2.0 scope)
+- `MapIdentityApi` uses proprietary tokens (not JWTs) — fine for first-party, custom JWT tier handles third-party
+- Must test that `AddIdentity` + `AddIdentityApiEndpoints` coexist correctly (role support + API endpoints)
+- Login page can be simpler (POST to built-in endpoint vs custom SignInManager wiring)
+
+---
+
 ### 2026-02-18 — Search Architecture: Connector + Scope + Query Model
 
 **Context**: Current search is scoped to single MinIO-backed containers with folder path filtering. Need a north-star architecture that supports searching across any data source (S3, Slack, Discord, Notion, GitHub, etc.) through a unified interface.

@@ -1,18 +1,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Copy solution and project files first for layer caching
+# Copy solution and src for restore caching (picks up new projects automatically)
 COPY Connapse.slnx .
-COPY src/Connapse.Core/Connapse.Core.csproj src/Connapse.Core/
-COPY src/Connapse.Storage/Connapse.Storage.csproj src/Connapse.Storage/
-COPY src/Connapse.Ingestion/Connapse.Ingestion.csproj src/Connapse.Ingestion/
-COPY src/Connapse.Search/Connapse.Search.csproj src/Connapse.Search/
-COPY src/Connapse.Agents/Connapse.Agents.csproj src/Connapse.Agents/
-COPY src/Connapse.CLI/Connapse.CLI.csproj src/Connapse.CLI/
-COPY src/Connapse.Web/Connapse.Web.csproj src/Connapse.Web/
+COPY src/ src/
 RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 
-# Copy everything and publish
+# Copy remaining files and publish
 COPY . .
 RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore
 
@@ -21,6 +15,14 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Install missing native lib needed by Npgsql's GSSAPI/Kerberos probe
+# and create writable data directory owned by the non-root user
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/appdata \
+    && chown app:app /app/appdata
 
 # Run as non-root user for security
 USER app

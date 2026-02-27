@@ -1,7 +1,12 @@
 @page "/search"
 @rendermode InteractiveServer
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
+@attribute [Authorize]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Microsoft.Extensions.Options
+@inject IContainerStore ContainerStore
+@inject IKnowledgeSearch SearchService
+@inject IOptionsMonitor<SearchSettings> SearchSettings
 
 <PageTitle>Search - Connapse</PageTitle>
 
@@ -164,21 +169,7 @@
     private bool isSearching = false;
     private SearchResult? searchResult;
     private string? errorMessage;
-    private List<ContainerDto> containers = new();
-
-    private HttpClient? _httpClient;
-    private HttpClient Http
-    {
-        get
-        {
-            if (_httpClient == null)
-            {
-                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
-                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
-            }
-            return _httpClient;
-        }
-    }
+    private List<Container> containers = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -189,8 +180,7 @@
     {
         try
         {
-            var result = await Http.GetFromJsonAsync<List<ContainerDto>>("/api/containers");
-            containers = result ?? new();
+            containers = (await ContainerStore.ListAsync()).ToList();
 
             // Auto-select the first container if there's only one
             if (containers.Count == 1)
@@ -228,9 +218,7 @@
 
         try
         {
-            var url = $"/api/containers/{selectedContainerId}/search?q={Uri.EscapeDataString(query)}&mode={searchMode}&topK={topK}";
-
-            // Add folder path filter if specified
+            var filters = new Dictionary<string, string>();
             if (!string.IsNullOrWhiteSpace(folderPath))
             {
                 var normalizedPath = folderPath.Trim();
@@ -238,13 +226,21 @@
                     normalizedPath = "/" + normalizedPath;
                 if (!normalizedPath.EndsWith('/'))
                     normalizedPath += "/";
-                url += $"&path={Uri.EscapeDataString(normalizedPath)}";
+                filters["pathPrefix"] = normalizedPath;
             }
 
-            var response = await Http.GetAsync(url);
-            response.EnsureSuccessStatusCode();
+            var mode = Enum.TryParse<SearchMode>(searchMode, ignoreCase: true, out var parsed)
+                ? parsed
+                : SearchMode.Hybrid;
 
-            searchResult = await response.Content.ReadFromJsonAsync<SearchResult>();
+            var options = new SearchOptions(
+                Mode: mode,
+                TopK: topK,
+                MinScore: (float)SearchSettings.CurrentValue.MinimumScore,
+                ContainerId: selectedContainerId,
+                Filters: filters.Count > 0 ? filters : null);
+
+            searchResult = await SearchService.SearchAsync(query, options);
         }
         catch (Exception ex)
         {
@@ -256,8 +252,4 @@
             StateHasChanged();
         }
     }
-
-    private record ContainerDto(string Id, string Name, string? Description, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
-    private record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
-    private record SearchHit(string ChunkId, string DocumentId, string Content, float Score, Dictionary<string, string> Metadata);
 }

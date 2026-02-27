@@ -1,0 +1,291 @@
+@page "/register"
+@layout AuthLayout
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Connapse.Identity.Data.Entities
+@using Connapse.Identity.Services
+@attribute [AllowAnonymous]
+
+<PageTitle>@(isSetupMode ? "Setup" : "Accept Invitation") - Connapse</PageTitle>
+
+<div class="auth-card">
+    <div class="auth-header">
+        <h1>Connapse</h1>
+        <p class="text-muted">@(isSetupMode ? "Create your owner account" : "Complete your account")</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+        <div class="mt-3 text-center">
+            <a href="/login">Back to login</a>
+        </div>
+    }
+
+    @if (validationErrors.Count > 0 && (isSetupMode || invitation is not null))
+    {
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                @foreach (var error in validationErrors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+
+    @if (isSetupMode)
+    {
+        <div class="alert alert-info">
+            No users exist yet. This account will be the <strong>Owner</strong> with full control.
+        </div>
+    }
+    else if (invitation is not null)
+    {
+        <div class="alert alert-info">
+            You've been invited to join as <strong>@invitation.Role</strong>.
+        </div>
+    }
+
+    <form method="post" @formname="setup-owner"
+          style="@(isSetupMode && string.IsNullOrEmpty(errorMessage) ? "" : "display:none")">
+        <AntiforgeryToken />
+        <div class="mb-3">
+            <label for="setup-email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="setup-email" name="SetupInput.Email"
+                   value="@(SetupInput?.Email)" required autocomplete="email" />
+        </div>
+        <div class="mb-3">
+            <label for="setup-displayName" class="form-label">Display Name</label>
+            <input type="text" class="form-control" id="setup-displayName" name="SetupInput.DisplayName"
+                   value="@(SetupInput?.DisplayName)" autocomplete="name" />
+        </div>
+        <div class="mb-3">
+            <label for="setup-password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="setup-password" name="SetupInput.Password"
+                   required autocomplete="new-password" />
+        </div>
+        <div class="mb-3">
+            <label for="setup-confirmPassword" class="form-label">Confirm Password</label>
+            <input type="password" class="form-control" id="setup-confirmPassword" name="SetupInput.ConfirmPassword"
+                   required autocomplete="new-password" />
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Create Owner Account</button>
+    </form>
+
+    <form method="post" @formname="accept-invite"
+          style="@(invitation is not null && string.IsNullOrEmpty(errorMessage) ? "" : "display:none")">
+        <AntiforgeryToken />
+        <div class="mb-3">
+            <label for="invite-email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="invite-email" value="@(invitation?.Email)"
+                   disabled style="opacity: 0.5; cursor: not-allowed;" />
+        </div>
+        <div class="mb-3">
+            <label for="invite-displayName" class="form-label">Display Name</label>
+            <input type="text" class="form-control" id="invite-displayName" name="Input.DisplayName"
+                   value="@(Input?.DisplayName)" autocomplete="name" />
+        </div>
+        <div class="mb-3">
+            <label for="invite-password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="invite-password" name="Input.Password"
+                   required autocomplete="new-password" />
+        </div>
+        <div class="mb-3">
+            <label for="invite-confirmPassword" class="form-label">Confirm Password</label>
+            <input type="password" class="form-control" id="invite-confirmPassword" name="Input.ConfirmPassword"
+                   required autocomplete="new-password" />
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Create Account</button>
+    </form>
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm(FormName = "accept-invite")]
+    private AcceptInviteInputModel? Input { get; set; }
+
+    [SupplyParameterFromForm(FormName = "setup-owner")]
+    private SetupOwnerInputModel? SetupInput { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Token { get; set; }
+
+    [Inject] private InviteService InviteService { get; set; } = default!;
+    [Inject] private UserManager<ConnapseUser> UserManager { get; set; } = default!;
+    [Inject] private RoleManager<ConnapseRole> RoleManager { get; set; } = default!;
+    [Inject] private SignInManager<ConnapseUser> SignInManager { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    private string? errorMessage;
+    private List<string> validationErrors = new();
+    private UserInvitation? invitation;
+    private bool isSetupMode;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        SetupInput ??= new();
+
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            NavigationManager.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        // Check if any users exist — if not, enter setup mode
+        var hasUsers = await UserManager.Users.AnyAsync();
+        if (!hasUsers)
+        {
+            isSetupMode = true;
+        }
+        else if (string.IsNullOrWhiteSpace(Token))
+        {
+            errorMessage = "No invitation token provided. You need an invite link to register.";
+            return;
+        }
+        else
+        {
+            invitation = await InviteService.ValidateInviteAsync(Token);
+            if (invitation is null)
+            {
+                errorMessage = "This invitation is invalid, expired, or has already been used.";
+                return;
+            }
+        }
+
+        if (HttpMethods.IsPost(HttpContext.Request.Method))
+        {
+            var handler = HttpContext.Request.Form["_handler"].ToString();
+            if (handler == "setup-owner" && isSetupMode)
+                await HandleSetupAsync();
+            else if (handler == "accept-invite" && invitation is not null)
+                await HandleAcceptAsync();
+        }
+    }
+
+    private async Task HandleSetupAsync()
+    {
+        validationErrors.Clear();
+
+        if (SetupInput is null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(SetupInput.Email))
+        {
+            validationErrors.Add("Email is required.");
+            return;
+        }
+
+        if (SetupInput.Password != SetupInput.ConfirmPassword)
+        {
+            validationErrors.Add("Passwords do not match.");
+            return;
+        }
+
+        // Double-check no users were created in the meantime
+        if (await UserManager.Users.AnyAsync())
+        {
+            errorMessage = "An account already exists. Please use an invite link to register.";
+            isSetupMode = false;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(SetupInput.DisplayName))
+        {
+            var displayNameTaken = await UserManager.Users
+                .AnyAsync(u => u.DisplayName == SetupInput.DisplayName);
+            if (displayNameTaken)
+            {
+                validationErrors.Add("That display name is already taken.");
+                return;
+            }
+        }
+
+        var user = new ConnapseUser
+        {
+            UserName = SetupInput.Email,
+            Email = SetupInput.Email,
+            DisplayName = string.IsNullOrWhiteSpace(SetupInput.DisplayName) ? null : SetupInput.DisplayName,
+            EmailConfirmed = true,
+            IsSystemAdmin = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        // Ensure Owner and Admin roles exist (in case seed hasn't run yet)
+        foreach (var roleName in new[] { "Owner", "Admin" })
+        {
+            if (!await RoleManager.RoleExistsAsync(roleName))
+            {
+                await RoleManager.CreateAsync(new ConnapseRole
+                {
+                    Name = roleName,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+        }
+
+        var result = await UserManager.CreateAsync(user, SetupInput.Password);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+                validationErrors.Add(error.Description);
+            return;
+        }
+
+        var roleResult = await UserManager.AddToRolesAsync(user, new[] { "Owner", "Admin" });
+        if (!roleResult.Succeeded)
+        {
+            foreach (var error in roleResult.Errors)
+                validationErrors.Add(error.Description);
+            return;
+        }
+
+        await SignInManager.SignInAsync(user, isPersistent: false);
+        NavigationManager.NavigateTo("/", forceLoad: true);
+    }
+
+    private async Task HandleAcceptAsync()
+    {
+        validationErrors.Clear();
+
+        if (Input is null || invitation is null || string.IsNullOrWhiteSpace(Token))
+            return;
+
+        if (Input.Password != Input.ConfirmPassword)
+        {
+            validationErrors.Add("Passwords do not match.");
+            return;
+        }
+
+        var (user, result) = await InviteService.AcceptInviteAsync(Token, Input.Password, Input.DisplayName);
+
+        if (result.Succeeded)
+        {
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            NavigationManager.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            foreach (var error in result.Errors)
+                validationErrors.Add(error.Description);
+        }
+    }
+
+    private sealed class AcceptInviteInputModel
+    {
+        public string DisplayName { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+
+    private sealed class SetupOwnerInputModel
+    {
+        public string Email { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

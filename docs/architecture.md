@@ -64,26 +64,31 @@ ConnapsePlatform is a .NET 10 Blazor WebApp that transforms uploaded documents i
 src/
 ├── Connapse.Web/          # Blazor UI + API endpoints + hosting
 ├── Connapse.Core/         # Domain models, interfaces, shared types
+├── Connapse.Identity/     # Auth: ASP.NET Core Identity, PAT, JWT, RBAC, audit logging
 ├── Connapse.Ingestion/    # Document parsing, chunking, pipeline orchestration
 ├── Connapse.Search/       # Vector search, keyword search, hybrid fusion
 ├── Connapse.Storage/      # Database, vector store, object storage, settings
 ├── Connapse.Agents/       # (Planned) Agent orchestration, tools, memory
-└── Connapse.CLI/          # Command-line interface (container mgmt, upload, search, reindex)
+└── Connapse.CLI/          # Command-line interface (auth, container mgmt, upload, search)
 
 tests/
 ├── Connapse.Core.Tests/           # Unit tests (parsers, chunkers, RRF)
 ├── Connapse.Ingestion.Tests/      # Unit tests for ingestion logic
+├── Connapse.Identity.Tests/       # Unit tests (PatService, JwtTokenService, ScopeHandler, AdminSeed)
 └── Connapse.Integration.Tests/    # Integration tests with Testcontainers
 ```
 
 ### Dependency Graph
 
 ```
-Web → Ingestion → Storage
+Web → Identity  → Core
+   → Ingestion → Storage
    → Search    → Core
    → Storage   ↑
    → Core      │
                │
+Identity → Core
+
 Ingestion → Core
          → Storage
 
@@ -93,18 +98,18 @@ Search → Core
 Storage → Core
 
 CLI → Core
-   → Storage
-   → Ingestion
-   → Search
+   (no longer references Identity, Ingestion, Search, or Storage — uses HTTP API only)
 ```
 
-**Principle**: Core has no dependencies. All projects reference Core. Cross-layer dependencies flow downward or laterally, never upward.
+**Principle**: Core has no dependencies. All projects reference Core. Cross-layer dependencies flow downward or laterally, never upward. `Connapse.CLI` is a thin HTTP client and does not reference domain projects directly.
 
 ## Core Abstractions
 
 ### Domain Interfaces
 
-All swappable implementations are defined as interfaces in `Connapse.Core`:
+All swappable implementations are defined as interfaces in `Connapse.Core` or `Connapse.Identity`:
+
+**Core (`Connapse.Core`)**:
 
 | Interface | Purpose | Implementations |
 |-----------|---------|----------------|
@@ -122,6 +127,16 @@ All swappable implementations are defined as interfaces in `Connapse.Core`:
 | `ISearchReranker` | Result fusion + reranking | `RrfReranker`, `CrossEncoderReranker` |
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
 | `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester` |
+
+**Identity (`Connapse.Identity`)**:
+
+| Interface | Purpose | Implementations |
+|-----------|---------|----------------|
+| `IPatService` | Personal Access Token lifecycle | `PatService` |
+| `ITokenService` | JWT generation + refresh rotation | `JwtTokenService` |
+| `IAuditLogger` | Structured audit trail | `AuditLogger` |
+| `IAgentService` | Agent + agent API key CRUD | `AgentService` |
+| `IInviteService` | Invite-only registration tokens | `InviteService` |
 
 ### Core Models
 
@@ -443,12 +458,12 @@ record IngestionProgressUpdate(
 
 The same core services power multiple interfaces:
 
-| Surface | Technology | Use Case |
-|---------|------------|----------|
-| **Blazor UI** | Interactive Server | End users, settings management |
-| **REST API** | Minimal API | Programmatic access, integrations |
-| **MCP Server** | Model Context Protocol | AI agents (Claude Desktop, etc.) |
-| **CLI** | .NET CLI tool (`aikp`) | Automation, CI/CD, scripting |
+| Surface | Technology | Auth | Use Case |
+|---------|------------|------|----------|
+| **Blazor UI** | Interactive Server | Cookie | End users, settings management |
+| **REST API** | Minimal API | PAT or JWT Bearer | Programmatic access, integrations |
+| **MCP Server** | Model Context Protocol | Agent API Key | AI agents (Claude Desktop, etc.) |
+| **CLI** | .NET tool / native binary (`connapse`) | PAT (stored in `~/.connapse/credentials.json`) | Automation, CI/CD, scripting |
 
 All surfaces call the same domain services (`IKnowledgeIngester`, `IKnowledgeSearch`, etc.) — no duplication.
 
@@ -462,10 +477,12 @@ All surfaces call the same domain services (`IKnowledgeIngester`, `IKnowledgeSea
 | **Object Storage** | MinIO | Latest (S3-compatible) |
 | **Embedding/LLM** | Ollama | Optional (local-first) |
 | **ORM** | Entity Framework Core | 10 |
+| **Auth** | ASP.NET Core Identity | Cookie + PAT + JWT (HS256) |
 | **HTTP Client** | HttpClient | Built-in, typed clients |
-| **Real-time** | SignalR | Ingestion progress |
-| **Testing** | xUnit + FluentAssertions + Testcontainers | Latest |
+| **Real-time** | SignalR | Ingestion progress (JWT auth via query string) |
+| **Testing** | xUnit + FluentAssertions + Testcontainers | 256 tests (unit + integration) |
 | **Containerization** | Docker + Docker Compose | Latest |
+| **CI/CD** | GitHub Actions | Build, test, release (native binaries + NuGet) |
 
 ## Design Patterns
 
@@ -531,7 +548,53 @@ public class HybridSearchService
 }
 ```
 
-## Security Considerations
+## Authentication & Authorization (v0.2.0)
+
+Connapse uses a three-tier auth system implemented in `Connapse.Identity`.
+
+### Auth Tiers
+
+| Tier | Mechanism | Used By |
+|------|-----------|---------|
+| **Cookie** | ASP.NET Core Identity (14-day sliding) | Blazor UI browser sessions |
+| **PAT** | `X-Api-Key: cnp_<sha256-hashed>` | CLI, REST API, automation |
+| **JWT** | HS256 Bearer (60-90 min + refresh) | SDK clients, external integrations |
+
+**Multi-scheme handler**: A `PolicyScheme` named `MultiScheme` selects the correct auth handler based on request headers. `DefaultAuthenticateScheme` is explicitly set to `"MultiScheme"` to prevent `AddIdentity<>` from overriding it with the cookie scheme.
+
+### Roles & Scopes
+
+| Role | Access |
+|------|--------|
+| **Admin** | All endpoints, user management, settings, agent management |
+| **Editor** | Upload, delete files, manage containers and folders, search |
+| **Viewer** | Search and browse (read-only) |
+| **Agent** | MCP endpoint only (injected via synthetic `Agent` claim from API key handler) |
+
+Authorization policies: `RequireAdmin`, `RequireEditor`, `RequireViewer`, `RequireAgent` — implemented via `ScopeAuthorizationHandler` which maps roles to permission scopes.
+
+### Identity Database
+
+`ConnapseIdentityDbContext` is a separate `IdentityDbContext` that shares the same PostgreSQL database but uses its own migration history (`__identity_ef_migrations_history`). Tables:
+
+```
+users               — ASP.NET Core Identity users (ConnapseUser)
+roles               — ConnapseRole (Admin, Editor, Viewer)
+user_roles, user_claims, role_claims, user_logins, user_tokens  — Identity join tables
+personal_access_tokens — PATs (SHA-256 hashed, cnp_ prefix)
+refresh_tokens      — JWT refresh token rotation
+audit_logs          — Structured audit trail
+user_invitations    — Invite-only registration tokens
+agents              — Agent entities (non-human identities)
+agent_api_keys      — Agent API keys (SHA-256 hashed)
+```
+
+### First-Time Setup
+
+On a fresh install, `AdminSeedService` runs on startup:
+1. If `CONNAPSE_ADMIN_EMAIL` and `CONNAPSE_ADMIN_PASSWORD` env vars are set, creates the admin account automatically.
+2. If no users exist and env vars are absent, the login page shows a setup form (first user becomes admin).
+3. Subsequent users require an admin invitation token.
 
 ### Input Validation
 
@@ -544,11 +607,6 @@ public class HybridSearchService
 - **Development**: User Secrets (`dotnet user-secrets`)
 - **Production**: Environment variables or Azure Key Vault / AWS Secrets Manager
 - **Never committed**: `.gitignore` includes `appsettings.*.json` (except `appsettings.json` defaults)
-
-### Authentication & Authorization
-
-- **Phase 1**: No auth (single-user, local deployment)
-- **Planned**: JWT bearer tokens, role-based access, document-level permissions
 
 ## Performance Characteristics
 

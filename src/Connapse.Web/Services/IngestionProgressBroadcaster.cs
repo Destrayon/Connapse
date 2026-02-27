@@ -16,16 +16,19 @@ public class IngestionProgressBroadcaster : BackgroundService
 {
     private readonly IIngestionQueue _queue;
     private readonly IHubContext<IngestionHub> _hubContext;
+    private readonly IngestionProgressNotifier _notifier;
     private readonly ILogger<IngestionProgressBroadcaster> _logger;
     private readonly Dictionary<string, DateTime> _lastBroadcast = new();
 
     public IngestionProgressBroadcaster(
         IIngestionQueue queue,
         IHubContext<IngestionHub> hubContext,
+        IngestionProgressNotifier notifier,
         ILogger<IngestionProgressBroadcaster> logger)
     {
         _queue = queue;
         _hubContext = hubContext;
+        _notifier = notifier;
         _logger = logger;
     }
 
@@ -61,6 +64,9 @@ public class IngestionProgressBroadcaster : BackgroundService
                                 "IngestionProgress",
                                 progressUpdate,
                                 stoppingToken);
+
+                            // Also notify in-process subscribers (Blazor Server components)
+                            _notifier.Notify(progressUpdate);
 
                             _lastBroadcast[jobId] = DateTime.UtcNow;
                         }

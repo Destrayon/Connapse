@@ -1,14 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
-    <ProjectReference Include="..\Connapse.Ingestion\Connapse.Ingestion.csproj" />
-    <ProjectReference Include="..\Connapse.Search\Connapse.Search.csproj" />
-    <ProjectReference Include="..\Connapse.Agents\Connapse.Agents.csproj" />
-    <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.2" />
@@ -21,6 +13,24 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet global tool: dotnet tool install -g Connapse.CLI -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>connapse</ToolCommandName>
+    <PackageId>Connapse.CLI</PackageId>
+    <Version>0.2.0</Version>
+    <Authors>Connapse Contributors</Authors>
+    <Description>CLI for Connapse — the open-source AI knowledge management platform.</Description>
+    <PackageProjectUrl>https://github.com/Destrayon/Connapse</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Destrayon/Connapse</RepositoryUrl>
+    <PackageLicense>MIT</PackageLicense>
+
+    <!-- Self-contained single-file publish (used by release.yml) -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimmerRootDescriptor>trimmer-roots.xml</TrimmerRootDescriptor>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
 </Project>
