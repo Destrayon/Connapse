@@ -18,12 +18,14 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>connapse</ToolCommandName>
     <PackageId>Connapse.CLI</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Authors>Connapse Contributors</Authors>
     <Description>CLI for Connapse — the open-source AI knowledge management platform.</Description>
     <PackageProjectUrl>https://github.com/Destrayon/Connapse</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Destrayon/Connapse</RepositoryUrl>
     <PackageLicense>MIT</PackageLicense>
+
+    <AssemblyName>connapse</AssemblyName>
 
     <!-- Self-contained single-file publish (used by release.yml) -->
     <PublishSingleFile>true</PublishSingleFile>
