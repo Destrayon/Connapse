@@ -1,80 +1,38 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for the complete ingestion pipeline: upload → parse → chunk → embed → store → search.
-/// Uses Testcontainers to spin up real PostgreSQL and MinIO instances.
-/// Updated for container-scoped API (Feature #2).
+/// Uses the shared fixture for infrastructure and creates its own named container for isolation.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class IngestionIntegrationTests : IAsyncLifetime
 {
-    private const string AdminEmail = "admin@ingestion-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
-    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("aikp_test")
-        .WithUsername("aikp_test")
-        .WithPassword("aikp_test")
-        .Build();
-
-    private readonly MinioContainer _minioContainer = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _client = null!;
+    private readonly SharedWebAppFixture _fixture;
     private string _containerId = null!;
+
+    public IngestionIntegrationTests(SharedWebAppFixture fixture)
+    {
+        _fixture = fixture;
+    }
 
     public async Task InitializeAsync()
     {
-        await _postgresContainer.StartAsync();
-        await _minioContainer.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
-                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
-                builder.UseSetting("Knowledge:Chunking:Overlap", "20");
-                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _client = _factory.CreateClient();
-        await Task.Delay(2000);
-
-        var token = await GetAdminTokenAsync();
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        // Create a container for ingestion tests
-        var response = await _client.PostAsJsonAsync("/api/containers",
-            new { Name = "ingestion-tests" });
+        var uniqueName = $"ingestion-{Guid.NewGuid().ToString("N")[..8]}";
+        var response = await _fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = uniqueName });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
         _containerId = container!.Id;
@@ -82,10 +40,8 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        _client.Dispose();
-        await _factory.DisposeAsync();
-        await _postgresContainer.DisposeAsync();
-        await _minioContainer.DisposeAsync();
+        if (_containerId is not null)
+            await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}");
     }
 
     [Fact]
@@ -113,7 +69,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         // Act 3: Verify document exists
-        var docResponse = await _client.GetAsync(
+        var docResponse = await _fixture.AdminClient.GetAsync(
             $"/api/containers/{_containerId}/files/{documentId}");
         docResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -126,7 +82,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         int.Parse(document.Metadata["ChunkCount"]).Should().BeGreaterThan(0, "Document should have chunks after ingestion");
 
         // Act 4: Search for content from the document
-        var searchResponse = await _client.GetAsync(
+        var searchResponse = await _fixture.AdminClient.GetAsync(
             $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString("artificial intelligence")}&mode=Keyword&topK=10");
         searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -142,12 +98,12 @@ public class IngestionIntegrationTests : IAsyncLifetime
         hit.Score.Should().BeGreaterThan(0);
 
         // Act 5: Clean up
-        var deleteResponse = await _client.DeleteAsync(
+        var deleteResponse = await _fixture.AdminClient.DeleteAsync(
             $"/api/containers/{_containerId}/files/{documentId}");
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify deletion
-        var verifyResponse = await _client.GetAsync(
+        var verifyResponse = await _fixture.AdminClient.GetAsync(
             $"/api/containers/{_containerId}/files/{documentId}");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -183,7 +139,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
         foreach (var term in searchTerms)
         {
-            var searchResponse = await _client.GetAsync(
+            var searchResponse = await _fixture.AdminClient.GetAsync(
                 $"/api/containers/{_containerId}/search?q={Uri.EscapeDataString(term)}&mode=Keyword&topK=5");
             searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -199,18 +155,8 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Cleanup
         foreach (var docId in documentIds)
         {
-            await _client.DeleteAsync($"/api/containers/{_containerId}/files/{docId}");
+            await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{docId}");
         }
-    }
-
-    private async Task<string> GetAdminTokenAsync()
-    {
-        using var anonClient = _factory.CreateClient();
-        var response = await anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
-        response.EnsureSuccessStatusCode();
-        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
-        return token!.AccessToken;
     }
 
     private async Task<string> UploadDocument(string fileName, string content)
@@ -218,11 +164,11 @@ public class IngestionIntegrationTests : IAsyncLifetime
         using var multipart = new MultipartFormDataContent();
         var fileBytes = Encoding.UTF8.GetBytes(content);
         var fileContent2 = new ByteArrayContent(fileBytes);
-        fileContent2.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+        fileContent2.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(fileContent2, "files", fileName);
         multipart.Add(new StringContent("/test"), "path");
 
-        var response = await _client.PostAsync(
+        var response = await _fixture.AdminClient.PostAsync(
             $"/api/containers/{_containerId}/files", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -239,16 +185,13 @@ public class IngestionIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            // Check document status directly - more reliable than reindex-check
-            // since reindex-check returns Error when the document hasn't been created yet
-            var docResponse = await _client.GetAsync(
+            var docResponse = await _fixture.AdminClient.GetAsync(
                 $"/api/containers/{_containerId}/files/{documentId}");
             if (docResponse.IsSuccessStatusCode)
             {
                 var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
                 if (doc?.Metadata != null)
                 {
-                    // Check if ingestion failed
                     if (doc.Metadata.TryGetValue("Status", out var status))
                     {
                         if (status == "Failed")
@@ -312,11 +255,4 @@ public class IngestionIntegrationTests : IAsyncLifetime
         string Content,
         float Score,
         Dictionary<string, string> Metadata);
-
-    private record ReindexCheckDto(
-        string DocumentId,
-        bool NeedsReindex,
-        string Reason,
-        string? CurrentHash,
-        string? StoredHash);
 }

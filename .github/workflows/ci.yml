@@ -30,11 +30,15 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
+    # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
     - name: Cache Ollama models
       uses: actions/cache@v4
       with:
         path: ~/.ollama
-        key: ${{ runner.os }}-ollama-nomic-embed-text
+        key: ${{ runner.os }}-ollama-nomic-embed-text-v1
+        restore-keys: |
+          ${{ runner.os }}-ollama-nomic-embed-text-
+          ${{ runner.os }}-ollama-
 
     - name: Setup Ollama
       uses: ai-action/setup-ollama@v2
@@ -49,16 +53,15 @@ jobs:
         ollama pull nomic-embed-text
         ollama list
 
+    # Unit tests run fast with no external dependencies
     - name: Run unit tests
       run: dotnet test --no-build --configuration Release --filter "Category=Unit" --verbosity normal --logger "trx;LogFileName=unit-tests.trx"
 
+    # Integration tests run with coverage collection — no separate coverage-only pass needed
     - name: Run integration tests
-      run: dotnet test --no-build --configuration Release --filter "Category=Integration" --verbosity normal --logger "trx;LogFileName=integration-tests.trx"
-      # Testcontainers will automatically spin up PostgreSQL and MinIO containers
+      run: dotnet test --no-build --configuration Release --filter "Category=Integration" --verbosity normal --logger "trx;LogFileName=integration-tests.trx" --collect:"XPlat Code Coverage"
+      # Testcontainers spins up a single shared PostgreSQL + MinIO pair (SharedWebAppFixture)
       # Ollama runs directly on the host for embedding generation
-
-    - name: Run all tests with coverage
-      run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --verbosity normal
 
     - name: Upload test results
       uses: actions/upload-artifact@v4

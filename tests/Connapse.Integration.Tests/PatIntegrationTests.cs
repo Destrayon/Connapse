@@ -6,10 +6,7 @@ using Connapse.Core;
 using Connapse.Identity.Data.Entities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
@@ -22,70 +19,39 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class PatIntegrationTests : IAsyncLifetime
 {
-    private const string AdminEmail = "admin@pat-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
     private const string OtherEmail = "other@pat-tests.connapse.io";
     private const string OtherPassword = "OtherTest1!";
-    private const string TestJwtSecret =
-        "test-jwt-secret-for-pat-integration-tests-must-be-64-chars-ok!!";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("connapse_pat_test")
-        .WithUsername("pat_test")
-        .WithPassword("pat_test")
-        .Build();
-
-    private readonly MinioContainer _minio = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
+    private readonly SharedWebAppFixture _fixture;
     private HttpClient _anonClient = null!;
+
+    public PatIntegrationTests(SharedWebAppFixture fixture)
+    {
+        _fixture = fixture;
+    }
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
-        await _minio.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgres.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint",
-                    $"{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _anonClient = _factory.CreateClient();
-        await Task.Delay(2000);
-
+        _anonClient = _fixture.Factory.CreateClient();
         await SeedUserAsync(OtherEmail, OtherPassword, "Viewer");
     }
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
         _anonClient.Dispose();
-        await _factory.DisposeAsync();
-        await _postgres.DisposeAsync();
-        await _minio.DisposeAsync();
+        return Task.CompletedTask;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private async Task SeedUserAsync(string email, string password, string role)
     {
-        using var scope = _factory.Services.CreateScope();
+        using var scope = _fixture.Factory.Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
 
         if (await userManager.FindByEmailAsync(email) is not null)
@@ -96,7 +62,7 @@ public class PatIntegrationTests : IAsyncLifetime
             UserName = email,
             Email = email,
             EmailConfirmed = true,
-            DisplayName = $"Test {role}",
+            DisplayName = email,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -117,7 +83,7 @@ public class PatIntegrationTests : IAsyncLifetime
 
     private HttpClient CreateJwtClient(string accessToken)
     {
-        var client = _factory.CreateClient();
+        var client = _fixture.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
@@ -125,7 +91,7 @@ public class PatIntegrationTests : IAsyncLifetime
 
     private HttpClient CreatePatClient(string apiKey)
     {
-        var client = _factory.CreateClient();
+        var client = _fixture.Factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
         return client;
     }
@@ -144,7 +110,7 @@ public class PatIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task CreatePat_AuthenticatedUser_Returns200WithTokenAndPrefix()
     {
-        var jwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var jwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateJwtClient(jwt);
 
         var response = await client.PostAsJsonAsync(
@@ -163,7 +129,7 @@ public class PatIntegrationTests : IAsyncLifetime
     public async Task ListPats_AuthenticatedUser_ReturnsOnlyOwnTokens()
     {
         // Create PATs for two different users
-        var adminJwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var adminJwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var adminClient = CreateJwtClient(adminJwt);
         await adminClient.PostAsJsonAsync("/api/v1/auth/pats", new { name = "Admin Token" });
 
@@ -184,7 +150,7 @@ public class PatIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_ValidId_Returns204()
     {
-        var jwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var jwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateJwtClient(jwt);
 
         var createResponse = await client.PostAsJsonAsync(
@@ -199,7 +165,7 @@ public class PatIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_OtherUsersToken_Returns404()
     {
-        var adminJwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var adminJwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var adminClient = CreateJwtClient(adminJwt);
         var createResponse = await adminClient.PostAsJsonAsync(
             "/api/v1/auth/pats", new { name = "Admin Token" });
@@ -220,7 +186,7 @@ public class PatIntegrationTests : IAsyncLifetime
     public async Task UseRevokedPat_Returns401()
     {
         // Create a PAT then immediately revoke it
-        var jwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var jwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var jwtClient = CreateJwtClient(jwt);
 
         var createResponse = await jwtClient.PostAsJsonAsync(
@@ -238,7 +204,7 @@ public class PatIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task UseValidPat_Returns200()
     {
-        var jwt = await GetJwtAsync(AdminEmail, AdminPassword);
+        var jwt = await GetJwtAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var jwtClient = CreateJwtClient(jwt);
 
         var createResponse = await jwtClient.PostAsJsonAsync(

@@ -10,16 +10,34 @@
 <PageTitle>API Tokens - Connapse</PageTitle>
 
 <div class="container-fluid py-4">
-    <div class="mb-4">
-        <h1 class="mb-1">
-            <span class="bi-key-fill me-2"></span>
-            API Tokens
-        </h1>
-        <p class="text-muted mb-0">
-            Personal access tokens let scripts and tools authenticate as you.
-            Pass the token in the <code>X-Api-Key</code> header.
-            Tokens are only shown once when created — store them somewhere safe.
-        </p>
+    <!-- Header -->
+    <div class="d-flex align-items-start justify-content-between mb-4">
+        <div>
+            <h1 class="mb-1">
+                <span class="bi-key-fill me-2"></span>
+                API Tokens
+            </h1>
+            <p class="text-muted mb-0">
+                Personal access tokens let scripts and tools authenticate as you.
+                Pass the token in the <code>X-Api-Key</code> header.
+                Tokens are only shown once when created — store them somewhere safe.
+                @if (tokens.Count > 0)
+                {
+                    <span class="ms-1">You have <strong>@ActiveCount active</strong> token@(ActiveCount == 1 ? "" : "s").</span>
+                }
+            </p>
+        </div>
+        <button class="btn @(showCreateForm ? "btn-outline-secondary" : "btn-primary") ms-3 flex-shrink-0"
+                @onclick="() => showCreateForm = !showCreateForm">
+            @if (showCreateForm)
+            {
+                <span class="bi-x-lg me-1"></span><span>Cancel</span>
+            }
+            else
+            {
+                <span class="bi-plus-lg me-1"></span><span>New Token</span>
+            }
+        </button>
     </div>
 
     @if (!string.IsNullOrEmpty(statusMessage))
@@ -47,114 +65,136 @@
         </div>
     }
 
-    <!-- Create token form -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5 class="mb-0">New Token</h5>
-        </div>
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label">Name</label>
-                    <input type="text" class="form-control" @bind="newTokenName"
-                           placeholder="e.g. my-script" />
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">
-                        Expires <span class="text-muted">(optional)</span>
-                    </label>
-                    <input type="date" class="form-control" @bind="newTokenExpiry" />
-                </div>
-                <div class="col-md-auto">
-                    <button class="btn btn-primary" @onclick="CreateTokenAsync"
-                            disabled="@isProcessing">
-                        @if (isProcessing)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Create Token
-                    </button>
+    <!-- Create token form (collapsible) -->
+    @if (showCreateForm)
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">New Token</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" @bind="newTokenName"
+                               placeholder="e.g. my-script" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">
+                            Expires <span class="text-muted">(optional)</span>
+                        </label>
+                        <input type="date" class="form-control" @bind="newTokenExpiry" />
+                    </div>
+                    <div class="col-md-auto">
+                        <button class="btn btn-primary" @onclick="CreateTokenAsync"
+                                disabled="@isProcessing">
+                            @if (isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            Create Token
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
+    }
 
     <!-- Token list -->
     @if (tokens.Count == 0)
     {
         <div class="card">
-            <div class="card-body text-muted">No tokens yet. Create one above.</div>
+            <div class="card-body text-center py-5 text-muted">
+                <span class="bi-key fs-2 d-block mb-2"></span>
+                No tokens yet. Click <strong>New Token</strong> above to create one.
+            </div>
+        </div>
+    }
+    else if (!DisplayedTokens.Any())
+    {
+        <div class="card">
+            <div class="card-body text-muted">All tokens have been revoked.</div>
         </div>
     }
     else
     {
         <div class="card">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Prefix</th>
-                        <th>Created</th>
-                        <th>Last used</th>
-                        <th>Expires</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var token in tokens)
-                    {
-                        <tr class="@(token.IsRevoked ? "text-muted" : "")">
-                            <td class="align-middle">
-                                @token.Name
-                                @if (token.IsRevoked)
-                                {
-                                    <span class="badge bg-secondary ms-1">Revoked</span>
-                                }
-                            </td>
-                            <td class="align-middle font-monospace small">@token.TokenPrefix…</td>
-                            <td class="align-middle small">@token.CreatedAt.ToString("MMM dd, yyyy")</td>
-                            <td class="align-middle small">@(token.LastUsedAt?.ToString("MMM dd, yyyy") ?? "Never")</td>
-                            <td class="align-middle small">
-                                @if (token.ExpiresAt is not null)
-                                {
-                                    <span class="@(token.ExpiresAt < DateTime.UtcNow ? "text-danger" : "")">
-                                        @token.ExpiresAt.Value.ToString("MMM dd, yyyy")
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span class="text-muted">Never</span>
-                                }
-                            </td>
-                            <td class="align-middle text-end">
-                                @if (!token.IsRevoked)
-                                {
-                                    @if (confirmRevokeId == token.Id)
-                                    {
-                                        <button class="btn btn-sm btn-danger me-1"
-                                                @onclick="() => RevokeTokenAsync(token.Id)"
-                                                disabled="@isProcessing">
-                                            Confirm Revoke
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary"
-                                                @onclick="() => confirmRevokeId = null">
-                                            Cancel
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <button class="btn btn-sm btn-outline-danger"
-                                                @onclick="() => confirmRevokeId = token.Id"
-                                                disabled="@isProcessing">
-                                            Revoke
-                                        </button>
-                                    }
-                                }
-                            </td>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Prefix</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Last used</th>
+                            <th></th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach (var token in DisplayedTokens)
+                        {
+                            var (badgeClass, badgeLabel) = GetTokenStatus(token);
+                            <tr class="@(token.IsRevoked ? "text-muted" : "")">
+                                <td class="align-middle fw-medium">@token.Name</td>
+                                <td class="align-middle font-monospace text-muted small">@token.TokenPrefix…</td>
+                                <td class="align-middle">
+                                    <span class="badge @badgeClass">@badgeLabel</span>
+                                    @if (!token.IsRevoked && token.ExpiresAt is not null)
+                                    {
+                                        <div class="text-muted small mt-1">
+                                            @(token.ExpiresAt < DateTime.UtcNow ? "Expired" : "Expires")
+                                            @token.ExpiresAt.Value.ToString("MMM dd, yyyy")
+                                        </div>
+                                    }
+                                </td>
+                                <td class="align-middle text-muted small">@token.CreatedAt.ToString("MMM dd, yyyy")</td>
+                                <td class="align-middle text-muted small">@(token.LastUsedAt?.ToString("MMM dd, yyyy") ?? "Never")</td>
+                                <td class="align-middle text-end">
+                                    @if (!token.IsRevoked)
+                                    {
+                                        @if (confirmRevokeId == token.Id)
+                                        {
+                                            <button class="btn btn-sm btn-danger me-1"
+                                                    @onclick="() => RevokeTokenAsync(token.Id)"
+                                                    disabled="@isProcessing">
+                                                Confirm Revoke
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    @onclick="() => confirmRevokeId = null">
+                                                Cancel
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-sm btn-outline-danger"
+                                                    @onclick="() => confirmRevokeId = token.Id"
+                                                    disabled="@isProcessing">
+                                                Revoke
+                                            </button>
+                                        }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (RevokedCount > 0)
+            {
+                <div class="card-footer text-muted small py-2">
+                    <button class="btn btn-link btn-sm p-0 text-muted" @onclick="() => showRevoked = !showRevoked">
+                        @if (showRevoked)
+                        {
+                            <span>Hide revoked tokens</span>
+                        }
+                        else
+                        {
+                            <span>Show @RevokedCount revoked token@(RevokedCount == 1 ? "" : "s")</span>
+                        }
+                    </button>
+                </div>
+            }
         </div>
     }
 </div>
@@ -163,6 +203,8 @@
     private string newTokenName = "";
     private DateTime? newTokenExpiry;
     private bool isProcessing;
+    private bool showCreateForm;
+    private bool showRevoked;
     private Guid? confirmRevokeId;
     private string? statusMessage;
     private bool statusSuccess;
@@ -170,6 +212,21 @@
     private Guid currentUserId;
 
     private List<PatListItem> tokens = new();
+
+    private IEnumerable<PatListItem> DisplayedTokens =>
+        showRevoked ? tokens : tokens.Where(t => !t.IsRevoked);
+
+    private int RevokedCount => tokens.Count(t => t.IsRevoked);
+    private int ActiveCount => tokens.Count(t => !t.IsRevoked);
+
+    private (string cssClass, string label) GetTokenStatus(PatListItem token)
+    {
+        if (token.IsRevoked) return ("bg-secondary", "Revoked");
+        if (token.ExpiresAt is not null && token.ExpiresAt < DateTime.UtcNow) return ("bg-danger", "Expired");
+        if (token.ExpiresAt is not null && token.ExpiresAt.Value - DateTime.UtcNow < TimeSpan.FromDays(30))
+            return ("bg-warning text-dark", "Expiring soon");
+        return ("bg-success", "Active");
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -209,6 +266,7 @@
             newTokenResponse = await PatService.CreateAsync(currentUserId, request);
             newTokenName = "";
             newTokenExpiry = null;
+            showCreateForm = false;
             await LoadTokensAsync();
         }
         catch (Exception ex)

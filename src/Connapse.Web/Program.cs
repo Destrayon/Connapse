@@ -185,6 +185,10 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+// Health check — returns 200 when the app is fully initialized.
+// Used by integration tests to replace Task.Delay(2000) startup waits.
+app.MapGet("/health", () => Results.Ok());
+
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery();

@@ -1,13 +1,8 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
-using Xunit;
 
 namespace Connapse.Integration.Tests;
 
@@ -17,70 +12,9 @@ namespace Connapse.Integration.Tests;
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
-public class ConnectionTestIntegrationTests : IAsyncLifetime
+public class ConnectionTestIntegrationTests(SharedWebAppFixture fixture)
 {
-    private const string AdminEmail = "admin@connection-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
-    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
-
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
-
-    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("aikp_test")
-        .WithUsername("aikp_test")
-        .WithPassword("aikp_test")
-        .Build();
-
-    private readonly MinioContainer _minioContainer = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _client = null!;
-
-    public async Task InitializeAsync()
-    {
-        await _postgresContainer.StartAsync();
-        await _minioContainer.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _client = _factory.CreateClient();
-        await Task.Delay(2000); // Allow services to initialize
-
-        var token = await GetAdminTokenAsync();
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
-
-    public async Task DisposeAsync()
-    {
-        _client.Dispose();
-        await _factory.DisposeAsync();
-        await _postgresContainer.DisposeAsync();
-        await _minioContainer.DisposeAsync();
-    }
-
-    private async Task<string> GetAdminTokenAsync()
-    {
-        using var anonClient = _factory.CreateClient();
-        var response = await anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
-        response.EnsureSuccessStatusCode();
-        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
-        return token!.AccessToken;
-    }
 
     [Fact]
     public async Task TestConnection_MinioWithValidCredentials_ReturnsSuccess()
@@ -91,9 +25,9 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
             Category = "storage",
             Settings = new StorageSettings
             {
-                MinioEndpoint = $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}",
-                MinioAccessKey = MinioBuilder.DefaultUsername,
-                MinioSecretKey = MinioBuilder.DefaultPassword,
+                MinioEndpoint = fixture.MinioHostPort,
+                MinioAccessKey = fixture.MinioAccessKey,
+                MinioSecretKey = fixture.MinioSecretKey,
                 MinioBucketName = "test-bucket",
                 MinioUseSSL = false
             },
@@ -101,7 +35,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/settings/test-connection", request);
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -122,7 +56,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
             Category = "storage",
             Settings = new StorageSettings
             {
-                MinioEndpoint = $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}",
+                MinioEndpoint = fixture.MinioHostPort,
                 MinioAccessKey = "invalid_key",
                 MinioSecretKey = "invalid_secret",
                 MinioBucketName = "test-bucket",
@@ -132,7 +66,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/settings/test-connection", request);
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -159,7 +93,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/settings/test-connection", request);
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -185,7 +119,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/settings/test-connection", request);
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -207,7 +141,7 @@ public class ConnectionTestIntegrationTests : IAsyncLifetime
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/settings/test-connection", request);
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
 
         // Assert - Expect 400 Bad Request for missing required field
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);

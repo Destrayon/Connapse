@@ -1,78 +1,38 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
 /// <summary>
 /// Integration tests for the reindex service - verifying content-hash detection and re-processing.
-/// Updated for container-scoped API (Feature #2).
+/// Uses the shared fixture for infrastructure and creates its own named container for isolation.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class ReindexIntegrationTests : IAsyncLifetime
 {
-    private const string AdminEmail = "admin@reindex-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
-    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("aikp_test")
-        .WithUsername("aikp_test")
-        .WithPassword("aikp_test")
-        .Build();
-
-    private readonly MinioContainer _minioContainer = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _client = null!;
+    private readonly SharedWebAppFixture _fixture;
     private string _containerId = null!;
+
+    public ReindexIntegrationTests(SharedWebAppFixture fixture)
+    {
+        _fixture = fixture;
+    }
 
     public async Task InitializeAsync()
     {
-        await _postgresContainer.StartAsync();
-        await _minioContainer.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
-                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
-                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _client = _factory.CreateClient();
-        await Task.Delay(2000);
-
-        var token = await GetAdminTokenAsync();
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        // Create a container for reindex tests
-        var response = await _client.PostAsJsonAsync("/api/containers",
-            new { Name = "reindex-tests" });
+        var uniqueName = $"reindex-{Guid.NewGuid().ToString("N")[..8]}";
+        var response = await _fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = uniqueName });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
         _containerId = container!.Id;
@@ -80,10 +40,8 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        _client.Dispose();
-        await _factory.DisposeAsync();
-        await _postgresContainer.DisposeAsync();
-        await _minioContainer.DisposeAsync();
+        if (_containerId is not null)
+            await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}");
     }
 
     [Fact]
@@ -99,7 +57,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         docBefore.Should().NotBeNull();
 
         // Verify document is truly ready before reindexing
-        var checkBefore = await _client.GetAsync(
+        var checkBefore = await _fixture.AdminClient.GetAsync(
             $"/api/containers/{_containerId}/files/{documentId}/reindex-check");
         checkBefore.IsSuccessStatusCode.Should().BeTrue();
 
@@ -111,7 +69,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await Task.Delay(2000);
 
         // Act: Trigger reindex (content unchanged)
-        var reindexResponse = await _client.PostAsJsonAsync(
+        var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{_containerId}/reindex",
             new { });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -127,7 +85,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         docAfter.Id.Should().Be(documentId);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
     [Fact]
@@ -140,7 +98,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
 
         // Act: Trigger force reindex
-        var reindexResponse = await _client.PostAsJsonAsync(
+        var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{_containerId}/reindex",
             new { Force = true });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -159,14 +117,14 @@ public class ReindexIntegrationTests : IAsyncLifetime
         docAfter.Id.Should().Be(documentId, "Document should still exist after reindexing");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
     }
 
     [Fact]
     public async Task Reindex_ContainerScoped_OnlyReindexesContainerDocuments()
     {
         // Arrange: Create a second container with a document
-        var response = await _client.PostAsJsonAsync("/api/containers",
+        var response = await _fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "reindex-other" });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var otherContainer = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
@@ -178,7 +136,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await WaitForIngestionToCompleteInContainer(otherContainer.Id, doc2Id, timeoutSeconds: 60);
 
         // Act: Reindex only the first container (force mode to ensure it does something)
-        var reindexResponse = await _client.PostAsJsonAsync(
+        var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{_containerId}/reindex",
             new { Force = true });
         reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -190,19 +148,9 @@ public class ReindexIntegrationTests : IAsyncLifetime
         reindexResult!.EnqueuedCount.Should().Be(1, "Only the document in the target container should be reindexed");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{_containerId}/files/{doc1Id}");
-        await _client.DeleteAsync($"/api/containers/{otherContainer.Id}/files/{doc2Id}");
-        await _client.DeleteAsync($"/api/containers/{otherContainer.Id}");
-    }
-
-    private async Task<string> GetAdminTokenAsync()
-    {
-        using var anonClient = _factory.CreateClient();
-        var response = await anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
-        response.EnsureSuccessStatusCode();
-        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
-        return token!.AccessToken;
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{doc1Id}");
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{otherContainer.Id}/files/{doc2Id}");
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{otherContainer.Id}");
     }
 
     private async Task<string> UploadDocument(string fileName, string content)
@@ -215,11 +163,11 @@ public class ReindexIntegrationTests : IAsyncLifetime
         using var multipart = new MultipartFormDataContent();
         var fileBytes = Encoding.UTF8.GetBytes(content);
         var fileContent = new ByteArrayContent(fileBytes);
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+        fileContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(fileContent, "files", fileName);
         multipart.Add(new StringContent("/test"), "path");
 
-        var response = await _client.PostAsync($"/api/containers/{containerId}/files", multipart);
+        var response = await _fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var result = await response.Content.ReadFromJsonAsync<UploadResponse>(JsonOptions);
@@ -228,7 +176,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
     private async Task<DocumentDto> GetDocument(string documentId)
     {
-        var response = await _client.GetAsync(
+        var response = await _fixture.AdminClient.GetAsync(
             $"/api/containers/{_containerId}/files/{documentId}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -248,7 +196,7 @@ public class ReindexIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var docResponse = await _client.GetAsync(
+            var docResponse = await _fixture.AdminClient.GetAsync(
                 $"/api/containers/{containerId}/files/{documentId}");
             if (docResponse.IsSuccessStatusCode)
             {

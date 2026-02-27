@@ -6,10 +6,7 @@ using Connapse.Core;
 using Connapse.Identity.Data.Entities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
@@ -22,77 +19,39 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class AuthEndpointTests : IAsyncLifetime
 {
-    private const string AdminEmail = "admin@auth-test.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
     private const string ViewerEmail = "viewer@auth-test.connapse.io";
     private const string ViewerPassword = "ViewerTest1!";
-
-    // 64-char secret satisfies the HS256 key-size requirement and is deterministic across runs
-    private const string TestJwtSecret =
-        "test-jwt-secret-for-auth-integration-tests-must-be-64-chars-ok!";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("connapse_auth_test")
-        .WithUsername("auth_test")
-        .WithPassword("auth_test")
-        .Build();
-
-    private readonly MinioContainer _minio = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
+    private readonly SharedWebAppFixture _fixture;
     private HttpClient _anonClient = null!;
+
+    public AuthEndpointTests(SharedWebAppFixture fixture)
+    {
+        _fixture = fixture;
+    }
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
-        await _minio.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgres.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint",
-                    $"{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                // Seed the admin user on startup via env vars
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                // Pin a deterministic JWT secret so tokens can be validated
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _anonClient = _factory.CreateClient();
-
-        // Give migrations + AdminSeedService time to finish
-        await Task.Delay(2000);
-
-        // Create a Viewer user for tests that need a non-admin authenticated identity
+        _anonClient = _fixture.Factory.CreateClient();
         await SeedViewerUserAsync();
     }
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
         _anonClient.Dispose();
-        await _factory.DisposeAsync();
-        await _postgres.DisposeAsync();
-        await _minio.DisposeAsync();
+        return Task.CompletedTask;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private async Task SeedViewerUserAsync()
     {
-        using var scope = _factory.Services.CreateScope();
+        using var scope = _fixture.Factory.Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
 
         if (await userManager.FindByEmailAsync(ViewerEmail) is not null)
@@ -103,7 +62,7 @@ public class AuthEndpointTests : IAsyncLifetime
             UserName = ViewerEmail,
             Email = ViewerEmail,
             EmailConfirmed = true,
-            DisplayName = "Test Viewer",
+            DisplayName = ViewerEmail,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -131,7 +90,7 @@ public class AuthEndpointTests : IAsyncLifetime
     /// <summary>Creates an HttpClient pre-configured with a Bearer token.</summary>
     private HttpClient CreateAuthenticatedClient(string accessToken)
     {
-        var client = _factory.CreateClient();
+        var client = _fixture.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
@@ -143,7 +102,7 @@ public class AuthEndpointTests : IAsyncLifetime
     public async Task GetToken_ValidAdminCredentials_Returns200WithTokenPair()
     {
         var response = await _anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
+            "/api/v1/auth/token", new LoginRequest(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -159,7 +118,7 @@ public class AuthEndpointTests : IAsyncLifetime
     public async Task GetToken_WrongPassword_Returns401()
     {
         var response = await _anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, "WrongPassword1!"));
+            "/api/v1/auth/token", new LoginRequest(SharedWebAppFixture.AdminEmail, "WrongPassword1!"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -179,12 +138,12 @@ public class AuthEndpointTests : IAsyncLifetime
         var before = DateTime.UtcNow.AddSeconds(-1);
 
         await _anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
+            "/api/v1/auth/token", new LoginRequest(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword));
 
         // Verify LastLoginAt was set by reading the user from the DB
-        using var scope = _factory.Services.CreateScope();
+        using var scope = _fixture.Factory.Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
-        var user = await userManager.FindByEmailAsync(AdminEmail);
+        var user = await userManager.FindByEmailAsync(SharedWebAppFixture.AdminEmail);
         user!.LastLoginAt.Should().NotBeNull()
             .And.BeAfter(before);
     }
@@ -194,7 +153,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RefreshToken_ValidToken_Returns200WithNewTokenPair()
     {
-        var initial = await GetTokenAsync(AdminEmail, AdminPassword);
+        var initial = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
 
         var response = await _anonClient.PostAsJsonAsync(
             "/api/v1/auth/token/refresh", new RefreshTokenRequest(initial.RefreshToken));
@@ -220,7 +179,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RefreshToken_UsedTokenCannotBeReused_Returns401()
     {
-        var initial = await GetTokenAsync(AdminEmail, AdminPassword);
+        var initial = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
 
         // First refresh: should succeed
         var firstRefresh = await _anonClient.PostAsJsonAsync(
@@ -245,7 +204,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task ListPats_Authenticated_Returns200WithList()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.GetAsync("/api/v1/auth/pats");
@@ -269,7 +228,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task CreatePat_Authenticated_Returns200WithRawToken()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.PostAsJsonAsync(
@@ -287,7 +246,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task CreatePat_NewPat_AppearsInSubsequentList()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var createResponse = await client.PostAsJsonAsync(
@@ -305,7 +264,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task CreatePat_PatCanBeUsedForAuthentication()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var jwtClient = CreateAuthenticatedClient(token.AccessToken);
 
         var createResponse = await jwtClient.PostAsJsonAsync(
@@ -313,7 +272,7 @@ public class AuthEndpointTests : IAsyncLifetime
         var created = await createResponse.Content.ReadFromJsonAsync<PatCreateResponse>(JsonOptions);
 
         // Use the PAT via X-Api-Key header to call a protected endpoint
-        using var patClient = _factory.CreateClient();
+        using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
 
         var listResponse = await patClient.GetAsync("/api/v1/auth/pats");
@@ -332,7 +291,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_NonExistentPat_Returns404()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.DeleteAsync($"/api/v1/auth/pats/{Guid.NewGuid()}");
@@ -343,7 +302,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_OwnPat_Returns204()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var createResponse = await client.PostAsJsonAsync(
@@ -358,7 +317,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_AlreadyRevoked_Returns404()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var createResponse = await client.PostAsJsonAsync(
@@ -374,7 +333,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task RevokePat_RevokedPatCanNoLongerAuthenticate()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var jwtClient = CreateAuthenticatedClient(token.AccessToken);
 
         var createResponse = await jwtClient.PostAsJsonAsync(
@@ -382,7 +341,7 @@ public class AuthEndpointTests : IAsyncLifetime
         var created = await createResponse.Content.ReadFromJsonAsync<PatCreateResponse>(JsonOptions);
 
         // Confirm it works before revocation
-        using var patClient = _factory.CreateClient();
+        using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
         var before = await patClient.GetAsync("/api/v1/auth/pats");
         before.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -418,7 +377,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task ListUsers_AsAdmin_Returns200WithUsers()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.GetAsync("/api/v1/auth/users");
@@ -426,19 +385,19 @@ public class AuthEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var users = await response.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
         users.Should().NotBeNull();
-        users.Should().Contain(u => u.Email == AdminEmail);
+        users.Should().Contain(u => u.Email == SharedWebAppFixture.AdminEmail);
     }
 
     [Fact]
     public async Task ListUsers_AsAdmin_ReturnsRolesForEachUser()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.GetAsync("/api/v1/auth/users");
         var users = await response.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
 
-        var admin = users!.First(u => u.Email == AdminEmail);
+        var admin = users!.First(u => u.Email == SharedWebAppFixture.AdminEmail);
         admin.Roles.Should().Contain("Owner");
         admin.Roles.Should().Contain("Admin");
     }
@@ -471,7 +430,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task AssignRoles_NonExistentUser_Returns404()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var response = await client.PutAsJsonAsync(
@@ -484,7 +443,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task AssignRoles_AssignOwnerRole_Returns400()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var viewerId = await GetUserIdAsync(client, ViewerEmail);
@@ -499,7 +458,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task AssignRoles_AssignAgentRole_Returns400()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var viewerId = await GetUserIdAsync(client, ViewerEmail);
@@ -514,7 +473,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task AssignRoles_ValidRoleChange_Returns204()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var viewerId = await GetUserIdAsync(client, ViewerEmail);
@@ -529,10 +488,10 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task AssignRoles_OwnerRolePreservedWhenNotRequested()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
-        var adminId = await GetUserIdAsync(client, AdminEmail);
+        var adminId = await GetUserIdAsync(client, SharedWebAppFixture.AdminEmail);
 
         // Assign only "Admin" — the Owner role should not be stripped
         var response = await client.PutAsJsonAsync(
@@ -544,7 +503,7 @@ public class AuthEndpointTests : IAsyncLifetime
         // Verify Owner role is still present
         var usersResponse = await client.GetAsync("/api/v1/auth/users");
         var users = await usersResponse.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
-        var adminUser = users!.First(u => u.Email == AdminEmail);
+        var adminUser = users!.First(u => u.Email == SharedWebAppFixture.AdminEmail);
         adminUser.Roles.Should().Contain("Owner");
     }
 

@@ -5,9 +5,6 @@ using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
@@ -17,66 +14,12 @@ namespace Connapse.Integration.Tests;
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
-public class ContainerIntegrationTests : IAsyncLifetime
+public class ContainerIntegrationTests(SharedWebAppFixture fixture)
 {
-    private const string AdminEmail = "admin@container-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
-    private const string TestJwtSecret = "test-jwt-secret-for-integration-tests-must-be-64-chars-ok!";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
-
-    private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("aikp_test")
-        .WithUsername("aikp_test")
-        .WithPassword("aikp_test")
-        .Build();
-
-    private readonly MinioContainer _minioContainer = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _client = null!;
-
-    public async Task InitializeAsync()
-    {
-        await _postgresContainer.StartAsync();
-        await _minioContainer.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgresContainer.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", $"{_minioContainer.Hostname}:{_minioContainer.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("Knowledge:Chunking:MaxChunkSize", "200");
-                builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
-                builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _client = _factory.CreateClient();
-        await Task.Delay(2000);
-
-        var token = await GetAdminTokenAsync();
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
-
-    public async Task DisposeAsync()
-    {
-        _client.Dispose();
-        await _factory.DisposeAsync();
-        await _postgresContainer.DisposeAsync();
-        await _minioContainer.DisposeAsync();
-    }
 
     // ── Container CRUD ────────────────────────────────────────────────
 
@@ -84,7 +27,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
     public async Task CreateContainer_ValidName_Returns201WithContainer()
     {
         // Act
-        var response = await _client.PostAsJsonAsync("/api/containers",
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "test-container", Description = "A test container" });
 
         // Assert
@@ -98,27 +41,27 @@ public class ContainerIntegrationTests : IAsyncLifetime
         container.Id.Should().NotBeNullOrEmpty();
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
     public async Task CreateContainer_DuplicateName_Returns409Conflict()
     {
         // Arrange
-        var createResponse = await _client.PostAsJsonAsync("/api/containers",
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "duplicate-test" });
         createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
 
         // Act
-        var duplicateResponse = await _client.PostAsJsonAsync("/api/containers",
+        var duplicateResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "duplicate-test" });
 
         // Assert
         duplicateResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container!.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
     }
 
     [Theory]
@@ -129,7 +72,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
     [InlineData("has spaces")]  // Spaces not allowed
     public async Task CreateContainer_InvalidName_Returns400(string name)
     {
-        var response = await _client.PostAsJsonAsync("/api/containers", new { Name = name });
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers", new { Name = name });
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
@@ -141,7 +84,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var c2 = await CreateContainer("list-test-2");
 
         // Act
-        var response = await _client.GetAsync("/api/containers");
+        var response = await fixture.AdminClient.GetAsync("/api/containers");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var containers = await response.Content.ReadFromJsonAsync<List<ContainerDto>>(JsonOptions);
@@ -150,8 +93,8 @@ public class ContainerIntegrationTests : IAsyncLifetime
         containers.Should().Contain(c => c.Name == "list-test-2");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{c1.Id}");
-        await _client.DeleteAsync($"/api/containers/{c2.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{c1.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{c2.Id}");
     }
 
     [Fact]
@@ -161,7 +104,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("get-test");
 
         // Act
-        var response = await _client.GetAsync($"/api/containers/{container.Id}");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var result = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
@@ -171,13 +114,13 @@ public class ContainerIntegrationTests : IAsyncLifetime
         result.DocumentCount.Should().Be(0);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
     public async Task GetContainer_NonExistentId_Returns404()
     {
-        var response = await _client.GetAsync($"/api/containers/{Guid.NewGuid()}");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{Guid.NewGuid()}");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -188,20 +131,20 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("delete-test");
 
         // Act
-        var response = await _client.DeleteAsync($"/api/containers/{container.Id}");
+        var response = await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify gone
-        var verifyResponse = await _client.GetAsync($"/api/containers/{container.Id}");
+        var verifyResponse = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
     public async Task DeleteContainer_NonExistent_Returns404()
     {
-        var response = await _client.DeleteAsync($"/api/containers/{Guid.NewGuid()}");
+        var response = await fixture.AdminClient.DeleteAsync($"/api/containers/{Guid.NewGuid()}");
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -214,14 +157,14 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Act
-        var response = await _client.DeleteAsync($"/api/containers/{container.Id}");
+        var response = await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
 
         // Assert — container has documents, should fail
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         // Cleanup: delete file, then container
-        await _client.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     // ── Folder Operations ─────────────────────────────────────────────
@@ -232,7 +175,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("folder-test");
 
         // Act
-        var response = await _client.PostAsJsonAsync(
+        var response = await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/documents" });
 
@@ -245,8 +188,8 @@ public class ContainerIntegrationTests : IAsyncLifetime
         folder.ContainerId.Should().Be(container.Id);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}/folders?path=/documents/&cascade=true");
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/folders?path=/documents/&cascade=true");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
@@ -254,12 +197,12 @@ public class ContainerIntegrationTests : IAsyncLifetime
     {
         var container = await CreateContainer("folder-dup-test");
 
-        await _client.PostAsJsonAsync(
+        await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/docs" });
 
         // Act
-        var response = await _client.PostAsJsonAsync(
+        var response = await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/docs" });
 
@@ -267,8 +210,8 @@ public class ContainerIntegrationTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}/folders?path=/docs/&cascade=true");
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/folders?path=/docs/&cascade=true");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
@@ -276,19 +219,19 @@ public class ContainerIntegrationTests : IAsyncLifetime
     {
         var container = await CreateContainer("folder-root-test");
 
-        var response = await _client.PostAsJsonAsync(
+        var response = await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
     public async Task CreateFolder_InNonExistentContainer_Returns404()
     {
-        var response = await _client.PostAsJsonAsync(
+        var response = await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{Guid.NewGuid()}/folders",
             new { Path = "/docs" });
 
@@ -299,19 +242,19 @@ public class ContainerIntegrationTests : IAsyncLifetime
     public async Task DeleteFolder_ExistingEmptyFolder_Returns204()
     {
         var container = await CreateContainer("folder-del-test");
-        await _client.PostAsJsonAsync(
+        await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/empty-folder" });
 
         // Act
-        var response = await _client.DeleteAsync(
+        var response = await fixture.AdminClient.DeleteAsync(
             $"/api/containers/{container.Id}/folders?path=/empty-folder/&cascade=true");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     // ── File Browse ───────────────────────────────────────────────────
@@ -321,14 +264,14 @@ public class ContainerIntegrationTests : IAsyncLifetime
     {
         var container = await CreateContainer("browse-empty-test");
 
-        var response = await _client.GetAsync($"/api/containers/{container.Id}/files");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var entries = await response.Content.ReadFromJsonAsync<List<BrowseEntryDto>>(JsonOptions);
         entries.Should().NotBeNull();
         entries!.Should().BeEmpty();
 
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
@@ -337,7 +280,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("browse-sorted-test");
 
         // Create folder
-        await _client.PostAsJsonAsync(
+        await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/docs" });
 
@@ -346,7 +289,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Act
-        var response = await _client.GetAsync($"/api/containers/{container.Id}/files");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var entries = await response.Content.ReadFromJsonAsync<List<BrowseEntryDto>>(JsonOptions);
@@ -363,9 +306,9 @@ public class ContainerIntegrationTests : IAsyncLifetime
         entries[0].IsFolder.Should().BeTrue();
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
-        await _client.DeleteAsync($"/api/containers/{container.Id}/folders?path=/docs/&cascade=true");
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/folders?path=/docs/&cascade=true");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     // ── Container Isolation ───────────────────────────────────────────
@@ -386,7 +329,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(containerB.Id, docIdB, timeoutSeconds: 60);
 
         // Act & Assert: Search container A finds physics, not cooking
-        var searchA = await _client.GetAsync(
+        var searchA = await fixture.AdminClient.GetAsync(
             $"/api/containers/{containerA.Id}/search?q=quantum+entanglement&mode=Keyword&topK=5");
         searchA.StatusCode.Should().Be(HttpStatusCode.OK);
         var resultA = await searchA.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
@@ -395,7 +338,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
             "All results should be from container A");
 
         // Act & Assert: Search container B finds cooking, not physics
-        var searchB = await _client.GetAsync(
+        var searchB = await fixture.AdminClient.GetAsync(
             $"/api/containers/{containerB.Id}/search?q=chocolate+souffle&mode=Keyword&topK=5");
         searchB.StatusCode.Should().Be(HttpStatusCode.OK);
         var resultB = await searchB.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
@@ -404,17 +347,17 @@ public class ContainerIntegrationTests : IAsyncLifetime
             "All results should be from container B");
 
         // Act & Assert: Search container A for cooking content returns empty
-        var crossSearch = await _client.GetAsync(
+        var crossSearch = await fixture.AdminClient.GetAsync(
             $"/api/containers/{containerA.Id}/search?q=chocolate+souffle&mode=Keyword&topK=5");
         crossSearch.StatusCode.Should().Be(HttpStatusCode.OK);
         var crossResult = await crossSearch.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
         crossResult!.Hits.Should().BeEmpty("Container A should NOT find container B's content");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{containerA.Id}/files/{docIdA}");
-        await _client.DeleteAsync($"/api/containers/{containerB.Id}/files/{docIdB}");
-        await _client.DeleteAsync($"/api/containers/{containerA.Id}");
-        await _client.DeleteAsync($"/api/containers/{containerB.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerA.Id}/files/{docIdA}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerB.Id}/files/{docIdB}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerA.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerB.Id}");
     }
 
     // ── Cascade Delete ────────────────────────────────────────────────
@@ -425,7 +368,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         var container = await CreateContainer("cascade-test");
 
         // Create folder and upload file into it
-        await _client.PostAsJsonAsync(
+        await fixture.AdminClient.PostAsJsonAsync(
             $"/api/containers/{container.Id}/folders",
             new { Path = "/reports" });
 
@@ -433,20 +376,20 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify file exists
-        var fileResponse = await _client.GetAsync($"/api/containers/{container.Id}/files/{docId}");
+        var fileResponse = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files/{docId}");
         fileResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Act: Delete folder with cascade
-        var deleteResponse = await _client.DeleteAsync(
+        var deleteResponse = await fixture.AdminClient.DeleteAsync(
             $"/api/containers/{container.Id}/folders?path=/reports/&cascade=true");
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Assert: File should be gone too (cascade delete)
-        var verifyResponse = await _client.GetAsync($"/api/containers/{container.Id}/files/{docId}");
+        var verifyResponse = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files/{docId}");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         // Container should now be empty and deletable
-        var containerDeleteResponse = await _client.DeleteAsync($"/api/containers/{container.Id}");
+        var containerDeleteResponse = await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
         containerDeleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
@@ -466,7 +409,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify file details
-        var response = await _client.GetAsync($"/api/containers/{container.Id}/files/{docId}");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files/{docId}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var document = await response.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
@@ -476,8 +419,8 @@ public class ContainerIntegrationTests : IAsyncLifetime
         document.ContainerId.Should().Be(container.Id);
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
     [Fact]
@@ -488,7 +431,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
         multipart.Add(fileContent, "files", "test.txt");
 
-        var response = await _client.PostAsync(
+        var response = await fixture.AdminClient.PostAsync(
             $"/api/containers/{Guid.NewGuid()}/files", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -502,46 +445,36 @@ public class ContainerIntegrationTests : IAsyncLifetime
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Verify search finds it first
-        var searchBefore = await _client.GetAsync(
+        var searchBefore = await fixture.AdminClient.GetAsync(
             $"/api/containers/{container.Id}/search?q=deleted+after+ingestion&mode=Keyword&topK=5");
         var resultBefore = await searchBefore.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
         resultBefore!.Hits.Should().NotBeEmpty();
 
         // Act: Delete file
-        var deleteResponse = await _client.DeleteAsync(
+        var deleteResponse = await fixture.AdminClient.DeleteAsync(
             $"/api/containers/{container.Id}/files/{docId}");
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Assert: File gone
-        var verifyResponse = await _client.GetAsync(
+        var verifyResponse = await fixture.AdminClient.GetAsync(
             $"/api/containers/{container.Id}/files/{docId}");
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         // Assert: Search no longer finds it (chunks cascaded)
-        var searchAfter = await _client.GetAsync(
+        var searchAfter = await fixture.AdminClient.GetAsync(
             $"/api/containers/{container.Id}/search?q=deleted+after+ingestion&mode=Keyword&topK=5");
         var resultAfter = await searchAfter.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions);
         resultAfter!.Hits.Should().BeEmpty("Chunks should be cascade-deleted with the document");
 
         // Cleanup
-        await _client.DeleteAsync($"/api/containers/{container.Id}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────
-
-    private async Task<string> GetAdminTokenAsync()
-    {
-        using var anonClient = _factory.CreateClient();
-        var response = await anonClient.PostAsJsonAsync(
-            "/api/v1/auth/token", new LoginRequest(AdminEmail, AdminPassword));
-        response.EnsureSuccessStatusCode();
-        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions);
-        return token!.AccessToken;
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────
 
     private async Task<ContainerDto> CreateContainer(string name)
     {
-        var response = await _client.PostAsJsonAsync("/api/containers",
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = name });
         response.StatusCode.Should().Be(HttpStatusCode.Created,
             $"Failed to create container '{name}'");
@@ -560,7 +493,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
         if (!string.IsNullOrEmpty(path))
             multipart.Add(new StringContent(path), "path");
 
-        var response = await _client.PostAsync($"/api/containers/{containerId}/files", multipart);
+        var response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK,
             $"Failed to upload '{fileName}' to container {containerId}");
 
@@ -575,7 +508,7 @@ public class ContainerIntegrationTests : IAsyncLifetime
 
         while (DateTime.UtcNow - startTime < timeout)
         {
-            var docResponse = await _client.GetAsync(
+            var docResponse = await fixture.AdminClient.GetAsync(
                 $"/api/containers/{containerId}/files/{documentId}");
             if (docResponse.IsSuccessStatusCode)
             {
@@ -667,5 +600,4 @@ public class ContainerIntegrationTests : IAsyncLifetime
         string Content,
         float Score,
         Dictionary<string, string> Metadata);
-
 }
