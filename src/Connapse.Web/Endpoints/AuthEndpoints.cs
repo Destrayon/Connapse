@@ -6,6 +6,7 @@ using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
 
 namespace Connapse.Web.Endpoints;
 
@@ -131,6 +132,34 @@ public static class AuthEndpoints
         .WithName("RevokePat")
         .WithDescription("Revoke a personal access token by ID")
         .RequireAuthorization();
+
+        // POST /api/v1/auth/cli/exchange — exchange a CLI PKCE auth code for a PAT (anonymous)
+        group.MapPost("/cli/exchange", async (
+            [FromBody] CliExchangeRequest request,
+            [FromServices] CliAuthService cliAuthService,
+            [FromServices] IAuditLogger auditLogger,
+            CancellationToken ct) =>
+        {
+            var result = await cliAuthService.ExchangeAsync(
+                request.Code, request.CodeVerifier, request.RedirectUri, ct);
+
+            if (result is null)
+            {
+                await auditLogger.LogAsync("auth.cli.exchange.failed", "cli_auth", null, null, ct);
+                return Results.Json(
+                    new { error = "Invalid, expired, or already used authorization code" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var (pat, email) = result.Value;
+            await auditLogger.LogAsync("auth.cli.exchange.success", "pat", pat.Id.ToString(),
+                new { pat.Name }, ct);
+
+            return Results.Ok(new CliExchangeResponse(pat.Token, pat.Id, pat.ExpiresAt, email));
+        })
+        .WithName("ExchangeCliAuthCode")
+        .WithDescription("Exchange a CLI PKCE authorization code for a personal access token")
+        .AllowAnonymous();
 
         // GET /api/v1/auth/users — list all users (Admin only)
         group.MapGet("/users", async (

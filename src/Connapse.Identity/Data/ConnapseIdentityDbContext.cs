@@ -16,6 +16,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserInvitation> UserInvitations => Set<UserInvitation>();
     public DbSet<AgentEntity> Agents => Set<AgentEntity>();
     public DbSet<AgentApiKeyEntity> AgentApiKeys => Set<AgentApiKeyEntity>();
+    public DbSet<CliAuthCodeEntity> CliAuthCodes => Set<CliAuthCodeEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +29,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureUserInvitations(modelBuilder);
         ConfigureAgents(modelBuilder);
         ConfigureAgentApiKeys(modelBuilder);
+        ConfigureCliAuthCodes(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -451,6 +453,63 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.HasOne(e => e.Agent)
                 .WithMany(a => a.ApiKeys)
                 .HasForeignKey(e => e.AgentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureCliAuthCodes(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CliAuthCodeEntity>(entity =>
+        {
+            entity.ToTable("cli_auth_codes");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id")
+                .IsRequired();
+
+            entity.Property(e => e.CodeHash)
+                .HasColumnName("code_hash")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.CodeChallenge)
+                .HasColumnName("code_challenge")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.RedirectUri)
+                .HasColumnName("redirect_uri")
+                .HasMaxLength(512)
+                .IsRequired();
+
+            entity.Property(e => e.MachineName)
+                .HasColumnName("machine_name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.ExpiresAt)
+                .HasColumnName("expires_at")
+                .IsRequired();
+
+            entity.Property(e => e.UsedAt)
+                .HasColumnName("used_at");
+
+            entity.HasIndex(e => e.CodeHash)
+                .HasDatabaseName("ix_cli_auth_codes_code_hash")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

@@ -4,7 +4,32 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-26)
+## Current Status (2026-02-26) — Browser-based CLI login (PKCE)
+
+### Session 17 — Browser-Based CLI Login (2026-02-26)
+
+Implemented OAuth 2.0 PKCE loopback redirect (RFC 8252 + RFC 7636) for `connapse auth login`.
+
+**Files created:**
+- `src/Connapse.Identity/Data/Entities/CliAuthCodeEntity.cs` — short-lived auth code entity
+- `src/Connapse.Identity/Services/CliAuthService.cs` — initiate + PKCE exchange service
+- `src/Connapse.Web/Components/Pages/Auth/CliAuthorize.razor` — "Authorize CLI?" Blazor page
+- `src/Connapse.Identity/Migrations/*_AddCliAuthCodes.cs` — EF migration (auto-generated)
+
+**Files modified:**
+- `src/Connapse.Identity/Data/ConnapseIdentityDbContext.cs` — added `CliAuthCodes` DbSet + model builder
+- `src/Connapse.Identity/IdentityServiceExtensions.cs` — registered `CliAuthService`
+- `src/Connapse.Web/Endpoints/AuthEndpoints.cs` — added `POST /api/v1/auth/cli/exchange`
+- `src/Connapse.Core/Models/AuthModels.cs` — added `CliExchangeRequest` + `CliExchangeResponse`
+- `src/Connapse.CLI/Program.cs` — new browser flow in `AuthLoginBrowser`, password flow moved to `AuthLoginPassword`, `--no-browser` flag
+
+**New flow:** `connapse auth login` opens browser → `/cli/authorize` (Blazor, requires cookie auth) → user clicks Authorize → server creates PKCE-bound 5-min code → browser redirects to `http://127.0.0.1:PORT/callback` → CLI verifies state, POSTs code + verifier to `/api/v1/auth/cli/exchange` → server creates PAT → CLI saves credentials.
+
+**Fallback:** `connapse auth login --no-browser` uses the original email/password flow.
+
+---
+
+## Previous Status (2026-02-26)
 
 ### Completed Features
 
@@ -50,6 +75,23 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 - **216 total tests**
 - All 11 projects build with 0 errors
 
+### Session 17 (2026-02-26): Session F — CLI Auth Updates
+
+- Added credential storage: `~/.connapse/credentials.json` with `{ apiKey, apiBaseUrl, userEmail }`
+- Credentials loaded at startup; `X-Api-Key` header auto-injected into all HTTP requests
+- If credentials specify a different server URL, it overrides `apiBaseUrl` from config
+- New `auth` command group:
+  - `auth login [--url <server>]` — prompts email+password → JWT → creates CLI PAT → saves credentials
+  - `auth logout` — deletes credentials file
+  - `auth whoami` — shows current identity, verifies token against server
+  - `auth pat create <name> [--expires <date>]` — creates PAT, displays token once
+  - `auth pat list` — lists all PATs with status (Active/REVOKED/EXPIRED)
+  - `auth pat revoke <id>` — revokes a PAT by GUID
+- Updated `PrintUsage()` to document all commands including auth
+- Login flow: `POST /api/v1/auth/token` → `POST /api/v1/auth/pats` (PAT named "CLI ({MachineName})")
+- Password input masked with `*` characters via `Console.ReadKey(intercept: true)`
+- Build: 0 errors, 1 pre-existing warning
+
 ### Session 16 (2026-02-26): Session E — Audit Logging + Personal Tokens UI
 
 - Skipped rate limiting (not appropriate for self-hosted; no plan to add)
@@ -88,7 +130,7 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 | C | 4-5: PAT + JWT systems | **COMPLETE** |
 | D | 6: RBAC + endpoint protection | **COMPLETE** |
 | E | 7-8: Audit logging + Personal Tokens UI | **COMPLETE** |
-| F | 9: CLI updates | Pending |
+| F | 9: CLI updates | **COMPLETE** |
 | G | 10-11: Testing + deployment | Pending |
 
 Key decisions made:

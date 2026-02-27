@@ -1,0 +1,218 @@
+@page "/cli/authorize"
+@layout AuthLayout
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@using Connapse.Identity.Data.Entities
+@using Connapse.Identity.Services
+@attribute [Authorize]
+
+<PageTitle>Authorize CLI - Connapse</PageTitle>
+
+<div class="auth-card">
+    <div class="auth-header">
+        <div class="cli-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+        </div>
+        <h1>Connapse</h1>
+        <p class="text-muted">CLI Authorization</p>
+    </div>
+
+    @if (isError)
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="cli-request-box">
+            <div class="cli-request-body">
+                <span class="cli-app-name">Connapse CLI</span>
+                @if (!string.IsNullOrWhiteSpace(MachineName))
+                {
+                    <span class="cli-machine-badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                        @MachineName
+                    </span>
+                }
+            </div>
+            <p class="cli-request-desc">is requesting access to your account</p>
+        </div>
+
+        <div class="cli-permissions">
+            <p class="cli-permissions-label">This will grant the CLI permission to:</p>
+            <ul class="cli-permissions-list">
+                <li>
+                    <span class="perm-check">&#10003;</span>
+                    Read and search your knowledge base
+                </li>
+                <li>
+                    <span class="perm-check">&#10003;</span>
+                    Ingest files and documents
+                </li>
+                <li>
+                    <span class="perm-check">&#10003;</span>
+                    Run agent sessions on your behalf
+                </li>
+            </ul>
+        </div>
+
+        <p class="cli-revoke-note">
+            A Personal Access Token will be created. You can revoke it any time from
+            <strong>Settings &rsaquo; Access Tokens</strong>.
+        </p>
+
+        <form method="post" @formname="cli-authorize" data-enhance="false">
+            <AntiforgeryToken />
+            <input type="hidden" name="Form.RedirectUri" value="@RedirectUri" />
+            <input type="hidden" name="Form.CodeChallenge" value="@CodeChallenge" />
+            <input type="hidden" name="Form.CodeChallengeMethod" value="@CodeChallengeMethod" />
+            <input type="hidden" name="Form.State" value="@State" />
+            <input type="hidden" name="Form.MachineName" value="@MachineName" />
+
+            <div class="d-grid gap-2 mt-4">
+                <button type="submit" name="Form.Action" value="authorize" class="btn btn-primary btn-lg">
+                    Authorize
+                </button>
+                <button type="submit" name="Form.Action" value="deny" class="btn btn-outline-secondary">
+                    Deny
+                </button>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "redirect_uri")]
+    private string? RedirectUri { get; set; }
+
+    [SupplyParameterFromQuery(Name = "code_challenge")]
+    private string? CodeChallenge { get; set; }
+
+    [SupplyParameterFromQuery(Name = "code_challenge_method")]
+    private string? CodeChallengeMethod { get; set; }
+
+    [SupplyParameterFromQuery(Name = "state")]
+    private string? State { get; set; }
+
+    [SupplyParameterFromQuery(Name = "machine_name")]
+    private string? MachineName { get; set; }
+
+    [SupplyParameterFromForm(FormName = "cli-authorize")]
+    private FormModel? Form { get; set; }
+
+    [Inject] private CliAuthService CliAuthService { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    private bool isError;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // On form POST, use values from hidden inputs (not query string)
+        if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
+        {
+            RedirectUri = Form.RedirectUri;
+            CodeChallenge = Form.CodeChallenge;
+            CodeChallengeMethod = Form.CodeChallengeMethod;
+            State = Form.State;
+            MachineName = Form.MachineName;
+        }
+
+        if (!ValidateParams(out errorMessage))
+        {
+            isError = true;
+            return;
+        }
+
+        if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
+        {
+            await HandleFormAsync(Form.Action);
+        }
+    }
+
+    private async Task HandleFormAsync(string? action)
+    {
+        if (action == "deny")
+        {
+            NavigationManager.NavigateTo(
+                $"{RedirectUri}?error=access_denied&state={Uri.EscapeDataString(State!)}",
+                forceLoad: true);
+            return;
+        }
+
+        // action == "authorize"
+        var userIdClaim = HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            isError = true;
+            errorMessage = "Could not identify the authenticated user.";
+            return;
+        }
+
+        var machineName = string.IsNullOrWhiteSpace(MachineName) ? "Unknown" : MachineName;
+
+        var rawCode = await CliAuthService.InitiateAsync(
+            userId, CodeChallenge!, RedirectUri!, machineName);
+
+        var callbackUrl = $"{RedirectUri}" +
+            $"?code={Uri.EscapeDataString(rawCode)}" +
+            $"&state={Uri.EscapeDataString(State!)}";
+
+        NavigationManager.NavigateTo(callbackUrl, forceLoad: true);
+    }
+
+    private bool ValidateParams(out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(RedirectUri) ||
+            !RedirectUri.StartsWith("http://127.0.0.1:", StringComparison.Ordinal))
+        {
+            error = "Invalid redirect_uri. CLI authorization only accepts loopback addresses (http://127.0.0.1:PORT).";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(CodeChallenge))
+        {
+            error = "Missing code_challenge parameter.";
+            return false;
+        }
+
+        if (!string.Equals(CodeChallengeMethod, "S256", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Unsupported code_challenge_method. Only S256 is accepted.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(State))
+        {
+            error = "Missing state parameter.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    private sealed class FormModel
+    {
+        public string? RedirectUri { get; set; }
+        public string? CodeChallenge { get; set; }
+        public string? CodeChallengeMethod { get; set; }
+        public string? State { get; set; }
+        public string? MachineName { get; set; }
+        public string? Action { get; set; }
+    }
+}

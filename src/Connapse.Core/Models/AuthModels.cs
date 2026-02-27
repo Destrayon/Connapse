@@ -74,3 +74,11 @@ public record CreateAgentKeyResponse(
     string[] Scopes,
     DateTime CreatedAt,
     DateTime? ExpiresAt);
+
+public record CliExchangeRequest(string Code, string CodeVerifier, string RedirectUri);
+
+public record CliExchangeResponse(
+    string Token,
+    Guid PatId,
+    DateTime? ExpiresAt,
+    string Email);

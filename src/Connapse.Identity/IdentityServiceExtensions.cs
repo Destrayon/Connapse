@@ -57,6 +57,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<InviteService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<CliAuthService>();
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
