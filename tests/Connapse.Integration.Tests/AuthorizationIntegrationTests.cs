@@ -6,10 +6,7 @@ using Connapse.Core;
 using Connapse.Identity.Data.Entities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using Testcontainers.Minio;
-using Testcontainers.PostgreSql;
 
 namespace Connapse.Integration.Tests;
 
@@ -22,73 +19,42 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class AuthorizationIntegrationTests : IAsyncLifetime
 {
-    private const string AdminEmail = "admin@authz-tests.connapse.io";
-    private const string AdminPassword = "AdminTest1!";
     private const string EditorEmail = "editor@authz-tests.connapse.io";
     private const string EditorPassword = "EditorTest1!";
     private const string ViewerEmail = "viewer@authz-tests.connapse.io";
     private const string ViewerPassword = "ViewerTest1!";
-    private const string TestJwtSecret =
-        "test-jwt-secret-for-authz-integration-tests-must-be-64-chars!!";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("connapse_authz_test")
-        .WithUsername("authz_test")
-        .WithPassword("authz_test")
-        .Build();
-
-    private readonly MinioContainer _minio = new MinioBuilder()
-        .WithImage("minio/minio")
-        .Build();
-
-    private WebApplicationFactory<Program> _factory = null!;
+    private readonly SharedWebAppFixture _fixture;
     private HttpClient _anonClient = null!;
+
+    public AuthorizationIntegrationTests(SharedWebAppFixture fixture)
+    {
+        _fixture = fixture;
+    }
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
-        await _minio.StartAsync();
-
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseSetting("ConnectionStrings:DefaultConnection", _postgres.GetConnectionString());
-                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint",
-                    $"{_minio.Hostname}:{_minio.GetMappedPublicPort(9000)}");
-                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-                builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
-            });
-
-        _anonClient = _factory.CreateClient();
-        await Task.Delay(2000);
-
+        _anonClient = _fixture.Factory.CreateClient();
         await SeedUserAsync(EditorEmail, EditorPassword, "Editor");
         await SeedUserAsync(ViewerEmail, ViewerPassword, "Viewer");
     }
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
         _anonClient.Dispose();
-        await _factory.DisposeAsync();
-        await _postgres.DisposeAsync();
-        await _minio.DisposeAsync();
+        return Task.CompletedTask;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private async Task SeedUserAsync(string email, string password, string role)
     {
-        using var scope = _factory.Services.CreateScope();
+        using var scope = _fixture.Factory.Services.CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
 
         if (await userManager.FindByEmailAsync(email) is not null)
@@ -99,7 +65,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
             UserName = email,
             Email = email,
             EmailConfirmed = true,
-            DisplayName = $"Test {role}",
+            DisplayName = email,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -120,7 +86,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
 
     private HttpClient CreateClientWithToken(string accessToken)
     {
-        var client = _factory.CreateClient();
+        var client = _fixture.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", accessToken);
         return client;
@@ -223,7 +189,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetSettings_Admin_Returns200()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateClientWithToken(token);
 
         var response = await client.GetAsync("/api/settings/embedding");
@@ -234,7 +200,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetUsers_Admin_Returns200()
     {
-        var token = await GetTokenAsync(AdminEmail, AdminPassword);
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateClientWithToken(token);
 
         var response = await client.GetAsync("/api/v1/auth/users");
