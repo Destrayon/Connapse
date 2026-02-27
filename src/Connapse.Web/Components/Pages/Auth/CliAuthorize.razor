@@ -72,7 +72,7 @@
             <strong>Settings &rsaquo; Access Tokens</strong>.
         </p>
 
-        <form method="post" @formname="cli-authorize" data-enhance="false">
+        <form method="post" @formname="cli-authorize" data-enhance="true">
             <AntiforgeryToken />
             <input type="hidden" name="Form.RedirectUri" value="@RedirectUri" />
             <input type="hidden" name="Form.CodeChallenge" value="@CodeChallenge" />

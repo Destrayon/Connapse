@@ -158,6 +158,8 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
 {
     Console.WriteLine($"Logging in to {serverUrl}");
 
+    var oldCredentials = LoadCredentials();
+
     // Generate PKCE values
     var codeVerifier = GenerateCodeVerifier();
     var codeChallenge = ComputeS256Challenge(codeVerifier);
@@ -261,6 +263,17 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
     var creds = new CliCredentials(exchangeResult.Token, serverUrl, exchangeResult.Email, exchangeResult.PatId);
     SaveCredentials(creds);
 
+    // Revoke the old PAT to prevent accumulation on repeated logins
+    if (oldCredentials?.PatId is not null)
+    {
+        try
+        {
+            loginClient.DefaultRequestHeaders.Add("X-Api-Key", exchangeResult.Token);
+            await loginClient.DeleteAsync($"/api/v1/auth/pats/{oldCredentials.PatId}");
+        }
+        catch { /* Non-fatal — old PAT may already be revoked or server unreachable */ }
+    }
+
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("Authenticated");
     Console.ResetColor();
@@ -278,6 +291,9 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
 static async Task<int> AuthLoginPassword(string serverUrl, JsonSerializerOptions jsonOptions)
 {
     Console.WriteLine($"Logging in to {serverUrl}");
+
+    var oldCredentials = LoadCredentials();
+
     Console.Write("Email: ");
     var email = Console.ReadLine()?.Trim();
     if (string.IsNullOrWhiteSpace(email))
@@ -368,6 +384,17 @@ static async Task<int> AuthLoginPassword(string serverUrl, JsonSerializerOptions
 
     var creds = new CliCredentials(pat.Token, serverUrl, email, pat.Id);
     SaveCredentials(creds);
+
+    // Revoke the old PAT to prevent accumulation on repeated logins
+    // loginClient already has the JWT bearer token set, so it can authorize the delete
+    if (oldCredentials?.PatId is not null)
+    {
+        try
+        {
+            await loginClient.DeleteAsync($"/api/v1/auth/pats/{oldCredentials.PatId}");
+        }
+        catch { /* Non-fatal — old PAT may already be revoked or server unreachable */ }
+    }
 
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("Authenticated");
