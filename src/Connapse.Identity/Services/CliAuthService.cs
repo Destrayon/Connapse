@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +45,7 @@ public class CliAuthService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("CLI auth code created for user {UserId} on machine {MachineName}",
-            userId, machineName);
+            userId, LogSanitizer.Sanitize(machineName));
 
         return rawCode;
     }
