@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
@@ -40,7 +41,7 @@ public class PatService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Created PAT '{Name}' (prefix: {Prefix}) for user {UserId}",
-            request.Name, tokenPrefix, userId);
+            LogSanitizer.Sanitize(request.Name), tokenPrefix, userId);
 
         return new PatCreateResponse(
             Id: entity.Id,

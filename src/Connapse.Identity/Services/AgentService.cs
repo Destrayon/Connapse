@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
@@ -31,7 +32,7 @@ public class AgentService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Created agent '{Name}' (Id: {Id}) by user {UserId}",
-            entity.Name, entity.Id, createdByUserId);
+            LogSanitizer.Sanitize(entity.Name), entity.Id, createdByUserId);
 
         return MapToDto(entity);
     }
@@ -91,7 +92,7 @@ public class AgentService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("Created API key '{Name}' (prefix: {Prefix}) for agent {AgentId}",
-            request.Name, tokenPrefix, agentId);
+            LogSanitizer.Sanitize(request.Name), tokenPrefix, agentId);
 
         return new CreateAgentKeyResponse(
             KeyId: keyEntity.Id,

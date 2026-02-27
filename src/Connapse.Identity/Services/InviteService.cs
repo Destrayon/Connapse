@@ -64,8 +64,8 @@ public class InviteService(
         dbContext.UserInvitations.Add(invitation);
         await dbContext.SaveChangesAsync();
 
-        logger.LogInformation("Created invitation for {Email} with role {Role} by user {UserId}",
-            email, role, createdByUserId);
+        logger.LogInformation("Created invitation {InvitationId} for role {Role} by user {UserId}",
+            invitation.Id, role, createdByUserId);
 
         return (rawToken, invitation);
     }

@@ -69,12 +69,12 @@ public class AdminSeedService(
             if (!await userManager.IsInRoleAsync(existingUser, "Owner"))
             {
                 await userManager.AddToRoleAsync(existingUser, "Owner");
-                logger.LogInformation("Added Owner role to existing user: {Email}", adminEmail);
+                logger.LogInformation("Added Owner role to existing admin user");
             }
             if (!await userManager.IsInRoleAsync(existingUser, "Admin"))
             {
                 await userManager.AddToRoleAsync(existingUser, "Admin");
-                logger.LogInformation("Added Admin role to existing user: {Email}", adminEmail);
+                logger.LogInformation("Added Admin role to existing admin user");
             }
             return;
         }
@@ -100,9 +100,9 @@ public class AdminSeedService(
         await userManager.AddToRoleAsync(ownerUser, "Owner");
         var roleResult = await userManager.AddToRoleAsync(ownerUser, "Admin");
         if (roleResult.Succeeded)
-            logger.LogInformation("Created owner user: {Email}", adminEmail);
+            logger.LogInformation("Created owner user and assigned roles");
         else
-            logger.LogError("Failed to assign roles to {Email}: {Errors}", adminEmail,
+            logger.LogError("Failed to assign roles to owner user: {Errors}",
                 string.Join(", ", roleResult.Errors.Select(e => e.Description)));
     }
 }
