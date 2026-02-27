@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -263,7 +264,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.Property(e => e.Details)
                 .HasColumnName("details")
-                .HasColumnType("jsonb");
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => v == null ? null : v.RootElement.GetRawText(),
+                    v => v == null ? null : JsonDocument.Parse(v));
 
             entity.Property(e => e.IpAddress)
                 .HasColumnName("ip_address")

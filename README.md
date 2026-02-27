@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
-[![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/Destrayon/Connapse/actions)
+[![Tests](https://img.shields.io/badge/tests-256%20passing-success)](https://github.com/Destrayon/Connapse/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)
@@ -23,16 +23,17 @@ https://github.com/user-attachments/assets/db93c576-3a51-4b17-a56e-5b67ea8b847c
 
 ## ⚠️ Security Notice
 
-**This project is in pre-alpha development (v0.1.0-alpha) and NOT production-ready.**
+**This project is in active development (v0.2.0) and approaching production-readiness.**
 
-- ❌ **No authentication or authorization**
-- ❌ **No rate limiting**
-- ❌ **Default development credentials included**
-- ✅ **Suitable for local development and testing only**
+v0.2.0 ships a complete three-tier authentication system (Cookie + PAT + JWT), role-based access control, invite-only user registration, agent identity management, and audit logging.
 
-**DO NOT** deploy to public networks without implementing authentication first. See [SECURITY.md](SECURITY.md) for details.
+- ✅ **Authentication and authorization** (v0.2.0)
+- ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
+- ✅ **Audit logging**
+- ⚠️ **Rate limiting** — not yet implemented (not planned for self-hosted deployments)
+- ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
 
-Authentication and access control are the **#1 priority** for v0.2.0.
+See [SECURITY.md](SECURITY.md) for the full security policy.
 
 ---
 
@@ -43,13 +44,18 @@ Authentication and access control are the **#1 priority** for v0.2.0.
 - **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
 - **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
 - **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
+- **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control
+- **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
+- **🤖 Agent Management**: Dedicated agent entities with API key lifecycle management
+- **📋 Audit Logging**: Structured audit trail for uploads, deletes, and container operations
 - **🌐 Multiple Interfaces**:
   - Web UI (Blazor Server)
-  - REST API
-  - Command-line interface
-  - MCP server (for Claude Desktop integration)
+  - REST API (`/api/v1/auth/`, `/api/v1/agents/`, `/api/containers/`)
+  - Command-line interface (`connapse auth login`, `connapse upload`, `connapse search`)
+  - MCP server (for Claude Desktop integration — agent API key auth)
 - **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
-- **🧪 Tested**: 171 passing tests (unit + integration)
+- **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
+- **🧪 Tested**: 256 passing tests (unit + integration)
 
 ---
 
@@ -68,18 +74,22 @@ Authentication and access control are the **#1 priority** for v0.2.0.
 git clone https://github.com/Destrayon/Connapse.git
 cd Connapse
 
+# Set required auth environment variables (or use a .env file)
+export CONNAPSE_ADMIN_EMAIL=admin@example.com
+export CONNAPSE_ADMIN_PASSWORD=YourSecurePassword123!
+export Identity__Jwt__Secret=$(openssl rand -base64 64)
+
 # Start all services (PostgreSQL, MinIO, Web App)
 docker-compose up -d
 
-# Access the web UI
-# Open http://localhost:5001 in your browser
+# Open http://localhost:5001 — log in with the admin credentials above
 ```
 
 The first run will:
 1. Pull Docker images (~2-5 minutes)
-2. Initialize PostgreSQL with pgvector extension
+2. Initialize PostgreSQL with pgvector extension and run EF Core migrations
 3. Create MinIO buckets
-4. Start the web application
+4. Seed the admin account (from env vars) and start the web application
 
 ### Development Setup
 
@@ -99,9 +109,21 @@ dotnet test --filter "Category=Unit"
 
 ### Using the CLI
 
+Install the CLI (choose one option):
+
 ```bash
-# Build the CLI
-dotnet build src/Connapse.CLI
+# Option A: .NET Global Tool (requires .NET 10)
+dotnet tool install -g Connapse.CLI
+
+# Option B: Download native binary from GitHub Releases (no .NET required)
+# https://github.com/Destrayon/Connapse/releases
+```
+
+Basic usage:
+
+```bash
+# Authenticate first
+connapse auth login --url https://localhost:5001
 
 # Create a container (project)
 connapse container create my-project --description "My knowledge base"
@@ -111,20 +133,17 @@ connapse upload ./documents --container my-project
 
 # Search
 connapse search "your query" --container my-project
-
-# Interactive chat
-connapse chat --container my-project
 ```
 
 ### Using with Claude Desktop (MCP)
 
-Connapse includes a Model Context Protocol (MCP) server for integration with Claude Desktop:
+Connapse includes a Model Context Protocol (MCP) server for integration with Claude Desktop.
 
-1. Start the MCP server: `connapse serve --mcp`
-2. Configure Claude Desktop to connect to the server
-3. Use natural language to manage your knowledge base
+**Setup**:
+1. Create an Agent in the Connapse UI (`/admin/agents`) and generate an API key
+2. Configure Claude Desktop to send requests to your Connapse instance with the agent's `X-Api-Key`
 
-See [docs/mcp-integration.md](docs/mcp-integration.md) for setup details.
+The MCP server exposes 7 tools: `container_create`, `container_list`, `container_delete`, `upload_file`, `list_files`, `delete_file`, `search_knowledge`.
 
 ---
 
@@ -183,17 +202,22 @@ See [docs/mcp-integration.md](docs/mcp-integration.md) for setup details.
 
 Connapse is pre-1.0. Major design work is tracked in [Discussions](https://github.com/Destrayon/Connapse/discussions).
 
-### Current (v0.1.0)
+### v0.1.0 — Foundation (Complete)
 - ✅ Document ingestion pipeline (PDF, Office, Markdown, text)
 - ✅ Hybrid search (vector + keyword with RRF fusion)
 - ✅ Container-based file browser with folders
 - ✅ Web UI, REST API, CLI, MCP server
-- ✅ 171 passing tests
 
-### v0.2.0 — Security & Auth
-- Authentication (ASP.NET Core Identity, PAT, JWT) — [Issue #7](https://github.com/Destrayon/Connapse/issues/7)
-- Role-based access control (Admin, Editor, Viewer, Agent)
-- Rate limiting, CORS, audit logging
+### v0.2.0 — Security & Auth (Complete)
+- ✅ Three-tier auth: Cookie + Personal Access Tokens + JWT (HS256)
+- ✅ Role-based access control (Admin / Editor / Viewer / Agent)
+- ✅ Invite-only user registration (admin-controlled)
+- ✅ First-class agent entities with API key lifecycle
+- ✅ Agent management UI + PAT management UI
+- ✅ Audit logging (uploads, deletes, container operations)
+- ✅ CLI auth commands (`auth login`, `auth whoami`, `auth pat`)
+- ✅ GitHub Actions release pipeline (native binaries + NuGet tool)
+- ✅ 256 passing tests (unit + integration)
 
 ### v0.3.0 — Connector Architecture
 - Pluggable connector system for multi-source search — [Design Discussion](https://github.com/Destrayon/Connapse/discussions/8)

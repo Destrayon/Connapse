@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj" />
+    <Project Path="tests/Connapse.Identity.Tests/Connapse.Identity.Tests.csproj" />
     <Project Path="tests/Connapse.Ingestion.Tests/Connapse.Ingestion.Tests.csproj" />
     <Project Path="tests/Connapse.Integration.Tests/Connapse.Integration.Tests.csproj" />
   </Folder>

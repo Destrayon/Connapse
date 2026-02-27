@@ -78,16 +78,18 @@ public class PatService(
         Guid patId,
         CancellationToken cancellationToken = default)
     {
-        var rows = await dbContext.PersonalAccessTokens
-            .Where(p => p.Id == patId && p.UserId == userId && p.RevokedAt == null)
-            .ExecuteUpdateAsync(
-                s => s.SetProperty(p => p.RevokedAt, DateTime.UtcNow),
+        var pat = await dbContext.PersonalAccessTokens
+            .FirstOrDefaultAsync(p => p.Id == patId && p.UserId == userId && p.RevokedAt == null,
                 cancellationToken);
 
-        if (rows > 0)
-            logger.LogInformation("Revoked PAT {PatId} for user {UserId}", patId, userId);
+        if (pat is null)
+            return false;
 
-        return rows > 0;
+        pat.RevokedAt = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation("Revoked PAT {PatId} for user {UserId}", patId, userId);
+        return true;
     }
 
     private static string[] SplitScopes(string scopes) =>

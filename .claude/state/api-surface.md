@@ -312,6 +312,86 @@ These interfaces remain unchanged from the initial design. See CLAUDE.md for def
 
 ---
 
+## Identity Interfaces (Connapse.Identity — v0.2.0)
+
+### IPatService
+
+```csharp
+public interface IPatService
+{
+    Task<(string RawToken, PersonalAccessTokenEntity Entity)> CreateAsync(
+        string userId, string name, DateTime? expiresAt, CancellationToken ct = default);
+    Task<IReadOnlyList<PersonalAccessTokenEntity>> ListAsync(string userId, CancellationToken ct = default);
+    Task<bool> RevokeAsync(string userId, Guid tokenId, CancellationToken ct = default);
+    Task<ConnapseUser?> ValidateAsync(string rawToken, CancellationToken ct = default);
+}
+// Token format: cnp_<64-random-chars>. Stored as SHA-256 hash.
+// Prefix: first 12 chars for display ("cnp_abc123...")
+```
+
+### ITokenService (JWT)
+
+```csharp
+public interface ITokenService
+{
+    Task<TokenResponse> CreateTokenAsync(ConnapseUser user, CancellationToken ct = default);
+    Task<TokenResponse?> RefreshAsync(string refreshToken, CancellationToken ct = default);
+}
+// HS256 signed JWTs. Access token: 90 min. Refresh token: 30 days.
+// Refresh tokens are single-use (rotation on each call).
+// TokenResponse: { AccessToken, RefreshToken, ExpiresIn, TokenType }
+```
+
+### IAuditLogger
+
+```csharp
+public interface IAuditLogger
+{
+    Task LogAsync(string userId, string action, string? resourceId = null,
+        Dictionary<string, string>? metadata = null, CancellationToken ct = default);
+}
+// Actions emitted: "doc.uploaded", "doc.deleted", "container.created", "container.deleted",
+//                  "auth.login", "auth.pat.created", "auth.pat.revoked"
+// Fire-and-forget pattern (no await at call sites) — audit failures do not propagate.
+```
+
+### IAgentService
+
+```csharp
+public interface IAgentService
+{
+    Task<AgentEntity> CreateAsync(string name, string? description, CancellationToken ct = default);
+    Task<AgentEntity?> GetAsync(Guid id, CancellationToken ct = default);
+    Task<IReadOnlyList<AgentEntity>> ListAsync(CancellationToken ct = default);
+    Task<bool> SetEnabledAsync(Guid id, bool isEnabled, CancellationToken ct = default);
+    Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+    Task<(string RawToken, AgentApiKeyEntity Entity)> CreateKeyAsync(Guid agentId, string name, CancellationToken ct = default);
+    Task<IReadOnlyList<AgentApiKeyEntity>> ListKeysAsync(Guid agentId, CancellationToken ct = default);
+    Task<bool> RevokeKeyAsync(Guid agentId, Guid keyId, CancellationToken ct = default);
+    Task<(AgentEntity? Agent, AgentApiKeyEntity? Key)> ValidateKeyAsync(string rawToken, CancellationToken ct = default);
+}
+// Agent API keys: cnp_ prefix, SHA-256 stored, same format as PATs.
+// ApiKeyAuthenticationHandler checks both tables (PATs first, then agent keys).
+// Valid agent key injects ClaimTypes.Role = "Agent" as synthetic claim.
+```
+
+### IInviteService
+
+```csharp
+public interface IInviteService
+{
+    Task<UserInvitationEntity> CreateAsync(string email, string role, string invitedByUserId, CancellationToken ct = default);
+    Task<UserInvitationEntity?> ValidateAsync(string token, CancellationToken ct = default);
+    Task<ConnapseUser> AcceptAsync(string token, string password, CancellationToken ct = default);
+    Task<IReadOnlyList<UserInvitationEntity>> ListPendingAsync(CancellationToken ct = default);
+    Task<bool> RevokeAsync(Guid id, CancellationToken ct = default);
+}
+// Token: SHA-256 hashed GUID stored in user_invitations table. 7-day expiry.
+// Accept: creates user account, assigns role, marks invitation used.
+```
+
+---
+
 ## Settings Types
 
 All settings are records with `{ get; set; }` properties for form binding.
@@ -338,6 +418,33 @@ public record StorageSettings   { VectorStoreProvider, DocumentStoreProvider, Fi
 ---
 
 ## REST API Endpoints
+
+All endpoints (except `POST /api/v1/auth/token` and `POST /api/v1/auth/token/refresh`) require authentication.
+
+### Auth Endpoints (`/api/v1/auth`)
+
+| Method | Path | Auth Required | Role | Description |
+|--------|------|---------------|------|-------------|
+| `POST` | `/api/v1/auth/token` | No | — | Email+password → JWT TokenResponse |
+| `POST` | `/api/v1/auth/token/refresh` | No | — | Refresh token → new token pair (rotation) |
+| `GET` | `/api/v1/auth/pats` | Yes | Any | List authenticated user's PATs |
+| `POST` | `/api/v1/auth/pats` | Yes | Any | Create PAT (returns raw token once) |
+| `DELETE` | `/api/v1/auth/pats/{id}` | Yes | Any (own) | Revoke PAT |
+| `GET` | `/api/v1/auth/users` | Yes | Admin | List all users with roles |
+| `PUT` | `/api/v1/auth/users/{id}/roles` | Yes | Admin | Assign roles (Owner and Agent roles protected) |
+
+### Agent Endpoints (`/api/v1/agents`)
+
+| Method | Path | Auth Required | Role | Description |
+|--------|------|---------------|------|-------------|
+| `GET` | `/api/v1/agents` | Yes | Admin | List all agents |
+| `POST` | `/api/v1/agents` | Yes | Admin | Create agent |
+| `GET` | `/api/v1/agents/{id}` | Yes | Admin | Get agent |
+| `PUT` | `/api/v1/agents/{id}/status` | Yes | Admin | Enable/disable agent |
+| `DELETE` | `/api/v1/agents/{id}` | Yes | Admin | Delete agent + all keys |
+| `GET` | `/api/v1/agents/{id}/keys` | Yes | Admin | List agent API keys |
+| `POST` | `/api/v1/agents/{id}/keys` | Yes | Admin | Create agent API key (returns raw token once) |
+| `DELETE` | `/api/v1/agents/{agentId}/keys/{keyId}` | Yes | Admin | Revoke agent API key |
 
 ### Containers
 
@@ -415,22 +522,31 @@ These endpoints from Feature #1 have been replaced by container-scoped versions:
 
 ## CLI Commands
 
-Binary: `aikp` (AIKnowledge.CLI project)
+Binary: `connapse` (Connapse.CLI project)
+
+Distribution:
+- .NET Global Tool: `dotnet tool install -g Connapse.CLI`
+- Native self-contained binaries: win-x64, linux-x64, osx-x64, osx-arm64 (GitHub Releases)
+- Credentials stored: `~/.connapse/credentials.json` (`{ apiKey, apiBaseUrl, userEmail }`)
 
 ```bash
+# Authentication (required before other commands)
+connapse auth login [--url <server>]   # prompts email+password → creates PAT → saves credentials
+connapse auth logout                   # deletes credentials file
+connapse auth whoami                   # shows current identity + verifies token against server
+connapse auth pat create <name> [--expires <date>]  # creates PAT, displays once
+connapse auth pat list                 # lists all PATs with status
+connapse auth pat revoke <guid>        # revokes a PAT
+
 # Container management
-aikp container create <name> [--description "..."]
-aikp container list
-aikp container delete <name>
+connapse container create <name> [--description "..."]
+connapse container list
+connapse container delete <name>
 
-# Upload files to container
-aikp upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
-
-# Search within container
-aikp search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
-
-# Reindex container
-aikp reindex --container <name> [--force] [--no-detect-changes]
+# File operations
+connapse upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
+connapse search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
+connapse reindex --container <name> [--force] [--no-detect-changes]
 ```
 
 ---
@@ -458,6 +574,23 @@ All tools accept container name or ID for `containerId` (resolved via name looku
 ---
 
 ## Breaking Changes
+
+### 2026-02-26 -- Authentication Required on All Endpoints (v0.2.0)
+
+**Change**: All API endpoints now require authentication. Previously all endpoints were publicly accessible.
+
+**Migration**:
+- All REST API clients must include `Authorization: Bearer <jwt>` or `X-Api-Key: cnp_<token>`
+- SignalR connections must include JWT via `?access_token=<token>` query string or cookie
+- MCP server requires an Agent API key via `X-Api-Key`
+- CLI: run `connapse auth login` to authenticate and store credentials locally
+- First-time setup: visit the login page — if no users exist, a setup form appears
+- Integration test infrastructure: seed admin via `CONNAPSE_ADMIN_EMAIL` / `CONNAPSE_ADMIN_PASSWORD` + `Identity:Jwt:Secret` env vars; obtain JWT via `POST /api/v1/auth/token` in test setup
+
+**New tables added** (separate `ConnapseIdentityDbContext` migration history):
+- `users`, `roles`, `user_roles`, `user_claims`, `role_claims`, `user_logins`, `user_tokens`
+- `personal_access_tokens`, `refresh_tokens`, `audit_logs`, `user_invitations`
+- `agents`, `agent_api_keys`
 
 ### 2026-02-06 -- Container-Based File Browser (Feature #2)
 

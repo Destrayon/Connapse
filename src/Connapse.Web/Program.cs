@@ -158,11 +158,12 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
-// API routes return structured JSON errors — skip the Blazor error-page re-execution
+// API/MCP routes return structured JSON errors — skip the Blazor error-page re-execution
 // so that empty 401/403 responses are not intercepted by UseStatusCodePagesWithReExecute.
 app.Use(async (ctx, next) =>
 {
-    if (ctx.Request.Path.StartsWithSegments("/api"))
+    if (ctx.Request.Path.StartsWithSegments("/api") ||
+        ctx.Request.Path.StartsWithSegments("/mcp"))
     {
         var feature = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IStatusCodePagesFeature>();
         if (feature is not null)

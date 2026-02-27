@@ -214,7 +214,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         {
             jsonrpc = "2.0",
             method = "ping",
-            id = 1
+            id = "1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -242,7 +242,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         {
             jsonrpc = "2.0",
             method = "ping",
-            id = 1
+            id = "1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -268,7 +268,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         {
             jsonrpc = "2.0",
             method = "ping",
-            id = 1
+            id = "1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -292,7 +292,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         {
             jsonrpc = "2.0",
             method = "ping",
-            id = 1
+            id = "1"
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -337,7 +337,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         {
             jsonrpc = "2.0",
             method = "ping",
-            id = 1
+            id = "1"
         });
         mcpResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -366,7 +366,7 @@ public class AgentIntegrationTests : IAsyncLifetime
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
         var disabled = await agentClient.PostAsJsonAsync("/mcp", new
-            { jsonrpc = "2.0", method = "ping", id = 1 });
+            { jsonrpc = "2.0", method = "ping", id = "1" });
         disabled.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // Re-enable
@@ -375,7 +375,7 @@ public class AgentIntegrationTests : IAsyncLifetime
             new SetAgentActiveRequest(true));
 
         var enabled = await agentClient.PostAsJsonAsync("/mcp", new
-            { jsonrpc = "2.0", method = "ping", id = 1 });
+            { jsonrpc = "2.0", method = "ping", id = "1" });
         enabled.StatusCode.Should().Be(HttpStatusCode.OK);
 
         await _adminClient.DeleteAsync($"/api/v1/agents/{agent.Id}");

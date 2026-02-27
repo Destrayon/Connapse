@@ -67,6 +67,8 @@ services:
       Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD:-connapse_dev_secret}"
       Knowledge__Storage__MinIO__UseSSL: "false"
       Knowledge__Embedding__BaseUrl: "http://ollama:11434"
+      CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL:-}
+      CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD:-}
       CONNAPSE_JWT_SECRET: ${CONNAPSE_JWT_SECRET:-}
     volumes:
       - appdata:/app/appdata

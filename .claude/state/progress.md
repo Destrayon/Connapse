@@ -4,28 +4,35 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-26) — Browser-based CLI login (PKCE)
+## Current Status (2026-02-26) — v0.2.0 COMPLETE
 
-### Session 17 — Browser-Based CLI Login (2026-02-26)
+### Session 18 — Testing + Deployment + CLI Distribution (Session G)
 
-Implemented OAuth 2.0 PKCE loopback redirect (RFC 8252 + RFC 7636) for `connapse auth login`.
+Completed v0.2.0 with full test suite, CLI distribution pipeline, and deployment config.
 
 **Files created:**
-- `src/Connapse.Identity/Data/Entities/CliAuthCodeEntity.cs` — short-lived auth code entity
-- `src/Connapse.Identity/Services/CliAuthService.cs` — initiate + PKCE exchange service
-- `src/Connapse.Web/Components/Pages/Auth/CliAuthorize.razor` — "Authorize CLI?" Blazor page
-- `src/Connapse.Identity/Migrations/*_AddCliAuthCodes.cs` — EF migration (auto-generated)
+- `tests/Connapse.Identity.Tests/` — new unit test project (4 test classes, 24 unit tests)
+- `tests/Connapse.Identity.Tests/PatServiceTests.cs` — 6 tests: token format, hash, list isolation, revocation
+- `tests/Connapse.Identity.Tests/JwtTokenServiceTests.cs` — 5 tests: generation, validation, tampered/wrong-secret
+- `tests/Connapse.Identity.Tests/ScopeAuthorizationHandlerTests.cs` — 8 tests: role→scope mapping, explicit claims
+- `tests/Connapse.Identity.Tests/AdminSeedServiceTests.cs` — 5 tests: roles seeded, admin created, idempotent, env var skip
+- `tests/Connapse.Integration.Tests/AuthorizationIntegrationTests.cs` — 10 tests: 401/403/200 per role on containers/settings/users
+- `tests/Connapse.Integration.Tests/PatIntegrationTests.cs` — 6 tests: CRUD, revoke, PAT auth, cross-user protection
+- `.github/workflows/release.yml` — GitHub Actions release workflow (native binaries + NuGet tool on `v*.*.*` tags)
+- `src/Connapse.CLI/trimmer-roots.xml` — IL trimmer roots for JSON serialization preservation
 
 **Files modified:**
-- `src/Connapse.Identity/Data/ConnapseIdentityDbContext.cs` — added `CliAuthCodes` DbSet + model builder
-- `src/Connapse.Identity/IdentityServiceExtensions.cs` — registered `CliAuthService`
-- `src/Connapse.Web/Endpoints/AuthEndpoints.cs` — added `POST /api/v1/auth/cli/exchange`
-- `src/Connapse.Core/Models/AuthModels.cs` — added `CliExchangeRequest` + `CliExchangeResponse`
-- `src/Connapse.CLI/Program.cs` — new browser flow in `AuthLoginBrowser`, password flow moved to `AuthLoginPassword`, `--no-browser` flag
+- `src/Connapse.CLI/Connapse.CLI.csproj` — removed 5 unused project references (Ingestion, Search, Agents, Storage, Identity); added PackAsTool + single-file publish properties
+- `docker-compose.yml` — added `CONNAPSE_ADMIN_EMAIL` + `CONNAPSE_ADMIN_PASSWORD` env vars
+- `Connapse.slnx` — added Connapse.Identity.Tests project
 
-**New flow:** `connapse auth login` opens browser → `/cli/authorize` (Blazor, requires cookie auth) → user clicks Authorize → server creates PKCE-bound 5-min code → browser redirects to `http://127.0.0.1:PORT/callback` → CLI verifies state, POSTs code + verifier to `/api/v1/auth/cli/exchange` → server creates PAT → CLI saves credentials.
+**CLI distribution:**
+- NuGet global tool: `dotnet tool install -g Connapse.CLI` (requires .NET 10)
+- Native self-contained binaries: win-x64, linux-x64, osx-x64, osx-arm64 (~15-25MB, no .NET required)
+- Published automatically to GitHub Releases + NuGet.org when a `v*.*.*` tag is pushed
+- CLI csproj had 5 dead project references removed (CLI only uses standard .NET namespaces)
 
-**Fallback:** `connapse auth login --no-browser` uses the original email/password flow.
+**Build:** 0 errors, 19 IL2026 trimming warnings (expected — CLI uses generic JSON; safe for simple POCOs) + 1 pre-existing ASPDEPR005 warning.
 
 ---
 
@@ -69,11 +76,14 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 ### Test Counts
 - 78 core unit tests (PathUtilities, parsers, chunkers, rerankers)
 - 53 ingestion unit tests
+- 24 identity unit tests (PatService, JwtTokenService, ScopeAuthorizationHandler, AdminSeedService)
 - 40 integration tests (containers, folders, files, search isolation, cascade deletes, ingestion, reindex)
 - 29 auth endpoint integration tests (token, refresh, PATs, users, roles; +1 Agent role blocked)
 - 16 agent integration tests (agent CRUD, key lifecycle, MCP auth, disable/delete flows)
-- **216 total tests**
-- All 11 projects build with 0 errors
+- 10 authorization integration tests (RBAC: 401/403/200 per role on containers/settings/users)
+- 6 PAT integration tests (CRUD, revoke, PAT auth, cross-user protection)
+- **256 total tests**
+- All 12 projects build with 0 errors
 
 ### Session 17 (2026-02-26): Session F — CLI Auth Updates
 
@@ -131,7 +141,7 @@ Replaced the Agent IdentityRole with a dedicated AgentEntity system:
 | D | 6: RBAC + endpoint protection | **COMPLETE** |
 | E | 7-8: Audit logging + Personal Tokens UI | **COMPLETE** |
 | F | 9: CLI updates | **COMPLETE** |
-| G | 10-11: Testing + deployment | Pending |
+| G | 10-11: Testing + deployment + CLI distribution | **COMPLETE** |
 
 Key decisions made:
 - Three-tier auth: Cookie + PAT + JWT (HS256, migrate to RS256 in v0.3.0)

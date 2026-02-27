@@ -2,54 +2,404 @@
 
 Connapse exposes multiple API surfaces for programmatic access:
 
-1. **REST API** — HTTP endpoints for documents, search, and settings
+1. **REST API** — HTTP endpoints for containers, files, search, auth, and settings
 2. **MCP (Model Context Protocol)** — Tool interface for AI agents
-3. **CLI** — (Planned) Command-line interface
+3. **CLI** — Command-line interface (`connapse`)
 
 ## REST API
 
-Base URL (development): `https://localhost:5001/api`
+Base URL (development): `https://localhost:5001`
 
 All endpoints return JSON. Errors follow RFC 7807 Problem Details format.
 
 ### Authentication
 
-**Phase 1**: No authentication (single-user, local deployment)
+Connapse uses a **three-tier authentication** system:
 
-**Planned**: JWT bearer tokens via `Authorization: Bearer <token>` header
+| Tier | Header / Mechanism | Used By | Lifetime |
+|------|--------------------|---------|----------|
+| **Cookie** | ASP.NET Core Identity cookie | Blazor UI (browser sessions) | 14-day sliding |
+| **PAT** | `X-Api-Key: cnp_<token>` | CLI, REST API clients, automation | Until revoked |
+| **JWT Bearer** | `Authorization: Bearer <token>` | SDK clients, external integrations | 60-90 min + refresh |
+
+**Role-based access control (RBAC)**:
+
+| Role | Permissions |
+|------|-------------|
+| **Admin** | Full access: all endpoints, user management, settings, agents |
+| **Editor** | Upload, delete, search, manage containers and folders |
+| **Viewer** | Search and browse only (no writes) |
+| **Agent** | MCP tool access only (search + ingest via API keys) |
+
+**First-time setup**: On a fresh install with no users, visit the login page — it automatically shows an admin account creation form. The first user becomes the system admin.
+
+**Subsequent users** are invite-only. Admins create invitations at `/admin/users`. Invited users visit `/register?token=<token>` to set their password.
 
 ---
 
-## Documents API
+## Auth API
 
-### Upload Documents
+Base path: `/api/v1/auth`
 
-Upload one or more files for ingestion.
+### Get JWT Token
 
-**Endpoint**: `POST /api/documents`
+Exchange email + password for a JWT access/refresh token pair.
+
+**Endpoint**: `POST /api/v1/auth/token`
+
+**Request Body**:
+```json
+{
+  "email": "admin@example.com",
+  "password": "YourSecurePassword"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "accessToken": "eyJhbGci...",
+  "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2g...",
+  "expiresIn": 5400,
+  "tokenType": "Bearer"
+}
+```
+
+**Response** (401 Unauthorized): Invalid credentials.
+
+**Notes**:
+- Use the `accessToken` as `Authorization: Bearer <token>` on subsequent requests
+- `refreshToken` can be exchanged for a new token pair before expiry
+- Updates `LastLoginAt` on the user record + writes audit log entry
+
+---
+
+### Refresh JWT Token
+
+Exchange a valid refresh token for a new access/refresh token pair.
+
+**Endpoint**: `POST /api/v1/auth/token/refresh`
+
+**Request Body**:
+```json
+{
+  "refreshToken": "dGhpcyBpcyBhIHJlZnJlc2g..."
+}
+```
+
+**Response** (200 OK): Same as `POST /api/v1/auth/token`.
+
+**Response** (401 Unauthorized): Token invalid, expired, or already revoked.
+
+**Notes**: Old refresh token is revoked on use (rotation). Each call issues a new pair.
+
+---
+
+### List Personal Access Tokens
+
+**Endpoint**: `GET /api/v1/auth/pats`
+
+**Auth**: Required (any authenticated user)
+
+**Response** (200 OK):
+```json
+[
+  {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "name": "CLI (LAPTOP-01)",
+    "prefix": "cnp_abc123",
+    "lastUsedAt": "2026-02-26T10:00:00Z",
+    "expiresAt": null,
+    "isRevoked": false,
+    "createdAt": "2026-02-20T09:00:00Z"
+  }
+]
+```
+
+---
+
+### Create Personal Access Token
+
+**Endpoint**: `POST /api/v1/auth/pats`
+
+**Auth**: Required (any authenticated user)
+
+**Request Body**:
+```json
+{
+  "name": "My Script Token",
+  "expiresAt": "2027-01-01T00:00:00Z"
+}
+```
+
+**Fields**:
+- `name` (required): Display label
+- `expiresAt` (optional): ISO 8601 datetime; if omitted, token never expires
+
+**Response** (200 OK):
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "name": "My Script Token",
+  "token": "cnp_<random-64-chars>",
+  "expiresAt": "2027-01-01T00:00:00Z"
+}
+```
+
+> **Important**: The `token` value is shown **once only**. Store it securely immediately.
+
+---
+
+### Revoke Personal Access Token
+
+**Endpoint**: `DELETE /api/v1/auth/pats/{id}`
+
+**Auth**: Required (own tokens only; admins can revoke any)
+
+**Response** (204 No Content)
+
+---
+
+### List Users (Admin)
+
+**Endpoint**: `GET /api/v1/auth/users`
+
+**Auth**: Admin role required
+
+**Response** (200 OK):
+```json
+[
+  {
+    "id": "user-guid",
+    "email": "viewer@example.com",
+    "roles": ["Viewer"],
+    "isSystemAdmin": false,
+    "lastLoginAt": "2026-02-25T14:30:00Z",
+    "createdAt": "2026-02-20T09:00:00Z"
+  }
+]
+```
+
+---
+
+### Assign User Roles (Admin)
+
+**Endpoint**: `PUT /api/v1/auth/users/{id}/roles`
+
+**Auth**: Admin role required
+
+**Request Body**:
+```json
+{
+  "roles": ["Editor"]
+}
+```
+
+**Notes**:
+- `Owner` role cannot be assigned or removed via this endpoint
+- `Agent` role cannot be assigned to user accounts (use Agent API instead)
+
+**Response** (200 OK)
+
+---
+
+## Agents API
+
+Base path: `/api/v1/agents`
+
+All agent endpoints require **Admin** role.
+
+Agents are non-human identities (CI/CD pipelines, automation scripts) that authenticate via API keys and access the MCP server.
+
+### List Agents
+
+**Endpoint**: `GET /api/v1/agents`
+
+**Response** (200 OK):
+```json
+[
+  {
+    "id": "agent-guid",
+    "name": "CI Pipeline",
+    "description": "Indexes docs on every merge",
+    "isEnabled": true,
+    "activeKeyCount": 2,
+    "createdAt": "2026-02-20T09:00:00Z"
+  }
+]
+```
+
+---
+
+### Create Agent
+
+**Endpoint**: `POST /api/v1/agents`
+
+**Request Body**:
+```json
+{
+  "name": "CI Pipeline",
+  "description": "Indexes docs on every merge"
+}
+```
+
+**Response** (200 OK): Returns the created `Agent` object.
+
+---
+
+### Get Agent
+
+**Endpoint**: `GET /api/v1/agents/{id}`
+
+**Response** (200 OK | 404 Not Found)
+
+---
+
+### Enable/Disable Agent
+
+**Endpoint**: `PUT /api/v1/agents/{id}/status`
+
+**Request Body**:
+```json
+{ "isEnabled": false }
+```
+
+**Response** (200 OK)
+
+---
+
+### Delete Agent
+
+**Endpoint**: `DELETE /api/v1/agents/{id}`
+
+Deletes the agent and all its API keys.
+
+**Response** (204 No Content)
+
+---
+
+### List Agent API Keys
+
+**Endpoint**: `GET /api/v1/agents/{id}/keys`
+
+**Response** (200 OK):
+```json
+[
+  {
+    "id": "key-guid",
+    "name": "Production Key",
+    "prefix": "cnp_abc123",
+    "lastUsedAt": "2026-02-26T08:00:00Z",
+    "isRevoked": false,
+    "createdAt": "2026-02-20T09:00:00Z"
+  }
+]
+```
+
+---
+
+### Create Agent API Key
+
+**Endpoint**: `POST /api/v1/agents/{id}/keys`
+
+**Request Body**:
+```json
+{ "name": "Production Key" }
+```
+
+**Response** (200 OK):
+```json
+{
+  "id": "key-guid",
+  "name": "Production Key",
+  "token": "cnp_<random-64-chars>"
+}
+```
+
+> **Important**: The `token` is shown **once only**. Store it securely immediately.
+
+---
+
+### Revoke Agent API Key
+
+**Endpoint**: `DELETE /api/v1/agents/{agentId}/keys/{keyId}`
+
+**Response** (204 No Content)
+
+---
+
+## Containers API
+
+All container endpoints require authentication. RBAC rules:
+- `GET` endpoints require **Viewer** role minimum
+- `POST`, `DELETE`, reindex require **Editor** role minimum
+- Settings endpoints require **Admin** role
+
+### Create Container
+
+**Endpoint**: `POST /api/containers`
+
+**Request Body**:
+```json
+{ "name": "my-project", "description": "Project knowledge base" }
+```
+
+**Validation**:
+- Name: lowercase alphanumeric + hyphens, 2-128 chars, globally unique
+
+**Response** (200 OK):
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "name": "my-project",
+  "description": "Project knowledge base",
+  "documentCount": 0,
+  "createdAt": "2026-02-26T10:00:00Z",
+  "updatedAt": "2026-02-26T10:00:00Z"
+}
+```
+
+---
+
+### List Containers
+
+**Endpoint**: `GET /api/containers`
+
+**Response** (200 OK): Array of `Container` objects (see above).
+
+---
+
+### Get Container
+
+**Endpoint**: `GET /api/containers/{id}`
+
+**Response** (200 OK | 404 Not Found)
+
+---
+
+### Delete Container
+
+**Endpoint**: `DELETE /api/containers/{id}`
+
+**Notes**: Fails with 400 if the container still has files or folders. Must be empty first.
+
+**Response** (204 No Content | 400 Bad Request)
+
+---
+
+## Container Files API
+
+### Upload Files
+
+Upload one or more files into a container.
+
+**Endpoint**: `POST /api/containers/{id}/files`
 
 **Content-Type**: `multipart/form-data`
 
-**Request**:
-```http
-POST /api/documents HTTP/1.1
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
-
-------WebKitFormBoundary
-Content-Disposition: form-data; name="files"; filename="report.pdf"
-Content-Type: application/pdf
-
-<binary data>
-------WebKitFormBoundary
-Content-Disposition: form-data; name="files"; filename="notes.txt"
-Content-Type: text/plain
-
-<text content>
-------WebKitFormBoundary--
-```
-
-**Query Parameters**:
-- `collectionId` (optional): Group documents into a collection (GUID)
+**Form Fields**:
+- `files` (required): One or more file parts
+- `path` (optional): Destination folder path (e.g., `/docs/2026/`)
 - `strategy` (optional): Chunking strategy (`Semantic` | `FixedSize` | `Recursive`, default: `Semantic`)
 
 **Response** (200 OK):
@@ -63,197 +413,94 @@ Content-Type: text/plain
       "contentType": "application/pdf",
       "status": "Pending",
       "error": null
-    },
-    {
-      "documentId": "8e92c0f2-6531-4f1e-9f4d-7a8b3c5e2d1f",
-      "fileName": "notes.txt",
-      "fileSize": 1234,
-      "contentType": "text/plain",
-      "status": "Pending",
-      "error": null
     }
   ],
-  "successCount": 2,
+  "successCount": 1,
   "failureCount": 0
 }
 ```
 
-**Response** (400 Bad Request):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-  "title": "One or more validation errors occurred.",
-  "status": 400,
-  "errors": {
-    "files": ["File type '.exe' is not allowed"]
-  }
-}
-```
-
-**Response** (429 Too Many Requests):
-```json
-{
-  "type": "https://httpstatuses.com/429",
-  "title": "Ingestion queue is full",
-  "status": 429,
-  "detail": "The system is currently processing too many files. Please try again later."
-}
-```
-
 **Notes**:
-- Files are streamed directly to MinIO (not buffered in memory)
-- Ingestion happens asynchronously in the background
-- Use SignalR (see below) or polling (GET `/api/documents/{id}`) to track progress
+- Files stream directly to MinIO (not buffered in memory)
+- Ingestion is asynchronous — track progress via SignalR or poll the file endpoint
+- Duplicate filenames in the same folder auto-increment: `file (1).pdf`, `file (2).pdf`
 
 ---
 
-### List Documents
+### List Files
 
-Retrieve all documents, optionally filtered by collection.
-
-**Endpoint**: `GET /api/documents`
+**Endpoint**: `GET /api/containers/{id}/files`
 
 **Query Parameters**:
-- `collectionId` (optional): Filter by collection GUID
+- `path` (optional): Browse a specific folder (e.g., `?path=/docs/`)
 
-**Response** (200 OK):
-```json
-{
-  "documents": [
-    {
-      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "fileName": "report.pdf",
-      "contentType": "application/pdf",
-      "fileSize": 245678,
-      "contentHash": "a3f5b8c9e1d4...",
-      "storagePath": "documents/3fa85f64.../original.pdf",
-      "collectionId": null,
-      "createdAt": "2026-02-05T10:30:00Z",
-      "updatedAt": "2026-02-05T10:30:15Z"
-    }
-  ],
-  "totalCount": 1
-}
-```
+**Response** (200 OK): Array of file and folder entries.
 
 ---
 
-### Get Document
+### Get File
 
-Retrieve a single document by ID.
+**Endpoint**: `GET /api/containers/{id}/files/{fileId}`
 
-**Endpoint**: `GET /api/documents/{documentId}`
-
-**Path Parameters**:
-- `documentId`: Document GUID
-
-**Response** (200 OK):
-```json
-{
-  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "fileName": "report.pdf",
-  "contentType": "application/pdf",
-  "fileSize": 245678,
-  "contentHash": "a3f5b8c9e1d4...",
-  "storagePath": "documents/3fa85f64.../original.pdf",
-  "collectionId": null,
-  "createdAt": "2026-02-05T10:30:00Z",
-  "updatedAt": "2026-02-05T10:30:15Z"
-}
-```
-
-**Response** (404 Not Found):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
-  "title": "Document not found",
-  "status": 404,
-  "detail": "No document found with ID 3fa85f64-5717-4562-b3fc-2c963f66afa6"
-}
-```
+Returns file metadata including current indexing status (`Pending`, `Processing`, `Ready`, `Failed`).
 
 ---
 
-### Delete Document
+### Check Reindex Status
 
-Delete a document and all associated chunks/vectors.
+**Endpoint**: `GET /api/containers/{id}/files/{fileId}/reindex-check`
 
-**Endpoint**: `DELETE /api/documents/{documentId}`
-
-**Path Parameters**:
-- `documentId`: Document GUID
-
-**Response** (204 No Content):
-```
-(empty body)
-```
-
-**Response** (404 Not Found):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
-  "title": "Document not found",
-  "status": 404
-}
-```
-
-**Notes**:
-- Cascade deletes chunks, vectors, and removes file from MinIO
-- Irreversible operation
+Returns whether the file needs reindexing and the reason.
 
 ---
 
-### Reindex Documents
+### Delete File
 
-Trigger reindexing of documents (e.g., after chunking/embedding settings change).
+**Endpoint**: `DELETE /api/containers/{id}/files/{fileId}`
 
-**Endpoint**: `POST /api/documents/reindex`
+Cascade deletes chunks, vectors, and removes the file from MinIO.
 
-**Request Body** (optional):
-```json
-{
-  "documentIds": [
-    "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "8e92c0f2-6531-4f1e-9f4d-7a8b3c5e2d1f"
-  ],
-  "force": false
-}
-```
-
-**Fields**:
-- `documentIds` (optional): Reindex specific documents (if omitted, reindexes all)
-- `force` (default: `false`): If `true`, re-process even if content hash unchanged
-
-**Response** (202 Accepted):
-```json
-{
-  "batchId": "9d3e7c1a-4b2f-4e8d-9c5a-6f8e1b3d7c2a",
-  "totalDocuments": 42,
-  "status": "Pending"
-}
-```
-
-**Notes**:
-- Reindexing happens asynchronously
-- Documents with unchanged `content_hash` are skipped (unless `force: true`)
-- If embedding/chunking settings changed, automatic force reindex
+**Response** (204 No Content)
 
 ---
 
-## Search API
+## Container Folders API
 
-### Search Documents
+### Create Folder
 
-Search for documents using semantic, keyword, or hybrid search.
+**Endpoint**: `POST /api/containers/{id}/folders`
 
-**Endpoint**: `GET /api/search`
+**Request Body**:
+```json
+{ "path": "/docs/2026/" }
+```
+
+**Response** (200 OK): Returns `Folder` object.
+
+---
+
+### Delete Folder
+
+**Endpoint**: `DELETE /api/containers/{id}/folders?path=/docs/2026/`
+
+Cascade deletes all nested files, subfolders, chunks, vectors, and MinIO objects.
+
+**Response** (204 No Content)
+
+---
+
+## Container Search API
+
+### Search (GET)
+
+**Endpoint**: `GET /api/containers/{id}/search`
 
 **Query Parameters**:
-- `q` (required): Search query string
-- `mode` (default: `Hybrid`): Search mode (`Semantic` | `Keyword` | `Hybrid`)
-- `topK` (default: `10`): Number of results to return (max: 100)
-- `minScore` (default: `0.7`): Minimum similarity score (0.0-1.0)
-- `collectionId` (optional): Filter by collection GUID
+- `q` (required): Search query
+- `mode` (default: `Hybrid`): `Semantic` | `Keyword` | `Hybrid`
+- `topK` (default: `10`): Number of results (max: 100)
+- `minScore` (optional): Minimum similarity score 0.0-1.0 (default: from settings, typically 0.5)
+- `path` (optional): Restrict search to a folder subtree
 
 **Response** (200 OK):
 ```json
@@ -262,50 +509,25 @@ Search for documents using semantic, keyword, or hybrid search.
     {
       "chunkId": "7f8e9d1c-2b3a-4c5d-8e9f-1a2b3c4d5e6f",
       "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      "content": "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed.",
+      "content": "Machine learning is a subset of artificial intelligence...",
       "score": 0.92,
       "metadata": {
         "fileName": "report.pdf",
         "chunkIndex": "5",
         "pageNumber": "12"
       }
-    },
-    {
-      "chunkId": "4a5b6c7d-8e9f-1a2b-3c4d-5e6f7a8b9c0d",
-      "documentId": "8e92c0f2-6531-4f1e-9f4d-7a8b3c5e2d1f",
-      "content": "Neural networks are computing systems inspired by biological neural networks. They consist of interconnected nodes (neurons) organized in layers.",
-      "score": 0.87,
-      "metadata": {
-        "fileName": "notes.txt",
-        "chunkIndex": "2"
-      }
     }
   ],
-  "totalMatches": 2,
+  "totalMatches": 1,
   "durationMs": 87
-}
-```
-
-**Response** (400 Bad Request):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-  "title": "Invalid search parameters",
-  "status": 400,
-  "errors": {
-    "q": ["Query string is required"],
-    "topK": ["TopK must be between 1 and 100"]
-  }
 }
 ```
 
 ---
 
-### Advanced Search (POST)
+### Search (POST)
 
-Search with complex filters and metadata constraints.
-
-**Endpoint**: `POST /api/search`
+**Endpoint**: `POST /api/containers/{id}/search`
 
 **Request Body**:
 ```json
@@ -313,29 +535,60 @@ Search with complex filters and metadata constraints.
   "query": "machine learning algorithms",
   "mode": "Hybrid",
   "topK": 20,
-  "minScore": 0.75,
-  "collectionId": "9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+  "minScore": 0.6,
+  "path": "/docs/",
   "filters": {
-    "documentType": "pdf",
-    "author": "John Doe"
+    "documentType": "pdf"
   }
 }
 ```
 
-**Response**: Same as GET `/api/search`
+**Response**: Same as GET search.
+
+---
+
+## Container Reindex API
+
+### Reindex Container
+
+**Endpoint**: `POST /api/containers/{id}/reindex`
+
+**Request Body** (optional):
+```json
+{
+  "force": false,
+  "detectSettingsChanges": true,
+  "documentIds": null
+}
+```
+
+**Fields**:
+- `force` (default: `false`): Re-process all files even if content hash unchanged
+- `detectSettingsChanges` (default: `true`): Force reindex if embedding/chunking settings changed
+- `documentIds` (optional): Reindex specific files only
+
+**Response** (202 Accepted):
+```json
+{
+  "batchId": "9d3e7c1a-4b2f-4e8d-9c5a-6f8e1b3d7c2a",
+  "totalDocuments": 42,
+  "enqueuedCount": 38,
+  "skippedCount": 4,
+  "status": "Pending"
+}
+```
 
 ---
 
 ## Settings API
 
-### Get Settings
+All settings endpoints require **Admin** role.
 
-Retrieve current settings for a specific category.
+### Get Settings
 
 **Endpoint**: `GET /api/settings/{category}`
 
-**Path Parameters**:
-- `category`: One of `embedding`, `chunking`, `search`, `llm`, `storage`, `upload`, `websearch`
+**Categories**: `embedding` | `chunking` | `search` | `llm` | `storage` | `upload` | `websearch`
 
 **Response** (200 OK) — Example for `embedding`:
 ```json
@@ -349,189 +602,94 @@ Retrieve current settings for a specific category.
 }
 ```
 
-**Response** (404 Not Found):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
-  "title": "Category not found",
-  "status": 404,
-  "detail": "Unknown settings category: invalid_category"
-}
-```
-
 ---
 
 ### Update Settings
 
-Update settings for a specific category.
-
 **Endpoint**: `PUT /api/settings/{category}`
 
-**Path Parameters**:
-- `category`: Settings category (see GET endpoint)
-
-**Request Body** — Example for `chunking`:
-```json
-{
-  "strategy": "Semantic",
-  "maxTokens": 512,
-  "overlap": 50,
-  "similarityThreshold": 0.8
-}
-```
+**Notes**: Changes take effect immediately (live reload via `IOptionsMonitor<T>`). No restart required.
 
 **Response** (200 OK):
 ```json
 {
   "message": "Settings updated successfully",
   "category": "chunking",
-  "updatedAt": "2026-02-05T11:45:00Z"
+  "updatedAt": "2026-02-26T11:45:00Z"
 }
 ```
-
-**Response** (400 Bad Request):
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-  "title": "Invalid settings",
-  "status": 400,
-  "errors": {
-    "maxTokens": ["MaxTokens must be between 1 and 8192"]
-  }
-}
-```
-
-**Notes**:
-- Changes take effect immediately (no restart required)
-- Services using `IOptionsMonitor<T>` will receive updated settings
-- Changing `embedding.model` or `chunking` settings triggers reindex warning
 
 ---
 
 ### Test Connection
-
-Test connectivity to external services (Ollama, MinIO).
 
 **Endpoint**: `POST /api/settings/test-connection`
 
 **Request Body**:
 ```json
 {
-  "service": "Ollama",
-  "baseUrl": "http://localhost:11434",
-  "model": "nomic-embed-text"
+  "category": "Embedding",
+  "settings": {
+    "provider": "Ollama",
+    "baseUrl": "http://localhost:11434",
+    "model": "nomic-embed-text"
+  },
+  "timeoutSeconds": 10
 }
 ```
 
 **Response** (200 OK):
 ```json
 {
-  "service": "Ollama",
   "success": true,
-  "message": "Successfully connected to Ollama. Model 'nomic-embed-text' is available.",
-  "latencyMs": 45,
-  "details": {
-    "version": "0.1.25",
-    "models": ["nomic-embed-text", "llama2", "codellama"]
-  }
-}
-```
-
-**Response** (200 OK — Failure):
-```json
-{
-  "service": "MinIO",
-  "success": false,
-  "message": "Failed to connect to MinIO",
-  "error": "Connection refused",
-  "latencyMs": 5000
+  "message": "Connected to Ollama (3 models available)",
+  "details": { "modelCount": 3 },
+  "duration": "00:00:00.4530000"
 }
 ```
 
 ---
 
+## Batches API
+
+### Get Batch Status
+
+**Endpoint**: `GET /api/batches/{id}/status`
+
+**Auth**: Viewer minimum
+
+**Response** (200 OK): Ingestion progress for all jobs in the batch.
+
+---
+
 ## SignalR Hub (Real-Time)
 
-### Ingestion Progress
+**Hub URL**: `/hubs/ingestion`
 
-Subscribe to real-time ingestion progress updates.
+**Auth**: Required — pass JWT via `?access_token=<token>` query string, or use cookie session.
 
-**Hub URL**: `wss://localhost:5001/hubs/ingestion`
+### Subscribe to Job Progress
 
-**Hub Name**: `IngestionHub`
-
-**Events**:
-
-#### `IngestionProgress`
-
-Sent whenever ingestion progress updates (parsing, chunking, embedding, storing).
-
-**Message**:
-```json
-{
-  "jobId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "state": "Processing",
-  "currentPhase": "Embedding",
-  "percentComplete": 65.5,
-  "errorMessage": null,
-  "startedAt": "2026-02-05T10:30:00Z",
-  "completedAt": null
-}
-```
-
-**States**: `Pending`, `Processing`, `Completed`, `Failed`
-
-**Phases**: `Parsing`, `Chunking`, `Embedding`, `Storing`, `Complete`
-
-#### `IngestionCompleted`
-
-Sent when ingestion finishes successfully.
-
-**Message**:
-```json
-{
-  "jobId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "chunkCount": 42,
-  "durationMs": 12345,
-  "completedAt": "2026-02-05T10:30:15Z"
-}
-```
-
-#### `IngestionFailed`
-
-Sent when ingestion fails with an error.
-
-**Message**:
-```json
-{
-  "jobId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "error": "Unsupported file format: .exe",
-  "failedAt": "2026-02-05T10:30:05Z"
-}
-```
-
-**Usage Example** (JavaScript):
 ```javascript
 const connection = new signalR.HubConnectionBuilder()
-  .withUrl("/hubs/ingestion")
+  .withUrl("/hubs/ingestion?access_token=eyJ...")
   .build();
 
+// Subscribe
+await connection.invoke("SubscribeToJob", "job-id");
+
+// Listen for updates
 connection.on("IngestionProgress", (update) => {
+  // update: { jobId, state, currentPhase, percentComplete, errorMessage, startedAt, completedAt }
   console.log(`${update.currentPhase}: ${update.percentComplete}%`);
-});
-
-connection.on("IngestionCompleted", (result) => {
-  console.log(`Completed! ${result.chunkCount} chunks in ${result.durationMs}ms`);
-});
-
-connection.on("IngestionFailed", (error) => {
-  console.error(`Failed: ${error.error}`);
 });
 
 await connection.start();
 ```
+
+**States**: `Pending` | `Processing` | `Completed` | `Failed`
+
+**Phases**: `Parsing` | `Chunking` | `Embedding` | `Storing` | `Complete`
 
 ---
 
@@ -539,286 +697,104 @@ await connection.start();
 
 Connapse exposes an MCP server for AI agent integration.
 
-**Server Name**: `connapse-mcp-server`
+**Endpoint**: `POST /mcp`
 
-**Configuration** (Claude Desktop):
-```json
-{
-  "mcpServers": {
-    "connapse": {
-      "command": "dotnet",
-      "args": ["run", "--project", "src/Connapse.Web", "--mcp"],
-      "env": {
-        "ASPNETCORE_URLS": "http://localhost:5002"
-      }
-    }
-  }
-}
-```
+**Auth**: Requires a valid **Agent** API key via `X-Api-Key: cnp_<token>` header.
 
-### MCP Tools
+**Tool list**: `GET /mcp/tools`
 
-#### `connapse_search`
+### Available Tools
 
-Search the knowledge base.
+| Tool | Required Parameters | Optional | Description |
+|------|---------------------|----------|-------------|
+| `container_create` | `name` | `description` | Create a new container |
+| `container_list` | — | — | List all containers with document counts |
+| `container_delete` | `name` | — | Delete an empty container |
+| `upload_file` | `containerId`, `fileName`, `content` (base64) | `path`, `strategy` | Upload file to container |
+| `list_files` | `containerId` | `path` | List files/folders in container |
+| `delete_file` | `containerId`, `fileId` | — | Delete file from container |
+| `search_knowledge` | `query`, `containerId` | `path`, `mode`, `topK`, `minScore` | Search within container |
 
-**Input Schema**:
-```json
-{
-  "type": "object",
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Search query"
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["Semantic", "Keyword", "Hybrid"],
-      "default": "Hybrid"
-    },
-    "topK": {
-      "type": "number",
-      "default": 10,
-      "minimum": 1,
-      "maximum": 100
-    }
-  },
-  "required": ["query"]
-}
-```
-
-**Output**:
-```json
-{
-  "hits": [
-    {
-      "content": "...",
-      "score": 0.92,
-      "source": "report.pdf (page 12)"
-    }
-  ],
-  "totalMatches": 2
-}
-```
+**Note**: `containerId` accepts either a container GUID or container name (resolved automatically).
 
 ---
 
-#### `connapse_upload`
+## CLI
 
-Upload a document to the knowledge base.
+The `connapse` CLI is a self-contained tool for managing Connapse from the command line.
 
-**Input Schema**:
-```json
-{
-  "type": "object",
-  "properties": {
-    "path": {
-      "type": "string",
-      "description": "Local file path"
-    },
-    "strategy": {
-      "type": "string",
-      "enum": ["Semantic", "FixedSize", "Recursive"],
-      "default": "Semantic"
-    }
-  },
-  "required": ["path"]
-}
+### Installation
+
+**Option A: .NET Global Tool** (requires .NET 10):
+```bash
+dotnet tool install -g Connapse.CLI
 ```
 
-**Output**:
-```json
-{
-  "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "fileName": "report.pdf",
-  "status": "Pending",
-  "message": "Document uploaded successfully. Ingestion in progress."
-}
-```
+**Option B: Native Binary** (no .NET required):
+Download the self-contained binary for your platform from [GitHub Releases](https://github.com/Destrayon/Connapse/releases):
+- `connapse-win-x64.exe`
+- `connapse-linux-x64`
+- `connapse-osx-x64`
+- `connapse-osx-arm64`
+
+Binaries are published automatically on version tags via GitHub Actions.
 
 ---
 
-#### `connapse_list_documents`
+### Authentication Commands
 
-List all documents in the knowledge base.
-
-**Input Schema**:
-```json
-{
-  "type": "object",
-  "properties": {
-    "collectionId": {
-      "type": "string",
-      "description": "Filter by collection (optional)"
-    }
-  }
-}
-```
-
-**Output**:
-```json
-{
-  "documents": [
-    {
-      "id": "3fa85f64...",
-      "fileName": "report.pdf",
-      "fileSize": 245678,
-      "createdAt": "2026-02-05T10:30:00Z"
-    }
-  ],
-  "totalCount": 1
-}
-```
-
----
-
-#### `connapse_delete_document`
-
-Delete a document and its chunks/vectors.
-
-**Input Schema**:
-```json
-{
-  "type": "object",
-  "properties": {
-    "documentId": {
-      "type": "string",
-      "description": "Document GUID to delete"
-    }
-  },
-  "required": ["documentId"]
-}
-```
-
-**Output**:
-```json
-{
-  "success": true,
-  "message": "Document deleted successfully"
-}
-```
-
----
-
-## CLI (Planned)
-
-Command-line interface for automation and scripting.
-
-### Install
+Before using other CLI commands, authenticate to store credentials locally (`~/.connapse/credentials.json`).
 
 ```bash
-dotnet tool install -g connapse-cli
+# Log in — prompts for email + password, creates a PAT, saves credentials
+connapse auth login [--url https://your-server.com]
+
+# Log out — removes stored credentials
+connapse auth logout
+
+# Show current identity
+connapse auth whoami
+
+# Create a named PAT (displayed once)
+connapse auth pat create "CI Token" [--expires 2027-01-01]
+
+# List all your PATs
+connapse auth pat list
+
+# Revoke a PAT by ID
+connapse auth pat revoke <pat-guid>
 ```
 
-### Commands
+**Login flow**: `connapse auth login` prompts for email + password, calls `POST /api/v1/auth/token`, then creates a PAT named `CLI ({MachineName})` via `POST /api/v1/auth/pats`. The PAT token is stored locally and auto-injected into all subsequent API requests as `X-Api-Key`.
 
-#### `connapse ingest <path>`
+---
 
-Ingest a file or directory into the knowledge base.
+### Container Commands
 
-**Options**:
-- `--strategy` — Chunking strategy (Semantic | FixedSize | Recursive)
-- `--collection` — Collection ID to group documents
-- `--wait` — Wait for ingestion to complete (default: true)
-
-**Example**:
 ```bash
-connapse ingest ./docs --strategy Semantic --collection my-docs
+# Create a container
+connapse container create <name> [--description "..."]
+
+# List all containers
+connapse container list
+
+# Delete an empty container
+connapse container delete <name>
 ```
 
 ---
 
-#### `connapse search "<query>"`
+### File Commands
 
-Search the knowledge base.
-
-**Options**:
-- `--mode` — Search mode (Semantic | Keyword | Hybrid)
-- `--topK` — Number of results (default: 10)
-- `--format` — Output format (json | table | markdown)
-
-**Example**:
 ```bash
-connapse search "machine learning" --mode Hybrid --topK 5 --format markdown
-```
+# Upload a file or folder into a container
+connapse upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
 
----
+# Search within a container
+connapse search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
 
-#### `connapse list`
-
-List all documents.
-
-**Options**:
-- `--collection` — Filter by collection
-- `--format` — Output format (json | table)
-
-**Example**:
-```bash
-connapse list --collection my-docs --format table
-```
-
----
-
-#### `connapse delete <documentId>`
-
-Delete a document.
-
-**Example**:
-```bash
-connapse delete 3fa85f64-5717-4562-b3fc-2c963f66afa6
-```
-
----
-
-#### `connapse reindex`
-
-Trigger reindexing.
-
-**Options**:
-- `--force` — Force reindex even if content unchanged
-- `--documents` — Comma-separated document IDs
-
-**Example**:
-```bash
-connapse reindex --force
-```
-
----
-
-#### `connapse config set <key> <value>`
-
-Update a configuration setting.
-
-**Example**:
-```bash
-connapse config set embedding.model nomic-embed-text
-connapse config set chunking.maxTokens 512
-```
-
----
-
-#### `connapse config get <key>`
-
-Get a configuration value.
-
-**Example**:
-```bash
-connapse config get embedding.model
-```
-
----
-
-#### `connapse serve`
-
-Start the web server.
-
-**Options**:
-- `--port` — HTTP port (default: 5001)
-- `--urls` — ASP.NET Core URLs
-
-**Example**:
-```bash
-connapse serve --port 8080
+# Reindex a container
+connapse reindex --container <name> [--force] [--no-detect-changes]
 ```
 
 ---
@@ -827,52 +803,26 @@ connapse serve --port 8080
 
 All API errors follow RFC 7807 Problem Details format.
 
-| Status | Type | Description |
-|--------|------|-------------|
-| 400 | `ValidationError` | Invalid request parameters or body |
-| 404 | `NotFound` | Resource not found |
-| 409 | `Conflict` | Resource already exists or state conflict |
-| 413 | `PayloadTooLarge` | File exceeds `UploadSettings.MaxFileSizeBytes` |
-| 415 | `UnsupportedMediaType` | File type not in `UploadSettings.AllowedExtensions` |
-| 429 | `TooManyRequests` | Ingestion queue full (backpressure) |
-| 500 | `InternalServerError` | Unexpected server error |
-| 503 | `ServiceUnavailable` | External service (Ollama, MinIO) unreachable |
-
-**Example Error Response**:
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-  "title": "Validation Error",
-  "status": 400,
-  "detail": "One or more validation errors occurred.",
-  "errors": {
-    "fileName": ["File name cannot be empty"],
-    "fileSize": ["File size must be less than 100MB"]
-  },
-  "traceId": "00-4a8c9d7e6f5b4c3d2a1e9f8d7c6b5a4d-1234567890abcdef-00"
-}
-```
-
----
-
-## Rate Limiting
-
-**Phase 1**: No rate limiting (single-user, local deployment)
-
-**Planned**:
-- Upload: 100 requests/hour per IP
-- Search: 1000 requests/hour per IP
-- Settings: 10 updates/hour per user
+| Status | Description |
+|--------|-------------|
+| 400 | Invalid request parameters or body |
+| 401 | Missing or invalid authentication |
+| 403 | Insufficient role/permissions |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate name, already revoked, etc.) |
+| 413 | File exceeds `UploadSettings.MaxFileSizeMb` |
+| 415 | File type not in `UploadSettings.AllowedExtensions` |
+| 429 | Ingestion queue full |
+| 500 | Unexpected server error |
+| 503 | External service (Ollama, MinIO) unreachable |
 
 ---
 
 ## Versioning
 
-**Current Version**: `v1` (implicit, no version prefix required)
+**Current Version**: `v0.2.0`
 
-**Future Versioning**: URL-based (`/api/v2/...`) for breaking changes
-
-**Breaking Change Policy**: Major version bump, 6-month deprecation period for previous version
+Auth endpoints are under `/api/v1/auth/` and `/api/v1/agents/`. Container endpoints remain under `/api/containers/`.
 
 ---
 
@@ -880,4 +830,4 @@ All API errors follow RFC 7807 Problem Details format.
 
 - [architecture.md](architecture.md) — System architecture and design
 - [deployment.md](deployment.md) — Deployment and configuration
-- [.claude/state/api-surface.md](../.claude/state/api-surface.md) — Internal API surface documentation
+- [.claude/state/api-surface.md](../.claude/state/api-surface.md) — Internal interface documentation
