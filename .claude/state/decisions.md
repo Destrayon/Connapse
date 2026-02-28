@@ -4,6 +4,38 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-27 — v0.3.0 Architecture: Connector System + Cloud Identity
+
+**Context**: v0.2.0 delivered auth/RBAC. v0.3.0 needs to generalize storage into pluggable connectors and add cloud storage with proper IAM-derived access control.
+
+**Decisions**:
+
+1. **Naming**: Container = storage unit (unchanged term/API). Connector = technology type. A container *uses* a connector.
+
+2. **Connector types**: MinIO (existing, global StorageSettings), Filesystem (FileSystemWatcher live watch, cross-platform), InMemory (ephemeral, dynamic short-term RAG), S3 (IAM-only, no stored keys), AzureBlob (managed identity).
+
+3. **Per-container settings**: Each container overrides global chunking/embedding/search/upload settings. `IContainerSettingsResolver` merges: appsettings.json → env vars → global DB → container override (highest). Changing embedding model requires full container reindex.
+
+4. **Cloud RBAC model**: Connapse indexes what the service credential (IAM role, managed identity) can see. Per-user scope is derived from the cloud's own IAM at access time — Connapse does NOT maintain a shadow permission table for cloud connectors. Scopes cached with 15-min TTL. Local connectors use role-level RBAC for now.
+
+5. **Cloud identity per user**: Each Connapse user links one identity per cloud provider. AWS: OIDC federation via STS:AssumeRoleWithWebIdentity (requires RS256). Azure: OAuth2/OIDC authorization code flow. Identity facts stored encrypted (no access tokens, no keys).
+
+6. **RS256**: Optional setting (HS256 default). Required for AWS OIDC federation. Connapse generates RSA key pair, exposes JWKS endpoint, provides setup guidance. Admin must configure AWS OIDC trust relationship once.
+
+7. **Filesystem connector**: FileSystemWatcher only — fully automatic, transparent to user. No manual sync. Debounced 750ms. Buffer overflow fallback: full rescan every 5 minutes.
+
+8. **S3/AzureBlob sync**: Sync-on-demand via `POST /api/containers/{id}/sync` for v0.3.0. Live events (SQS, Event Grid) deferred to v0.4.0.
+
+9. **InMemory connector**: Files in process memory. Chunks/vectors in PostgreSQL (is_ephemeral = true). Cleaned on startup. Full ingestion pipeline and search quality preserved within a session.
+
+10. **Agentic search**: New SearchMode.Agentic. LLM-driven iterative retrieval (max 3 iterations default). Disabled if no LLM configured. Returns standard SearchResult + AgenticMetadata.
+
+11. **Additional LLM/embedding providers**: OpenAI + Azure OpenAI for embeddings. Ollama + OpenAI + Anthropic for LLM. ILlmProvider formalized.
+
+**Full plan**: [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md)
+
+---
+
 ### 2026-02-22 — Invite-Only Registration Model
 
 **Context**: Open registration (`Identity:AllowRegistration`) allows anyone to create an account. For a knowledge management platform, the admin should control who has access.

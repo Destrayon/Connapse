@@ -4,6 +4,26 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
+## Current Status (2026-02-27) — v0.3.0 planning complete, v0.2.2 last shipped
+
+### Session 20 — v0.3.0 Planning
+
+Full v0.3.0 plan written to [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). No code changed this session.
+
+**Key decisions made:**
+- Container = storage unit (term stays), Connector = technology type backing it
+- 5 connector types: MinIO (existing), Filesystem (FileSystemWatcher, live), InMemory (ephemeral, short-term RAG), S3 (IAM/DefaultAWSCredentials only, no stored keys), AzureBlob (managed identity/DefaultAzureCredential)
+- Per-container settings overrides — each container can override global chunking/embedding/search/upload settings. `IContainerSettingsResolver` handles merge.
+- Cloud connector RBAC: IAM-derived scopes per user. Each Connapse user links one cloud identity per provider (AWS via OIDC federation, Azure via OAuth2). Scope discovered from cloud IAM at access time, cached 15min, enforced at search and file browse.
+- Local connector RBAC: role-level only for now (Option B deferred to v0.4.0)
+- RS256: optional setting, required for AWS OIDC federation. HS256 remains default.
+- Additional embedding providers: OpenAI + Azure OpenAI
+- `ILlmProvider` formalized: Ollama, OpenAI, Anthropic
+- Agentic search: new `SearchMode.Agentic`, iterative LLM-driven retrieval loop, disabled unless LLM configured
+- InMemory connector philosophy: dynamic short-term RAG / agent working memory
+
+**Next up:** Begin Session A — IConnector abstraction + schema migration + IContainerSettingsResolver
+
 ## Current Status (2026-02-27) — v0.2.2 in progress (branch: feature/0.2.2)
 
 ### Session 19 — CLI Self-Update + Version Check
