@@ -3,9 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 
 // Load configuration
@@ -47,17 +50,20 @@ if (args.Length == 0)
 
 var command = args[0].ToLower();
 
+int exitCode;
 try
 {
-    return command switch
+    exitCode = command switch
     {
-        "auth" => await HandleAuth(args, httpClient, jsonOptions, apiBaseUrl),
+        "version" => HandleVersion(),
+        "update"  => await HandleUpdate(args),
+        "auth"    => await HandleAuth(args, httpClient, jsonOptions, apiBaseUrl),
         "container" => await HandleContainer(args, httpClient, jsonOptions),
-        "upload" => await HandleUpload(args, httpClient, jsonOptions),
-        "search" => await HandleSearch(args, httpClient, jsonOptions),
+        "upload"  => await HandleUpload(args, httpClient, jsonOptions),
+        "search"  => await HandleSearch(args, httpClient, jsonOptions),
         "reindex" => await HandleReindex(args, httpClient, jsonOptions),
         // Legacy aliases
-        "ingest" => await HandleUpload(args, httpClient, jsonOptions),
+        "ingest"  => await HandleUpload(args, httpClient, jsonOptions),
         _ => Error($"Unknown command '{command}'")
     };
 }
@@ -66,11 +72,24 @@ catch (Exception ex)
     return Error(ex.Message);
 }
 
+// Passive update check — runs once per day, silent on failure
+if (command is not ("version" or "update"))
+    await CheckForUpdateNotification();
+
+return exitCode;
+
 static void PrintUsage()
 {
-    Console.WriteLine("Connapse Platform CLI");
+    Console.WriteLine($"Connapse Platform CLI v{GetCurrentVersion()}");
     Console.WriteLine();
     Console.WriteLine("Usage: connapse <command> [options]");
+    Console.WriteLine();
+    Console.WriteLine("General:");
+    Console.WriteLine("  version");
+    Console.WriteLine("      Show the installed version");
+    Console.WriteLine();
+    Console.WriteLine("  update [--check]");
+    Console.WriteLine("      Update to the latest release (--check to preview without installing)");
     Console.WriteLine();
     Console.WriteLine("Authentication:");
     Console.WriteLine("  auth login [--url <server-url>] [--no-browser]");
@@ -1230,6 +1249,142 @@ static async Task<(string Code, string State)> WaitForCallbackAsync(
 }
 
 // ---------------------------------------------------------------------------
+// version / update
+// ---------------------------------------------------------------------------
+
+static int HandleVersion()
+{
+    Console.WriteLine($"connapse v{GetCurrentVersion()}");
+    return 0;
+}
+
+static async Task<int> HandleUpdate(string[] args)
+{
+    var checkOnly = args.Contains("--check");
+    var currentVersion = GetCurrentVersion();
+    Console.WriteLine($"Current version: v{currentVersion}");
+
+    using var ghClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    ghClient.DefaultRequestHeaders.UserAgent.Add(
+        new ProductInfoHeaderValue("connapse-cli", currentVersion));
+
+    GitHubRelease? release;
+    try
+    {
+        release = await ghClient.GetFromJsonAsync<GitHubRelease>(
+            "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    }
+    catch (Exception ex)
+    {
+        return Error($"Could not reach GitHub: {ex.Message}");
+    }
+
+    if (release is null)
+        return Error("Could not parse release information from GitHub.");
+
+    var latestVersion = release.TagName.TrimStart('v');
+    Console.WriteLine($"Latest version:  v{latestVersion}");
+
+    if (!IsNewer(latestVersion, currentVersion))
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("You are already up to date.");
+        Console.ResetColor();
+        return 0;
+    }
+
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"Update available: v{currentVersion} → v{latestVersion}");
+    Console.ResetColor();
+
+    if (checkOnly) return 0;
+
+    var assetName = GetPlatformAssetName();
+    var asset = release.Assets.FirstOrDefault(a =>
+        string.Equals(a.Name, assetName, StringComparison.OrdinalIgnoreCase));
+
+    if (asset is null)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"No binary for this platform ({assetName}) in the release.");
+        Console.WriteLine("If you installed via NuGet, run:  dotnet tool update -g Connapse.CLI");
+        Console.ResetColor();
+        return 1;
+    }
+
+    // Detect global tool install — the shim lives in ~/.dotnet/tools/ and cannot
+    // be replaced with a self-contained native binary.
+    if (IsGlobalToolInstall())
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("Installed via .NET global tool. Run:");
+        Console.WriteLine("  dotnet tool update -g Connapse.CLI");
+        Console.ResetColor();
+        return 0;
+    }
+
+    Console.Write($"Download and install v{latestVersion}? [y/N] ");
+    var confirm = Console.ReadLine()?.Trim().ToLower();
+    if (confirm is not ("y" or "yes")) return 0;
+
+    var exePath = Environment.ProcessPath;
+    if (string.IsNullOrEmpty(exePath))
+        return Error("Could not determine current executable path.");
+
+    var tmpPath = exePath + ".new";
+    Console.Write($"Downloading {assetName}... ");
+    try
+    {
+        using var response = await ghClient.GetAsync(
+            asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        await using var fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write);
+        await response.Content.CopyToAsync(fs);
+    }
+    catch (Exception ex)
+    {
+        if (File.Exists(tmpPath)) File.Delete(tmpPath);
+        return Error($"\nDownload failed: {ex.Message}");
+    }
+    Console.WriteLine("done.");
+
+    if (OperatingSystem.IsWindows())
+    {
+        // Running .exe is locked on Windows — hand off to a batch script
+        var batPath = Path.Combine(Path.GetTempPath(), "connapse-update.bat");
+        File.WriteAllText(batPath,
+            "@echo off\r\n" +
+            "timeout /t 2 /nobreak > nul\r\n" +
+            $"move /y \"{tmpPath}\" \"{exePath}\" > nul\r\n" +
+            "del \"%~f0\"\r\n");
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd",
+            Arguments = $"/c \"{batPath}\"",
+            CreateNoWindow = true,
+            UseShellExecute = false
+        });
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"connapse will be updated to v{latestVersion} in a moment.");
+        Console.ResetColor();
+    }
+    else
+    {
+        File.Move(tmpPath, exePath, overwrite: true);
+        // Restore execute permission after overwrite
+        var mode = File.GetUnixFileMode(exePath);
+        File.SetUnixFileMode(exePath,
+            mode | UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"Updated to v{latestVersion}. Restart connapse to confirm.");
+        Console.ResetColor();
+    }
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Credential helpers
 // ---------------------------------------------------------------------------
 
@@ -1278,6 +1433,77 @@ static void EnsureAuthenticated()
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+static string GetCurrentVersion() =>
+    typeof(Program).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion.Split('+')[0]   // strip build metadata e.g. +abc123
+        ?? "0.0.0";
+
+static string GetPlatformAssetName()
+{
+    if (OperatingSystem.IsWindows()) return "connapse-win-x64.exe";
+    if (OperatingSystem.IsLinux())   return "connapse-linux-x64";
+    if (OperatingSystem.IsMacOS())
+        return RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            ? "connapse-osx-arm64"
+            : "connapse-osx-x64";
+    return "connapse-linux-x64";
+}
+
+static bool IsGlobalToolInstall()
+{
+    var exePath = Environment.ProcessPath;
+    if (string.IsNullOrEmpty(exePath)) return false;
+    var dotnetToolsDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".dotnet", "tools");
+    return exePath.StartsWith(dotnetToolsDir, StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsNewer(string latest, string current)
+{
+    if (Version.TryParse(latest, out var latestV) && Version.TryParse(current, out var currentV))
+        return latestV > currentV;
+    return string.Compare(latest, current, StringComparison.Ordinal) > 0;
+}
+
+static async Task CheckForUpdateNotification()
+{
+    try
+    {
+        var checkFile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".connapse", "last-update-check");
+
+        if (File.Exists(checkFile) &&
+            DateTime.TryParse(File.ReadAllText(checkFile).Trim(), out var lastCheck) &&
+            DateTime.UtcNow - lastCheck < TimeSpan.FromHours(24))
+            return;
+
+        var currentVersion = GetCurrentVersion();
+        using var ghClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        ghClient.DefaultRequestHeaders.UserAgent.Add(
+            new ProductInfoHeaderValue("connapse-cli", currentVersion));
+
+        var release = await ghClient.GetFromJsonAsync<GitHubRelease>(
+            "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Directory.CreateDirectory(Path.GetDirectoryName(checkFile)!);
+        File.WriteAllText(checkFile, DateTime.UtcNow.ToString("O"));
+
+        if (release is null) return;
+        var latestVersion = release.TagName.TrimStart('v');
+        if (IsNewer(latestVersion, currentVersion))
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n  Note: connapse v{latestVersion} is available. Run 'connapse update' to upgrade.");
+            Console.ResetColor();
+        }
+    }
+    catch { }
+}
 
 // Resolve container name to ID via API
 static async Task<string?> ResolveContainerId(string nameOrId, HttpClient httpClient, JsonSerializerOptions jsonOptions)
@@ -1378,3 +1604,9 @@ record ReindexResult(
     int FailedCount,
     Dictionary<string, int>? ReasonCounts,
     string Message);
+record GitHubRelease(
+    [property: JsonPropertyName("tag_name")] string TagName,
+    [property: JsonPropertyName("assets")]   List<GitHubAsset> Assets);
+record GitHubAsset(
+    [property: JsonPropertyName("name")]                  string Name,
+    [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl);

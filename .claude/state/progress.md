@@ -4,7 +4,36 @@ Current status and recent work. Update at end of each session. For detailed impl
 
 ---
 
-## Current Status (2026-02-26) — v0.2.0 COMPLETE
+## Current Status (2026-02-27) — v0.2.2 in progress (branch: feature/0.2.2)
+
+### Session 19 — CLI Self-Update + Version Check
+
+Added CLI update mechanism to `src/Connapse.CLI/Program.cs`:
+
+**New commands:**
+- `connapse version` — prints installed version (reads `AssemblyInformationalVersionAttribute`)
+- `connapse update [--check]` — checks GitHub Releases API for a newer binary, downloads and replaces in-place; `--check` previews without installing
+- Passive update notification — after every command (except `version`/`update`), checks once per 24h via `~/.connapse/last-update-check`; prints a yellow hint if a newer release exists
+
+**Implementation details:**
+- `GetCurrentVersion()` — reads `AssemblyInformationalVersionAttribute`, strips build metadata (`+abc123`)
+- `GetPlatformAssetName()` — maps current OS/arch to the release asset name (`connapse-win-x64.exe`, `connapse-linux-x64`, `connapse-osx-x64`, `connapse-osx-arm64`)
+- `IsNewer()` — semver comparison via `System.Version`; falls back to string compare
+- Windows binary swap: running `.exe` is locked, so update writes `{exe}.new` and launches a `connapse-update.bat` via `cmd /c` to move it after the process exits
+- Linux/macOS: `File.Move(overwrite: true)` + `File.SetUnixFileMode` to restore execute bit
+- GitHub API: uses separate `HttpClient` (3s timeout for passive check, 10s for `update`); `User-Agent: connapse-cli/{version}` header
+- `GitHubRelease` / `GitHubAsset` records with `[JsonPropertyName]` for snake_case fields
+- Version bumped to `0.2.2` in csproj
+
+**Files changed:**
+- `src/Connapse.CLI/Program.cs` — all update logic
+- `src/Connapse.CLI/Connapse.CLI.csproj` — version 0.2.1 → 0.2.2
+
+**Build:** 0 errors, same pre-existing IL2026 trimming warnings as before
+
+---
+
+## Previous Status (2026-02-26) — v0.2.0 COMPLETE
 
 ### Session 18 — Testing + Deployment + CLI Distribution (Session G)
 
