@@ -37,6 +37,9 @@ public static class ServiceCollectionExtensions
         // Settings store
         services.AddScoped<ISettingsStore, PostgresSettingsStore>();
 
+        // Per-container settings resolver
+        services.AddScoped<IContainerSettingsResolver, ContainerSettingsResolver>();
+
         // Settings reload service - requires IConfigurationRoot to trigger reload
         services.AddSingleton<ISettingsReloader, SettingsReloader>();
 

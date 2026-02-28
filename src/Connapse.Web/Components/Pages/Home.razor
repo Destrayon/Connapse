@@ -114,6 +114,16 @@ else
                     <input type="text" class="form-control" placeholder="What is this container for?"
                            @bind="newContainerDescription" />
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Connector</label>
+                    <select class="form-select" @bind="newConnectorType">
+                        <option value="@ConnectorType.MinIO">MinIO (S3-compatible object storage)</option>
+                        <option value="@ConnectorType.Filesystem">Filesystem (local folder, live watch)</option>
+                        <option value="@ConnectorType.InMemory">In-Memory (ephemeral, session-only)</option>
+                        <option value="@ConnectorType.S3">AWS S3 (IAM / DefaultAWSCredentials)</option>
+                        <option value="@ConnectorType.AzureBlob">Azure Blob (managed identity)</option>
+                    </select>
+                </div>
                 @if (createError is not null)
                 {
                     <div class="alert alert-danger py-2">@createError</div>
@@ -180,6 +190,7 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
+    private ConnectorType newConnectorType = ConnectorType.MinIO;
     private string? createError;
     private bool isCreating;
 
@@ -226,6 +237,7 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
+        newConnectorType = ConnectorType.MinIO;
         createError = null;
     }
 
@@ -262,7 +274,7 @@ else
                 return;
             }
 
-            await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim()));
+            await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim(), newConnectorType));
             showCreateModal = false;
             await LoadContainers();
         }

@@ -9,6 +9,7 @@
 @inject IFolderStore FolderStore
 @inject IKnowledgeFileSystem FileSystem
 @inject IIngestionQueue IngestionQueue
+@inject IContainerSettingsResolver SettingsResolver
 @inject Connapse.Web.Services.IngestionProgressNotifier ProgressNotifier
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -34,8 +35,16 @@
             }
         </nav>
     </div>
-    <div class="browser-actions">
-        @if (canEdit)
+    <div class="d-flex align-items-center gap-2">
+        <ul class="nav nav-tabs border-0 me-2">
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
+            </li>
+        </ul>
+        @if (canEdit && activeTab == "files")
         {
             <button class="btn btn-sm btn-outline-primary" @onclick="ShowCreateFolderModal">
                 <span class="bi-folder-plus me-1"></span> New Folder
@@ -50,8 +59,120 @@
     </div>
 </div>
 
+@* Settings Tab Panel *@
+@if (activeTab == "settings")
+{
+    <div class="browser-content p-4">
+        @if (settingsLoading)
+        {
+            <div class="text-center py-4"><div class="spinner-border text-accent" role="status"></div></div>
+        }
+        else
+        {
+            @if (settingsSaved)
+            {
+                <div class="alert alert-success py-2 mb-3">Settings saved.</div>
+            }
+            @if (settingsError is not null)
+            {
+                <div class="alert alert-danger py-2 mb-3">@settingsError</div>
+            }
+            <div class="row g-4">
+                @* Chunking *@
+                <div class="col-12">
+                    <h6 class="text-accent mb-3">Chunking</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Strategy</label>
+                            <select class="form-select form-select-sm" @bind="settingsChunkingStrategy">
+                                <option value="">Global default (@globalChunkingStrategy)</option>
+                                <option value="Semantic">Semantic</option>
+                                <option value="FixedSize">Fixed Size</option>
+                                <option value="Recursive">Recursive</option>
+                                <option value="DocumentAware">Document-Aware</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Max Chunk Size</label>
+                            <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalMaxChunkSize)" @bind="settingsMaxChunkSize" min="64" max="4096" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Overlap</label>
+                            <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalOverlap)" @bind="settingsOverlap" min="0" max="512" />
+                        </div>
+                    </div>
+                </div>
+                @* Embedding *@
+                <div class="col-12">
+                    <h6 class="text-accent mb-3">Embedding</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Provider</label>
+                            <select class="form-select form-select-sm" @bind="settingsEmbeddingProvider">
+                                <option value="">Global default (@globalEmbeddingProvider)</option>
+                                <option value="Ollama">Ollama</option>
+                                <option value="OpenAI">OpenAI</option>
+                                <option value="AzureOpenAI">Azure OpenAI</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Model</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="Global default (@globalEmbeddingModel)" @bind="settingsEmbeddingModel" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Dimensions</label>
+                            <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalEmbeddingDimensions)" @bind="settingsEmbeddingDimensions" min="64" max="4096" />
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(settingsEmbeddingModel) && settingsEmbeddingModel != globalEmbeddingModel)
+                    {
+                        <div class="alert alert-warning py-2 mt-2">
+                            Changing the embedding model requires reindexing all documents in this container.
+                        </div>
+                    }
+                </div>
+                @* Search *@
+                <div class="col-12">
+                    <h6 class="text-accent mb-3">Search</h6>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Mode</label>
+                            <select class="form-select form-select-sm" @bind="settingsSearchMode">
+                                <option value="">Global default (@globalSearchMode)</option>
+                                <option value="Hybrid">Hybrid</option>
+                                <option value="Semantic">Semantic</option>
+                                <option value="Keyword">Keyword</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Top K Results</label>
+                            <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalTopK)" @bind="settingsTopK" min="1" max="100" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Minimum Score</label>
+                            <input type="number" class="form-control form-control-sm" step="0.05" placeholder="Global default (@globalMinScore)" @bind="settingsMinScore" min="0" max="1" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2 mt-4">
+                @if (canEdit)
+                {
+                    <button class="btn btn-primary" @onclick="SaveSettings" disabled="@settingsSaving">
+                        @if (settingsSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Save Changes
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearSettings" disabled="@settingsSaving">
+                        Clear Overrides
+                    </button>
+                }
+            </div>
+        }
+    </div>
+}
+
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
-<div id="fileDropZone" class="browser-content">
+<div id="fileDropZone" class="browser-content" style="@(activeTab != "files" ? "display:none;" : "")">
 
     <div class="drop-overlay">
         <div class="drop-overlay-content">
@@ -382,6 +503,36 @@
 
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
+
+    private string activeTab = "files";
+
+    // Settings tab state
+    private bool settingsLoading;
+    private bool settingsSaving;
+    private bool settingsSaved;
+    private string? settingsError;
+    // Chunking overrides (empty = use global)
+    private string settingsChunkingStrategy = "";
+    private int? settingsMaxChunkSize;
+    private int? settingsOverlap;
+    // Embedding overrides
+    private string settingsEmbeddingProvider = "";
+    private string settingsEmbeddingModel = "";
+    private int? settingsEmbeddingDimensions;
+    // Search overrides
+    private string settingsSearchMode = "";
+    private int? settingsTopK;
+    private double? settingsMinScore;
+    // Global defaults (shown as placeholders)
+    private string globalChunkingStrategy = "Semantic";
+    private int globalMaxChunkSize = 512;
+    private int globalOverlap = 50;
+    private string globalEmbeddingProvider = "Ollama";
+    private string globalEmbeddingModel = "nomic-embed-text";
+    private int globalEmbeddingDimensions = 768;
+    private string globalSearchMode = "Hybrid";
+    private int globalTopK = 10;
+    private double globalMinScore = 0.5;
 
     private bool canEdit;
     private Container? container;
@@ -965,6 +1116,143 @@
         "Error" or "Failed" => "bg-danger",
         _ => "bg-secondary"
     };
+
+    // Settings tab
+    private async Task ShowSettingsTab()
+    {
+        activeTab = "settings";
+        settingsSaved = false;
+        settingsError = null;
+        await LoadSettings();
+    }
+
+    private async Task LoadSettings()
+    {
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
+
+        settingsLoading = true;
+        try
+        {
+            // Load global defaults via resolver (no container override = just global)
+            var globalChunking = await SettingsResolver.GetChunkingSettingsAsync(containerId);
+            globalChunkingStrategy = globalChunking.Strategy;
+            globalMaxChunkSize = globalChunking.MaxChunkSize;
+            globalOverlap = globalChunking.Overlap;
+
+            var globalEmbedding = await SettingsResolver.GetEmbeddingSettingsAsync(containerId);
+            globalEmbeddingProvider = globalEmbedding.Provider;
+            globalEmbeddingModel = globalEmbedding.Model;
+            globalEmbeddingDimensions = globalEmbedding.Dimensions;
+
+            var globalSearch = await SettingsResolver.GetSearchSettingsAsync(containerId);
+            globalSearchMode = globalSearch.Mode;
+            globalTopK = globalSearch.TopK;
+            globalMinScore = globalSearch.MinimumScore;
+
+            // Load current container overrides
+            var overrides = await ContainerStore.GetSettingsOverridesAsync(containerId);
+            settingsChunkingStrategy = overrides?.Chunking?.Strategy ?? "";
+            settingsMaxChunkSize = overrides?.Chunking?.MaxChunkSize;
+            settingsOverlap = overrides?.Chunking?.Overlap;
+            settingsEmbeddingProvider = overrides?.Embedding?.Provider ?? "";
+            settingsEmbeddingModel = overrides?.Embedding?.Model ?? "";
+            settingsEmbeddingDimensions = overrides?.Embedding?.Dimensions;
+            settingsSearchMode = overrides?.Search?.Mode ?? "";
+            settingsTopK = overrides?.Search?.TopK;
+            settingsMinScore = overrides?.Search?.MinimumScore;
+        }
+        catch (Exception ex)
+        {
+            settingsError = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            settingsLoading = false;
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
+
+        settingsSaving = true;
+        settingsSaved = false;
+        settingsError = null;
+
+        try
+        {
+            var overrides = new ContainerSettingsOverrides
+            {
+                Chunking = (!string.IsNullOrEmpty(settingsChunkingStrategy) || settingsMaxChunkSize.HasValue || settingsOverlap.HasValue)
+                    ? new ChunkingSettings
+                    {
+                        Strategy = string.IsNullOrEmpty(settingsChunkingStrategy) ? globalChunkingStrategy : settingsChunkingStrategy,
+                        MaxChunkSize = settingsMaxChunkSize ?? globalMaxChunkSize,
+                        Overlap = settingsOverlap ?? globalOverlap
+                    }
+                    : null,
+                Embedding = (!string.IsNullOrEmpty(settingsEmbeddingProvider) || !string.IsNullOrEmpty(settingsEmbeddingModel) || settingsEmbeddingDimensions.HasValue)
+                    ? new EmbeddingSettings
+                    {
+                        Provider = string.IsNullOrEmpty(settingsEmbeddingProvider) ? globalEmbeddingProvider : settingsEmbeddingProvider,
+                        Model = string.IsNullOrEmpty(settingsEmbeddingModel) ? globalEmbeddingModel : settingsEmbeddingModel,
+                        Dimensions = settingsEmbeddingDimensions ?? globalEmbeddingDimensions
+                    }
+                    : null,
+                Search = (!string.IsNullOrEmpty(settingsSearchMode) || settingsTopK.HasValue || settingsMinScore.HasValue)
+                    ? new SearchSettings
+                    {
+                        Mode = string.IsNullOrEmpty(settingsSearchMode) ? globalSearchMode : settingsSearchMode,
+                        TopK = settingsTopK ?? globalTopK,
+                        MinimumScore = settingsMinScore ?? globalMinScore
+                    }
+                    : null
+            };
+
+            await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
+            settingsSaved = true;
+        }
+        catch (Exception ex)
+        {
+            settingsError = $"Failed to save settings: {ex.Message}";
+        }
+        finally
+        {
+            settingsSaving = false;
+        }
+    }
+
+    private async Task ClearSettings()
+    {
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
+
+        settingsSaving = true;
+        settingsSaved = false;
+        settingsError = null;
+
+        try
+        {
+            await ContainerStore.SaveSettingsOverridesAsync(containerId, new ContainerSettingsOverrides());
+            settingsChunkingStrategy = "";
+            settingsMaxChunkSize = null;
+            settingsOverlap = null;
+            settingsEmbeddingProvider = "";
+            settingsEmbeddingModel = "";
+            settingsEmbeddingDimensions = null;
+            settingsSearchMode = "";
+            settingsTopK = null;
+            settingsMinScore = null;
+            settingsSaved = true;
+        }
+        catch (Exception ex)
+        {
+            settingsError = $"Failed to clear settings: {ex.Message}";
+        }
+        finally
+        {
+            settingsSaving = false;
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

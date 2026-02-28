@@ -49,6 +49,22 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Description)
                 .HasColumnName("description");
 
+            entity.Property(e => e.ConnectorType)
+                .HasColumnName("connector_type")
+                .HasDefaultValue(0);
+
+            entity.Property(e => e.ConnectorConfig)
+                .HasColumnName("connector_config")
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.IsEphemeral)
+                .HasColumnName("is_ephemeral")
+                .HasDefaultValue(false);
+
+            entity.Property(e => e.SettingsOverridesJson)
+                .HasColumnName("settings_overrides")
+                .HasColumnType("jsonb");
+
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasDefaultValueSql("now()");

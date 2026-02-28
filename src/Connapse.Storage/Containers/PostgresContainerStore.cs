@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -33,6 +34,9 @@ public class PostgresContainerStore(
             Id = Guid.NewGuid(),
             Name = name,
             Description = request.Description?.Trim(),
+            ConnectorType = (int)request.ConnectorType,
+            ConnectorConfig = request.ConnectorConfig,
+            IsEphemeral = request.ConnectorType == ConnectorType.InMemory,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -103,12 +107,53 @@ public class PostgresContainerStore(
     public async Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
         => await context.Containers.AnyAsync(c => c.Id == id, ct);
 
+    public async Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default)
+    {
+        var json = await context.Containers
+            .AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => c.SettingsOverridesJson)
+            .FirstOrDefaultAsync(ct);
+
+        return string.IsNullOrEmpty(json)
+            ? null
+            : JsonSerializer.Deserialize<ContainerSettingsOverrides>(json, JsonOptions);
+    }
+
+    public async Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default)
+    {
+        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct)
+            ?? throw new InvalidOperationException($"Container {id} not found.");
+
+        entity.SettingsOverridesJson = JsonSerializer.Serialize(overrides, JsonOptions);
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     private static Container MapToModel(ContainerEntity entity, int documentCount)
-        => new(
+    {
+        ContainerSettingsOverrides? overrides = null;
+        if (!string.IsNullOrEmpty(entity.SettingsOverridesJson))
+        {
+            try { overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson, JsonOptions); }
+            catch { /* malformed override JSON — treat as no overrides */ }
+        }
+
+        return new(
             entity.Id.ToString(),
             entity.Name,
             entity.Description,
+            (ConnectorType)entity.ConnectorType,
+            entity.IsEphemeral,
             entity.CreatedAt,
             entity.UpdatedAt,
-            documentCount);
+            documentCount,
+            overrides);
+    }
 }

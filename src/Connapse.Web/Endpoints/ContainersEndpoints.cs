@@ -31,7 +31,7 @@ public static class ContainersEndpoints
                 return Results.Conflict(new { error = $"Container '{normalizedName}' already exists" });
 
             var container = await containerStore.CreateAsync(
-                new CreateContainerRequest(normalizedName, request.Description), ct);
+                new CreateContainerRequest(normalizedName, request.Description, request.ConnectorType, request.ConnectorConfig), ct);
 
             await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
                 new { container.Name }, ct);
@@ -100,6 +100,39 @@ public static class ContainersEndpoints
         .WithDescription("Delete an empty container")
         .RequireAuthorization("RequireEditor");
 
+        // GET /api/containers/{containerId}/settings - Get container settings overrides
+        group.MapGet("/{containerId:guid}/settings", async (
+            Guid containerId,
+            [FromServices] IContainerStore containerStore,
+            CancellationToken ct) =>
+        {
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var overrides = await containerStore.GetSettingsOverridesAsync(containerId, ct);
+            return Results.Ok(overrides ?? new ContainerSettingsOverrides());
+        })
+        .WithName("GetContainerSettings")
+        .WithDescription("Get per-container settings overrides")
+        .RequireAuthorization("RequireViewer");
+
+        // PUT /api/containers/{containerId}/settings - Save container settings overrides
+        group.MapPut("/{containerId:guid}/settings", async (
+            Guid containerId,
+            [FromBody] ContainerSettingsOverrides overrides,
+            [FromServices] IContainerStore containerStore,
+            CancellationToken ct) =>
+        {
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            await containerStore.SaveSettingsOverridesAsync(containerId, overrides, ct);
+            return Results.Ok(overrides);
+        })
+        .WithName("SaveContainerSettings")
+        .WithDescription("Save per-container settings overrides")
+        .RequireAuthorization("RequireEditor");
+
         // POST /api/containers/{containerId}/reindex - Reindex documents in container
         group.MapPost("/{containerId:guid}/reindex", async (
             Guid containerId,
@@ -143,7 +176,11 @@ public static class ContainersEndpoints
 }
 
 // Request DTOs for container endpoints
-public record CreateContainerApiRequest(string Name, string? Description = null);
+public record CreateContainerApiRequest(
+    string Name,
+    string? Description = null,
+    ConnectorType ConnectorType = ConnectorType.MinIO,
+    string? ConnectorConfig = null);
 
 public record ContainerReindexRequest(
     bool? Force = null,
