@@ -15,6 +15,7 @@ using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
 using Connapse.Web.Mcp;
+using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
@@ -84,6 +85,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherSe
 
 // Add MCP server
 builder.Services.AddSingleton<McpServer>();
+
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 
 builder.Services.AddConnapseStorage(builder.Configuration);
 

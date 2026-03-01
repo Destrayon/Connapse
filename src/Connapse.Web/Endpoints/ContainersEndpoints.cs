@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -244,6 +245,7 @@ public static class ContainersEndpoints
 
         // POST /api/containers/{containerId}/sync - Sync files from remote connector
         group.MapPost("/{containerId:guid}/sync", async (
+            HttpContext httpContext,
             Guid containerId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IConnectorFactory connectorFactory,
@@ -251,11 +253,26 @@ public static class ContainersEndpoints
             [FromServices] IIngestionQueue queue,
             [FromServices] IOptionsMonitor<ChunkingSettings> chunkingSettings,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement — user must have a linked identity for the provider
+            var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (Guid.TryParse(userId, out var uid))
+            {
+                var scopeResult = await cloudScopeService.GetScopesAsync(uid, container, ct);
+                if (scopeResult is { HasAccess: false })
+                    return Results.Json(new
+                    {
+                        error = "cloud_access_denied",
+                        message = scopeResult.Error ?? "Access denied.",
+                        containerId = containerId.ToString()
+                    }, statusCode: 403);
+            }
 
             if (container.ConnectorType == ConnectorType.Filesystem)
                 return Results.BadRequest(new { error = "Filesystem containers use live watch. Sync is not needed." });

@@ -605,4 +605,46 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 ---
 
+### Cloud Scope: Multi-Prefix Search Not Supported
+
+**Severity**: Low (edge case — most users have single-prefix or full access)
+
+**Description**: When `CloudScopeResult.AllowedPrefixes` contains more than one prefix, only the first prefix is injected as a `pathPrefix` search filter. Search results from other allowed prefixes are excluded.
+
+**Root Cause**: The existing `pathPrefix` filter in `VectorSearchService`/`KeywordSearchService` supports a single LIKE clause. Adding OR-clause support for multiple prefixes requires extending the SQL WHERE builder.
+
+**Workaround**: Most common cases (FullAccess = `["/"]`, or single container-prefix scope) work correctly. Multi-prefix is only relevant when Azure RBAC or AWS IAM granularity is implemented in Session F+.
+
+**Status**: Open — deferred to Session F or G
+
+---
+
+### Cloud Scope: AWS SimulatePrincipalPolicy Not Yet Implemented
+
+**Severity**: Low (AWS OIDC federation isn't functional until Session F)
+
+**Description**: `AwsIdentityProvider.DiscoverScopesAsync` returns `FullAccess()` when a PrincipalArn is present, instead of calling `IAM:SimulatePrincipalPolicy` to discover actual prefix-level permissions.
+
+**Root Cause**: `SimulatePrincipalPolicy` requires `AWSSDK.IdentityManagement` NuGet and a working AWS OIDC flow (Session F). Adding it now would be dead code.
+
+**Workaround**: AWS access is currently gated at the identity level — no PrincipalArn = no access. Once Session F enables OIDC, the provider should be enhanced with actual policy simulation.
+
+**Status**: Open — deferred to Session F
+
+---
+
+### Cloud Scope: Azure RBAC Granularity Limited to Container Prefix
+
+**Severity**: Low (Azure per-folder RBAC is uncommon)
+
+**Description**: `AzureIdentityProvider` grants access at the container's configured prefix level, not at individual blob prefix levels derived from Azure RBAC role assignments.
+
+**Root Cause**: True RBAC enumeration requires `Azure.ResourceManager` NuGet and subscription/resource-group metadata in `AzureBlobConnectorConfig`, which don't exist yet.
+
+**Workaround**: The service credential defines what Connapse can see. The user's linked Azure identity confirms they belong to the same AAD tenant. Per-prefix RBAC adds marginal value until Connapse supports multi-tenant scenarios.
+
+**Status**: Open — deferred
+
+---
+
 <!-- Add issues as discovered -->

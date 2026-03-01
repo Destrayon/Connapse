@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +15,7 @@ public static class SearchEndpoints
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
+            HttpContext httpContext,
             Guid containerId,
             [FromQuery] string q,
             [FromQuery] string? mode,
@@ -23,10 +25,17 @@ public static class SearchEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
             [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeResult is { HasAccess: false })
+                return CloudAccessDenied(scopeResult, containerId);
 
             if (string.IsNullOrWhiteSpace(q))
                 return Results.BadRequest(new { error = "Query parameter 'q' is required" });
@@ -38,6 +47,9 @@ public static class SearchEndpoints
             var filters = new Dictionary<string, string>();
             if (!string.IsNullOrWhiteSpace(path))
                 filters["pathPrefix"] = path;
+
+            // Inject cloud scope as path prefix filter
+            InjectScopeFilter(scopeResult, filters);
 
             var effectiveMinScore = minScore ?? (float)searchSettings.CurrentValue.MinimumScore;
 
@@ -56,15 +68,23 @@ public static class SearchEndpoints
 
         // POST /api/containers/{containerId}/search - Advanced search with complex filters
         group.MapPost("/", async (
+            HttpContext httpContext,
             Guid containerId,
             [FromBody] ContainerSearchRequest request,
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
             [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeResult is { HasAccess: false })
+                return CloudAccessDenied(scopeResult, containerId);
 
             if (string.IsNullOrWhiteSpace(request.Query))
                 return Results.BadRequest(new { error = "Query is required" });
@@ -72,6 +92,9 @@ public static class SearchEndpoints
             var filters = request.Filters ?? new Dictionary<string, string>();
             if (!string.IsNullOrWhiteSpace(request.Path) && !filters.ContainsKey("pathPrefix"))
                 filters["pathPrefix"] = request.Path;
+
+            // Inject cloud scope as path prefix filter
+            InjectScopeFilter(scopeResult, filters);
 
             var effectiveMinScore = request.MinScore ?? (float)searchSettings.CurrentValue.MinimumScore;
 
@@ -89,6 +112,44 @@ public static class SearchEndpoints
         .WithDescription("Search within a container with advanced filters and options");
 
         return app;
+    }
+
+    /// <summary>
+    /// Injects the first allowed prefix as a pathPrefix filter for cloud-scoped searches.
+    /// For full access ("/") or non-cloud containers (null scope), no filter is added.
+    /// Multi-prefix search is a known limitation — only the first prefix is used.
+    /// </summary>
+    private static void InjectScopeFilter(CloudScopeResult? scopeResult, Dictionary<string, string> filters)
+    {
+        if (scopeResult is null || scopeResult.AllowedPrefixes.Contains("/"))
+            return;
+
+        // Only inject if no explicit pathPrefix was already provided by the caller
+        if (!filters.ContainsKey("pathPrefix") && scopeResult.AllowedPrefixes.Count > 0)
+            filters["pathPrefix"] = scopeResult.AllowedPrefixes[0];
+    }
+
+    private static async Task<CloudScopeResult?> ResolveCloudScope(
+        HttpContext httpContext, Container container,
+        ICloudScopeService cloudScopeService, CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext);
+        if (userId is null) return null;
+        return await cloudScopeService.GetScopesAsync(userId.Value, container, ct);
+    }
+
+    private static IResult CloudAccessDenied(CloudScopeResult scopeResult, Guid containerId) =>
+        Results.Json(new
+        {
+            error = "cloud_access_denied",
+            message = scopeResult.Error ?? "Access denied.",
+            containerId = containerId.ToString()
+        }, statusCode: 403);
+
+    private static Guid? GetUserId(HttpContext httpContext)
+    {
+        var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(idClaim, out var userId) ? userId : null;
     }
 }
 

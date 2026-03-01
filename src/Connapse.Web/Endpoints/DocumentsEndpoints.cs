@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -14,6 +15,7 @@ public static class DocumentsEndpoints
 
         // POST /api/containers/{containerId}/files - Upload file(s) to container
         group.MapPost("/", async (
+            HttpContext httpContext,
             Guid containerId,
             [FromForm] IFormFileCollection files,
             [FromForm] string? path,
@@ -23,11 +25,16 @@ public static class DocumentsEndpoints
             [FromServices] IConnectorFactory connectorFactory,
             [FromServices] IIngestionQueue queue,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeDenied is not null) return scopeDenied;
 
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
@@ -128,23 +135,45 @@ public static class DocumentsEndpoints
 
         // GET /api/containers/{containerId}/files - List files and folders at path
         group.MapGet("/", async (
+            HttpContext httpContext,
             Guid containerId,
             [FromQuery] string? path,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IFolderStore folderStore,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            // Cloud scope enforcement
+            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeResult is { HasAccess: false })
+                return CloudAccessDenied(scopeResult, containerId);
+
             var browsePath = PathUtilities.NormalizeFolderPath(path ?? "/");
+
+            // If scoped to specific prefixes, block browsing outside allowed areas
+            if (scopeResult is not null && !scopeResult.IsPathAllowed(browsePath))
+                return Results.Json(new
+                {
+                    error = "cloud_scope_violation",
+                    message = "You do not have access to this path.",
+                    allowedPrefixes = scopeResult.AllowedPrefixes
+                }, statusCode: 403);
+
             var entries = new List<BrowseEntry>();
 
             // Get explicit folders at this level
             var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, ct);
             foreach (var folder in folders)
             {
+                // Filter out folders outside allowed prefixes
+                if (scopeResult is not null && !scopeResult.IsPathAllowed(folder.Path))
+                    continue;
+
                 var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
                 entries.Add(new BrowseEntry(
                     Name: folderName,
@@ -163,6 +192,10 @@ public static class DocumentsEndpoints
                 // Only include documents directly at this level (not in subfolders)
                 var docParent = PathUtilities.GetParentPath(doc.Path);
                 if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Filter out documents outside allowed prefixes
+                if (scopeResult is not null && !scopeResult.IsPathAllowed(doc.Path))
                     continue;
 
                 entries.Add(new BrowseEntry(
@@ -191,14 +224,21 @@ public static class DocumentsEndpoints
 
         // GET /api/containers/{containerId}/files/{fileId} - Get file details
         group.MapGet("/{fileId}", async (
+            HttpContext httpContext,
             Guid containerId,
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeDenied is not null) return scopeDenied;
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
@@ -212,6 +252,7 @@ public static class DocumentsEndpoints
 
         // DELETE /api/containers/{containerId}/files/{fileId} - Delete file
         group.MapDelete("/{fileId}", async (
+            HttpContext httpContext,
             Guid containerId,
             string fileId,
             [FromServices] IContainerStore containerStore,
@@ -219,10 +260,16 @@ public static class DocumentsEndpoints
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeDenied is not null) return scopeDenied;
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
@@ -281,6 +328,45 @@ public static class DocumentsEndpoints
         .RequireAuthorization("RequireViewer");
 
         return app;
+    }
+
+    /// <summary>
+    /// Resolves cloud scope for the current user. Returns null for non-cloud containers.
+    /// </summary>
+    private static async Task<CloudScopeResult?> ResolveCloudScope(
+        HttpContext httpContext, Container container,
+        ICloudScopeService cloudScopeService, CancellationToken ct)
+    {
+        var userId = GetUserId(httpContext);
+        if (userId is null) return null;
+        return await cloudScopeService.GetScopesAsync(userId.Value, container, ct);
+    }
+
+    /// <summary>
+    /// Enforces cloud scope: returns a 403 IResult if access is denied, null if allowed or not a cloud container.
+    /// </summary>
+    private static async Task<IResult?> EnforceCloudScope(
+        HttpContext httpContext, Container container,
+        ICloudScopeService cloudScopeService, CancellationToken ct)
+    {
+        var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
+        if (scopeResult is { HasAccess: false })
+            return CloudAccessDenied(scopeResult, Guid.Parse(container.Id));
+        return null;
+    }
+
+    private static IResult CloudAccessDenied(CloudScopeResult scopeResult, Guid containerId) =>
+        Results.Json(new
+        {
+            error = "cloud_access_denied",
+            message = scopeResult.Error ?? "Access denied.",
+            containerId = containerId.ToString()
+        }, statusCode: 403);
+
+    private static Guid? GetUserId(HttpContext httpContext)
+    {
+        var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(idClaim, out var userId) ? userId : null;
     }
 }
 

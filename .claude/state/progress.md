@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-01) — v0.3.0 Session D complete
+## Current Status (2026-03-01) — v0.3.0 Session E complete
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -18,7 +18,7 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | B | MinIO as IConnector + Filesystem connector + InMemory connector + ConnectorWatcherService | **COMPLETE** |
 | C | S3 + AzureBlob connectors, sync endpoint, connection testers, UI | **COMPLETE** |
 | D | User cloud identities — Azure OAuth2 + AWS OIDC gate + Profile page | **COMPLETE** |
-| E | Cloud scope discovery + query-time enforcement | Pending |
+| E | Cloud scope discovery + query-time enforcement | **COMPLETE** |
 | F | RS256 + JWKS endpoint + AWS OIDC federation | Pending |
 | G | OpenAI + Azure OpenAI embedding providers | Pending |
 | H | ILlmProvider + Agentic search | Pending |
@@ -38,6 +38,51 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session B:** 95 unit tests pass (19 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session C6:** 116 unit tests pass (40 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session D:** 134 unit tests pass (40 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session E:** 159 unit tests pass (65 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+
+---
+
+## Session E (2026-03-01) — Cloud Scope Discovery + Query-Time Enforcement
+
+**Feature**: Cloud containers (S3, AzureBlob) now enforce per-user access scopes based on linked cloud identities. Users without a linked identity for the container's provider get a 403 with an actionable error message. Scope results are cached with a 15-min TTL (5 min for denials).
+
+**New files created**:
+1. `src/Connapse.Core/Models/CloudScopeModels.cs` — `CloudScopeResult` record with `Deny`, `Allow`, `FullAccess` factories and `IsPathAllowed` helper
+2. `src/Connapse.Core/Interfaces/ICloudIdentityProvider.cs` — scope discovery interface per cloud provider
+3. `src/Connapse.Core/Interfaces/IConnectorScopeCache.cs` — cache interface
+4. `src/Connapse.Core/Interfaces/ICloudScopeService.cs` — orchestrator interface (returns null for non-cloud containers)
+5. `src/Connapse.Storage/CloudScope/ConnectorScopeCache.cs` — IMemoryCache-backed singleton cache
+6. `src/Connapse.Storage/CloudScope/AwsIdentityProvider.cs` — returns Deny when PrincipalArn is null (Session F), FullAccess when populated
+7. `src/Connapse.Storage/CloudScope/AzureIdentityProvider.cs` — verifies service connectivity, grants access to configured prefix
+8. `src/Connapse.Web/Services/CloudScopeService.cs` — orchestrates cache → identity → provider → cache; lives in Web to avoid circular project ref
+9. `tests/Connapse.Core.Tests/CloudScope/CloudScopeServiceTests.cs` — 8 unit tests
+10. `tests/Connapse.Core.Tests/CloudScope/ConnectorScopeCacheTests.cs` — 4 unit tests
+11. `tests/Connapse.Core.Tests/CloudScope/AwsIdentityProviderTests.cs` — 3 unit tests
+12. `tests/Connapse.Core.Tests/CloudScope/AzureIdentityProviderTests.cs` — 4 unit tests
+13. `tests/Connapse.Core.Tests/CloudScope/CloudScopeResultTests.cs` — 5 unit tests (IsPathAllowed logic)
+
+**Files modified**:
+1. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — registered AwsIdentityProvider, AzureIdentityProvider, ConnectorScopeCache
+2. `src/Connapse.Web/Program.cs` — AddMemoryCache(), registered ICloudScopeService
+3. `src/Connapse.Web/Endpoints/DocumentsEndpoints.cs` — cloud scope enforcement on all 4 endpoints (upload, list, get, delete)
+4. `src/Connapse.Web/Endpoints/SearchEndpoints.cs` — cloud scope enforcement + path prefix filter injection for both GET and POST
+5. `src/Connapse.Web/Endpoints/FoldersEndpoints.cs` — cloud scope enforcement on create and delete
+6. `src/Connapse.Web/Endpoints/ContainersEndpoints.cs` — cloud scope enforcement on sync endpoint
+7. `src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs` — cache eviction on identity disconnect
+8. `tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj` — added project refs to Identity and Web for CloudScopeService tests
+
+**Key design decisions**:
+- `CloudScopeService` in Web (not Storage) to avoid circular project reference between Storage and Identity
+- Non-cloud containers (MinIO, Filesystem, InMemory) return null from `GetScopesAsync` — endpoints skip enforcement
+- Deny results cached with shorter TTL (5 min) so users see changes quickly after linking identity
+- `IsPathAllowed` helper on `CloudScopeResult` centralizes path-prefix matching logic
+- Search enforcement injects first allowed prefix as `pathPrefix` filter; multi-prefix OR-clause deferred
+- AWS provider returns Deny until Session F (RS256 + OIDC); Azure provider verifies service connectivity and grants container-prefix-scoped access
+
+**Known limitations**:
+- Multi-prefix search: only first allowed prefix used as filter
+- AWS prefix-level simulation: deferred to Session F (SimulatePrincipalPolicy)
+- Azure RBAC granularity: access at container-config-prefix level, not per-folder Azure RBAC
 
 ---
 

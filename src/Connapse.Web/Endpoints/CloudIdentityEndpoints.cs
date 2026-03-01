@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -113,6 +114,8 @@ public static class CloudIdentityEndpoints
             string provider,
             HttpContext httpContext,
             [FromServices] ICloudIdentityService service,
+            [FromServices] IConnectorScopeCache scopeCache,
+            [FromServices] IContainerStore containerStore,
             CancellationToken ct) =>
         {
             var userId = GetUserId(httpContext);
@@ -122,6 +125,23 @@ public static class CloudIdentityEndpoints
                 return Results.BadRequest(new { error = "invalid_provider", message = $"Unknown provider: {provider}. Valid values: AWS, Azure." });
 
             var deleted = await service.DisconnectAsync(userId.Value, cloudProvider, ct);
+
+            // Evict cached scope entries for this user + provider
+            if (deleted)
+            {
+                var targetConnectorType = cloudProvider == CloudProvider.AWS
+                    ? ConnectorType.S3
+                    : ConnectorType.AzureBlob;
+
+                try
+                {
+                    var containers = await containerStore.ListAsync(ct);
+                    foreach (var c in containers.Where(c => c.ConnectorType == targetConnectorType))
+                        scopeCache.Invalidate(userId.Value, Guid.Parse(c.Id));
+                }
+                catch { /* Best-effort eviction — cache will expire naturally */ }
+            }
+
             return deleted ? Results.NoContent() : Results.NotFound();
         }).RequireAuthorization();
 

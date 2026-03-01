@@ -22,8 +22,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Connapse.Core\Connapse.Core.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Identity\Connapse.Identity.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Search\Connapse.Search.csproj" />
     <ProjectReference Include="..\..\src\Connapse.Storage\Connapse.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Connapse.Web\Connapse.Web.csproj" />
   </ItemGroup>
 
 </Project>

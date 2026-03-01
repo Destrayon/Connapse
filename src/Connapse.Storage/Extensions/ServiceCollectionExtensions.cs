@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.Data;
@@ -105,6 +106,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
+
+        // Cloud scope discovery
+        services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();
+        services.AddScoped<ICloudIdentityProvider, AzureIdentityProvider>();
+        services.AddSingleton<IConnectorScopeCache, ConnectorScopeCache>();
 
         return services;
     }
