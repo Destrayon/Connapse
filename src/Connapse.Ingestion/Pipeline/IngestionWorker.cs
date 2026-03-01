@@ -158,16 +158,38 @@ public class IngestionWorker : BackgroundService
     {
         try
         {
-            // Create a scope for scoped dependencies (IKnowledgeIngester uses DbContext)
+            // Create a scope for scoped dependencies (IKnowledgeIngester, IContainerStore use DbContext)
             await using var scope = _scopeFactory.CreateAsyncScope();
             var ingester = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
 
-            // Open file from storage
-            using var fileStream = await _fileSystem.OpenFileAsync(job.Path, ct);
+            Stream fileStream;
 
-            // Process through ingestion pipeline
+            // Use the connector for the container when ContainerId is available
+            if (!string.IsNullOrEmpty(job.Options.ContainerId) &&
+                Guid.TryParse(job.Options.ContainerId, out var containerId))
+            {
+                var containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+                var connectorFactory = scope.ServiceProvider.GetRequiredService<IConnectorFactory>();
+
+                var container = await containerStore.GetAsync(containerId, ct);
+                if (container is null)
+                {
+                    _logger.LogWarning(
+                        "Container {ContainerId} not found for job {JobId}. Job skipped.",
+                        job.Options.ContainerId, job.JobId);
+                    return new IngestionResult(job.DocumentId, 0, TimeSpan.Zero, ["Container not found."]);
+                }
+
+                fileStream = await connectorFactory.Create(container).ReadFileAsync(job.Path, ct);
+            }
+            else
+            {
+                // Legacy fallback: no container context — use global file system
+                fileStream = await _fileSystem.OpenFileAsync(job.Path, ct);
+            }
+
+            using var disposableStream = fileStream;
             var result = await ingester.IngestAsync(fileStream, job.Options, ct);
-
             return result;
         }
         catch (Exception ex)

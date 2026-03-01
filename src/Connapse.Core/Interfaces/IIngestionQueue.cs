@@ -54,6 +54,8 @@ public record IngestionJob(
 /// </summary>
 public record IngestionJobStatus(
     string JobId,
+    string DocumentId,
+    string? ContainerId,
     IngestionJobState State,
     IngestionPhase? CurrentPhase,
     double PercentComplete,

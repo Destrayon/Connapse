@@ -4,13 +4,17 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Storage.Connectors
 @inject IContainerStore ContainerStore
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
 @inject IKnowledgeFileSystem FileSystem
+@inject IConnectorFactory ConnectorFactory
 @inject IIngestionQueue IngestionQueue
 @inject IContainerSettingsResolver SettingsResolver
-@inject Connapse.Web.Services.IngestionProgressNotifier ProgressNotifier
+@using Connapse.Web.Services
+@inject IngestionProgressNotifier ProgressNotifier
+@inject FileBrowserChangeNotifier FileChangeNotifier
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
@@ -44,11 +48,14 @@
                 <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
             </li>
         </ul>
-        @if (canEdit && activeTab == "files")
+        @if (canEdit && AllowCreateFolder && activeTab == "files")
         {
             <button class="btn btn-sm btn-outline-primary" @onclick="ShowCreateFolderModal">
                 <span class="bi-folder-plus me-1"></span> New Folder
             </button>
+        }
+        @if (canEdit && AllowUpload && activeTab == "files")
+        {
             <label class="btn btn-sm btn-primary upload-btn-label" for="fileUploadInput">
                 <span class="bi-upload me-1"></span> Upload
             </label>
@@ -154,6 +161,28 @@
                         </div>
                     </div>
                 </div>
+                @* UI Permissions — Filesystem containers only *@
+                @if (container?.ConnectorType == ConnectorType.Filesystem)
+                {
+                    <div class="col-12 mt-2">
+                        <h6 class="text-accent mb-3">UI Permissions</h6>
+                        <div class="d-flex gap-4 flex-wrap">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="allowUpload" @bind="settingsAllowUpload" disabled="@(!canEdit)" />
+                                <label class="form-check-label" for="allowUpload">Allow Upload</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="allowDelete" @bind="settingsAllowDelete" disabled="@(!canEdit)" />
+                                <label class="form-check-label" for="allowDelete">Allow Delete</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="allowCreateFolder" @bind="settingsAllowCreateFolder" disabled="@(!canEdit)" />
+                                <label class="form-check-label" for="allowCreateFolder">Allow Create Folder</label>
+                            </div>
+                        </div>
+                        <small class="text-muted d-block mt-1">Control which file management actions are available in the UI for this container.</small>
+                    </div>
+                }
             </div>
             <div class="d-flex gap-2 mt-4">
                 @if (canEdit)
@@ -203,13 +232,13 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
             </svg>
-            <p>@(canEdit ? "This folder is empty. Upload files or create a subfolder." : "This folder is empty.")</p>
+            <p>@(canEdit && (AllowUpload || AllowCreateFolder) ? "This folder is empty. Upload files or create a subfolder." : "This folder is empty.")</p>
         </div>
     }
     else
     {
         @* Selection toolbar *@
-        @if (canEdit && selectedEntryKeys.Count > 0)
+        @if (canEdit && AllowDelete && selectedEntryKeys.Count > 0)
         {
             <div class="selection-toolbar">
                 <span class="selection-count">@selectedEntryKeys.Count selected</span>
@@ -228,7 +257,7 @@
         <table class="file-table">
             <thead>
                 <tr>
-                    @if (canEdit)
+                    @if (canEdit && AllowDelete)
                     {
                         <th class="col-check" @onclick="ToggleSelectAll"
                             title="@(AllSelected ? "Unselect all" : "Select all")">
@@ -241,7 +270,7 @@
                     <th class="col-size">Size</th>
                     <th class="col-status">Status</th>
                     <th class="col-modified">Modified</th>
-                    @if (canEdit)
+                    @if (canEdit && AllowDelete)
                     {
                         <th class="col-actions"></th>
                     }
@@ -252,7 +281,7 @@
                 {
                     <tr class="file-row @(entry.IsFolder ? "folder-row" : "") @(IsSelected(entry) ? "row-selected" : "")"
                         @onclick="() => HandleEntryClick(entry)">
-                        @if (canEdit)
+                        @if (canEdit && AllowDelete)
                         {
                             <td class="col-check" @onclick="() => ToggleSelection(entry)"
                                 @onclick:stopPropagation="true">
@@ -294,7 +323,7 @@
                                 @entry.LastModified.Value.ToString("MMM d, yyyy")
                             }
                         </td>
-                        @if (canEdit)
+                        @if (canEdit && AllowDelete)
                         {
                             <td class="col-actions">
                                 <button class="btn btn-sm btn-outline-danger action-btn"
@@ -381,7 +410,7 @@
                 </div>
             }
         </div>
-        @if (canEdit)
+        @if (canEdit && AllowDelete)
         {
             <div class="detail-panel-footer">
                 <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteEntry(selectedBrowseEntry!)">
@@ -393,7 +422,7 @@
 }
 
 @* Create Folder Modal *@
-@if (canEdit && showFolderModal)
+@if (canEdit && AllowCreateFolder && showFolderModal)
 {
     <div class="modal-backdrop" @onclick="HideFolderModal"></div>
     <div class="modal-dialog-centered">
@@ -429,7 +458,7 @@
 }
 
 @* Delete Confirmation Modal *@
-@if (canEdit && entryToDelete is not null)
+@if (canEdit && AllowDelete && entryToDelete is not null)
 {
     <div class="modal-backdrop" @onclick="CancelDeleteEntry"></div>
     <div class="modal-dialog-centered">
@@ -464,7 +493,7 @@
 }
 
 @* Bulk Delete Confirmation Modal *@
-@if (canEdit && showBulkDeleteModal)
+@if (canEdit && AllowDelete && showBulkDeleteModal)
 {
     <div class="modal-backdrop" @onclick="CancelBulkDelete"></div>
     <div class="modal-dialog-centered">
@@ -535,6 +564,18 @@
     private double globalMinScore = 0.5;
 
     private bool canEdit;
+    private FilesystemConnectorConfig? filesystemConfig;
+
+    // Permission helpers — false when the Filesystem connector config disables the action
+    private bool AllowUpload => filesystemConfig?.AllowUpload ?? true;
+    private bool AllowDelete => filesystemConfig?.AllowDelete ?? true;
+    private bool AllowCreateFolder => filesystemConfig?.AllowCreateFolder ?? true;
+
+    // Settings tab — connector permission toggles (Filesystem only)
+    private bool settingsAllowDelete;
+    private bool settingsAllowUpload;
+    private bool settingsAllowCreateFolder;
+
     private Container? container;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
@@ -569,6 +610,7 @@
     private IJSObjectReference? jsModule;
     private DotNetObjectReference<FileBrowser>? dotNetRef;
     private bool jsInitialized;
+    private bool _disposed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -579,18 +621,109 @@
         // server-to-server SignalR client (which has no auth cookies and fails negotiate).
         ProgressNotifier.ProgressReceived += OnProgressReceived;
 
+        // Subscribe to real-time file-list changes from the filesystem watcher.
+        FileChangeNotifier.FileChanged += OnFileChanged;
+
         await LoadContainer();
         await LoadEntries();
     }
 
     private async void OnProgressReceived(IngestionProgressUpdate progress)
     {
-        await HandleIngestionProgress(progress);
+        if (_disposed) return;
+        try
+        {
+            await HandleIngestionProgress(progress);
+        }
+        catch (Exception)
+        {
+            // Swallow all exceptions from async void to prevent crashing the Blazor circuit.
+            // Exceptions can occur when the component is disposed between the guard check and
+            // the awaited call, or during transient failures under heavy ingestion load.
+        }
+    }
+
+    /// <summary>
+    /// Fired by ConnectorWatcherService when a file is added or deleted from a
+    /// Filesystem container. Adds/removes the entry in real time without a full reload.
+    /// </summary>
+    private async void OnFileChanged(FileBrowserFileEvent ev)
+    {
+        if (_disposed) return;
+        if (ev.ContainerId != ContainerId) return;
+
+        try
+        {
+            await InvokeAsync(() =>
+            {
+            if (ev.IsDeleted)
+            {
+                // Remove by document ID (preferred) or by matching virtual path
+                entries.RemoveAll(e =>
+                    (ev.DocumentId is not null && e.Id == ev.DocumentId) ||
+                    string.Equals(e.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase));
+
+                if (selectedBrowseEntry is not null &&
+                    (string.Equals(selectedBrowseEntry.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase) ||
+                     (ev.DocumentId is not null && selectedBrowseEntry.Id == ev.DocumentId)))
+                {
+                    selectedFile = null;
+                    selectedBrowseEntry = null;
+                }
+            }
+            else
+            {
+                // Only show the file if it lives in the currently browsed directory.
+                // e.g. VirtualPath "/subdir/file.pdf" → dir "/subdir/"
+                //      VirtualPath "/file.pdf"         → dir "/"
+                var trimmed = ev.VirtualPath.TrimStart('/');
+                var lastSlash = trimmed.LastIndexOf('/');
+                var fileVirtualDir = lastSlash < 0 ? "/" : "/" + trimmed[..lastSlash] + "/";
+                var normalizedCurrentPath = currentPath == "/" ? "/" : "/" + currentPath.Trim('/') + "/";
+
+                if (!string.Equals(fileVirtualDir, normalizedCurrentPath, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // Update existing entry (re-ingestion) or insert a new one (new file)
+                var existingIdx = entries.FindIndex(e =>
+                    string.Equals(e.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase) ||
+                    (ev.DocumentId is not null && e.Id == ev.DocumentId));
+
+                if (existingIdx >= 0)
+                {
+                    entries[existingIdx] = entries[existingIdx] with { Status = "Queued", Id = ev.DocumentId };
+                }
+                else
+                {
+                    var newEntry = new BrowseEntryDto(
+                        ev.FileName,
+                        ev.VirtualPath,
+                        false,
+                        null,
+                        DateTime.UtcNow,
+                        "Queued",
+                        ev.DocumentId);
+
+                    var insertIdx = entries.FindIndex(e =>
+                        !e.IsFolder &&
+                        string.Compare(e.Name, ev.FileName, StringComparison.OrdinalIgnoreCase) > 0);
+                    if (insertIdx < 0) insertIdx = entries.Count;
+                    entries.Insert(insertIdx, newEntry);
+                }
+            }
+
+            StateHasChanged();
+        });
+        }
+        catch (Exception)
+        {
+            // Swallow to prevent async void from crashing the Blazor circuit.
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (canEdit && !jsInitialized && !isLoading)
+        if (canEdit && AllowUpload && !jsInitialized && !isLoading)
         {
             try
             {
@@ -608,14 +741,34 @@
         try
         {
             if (Guid.TryParse(ContainerId, out var containerId))
+            {
                 container = await ContainerStore.GetAsync(containerId);
+                if (container is null)
+                    errorMessage = "Container not found.";
+                else
+                    filesystemConfig = ParseFilesystemConfig(container);
+            }
             else
                 errorMessage = "Invalid container ID.";
         }
         catch
         {
-            errorMessage = "Container not found.";
+            // Transient error (e.g. DB timeout under ingestion load) — don't clobber the
+            // container that was already loaded; just log silently and leave state as-is.
         }
+    }
+
+    private static FilesystemConnectorConfig? ParseFilesystemConfig(Container? container)
+    {
+        if (container?.ConnectorType != ConnectorType.Filesystem || string.IsNullOrEmpty(container.ConnectorConfig))
+            return null;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<FilesystemConnectorConfig>(
+                container.ConnectorConfig,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch { return null; }
     }
 
     private async Task LoadEntries()
@@ -678,6 +831,17 @@
         if (!Guid.TryParse(ContainerId, out var containerId))
             return new();
 
+        // For Filesystem containers, enumerate directly from disk and overlay DB status.
+        if (container?.ConnectorType == ConnectorType.Filesystem)
+        {
+            try
+            {
+                var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
+                return await FetchFilesystemBrowseEntries(fsConnector, containerId);
+            }
+            catch { /* Fall through to DB listing if connector config is invalid */ }
+        }
+
         var browsePath = PathUtilities.NormalizeFolderPath(currentPath);
         var result = new List<BrowseEntryDto>();
 
@@ -696,6 +860,58 @@
                 continue;
 
             result.Add(new BrowseEntryDto(doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes, LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"), Id: doc.Id));
+        }
+
+        result.Sort((a, b) =>
+        {
+            if (a.IsFolder != b.IsFolder) return a.IsFolder ? -1 : 1;
+            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
+
+        return result;
+    }
+
+    /// <summary>
+    /// For Filesystem containers: list directories and files directly from disk.
+    /// Overlays document status from the DB by matching absolute paths.
+    /// </summary>
+    private async Task<List<BrowseEntryDto>> FetchFilesystemBrowseEntries(FilesystemConnector connector, Guid containerId)
+    {
+        var rootPath = connector.RootPath;
+
+        // Convert the current virtual path (/subfolder/) to an absolute disk path
+        var absCurrentPath = currentPath == "/"
+            ? rootPath
+            : Path.Combine(rootPath, currentPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar));
+
+        var result = new List<BrowseEntryDto>();
+
+        if (!Directory.Exists(absCurrentPath))
+            return result;
+
+        // Subdirectories → virtual path (/subfolder/) for navigation
+        foreach (var dir in Directory.EnumerateDirectories(absCurrentPath))
+        {
+            var info = new DirectoryInfo(dir);
+            var rel = Path.GetRelativePath(rootPath, dir).Replace('\\', '/');
+            result.Add(new BrowseEntryDto(info.Name, "/" + rel + "/", true, null, info.LastWriteTimeUtc, null, null));
+        }
+
+        // Files → look up DB document by virtual path to get ingestion status
+        foreach (var file in Directory.EnumerateFiles(absCurrentPath))
+        {
+            var info = new FileInfo(file);
+            var rel = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
+            var virtualPath = "/" + rel;
+            var doc = await DocumentStore.GetByPathAsync(containerId, virtualPath);
+            result.Add(new BrowseEntryDto(
+                info.Name,
+                virtualPath,
+                false,
+                info.Length,
+                info.LastWriteTimeUtc,
+                doc?.Metadata.GetValueOrDefault("Status"),
+                doc?.Id));
         }
 
         result.Sort((a, b) =>
@@ -822,44 +1038,58 @@
     {
         await InvokeAsync(() =>
         {
-            if (jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
+            // Prefer the tracked UI-upload mapping; fall back to the document ID embedded
+            // in the progress update (populated for watcher-originated jobs).
+            if (!jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
             {
-                // Map ingestion state to a display status
-                var displayStatus = progress.State switch
-                {
-                    "Completed" => "Ready",
-                    "Failed" => "Error",
-                    _ => progress.State // Queued, Processing, etc.
-                };
+                // Only handle watcher jobs that belong to this container
+                if (progress.ContainerId != ContainerId || string.IsNullOrEmpty(progress.DocumentId))
+                    return;
+                documentId = progress.DocumentId;
+            }
 
-                // Update the matching entry's status in the file list
-                var idx = entries.FindIndex(e => e.Id == documentId);
-                if (idx >= 0)
-                {
-                    var entry = entries[idx];
-                    entries[idx] = entry with { Status = displayStatus };
-                }
+            // Map ingestion state to a display status
+            var displayStatus = progress.State switch
+            {
+                "Completed" => "Ready",
+                "Failed" => "Error",
+                _ => progress.State // Queued, Processing, etc.
+            };
 
-                // Remove finished job from tracking
-                if (progress.State is "Completed" or "Failed")
-                {
-                    jobToDocumentId.Remove(progress.JobId);
+            // Update the matching entry's status in the file list
+            var idx = entries.FindIndex(e => e.Id == documentId);
+            if (idx >= 0)
+                entries[idx] = entries[idx] with { Status = displayStatus };
 
-                    // Only do a full server refresh when all tracked jobs are done,
-                    // preventing in-flight files from disappearing mid-batch
-                    if (jobToDocumentId.Count == 0)
+            // Remove finished UI-upload job from tracking.
+            // Trigger a full refresh when all tracked jobs are done (Count hits 0).
+            // For watcher-originated jobs (not in jobToDocumentId), Count is always 0, so this
+            // also acts as a fallback for when the in-place update above can't find the entry
+            // (e.g. page loaded while a job was already in progress and the entry has no Id yet).
+            // The watcher no longer re-queues existing files (ConnectorWatcherService Created fix),
+            // so RefreshEntries() here can't produce duplicate entries or flicker.
+            if (progress.State is "Completed" or "Failed")
+            {
+                jobToDocumentId.Remove(progress.JobId);
+
+                if (jobToDocumentId.Count == 0)
+                {
+                    _ = InvokeAsync(async () =>
                     {
-                        _ = InvokeAsync(async () =>
+                        try
                         {
                             await RefreshEntries();
                             await LoadContainer();
+                        }
+                        finally
+                        {
                             StateHasChanged();
-                        });
-                    }
+                        }
+                    });
                 }
-
-                StateHasChanged();
             }
+
+            StateHasChanged();
         });
     }
 
@@ -894,13 +1124,31 @@
 
             var folderPath = PathUtilities.NormalizeFolderPath(currentPath + newFolderName.Trim().TrimEnd('/') + "/");
 
-            if (await FolderStore.ExistsAsync(containerId, folderPath))
+            if (container?.ConnectorType == ConnectorType.Filesystem)
             {
-                folderError = $"Folder '{folderPath}' already exists.";
-                return;
+                // Filesystem containers: create the directory on disk; no DB folder record needed.
+                try
+                {
+                    var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
+                    var relPath = folderPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar);
+                    Directory.CreateDirectory(Path.Combine(fsConnector.RootPath, relPath));
+                }
+                catch (Exception ex)
+                {
+                    folderError = $"Failed to create directory: {ex.Message}";
+                    return;
+                }
+            }
+            else
+            {
+                if (await FolderStore.ExistsAsync(containerId, folderPath))
+                {
+                    folderError = $"Folder '{folderPath}' already exists.";
+                    return;
+                }
+                await FolderStore.CreateAsync(containerId, folderPath);
             }
 
-            await FolderStore.CreateAsync(containerId, folderPath);
             showFolderModal = false;
             await RefreshEntries();
         }
@@ -971,7 +1219,18 @@
         try
         {
             if (!string.IsNullOrEmpty(entry.Path))
-                await FileSystem.DeleteAsync(entry.Path);
+            {
+                if (container?.ConnectorType == ConnectorType.Filesystem)
+                {
+                    // entry.Path is a virtual path (/subfolder/file.pdf); connector resolves it to absolute
+                    var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
+                    await fsConnector.DeleteFileAsync(entry.Path.TrimStart('/'));
+                }
+                else
+                {
+                    await FileSystem.DeleteAsync(entry.Path);
+                }
+            }
         }
         catch { /* File already deleted or not found */ }
 
@@ -985,21 +1244,47 @@
     private async Task DeleteFolderEntry(Guid containerId, BrowseEntryDto entry)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(entry.Path);
-        var docs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
 
-        foreach (var doc in docs)
-            await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
-
-        await FolderStore.DeleteAsync(containerId, normalizedPath);
-
-        foreach (var doc in docs)
+        if (container?.ConnectorType == ConnectorType.Filesystem)
         {
+            // Delete the directory from disk; the watcher will remove associated DB docs async,
+            // but we also clean them up here for immediate UI consistency.
             try
             {
-                if (!string.IsNullOrEmpty(doc.Path))
-                    await FileSystem.DeleteAsync(doc.Path);
+                var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
+                var relPath = normalizedPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar);
+                var absPath = Path.Combine(fsConnector.RootPath, relPath);
+                if (Directory.Exists(absPath))
+                    Directory.Delete(absPath, recursive: true);
             }
-            catch { /* File already deleted or not found */ }
+            catch { /* Directory already deleted or not found */ }
+
+            // Cancel in-flight jobs and remove documents from DB
+            var fsDocs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
+            foreach (var doc in fsDocs)
+            {
+                await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
+                await DocumentStore.DeleteAsync(doc.Id);
+            }
+        }
+        else
+        {
+            var docs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
+
+            foreach (var doc in docs)
+                await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
+
+            await FolderStore.DeleteAsync(containerId, normalizedPath);
+
+            foreach (var doc in docs)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(doc.Path))
+                        await FileSystem.DeleteAsync(doc.Path);
+                }
+                catch { /* File already deleted or not found */ }
+            }
         }
     }
 
@@ -1160,6 +1445,11 @@
             settingsSearchMode = overrides?.Search?.Mode ?? "";
             settingsTopK = overrides?.Search?.TopK;
             settingsMinScore = overrides?.Search?.MinimumScore;
+
+            // Filesystem permission toggles
+            settingsAllowUpload = filesystemConfig?.AllowUpload ?? true;
+            settingsAllowDelete = filesystemConfig?.AllowDelete ?? true;
+            settingsAllowCreateFolder = filesystemConfig?.AllowCreateFolder ?? true;
         }
         catch (Exception ex)
         {
@@ -1210,6 +1500,23 @@
             };
 
             await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
+
+            // Persist Filesystem permission toggles
+            if (container?.ConnectorType == ConnectorType.Filesystem && filesystemConfig is not null)
+            {
+                var updatedConfig = filesystemConfig with
+                {
+                    AllowDelete = settingsAllowDelete,
+                    AllowUpload = settingsAllowUpload,
+                    AllowCreateFolder = settingsAllowCreateFolder
+                };
+                var configJson = System.Text.Json.JsonSerializer.Serialize(updatedConfig,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+                await ContainerStore.UpdateConnectorConfigAsync(containerId, configJson);
+                filesystemConfig = updatedConfig;
+                container = container with { ConnectorConfig = configJson };
+            }
+
             settingsSaved = true;
         }
         catch (Exception ex)
@@ -1256,9 +1563,14 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         ProgressNotifier.ProgressReceived -= OnProgressReceived;
+        FileChangeNotifier.FileChanged -= OnFileChanged;
         if (jsModule is not null)
-            await jsModule.DisposeAsync();
+        {
+            try { await jsModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
         dotNetRef?.Dispose();
     }
 

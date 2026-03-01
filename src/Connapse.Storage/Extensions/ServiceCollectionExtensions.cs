@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Connectors;
 using Connapse.Storage.Data;
 using Connapse.Storage.Containers;
 using Connapse.Storage.Documents;
@@ -33,6 +34,11 @@ public static class ServiceCollectionExtensions
 
         services.AddDbContext<KnowledgeDbContext>(options =>
             options.UseNpgsql(dataSource, npgsql => npgsql.UseVector()));
+
+        // Factory for short-lived per-operation contexts (required for Blazor Server and background services
+        // to avoid concurrent DbContext access on the same scoped instance).
+        services.AddDbContextFactory<KnowledgeDbContext>(options =>
+            options.UseNpgsql(dataSource, npgsql => npgsql.UseVector()), ServiceLifetime.Scoped);
 
         // Settings store
         services.AddScoped<ISettingsStore, PostgresSettingsStore>();
@@ -89,6 +95,10 @@ public static class ServiceCollectionExtensions
 
         // Vector store
         services.AddScoped<IVectorStore, PgVectorStore>();
+
+        // Connector factory (singleton — InMemoryConnector instances must outlive requests)
+        services.AddSingleton<ConnectorFactory>();
+        services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
 
         // Connection testers
         services.AddScoped<OllamaConnectionTester>();

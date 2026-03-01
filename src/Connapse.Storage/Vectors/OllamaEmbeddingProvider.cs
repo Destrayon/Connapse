@@ -9,7 +9,8 @@ namespace Connapse.Storage.Vectors;
 
 /// <summary>
 /// Embedding provider that uses Ollama's local embedding service.
-/// Calls POST /api/embeddings endpoint.
+/// Uses POST /api/embed (batch endpoint) for all requests, which sends all texts in a
+/// single HTTP round-trip instead of one request per text.
 /// </summary>
 public class OllamaEmbeddingProvider : IEmbeddingProvider
 {
@@ -41,37 +42,63 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-        {
             throw new ArgumentException("Text cannot be empty", nameof(text));
+
+        var results = await EmbedBatchAsync([text], ct);
+        return results[0];
+    }
+
+    public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(
+        IEnumerable<string> texts,
+        CancellationToken ct = default)
+    {
+        var textList = texts.ToList();
+
+        if (textList.Count == 0)
+            return Array.Empty<float[]>();
+
+        // Split into sub-batches to stay within Ollama's preferred request size.
+        // Each sub-batch is ONE HTTP request (POST /api/embed with input array).
+        var batchSize = _settings.BatchSize;
+        var allEmbeddings = new List<float[]>(textList.Count);
+
+        for (int i = 0; i < textList.Count; i += batchSize)
+        {
+            var batch = textList.GetRange(i, Math.Min(batchSize, textList.Count - i));
+            var batchEmbeddings = await EmbedBatchRequestAsync(batch, ct);
+            allEmbeddings.AddRange(batchEmbeddings);
+
+            _logger.LogDebug(
+                "Embedded batch {BatchNum}/{TotalBatches} ({Count} texts)",
+                (i / batchSize) + 1,
+                (textList.Count + batchSize - 1) / batchSize,
+                batch.Count);
         }
 
+        return allEmbeddings;
+    }
+
+    private async Task<IReadOnlyList<float[]>> EmbedBatchRequestAsync(
+        List<string> texts,
+        CancellationToken ct)
+    {
         try
         {
-            var request = new OllamaEmbeddingRequest
+            var request = new OllamaEmbedRequest
             {
                 Model = _settings.Model,
-                Prompt = text
+                Input = texts
             };
 
-            var response = await _httpClient.PostAsJsonAsync("/api/embeddings", request, ct);
+            var response = await _httpClient.PostAsJsonAsync("/api/embed", request, ct);
             response.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<OllamaEmbeddingResponse>(ct);
+            var result = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>(ct);
 
-            if (result?.Embedding == null || result.Embedding.Length == 0)
-            {
-                throw new InvalidOperationException("Ollama returned empty embedding");
-            }
+            if (result?.Embeddings == null || result.Embeddings.Count == 0)
+                throw new InvalidOperationException("Ollama /api/embed returned empty embeddings");
 
-            if (result.Embedding.Length != _settings.Dimensions)
-            {
-                _logger.LogWarning(
-                    "Embedding dimension mismatch: expected {Expected}, got {Actual}. Consider updating settings.",
-                    _settings.Dimensions,
-                    result.Embedding.Length);
-            }
-
-            return result.Embedding;
+            return result.Embeddings;
         }
         catch (HttpRequestException ex)
         {
@@ -82,52 +109,19 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         }
     }
 
-    public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(
-        IEnumerable<string> texts,
-        CancellationToken ct = default)
-    {
-        var textList = texts.ToList();
-
-        if (textList.Count == 0)
-        {
-            return Array.Empty<float[]>();
-        }
-
-        // Ollama's /api/embeddings endpoint only handles single prompts,
-        // so we batch by sending multiple requests in parallel
-        var batchSize = _settings.BatchSize;
-        var results = new List<float[]>();
-
-        for (int i = 0; i < textList.Count; i += batchSize)
-        {
-            var batch = textList.Skip(i).Take(batchSize);
-            var tasks = batch.Select(text => EmbedAsync(text, ct));
-            var batchResults = await Task.WhenAll(tasks);
-            results.AddRange(batchResults);
-
-            _logger.LogDebug(
-                "Embedded batch {BatchNum}/{TotalBatches} ({Count} texts)",
-                (i / batchSize) + 1,
-                (textList.Count + batchSize - 1) / batchSize,
-                batchResults.Length);
-        }
-
-        return results;
-    }
-
-    // DTOs for Ollama API
-    private record OllamaEmbeddingRequest
+    // DTOs for /api/embed (batch endpoint, Ollama ≥ 0.3.0)
+    private record OllamaEmbedRequest
     {
         [JsonPropertyName("model")]
         public string Model { get; init; } = string.Empty;
 
-        [JsonPropertyName("prompt")]
-        public string Prompt { get; init; } = string.Empty;
+        [JsonPropertyName("input")]
+        public List<string> Input { get; init; } = [];
     }
 
-    private record OllamaEmbeddingResponse
+    private record OllamaEmbedResponse
     {
-        [JsonPropertyName("embedding")]
-        public float[] Embedding { get; init; } = Array.Empty<float>();
+        [JsonPropertyName("embeddings")]
+        public List<float[]> Embeddings { get; init; } = [];
     }
 }

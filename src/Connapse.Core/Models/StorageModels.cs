@@ -23,7 +23,8 @@ public record Container(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
-    ContainerSettingsOverrides? SettingsOverrides = null);
+    ContainerSettingsOverrides? SettingsOverrides = null,
+    string? ConnectorConfig = null);
 
 public record CreateContainerRequest(
     string Name,

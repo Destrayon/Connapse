@@ -7,6 +7,10 @@ namespace Connapse.Ingestion.Chunking;
 /// <summary>
 /// Splits text based on semantic boundaries detected through embedding similarity.
 /// Groups sentences that are semantically similar together.
+///
+/// As a by-product of computing sentence embeddings for boundary detection, this chunker
+/// also attaches a mean-pooled embedding to each produced ChunkInfo. IngestionPipeline
+/// detects this and skips the second embedding pass, halving the number of Ollama calls.
 /// </summary>
 public class SemanticChunker : IChunkingStrategy
 {
@@ -28,21 +32,17 @@ public class SemanticChunker : IChunkingStrategy
         var content = parsedDocument.Content;
 
         if (string.IsNullOrWhiteSpace(content))
-        {
             return chunks;
-        }
 
-        // Split content into sentences
         var sentences = SplitIntoSentences(content);
 
         if (sentences.Count == 0)
-        {
             return chunks;
-        }
 
-        // If only one sentence, return it as a single chunk
         if (sentences.Count == 1)
         {
+            // No embeddings needed to make a boundary decision for a single sentence.
+            // Leave PrecomputedEmbedding null — pipeline will embed it normally.
             var tokenCount = TokenCounter.EstimateTokenCount(sentences[0]);
             chunks.Add(new ChunkInfo(
                 Content: sentences[0].Trim(),
@@ -58,7 +58,9 @@ public class SemanticChunker : IChunkingStrategy
             return chunks;
         }
 
-        // Get embeddings for all sentences
+        // Embed all sentences in ONE batch request.
+        // These embeddings serve double duty: boundary detection here, and chunk storage
+        // via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
         var embeddings = await _embeddingProvider.EmbedBatchAsync(
             sentences.ToArray(),
             cancellationToken);
@@ -67,18 +69,26 @@ public class SemanticChunker : IChunkingStrategy
         var similarities = new List<float>();
         for (int i = 0; i < embeddings.Count - 1; i++)
         {
-            var similarity = CosineSimilarity(embeddings[i], embeddings[i + 1]);
-            similarities.Add(similarity);
+            similarities.Add(CosineSimilarity(embeddings[i], embeddings[i + 1]));
+        }
+
+        // Use the 80th-percentile of all pairwise distances as the adaptive split threshold.
+        // This outperforms a fixed constant because the threshold adjusts to the document's
+        // own semantic density rather than a hard-coded value.
+        var effectiveThreshold = settings.SemanticThreshold;
+        if (similarities.Count >= 5)
+        {
+            var sortedDistances = similarities.OrderBy(s => s).ToList();
+            var p80Index = (int)Math.Floor(0.80 * sortedDistances.Count);
+            effectiveThreshold = sortedDistances[Math.Min(p80Index, sortedDistances.Count - 1)];
         }
 
         // Find split points where similarity drops below threshold
         var splitIndices = new List<int> { 0 };
         for (int i = 0; i < similarities.Count; i++)
         {
-            if (similarities[i] < settings.SemanticThreshold)
-            {
+            if (similarities[i] < effectiveThreshold)
                 splitIndices.Add(i + 1);
-            }
         }
         splitIndices.Add(sentences.Count);
 
@@ -93,15 +103,14 @@ public class SemanticChunker : IChunkingStrategy
             var start = splitIndices[i];
             var end = splitIndices[i + 1];
 
-            // Combine sentences for this chunk
             var chunkSentences = sentences.GetRange(start, end - start);
             var chunkText = string.Join(" ", chunkSentences);
-
             var tokenCount = TokenCounter.EstimateTokenCount(chunkText);
 
-            // Enforce max chunk size - if chunk is too large, split it further
             if (tokenCount > settings.MaxChunkSize)
             {
+                // Over-size: split further. Sub-chunks don't have a clean sentence-embedding
+                // mapping, so PrecomputedEmbedding is left null and pipeline embeds them normally.
                 var subChunks = SplitLargeChunk(chunkText, settings.MaxChunkSize, settings.MinChunkSize);
                 foreach (var subChunk in subChunks)
                 {
@@ -129,9 +138,12 @@ public class SemanticChunker : IChunkingStrategy
             }
             else if (tokenCount >= settings.MinChunkSize)
             {
-                // Find position in original content
                 int startOffset = content.IndexOf(chunkText, currentOffset, StringComparison.Ordinal);
                 if (startOffset == -1) startOffset = currentOffset;
+
+                // Mean-pool the sentence embeddings for this chunk's sentences.
+                // This gives a good approximate chunk embedding without an extra API call.
+                var precomputed = MeanPool(embeddings, start, end);
 
                 chunks.Add(new ChunkInfo(
                     Content: chunkText.Trim(),
@@ -143,41 +155,76 @@ public class SemanticChunker : IChunkingStrategy
                     {
                         ["ChunkingStrategy"] = Name,
                         ["ChunkIndex"] = chunkIndex.ToString()
-                    }));
+                    },
+                    PrecomputedEmbedding: precomputed));
 
                 currentOffset = startOffset + chunkText.Length;
             }
+        }
+
+        // Safety net: if every segment was filtered out (all too small), return the whole
+        // content as one chunk with the mean of all sentence embeddings.
+        if (chunks.Count == 0)
+        {
+            var tc = TokenCounter.EstimateTokenCount(content);
+            chunks.Add(new ChunkInfo(
+                Content: content.Trim(),
+                ChunkIndex: 0,
+                TokenCount: tc,
+                StartOffset: 0,
+                EndOffset: content.Length,
+                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
+                {
+                    ["ChunkingStrategy"] = Name,
+                    ["ChunkIndex"] = "0"
+                },
+                PrecomputedEmbedding: MeanPool(embeddings, 0, embeddings.Count)));
         }
 
         return chunks;
     }
 
     /// <summary>
-    /// Splits text into sentences using common sentence delimiters.
+    /// Computes the mean (average) of embedding vectors for sentences at indices [start, end).
+    /// Mean-pooling is the standard way sentence-transformer embeddings are combined into a
+    /// longer passage embedding and avoids a second round-trip to the embedding service.
     /// </summary>
+    private static float[] MeanPool(IReadOnlyList<float[]> embeddings, int start, int end)
+    {
+        var count = end - start;
+        var dims = embeddings[start].Length;
+        var result = new float[dims];
+
+        for (int i = start; i < end; i++)
+        {
+            var emb = embeddings[i];
+            for (int d = 0; d < dims; d++)
+                result[d] += emb[d];
+        }
+
+        for (int d = 0; d < dims; d++)
+            result[d] /= count;
+
+        return result;
+    }
+
     private static List<string> SplitIntoSentences(string text)
     {
         var sentences = new List<string>();
 
-        // Split on common sentence endings
-        var splits = text.Split(new[] { ". ", ".\n", "! ", "!\n", "? ", "?\n" },
+        var splits = text.Split([". ", ".\n", "! ", "!\n", "? ", "?\n"],
             StringSplitOptions.RemoveEmptyEntries);
 
         foreach (var split in splits)
         {
             var trimmed = split.Trim();
             if (!string.IsNullOrWhiteSpace(trimmed))
-            {
                 sentences.Add(trimmed);
-            }
         }
 
         return sentences;
     }
 
-    /// <summary>
-    /// Calculates cosine similarity between two embedding vectors.
-    /// </summary>
     private static float CosineSimilarity(float[] a, float[] b)
     {
         if (a.Length != b.Length)
@@ -203,9 +250,6 @@ public class SemanticChunker : IChunkingStrategy
         return dotProduct / (magnitudeA * magnitudeB);
     }
 
-    /// <summary>
-    /// Splits a chunk that exceeds max size into smaller chunks.
-    /// </summary>
     private static List<string> SplitLargeChunk(string text, int maxTokens, int minTokens)
     {
         var result = new List<string>();
@@ -217,9 +261,7 @@ public class SemanticChunker : IChunkingStrategy
             var chunk = text.Substring(i, length);
 
             if (TokenCounter.EstimateTokenCount(chunk) >= minTokens)
-            {
                 result.Add(chunk);
-            }
         }
 
         return result;

@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -16,6 +18,7 @@ public static class ContainersEndpoints
             [FromBody] CreateContainerApiRequest request,
             [FromServices] IContainerStore containerStore,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] ConnectorWatcherService watcherService,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
@@ -26,6 +29,17 @@ public static class ContainersEndpoints
             if (!PathUtilities.IsValidContainerName(normalizedName))
                 return Results.BadRequest(new { error = "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen" });
 
+            // Validate Filesystem connector config before creating
+            if (request.ConnectorType == ConnectorType.Filesystem)
+            {
+                if (string.IsNullOrWhiteSpace(request.ConnectorConfig))
+                    return Results.BadRequest(new { error = "Filesystem connector requires a root path (provide connector config JSON with rootPath)." });
+
+                try { JsonDocument.Parse(request.ConnectorConfig); }
+                catch (JsonException ex)
+                    { return Results.BadRequest(new { error = $"Invalid connector config JSON: {ex.Message}" }); }
+            }
+
             var existing = await containerStore.GetByNameAsync(normalizedName, ct);
             if (existing is not null)
                 return Results.Conflict(new { error = $"Container '{normalizedName}' already exists" });
@@ -34,7 +48,11 @@ public static class ContainersEndpoints
                 new CreateContainerRequest(normalizedName, request.Description, request.ConnectorType, request.ConnectorConfig), ct);
 
             await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
-                new { container.Name }, ct);
+                new { container.Name, container.ConnectorType }, ct);
+
+            // For Filesystem containers: start watching and perform initial sync
+            if (container.ConnectorType == ConnectorType.Filesystem)
+                watcherService.StartWatchingContainer(container);
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
@@ -69,7 +87,7 @@ public static class ContainersEndpoints
         .WithDescription("Get a specific container by ID")
         .RequireAuthorization("RequireViewer");
 
-        // DELETE /api/containers/{containerId} - Delete container (must be empty)
+        // DELETE /api/containers/{containerId} - Delete container (must be empty for storage-backed connectors; Filesystem containers just stop being watched)
         group.MapDelete("/{containerId:guid}", async (
             Guid containerId,
             [FromServices] IContainerStore containerStore,
@@ -97,7 +115,7 @@ public static class ContainersEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteContainer")
-        .WithDescription("Delete an empty container")
+        .WithDescription("Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — the underlying data is not deleted.")
         .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides

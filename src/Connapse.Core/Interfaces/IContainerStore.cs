@@ -10,4 +10,5 @@ public interface IContainerStore
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
+    Task UpdateConnectorConfigAsync(Guid id, string? connectorConfig, CancellationToken ct = default);
 }

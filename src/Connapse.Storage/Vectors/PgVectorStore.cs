@@ -96,6 +96,45 @@ public class PgVectorStore : IVectorStore
             vector.Length);
     }
 
+    public async Task UpsertBatchAsync(
+        IReadOnlyList<(string Id, float[] Vector, Dictionary<string, string> Metadata)> items,
+        CancellationToken ct = default)
+    {
+        if (items.Count == 0)
+            return;
+
+        foreach (var (id, vector, metadata) in items)
+        {
+            if (!Guid.TryParse(id, out var chunkId))
+                throw new ArgumentException($"ID '{id}' must be a valid GUID", nameof(items));
+
+            if (!metadata.TryGetValue("documentId", out var documentIdStr) ||
+                !Guid.TryParse(documentIdStr, out var documentId))
+                throw new ArgumentException("Each item's metadata must contain a valid 'documentId'", nameof(items));
+
+            if (!metadata.TryGetValue("modelId", out var modelId))
+                throw new ArgumentException("Each item's metadata must contain a 'modelId'", nameof(items));
+
+            Guid containerId = Guid.Empty;
+            if (metadata.TryGetValue("containerId", out var containerIdStr))
+                Guid.TryParse(containerIdStr, out containerId);
+
+            _context.ChunkVectors.Add(new ChunkVectorEntity
+            {
+                ChunkId = chunkId,
+                DocumentId = documentId,
+                ContainerId = containerId,
+                Embedding = new Vector(vector),
+                ModelId = modelId
+            });
+        }
+
+        // One SaveChangesAsync for all vectors (+ any pending chunk entities added by IngestionPipeline).
+        await _context.SaveChangesAsync(ct);
+
+        _logger.LogDebug("Batch-upserted {Count} chunk vectors", items.Count);
+    }
+
     public async Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
         float[] queryVector,
         int topK,

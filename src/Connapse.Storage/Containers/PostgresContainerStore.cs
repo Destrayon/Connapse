@@ -11,7 +11,7 @@ using static Connapse.Core.Utilities.LogSanitizer;
 namespace Connapse.Storage.Containers;
 
 public class PostgresContainerStore(
-    KnowledgeDbContext context,
+    IDbContextFactory<KnowledgeDbContext> factory,
     ILogger<PostgresContainerStore> logger) : IContainerStore
 {
     public async Task<Container> CreateAsync(CreateContainerRequest request, CancellationToken ct = default)
@@ -25,6 +25,8 @@ public class PostgresContainerStore(
                 "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen.",
                 nameof(request));
 
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var exists = await context.Containers.AnyAsync(c => c.Name == name, ct);
         if (exists)
             throw new InvalidOperationException($"A container with the name '{name}' already exists.");
@@ -35,7 +37,7 @@ public class PostgresContainerStore(
             Name = name,
             Description = request.Description?.Trim(),
             ConnectorType = (int)request.ConnectorType,
-            ConnectorConfig = request.ConnectorConfig,
+            ConnectorConfig = string.IsNullOrEmpty(request.ConnectorConfig) ? null : JsonDocument.Parse(request.ConnectorConfig),
             IsEphemeral = request.ConnectorType == ConnectorType.InMemory,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -51,6 +53,8 @@ public class PostgresContainerStore(
 
     public async Task<Container?> GetAsync(Guid id, CancellationToken ct = default)
     {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var result = await context.Containers
             .AsNoTracking()
             .Where(c => c.Id == id)
@@ -64,6 +68,8 @@ public class PostgresContainerStore(
     {
         var normalized = name.Trim().ToLowerInvariant();
 
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var result = await context.Containers
             .AsNoTracking()
             .Where(c => c.Name == normalized)
@@ -75,6 +81,8 @@ public class PostgresContainerStore(
 
     public async Task<IReadOnlyList<Container>> ListAsync(CancellationToken ct = default)
     {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var results = await context.Containers
             .AsNoTracking()
             .OrderBy(c => c.Name)
@@ -86,6 +94,8 @@ public class PostgresContainerStore(
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var entity = await context.Containers
             .Include(c => c.Documents)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -93,7 +103,10 @@ public class PostgresContainerStore(
         if (entity is null)
             return false;
 
-        if (entity.Documents.Count > 0)
+        var connectorType = (ConnectorType)entity.ConnectorType;
+        var isWatcherOnly = connectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob;
+
+        if (!isWatcherOnly && entity.Documents.Count > 0)
             throw new InvalidOperationException(
                 $"Container '{entity.Name}' is not empty ({entity.Documents.Count} documents). Delete all files first.");
 
@@ -105,16 +118,22 @@ public class PostgresContainerStore(
     }
 
     public async Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
-        => await context.Containers.AnyAsync(c => c.Id == id, ct);
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        return await context.Containers.AnyAsync(c => c.Id == id, ct);
+    }
 
     public async Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default)
     {
-        var json = await context.Containers
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var doc = await context.Containers
             .AsNoTracking()
             .Where(c => c.Id == id)
             .Select(c => c.SettingsOverridesJson)
             .FirstOrDefaultAsync(ct);
 
+        var json = doc?.RootElement.GetRawText();
         return string.IsNullOrEmpty(json)
             ? null
             : JsonSerializer.Deserialize<ContainerSettingsOverrides>(json, JsonOptions);
@@ -122,10 +141,24 @@ public class PostgresContainerStore(
 
     public async Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default)
     {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct)
             ?? throw new InvalidOperationException($"Container {id} not found.");
 
-        entity.SettingsOverridesJson = JsonSerializer.Serialize(overrides, JsonOptions);
+        entity.SettingsOverridesJson = JsonDocument.Parse(JsonSerializer.Serialize(overrides, JsonOptions));
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateConnectorConfigAsync(Guid id, string? connectorConfig, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct)
+            ?? throw new InvalidOperationException($"Container {id} not found.");
+
+        entity.ConnectorConfig = string.IsNullOrEmpty(connectorConfig) ? null : JsonDocument.Parse(connectorConfig);
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
     }
@@ -139,9 +172,13 @@ public class PostgresContainerStore(
     private static Container MapToModel(ContainerEntity entity, int documentCount)
     {
         ContainerSettingsOverrides? overrides = null;
-        if (!string.IsNullOrEmpty(entity.SettingsOverridesJson))
+        if (entity.SettingsOverridesJson != null)
         {
-            try { overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(entity.SettingsOverridesJson, JsonOptions); }
+            try
+            {
+                var settingsJson = entity.SettingsOverridesJson.RootElement.GetRawText();
+                overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(settingsJson, JsonOptions);
+            }
             catch { /* malformed override JSON — treat as no overrides */ }
         }
 
@@ -154,6 +191,7 @@ public class PostgresContainerStore(
             entity.CreatedAt,
             entity.UpdatedAt,
             documentCount,
-            overrides);
+            overrides,
+            entity.ConnectorConfig?.RootElement.GetRawText());
     }
 }

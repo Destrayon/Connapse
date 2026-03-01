@@ -207,7 +207,7 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
-                    b.Property<string>("ConnectorConfig")
+                    b.Property<JsonDocument>("ConnectorConfig")
                         .HasColumnType("jsonb")
                         .HasColumnName("connector_config");
 
@@ -239,7 +239,7 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
-                    b.Property<string>("SettingsOverridesJson")
+                    b.Property<JsonDocument>("SettingsOverridesJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
 

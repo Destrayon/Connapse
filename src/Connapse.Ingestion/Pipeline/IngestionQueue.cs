@@ -36,6 +36,8 @@ public class IngestionQueue : IIngestionQueue
         // Register job status
         _jobStatuses[job.JobId] = new IngestionJobStatus(
             JobId: job.JobId,
+            DocumentId: job.DocumentId,
+            ContainerId: job.Options.ContainerId,
             State: IngestionJobState.Queued,
             CurrentPhase: null,
             PercentComplete: 0,

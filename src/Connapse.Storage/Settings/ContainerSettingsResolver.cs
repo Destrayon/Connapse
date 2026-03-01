@@ -55,16 +55,15 @@ public class ContainerSettingsResolver(
 
     private async Task<ContainerSettingsOverrides?> GetOverridesAsync(Guid containerId, CancellationToken ct)
     {
-        var json = await context.Containers
+        var doc = await context.Containers
             .AsNoTracking()
             .Where(c => c.Id == containerId)
             .Select(c => c.SettingsOverridesJson)
             .FirstOrDefaultAsync(ct);
 
-        if (string.IsNullOrEmpty(json))
-            return null;
+        if (doc == null) return null;
 
-        try { return JsonSerializer.Deserialize<ContainerSettingsOverrides>(json, JsonOptions); }
+        try { return JsonSerializer.Deserialize<ContainerSettingsOverrides>(doc.RootElement.GetRawText(), JsonOptions); }
         catch { return null; }
     }
 }

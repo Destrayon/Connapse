@@ -53,6 +53,8 @@ public class IngestionProgressBroadcaster : BackgroundService
                             // Broadcast to job-specific group
                             var progressUpdate = new IngestionProgressUpdate(
                                 JobId: jobId,
+                                DocumentId: status.DocumentId,
+                                ContainerId: status.ContainerId,
                                 State: status.State.ToString(),
                                 CurrentPhase: status.CurrentPhase?.ToString(),
                                 PercentComplete: status.PercentComplete,

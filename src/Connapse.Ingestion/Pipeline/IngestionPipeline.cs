@@ -68,13 +68,14 @@ public class IngestionPipeline : IKnowledgeIngester
         Stream? workingStream = null;
         bool createdMemoryStream = false;
 
+        // Hoisted so the catch block can persist "Failed" status to DB.
+        var documentId = !string.IsNullOrEmpty(options.DocumentId) && Guid.TryParse(options.DocumentId, out var providedId)
+            ? providedId
+            : Guid.NewGuid();
+        DocumentEntity? documentEntity = null;
+
         try
         {
-            // Use provided DocumentId or generate a new one
-            var documentId = !string.IsNullOrEmpty(options.DocumentId) && Guid.TryParse(options.DocumentId, out var providedId)
-                ? providedId
-                : Guid.NewGuid();
-
             // Handle non-seekable streams (e.g., from MinIO)
             if (!content.CanSeek)
             {
@@ -116,7 +117,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 : Guid.Empty;
 
             // Check if document already exists (e.g., during reindex)
-            var documentEntity = await _context.Documents.FindAsync([documentId], ct);
+            documentEntity = await _context.Documents.FindAsync([documentId], ct);
+            bool isReindex = documentEntity is not null;
             if (documentEntity != null)
             {
                 // Update existing document for reindex
@@ -150,6 +152,15 @@ public class IngestionPipeline : IKnowledgeIngester
 
             await _context.SaveChangesAsync(ct);
 
+            // For reindex: purge stale chunks and their vectors (cascade) before adding new ones.
+            // Without this, every re-index doubles the chunk count, polluting search results.
+            if (isReindex)
+            {
+                await _context.Chunks
+                    .Where(c => c.DocumentId == documentId)
+                    .ExecuteDeleteAsync(ct);
+            }
+
             // Parse document
             workingStream.Position = 0;
             var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
@@ -172,18 +183,30 @@ public class IngestionPipeline : IKnowledgeIngester
                     Warnings: warnings);
             }
 
-            // Store chunks and generate embeddings
-            var chunkContents = chunks.Select(c => c.Content).ToArray();
-            var embeddings = await _embeddingProvider.EmbedBatchAsync(chunkContents, ct);
+            // Embed chunks — skip if the chunker already produced precomputed embeddings
+            // (SemanticChunker mean-pools sentence embeddings, avoiding a second API call).
+            IReadOnlyList<float[]> embeddings;
+            if (chunks.All(c => c.PrecomputedEmbedding != null))
+            {
+                embeddings = chunks.Select(c => c.PrecomputedEmbedding!).ToList();
+                _logger.LogDebug("Using precomputed embeddings from chunker for {Count} chunks", chunks.Count);
+            }
+            else
+            {
+                var chunkContents = chunks.Select(c => c.Content).ToArray();
+                embeddings = await _embeddingProvider.EmbedBatchAsync(chunkContents, ct);
+            }
 
-            // Store everything in database
+            // Stage all chunk entities and vector items, then flush in two SaveChangesAsync calls
+            // (one inside UpsertBatchAsync for chunks+vectors, one for the document status update).
+            var vectorItems = new List<(string Id, float[] Vector, Dictionary<string, string> Metadata)>(chunks.Count);
+
             for (int i = 0; i < chunks.Count; i++)
             {
                 var chunkInfo = chunks[i];
                 var chunkId = Guid.NewGuid();
 
-                // Create chunk entity
-                var chunkEntity = new ChunkEntity
+                _context.Chunks.Add(new ChunkEntity
                 {
                     Id = chunkId,
                     DocumentId = documentId,
@@ -194,25 +217,19 @@ public class IngestionPipeline : IKnowledgeIngester
                     StartOffset = chunkInfo.StartOffset,
                     EndOffset = chunkInfo.EndOffset,
                     Metadata = chunkInfo.Metadata
-                };
+                });
 
-                _context.Chunks.Add(chunkEntity);
-
-                // Store embedding in vector store
-                var chunkMetadata = new Dictionary<string, string>(chunkInfo.Metadata)
+                vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["documentId"] = documentId.ToString(),
                     ["containerId"] = containerId.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
-                };
-
-                await _vectorStore.UpsertAsync(
-                    chunkId.ToString(),
-                    embeddings[i],
-                    chunkMetadata,
-                    ct);
+                }));
             }
+
+            // Single round-trip: saves all staged chunk entities + all vector rows.
+            await _vectorStore.UpsertBatchAsync(vectorItems, ct);
 
             // Update document status
             documentEntity.ChunkCount = chunks.Count;
@@ -240,8 +257,24 @@ public class IngestionPipeline : IKnowledgeIngester
             _logger.LogError(ex, "Error during document ingestion");
             warnings.Add($"Ingestion failed: {ex.Message}");
 
+            // Persist "Failed" so the 5-minute rescan doesn't keep re-enqueuing a document
+            // that's stuck at "Processing" — which would cause status to flicker endlessly.
+            if (documentEntity is not null)
+            {
+                try
+                {
+                    documentEntity.Status = "Failed";
+                    documentEntity.ErrorMessage = ex.Message;
+                    await _context.SaveChangesAsync(CancellationToken.None);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogWarning(dbEx, "Failed to persist Failed status for document {DocumentId}", documentId);
+                }
+            }
+
             return new IngestionResult(
-                DocumentId: string.Empty,
+                DocumentId: documentId.ToString(),
                 ChunkCount: 0,
                 Duration: stopwatch.Elapsed,
                 Warnings: warnings);

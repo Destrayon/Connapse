@@ -518,6 +518,55 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 ---
 
+### Filesystem Connector: Documents Stored with Absolute Paths
+
+**Severity**: High (file browser API returned empty for all Filesystem containers)
+
+**Description**: `ConnectorWatcherService.EnqueueIngestionAsync` passed the absolute filesystem path (e.g. `C:\Users\...\file.md`) as `IngestionOptions.Path`, which `IngestionPipeline` stored directly in `DocumentEntity.Path`. The file browser endpoint (`/api/containers/{id}/files`) filters documents by virtual path (`GetParentPath(doc.Path) == "/"`), so absolute paths never matched — the API returned `[]` despite `documentCount` being correct. The UI appeared to show files only because of in-process `FileBrowserChangeNotifier` events fired during sync (events are lost on page reload).
+
+**Root cause**: `IngestionJob.Path` (for reading the file) and `IngestionOptions.Path` (for storing in DB) were both set to the absolute path. They should be different: absolute for reading, virtual for storage.
+
+**Fix** (`ConnectorWatcherService.cs`):
+1. `EnqueueIngestionAsync` now requires an explicit `virtualPath` parameter, uses it for `IngestionOptions.Path` and `NotifyAdded`.
+2. `InitialSyncAsync` computes `"/" + Path.GetRelativePath(connector.RootPath, file.Path).Replace('\\', '/')` per file.
+3. `HandleFileEventAsync` calls new `ComputeVirtualPath()` helper before all DB lookups.
+4. `DeleteDocumentByVirtualPathAsync` now receives pre-computed virtual path.
+5. `ComputeVirtualPath()` uses cached `_rootPaths` dict first, then parses connector config JSON as fallback.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Npgsql EnableDynamicJson + string? → jsonb: Invalid JSON Escape
+
+**Severity**: High (Filesystem container creation failed with 22P02)
+
+**Description**: `ContainerEntity.ConnectorConfig` and `SettingsOverridesJson` were typed as `string?` but mapped to `jsonb` columns. With Npgsql 10 + `EnableDynamicJson()`, strings are routed through `JsonSerializer.Serialize()` before being sent to PostgreSQL. A Windows path like `C:\Users\...` contains `\U` which is not a valid JSON escape sequence, causing `PostgresException: 22P02: invalid input syntax for type json`.
+
+**Fix**:
+1. Changed both properties to `JsonDocument?` in `ContainerEntity` and updated `KnowledgeDbContextModelSnapshot`.
+2. `PostgresContainerStore` now parses incoming strings with `JsonDocument.Parse()` before assigning.
+3. `ContainersEndpoints` validates `connectorConfig` JSON with `JsonDocument.Parse()` before calling the store (returns 400 on invalid JSON).
+4. `ContainerSettingsResolver` and `MapToModel` updated to use `.RootElement.GetRawText()`.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Filesystem Watcher: Failed Files Disappear and Reappear After Upload
+
+**Severity**: Medium (confusing UX — files flicker on failed upload)
+
+**Description**: When uploading files to a Filesystem container and some fail ingestion quickly (< 750ms after the file lands on disk), the FileSystemWatcher debounce fires while the DB status is already "Failed". The guard only skipped "Pending"/"Queued"/"Processing", so the watcher immediately re-queued the file, causing the UI to flip it from "Error" back to "Queued" and then fail again.
+
+**Root Cause**: The `Created` and `Changed` event cases in `HandleFileEventAsync` shared the same guard. The 5-minute rescan already retries all failed files; the watcher debounce should not re-trigger an immediate retry for `Created` events (which fire because the file was just written).
+
+**Fix**: Split `Created` and `Changed` into separate case blocks. `Created` now also skips "Failed" status (watcher fires for the same write that caused the failure). `Changed` still allows retrying failed files (the user may have replaced the file externally). The `InitialSyncAsync` 5-minute rescan continues to handle retries.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests
@@ -538,6 +587,34 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 **Test Status**: Open — test environment may need additional configuration or different reload mechanism
 
 **Workaround**: Test GET endpoints work correctly. Reload mechanism is proven in production use.
+
+---
+
+### Filesystem Watcher Not Stopped on Container Delete
+
+**Severity**: Low (resource leak until app restart)
+
+**Description**: The DELETE `/api/containers/{id}` endpoint does not call `ConnectorWatcherService.StopWatchingContainer`. If a Filesystem container is deleted, its `FileSystemWatcher` task and debounce timer continue running until the app restarts. The watcher fires no harmful events (the container and documents are gone from DB) but the OS file handle and timer are held unnecessarily.
+
+**Root Cause**: `ConnectorWatcherService` is not injected into the delete endpoint.
+
+**Fix**: Inject `ConnectorWatcherService` into the delete endpoint and call `StopWatchingContainer(containerId)` after a successful delete.
+
+**Status**: Open
+
+---
+
+### Filesystem Watcher for Runtime-Created Containers Not Cancelled on App Shutdown
+
+**Severity**: Low (watcher tasks survive graceful shutdown briefly)
+
+**Description**: `ContainersEndpoints` calls `watcherService.StartWatchingContainer(container)` without a `stoppingToken`. The internal `CancellationTokenSource` for dynamically-created watchers is linked to `CancellationToken.None`, so it is not cancelled by `BackgroundService.StopAsync` on graceful app shutdown. Watchers started at startup (from `ExecuteAsync`) are unaffected.
+
+**Root Cause**: `StartWatchingContainer` has `stoppingToken = default`. The endpoint has no access to the host's stopping token.
+
+**Fix**: Either pass `IHostApplicationLifetime.ApplicationStopping` into the endpoint (awkward), or refactor `StartWatchingContainer` to use an internal tracking token that `StopAsync` drains before returning.
+
+**Status**: Open
 
 ---
 

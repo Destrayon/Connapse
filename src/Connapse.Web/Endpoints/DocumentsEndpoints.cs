@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Storage.Connectors;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -19,11 +20,13 @@ public static class DocumentsEndpoints
             [FromForm] ChunkingStrategy? strategy,
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IConnectorFactory connectorFactory,
             [FromServices] IIngestionQueue queue,
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
-            if (!await containerStore.ExistsAsync(containerId, ct))
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
             if (files.Count == 0)
@@ -36,25 +39,48 @@ public static class DocumentsEndpoints
             foreach (var file in files)
             {
                 var documentId = Guid.NewGuid().ToString();
-                var filePath = PathUtilities.NormalizePath($"{destinationPath}{file.FileName}");
+                // Virtual path used for display and returned in response
+                var virtualFilePath = PathUtilities.NormalizePath($"{destinationPath}{file.FileName}");
 
                 try
                 {
-                    // Stream file to storage
-                    using var stream = file.OpenReadStream();
-                    await fileSystem.SaveFileAsync(filePath, stream, ct);
+                    // For Filesystem containers, save to the connector's rootPath so the watcher
+                    // monitors the correct location. The ingestion job uses the absolute path.
+                    string jobPath;
+                    if (container.ConnectorType == ConnectorType.Filesystem)
+                    {
+                        var fsConnector = (FilesystemConnector)connectorFactory.Create(container);
+                        var relativePath = virtualFilePath.TrimStart('/');
+                        using var stream = file.OpenReadStream();
+                        await fsConnector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
+                        jobPath = Path.Combine(fsConnector.RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                    }
+                    else if (container.ConnectorType == ConnectorType.InMemory)
+                    {
+                        var memConnector = connectorFactory.Create(container);
+                        var relativePath = virtualFilePath.TrimStart('/');
+                        using var stream = file.OpenReadStream();
+                        await memConnector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
+                        jobPath = relativePath;
+                    }
+                    else
+                    {
+                        using var stream = file.OpenReadStream();
+                        await fileSystem.SaveFileAsync(virtualFilePath, stream, ct);
+                        jobPath = virtualFilePath;
+                    }
 
                     // Enqueue ingestion job
                     var job = new IngestionJob(
                         JobId: Guid.NewGuid().ToString(),
                         DocumentId: documentId,
-                        Path: filePath,
+                        Path: jobPath,
                         Options: new IngestionOptions(
                             DocumentId: documentId,
                             FileName: file.FileName,
                             ContentType: file.ContentType,
                             ContainerId: containerId.ToString(),
-                            Path: filePath,
+                            Path: virtualFilePath,
                             Strategy: strategy ?? ChunkingStrategy.Semantic,
                             Metadata: new Dictionary<string, string>
                             {
@@ -70,7 +96,7 @@ public static class DocumentsEndpoints
                         JobId: job.JobId,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        Path: filePath));
+                        Path: virtualFilePath)); // return virtual path to the UI
                 }
                 catch (Exception ex)
                 {
@@ -79,7 +105,7 @@ public static class DocumentsEndpoints
                         JobId: null,
                         FileName: file.FileName,
                         SizeBytes: file.Length,
-                        Path: filePath,
+                        Path: virtualFilePath,
                         Error: ex.Message));
                 }
             }

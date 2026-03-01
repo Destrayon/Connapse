@@ -36,14 +36,15 @@ public record EmbeddingSettings
     public string? AzureDeploymentName { get; set; }
 
     /// <summary>
-    /// Batch size for embedding requests (default: 32).
+    /// Batch size for embedding requests (default: 16).
     /// </summary>
-    public int BatchSize { get; set; } = 32;
+    public int BatchSize { get; set; } = 16;
 
     /// <summary>
-    /// Request timeout in seconds (default: 30).
+    /// Request timeout in seconds (default: 300). Local Ollama may need several minutes
+    /// for large batches or cold model loads; cloud providers are typically much faster.
     /// </summary>
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { get; set; } = 300;
 }
 
 /// <summary>
