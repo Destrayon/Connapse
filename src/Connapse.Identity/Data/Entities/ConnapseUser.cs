@@ -13,4 +13,5 @@ public class ConnapseUser : IdentityUser<Guid>
     public List<PersonalAccessTokenEntity> PersonalAccessTokens { get; set; } = [];
     public List<RefreshTokenEntity> RefreshTokens { get; set; } = [];
     public List<AuditLogEntity> AuditLogs { get; set; } = [];
+    public List<UserCloudIdentityEntity> CloudIdentities { get; set; } = [];
 }

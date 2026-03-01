@@ -228,6 +228,7 @@ app.MapGet("/health", () => Results.Ok());
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery();
 api.MapAuthEndpoints();
+api.MapCloudIdentityEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapDocumentsEndpoints();

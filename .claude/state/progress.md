@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-01) — v0.3.0 Session C6 complete
+## Current Status (2026-03-01) — v0.3.0 Session D complete
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -17,10 +17,12 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | A | IConnector abstraction + schema migration + IContainerSettingsResolver | **COMPLETE** |
 | B | MinIO as IConnector + Filesystem connector + InMemory connector + ConnectorWatcherService | **COMPLETE** |
 | C | S3 + AzureBlob connectors, sync endpoint, connection testers, UI | **COMPLETE** |
-| D | Cloud RBAC — AWS OIDC federation + Azure OAuth2 identity linking | Pending |
-| E | OpenAI + Azure OpenAI embedding providers; ILlmProvider formalization | Pending |
-| F | Agentic search (SearchMode.Agentic, iterative LLM-driven retrieval) | Pending |
-| G | Testing + docs | Pending |
+| D | User cloud identities — Azure OAuth2 + AWS OIDC gate + Profile page | **COMPLETE** |
+| E | Cloud scope discovery + query-time enforcement | Pending |
+| F | RS256 + JWKS endpoint + AWS OIDC federation | Pending |
+| G | OpenAI + Azure OpenAI embedding providers | Pending |
+| H | ILlmProvider + Agentic search | Pending |
+| I | Testing + docs | Pending |
 
 ---
 
@@ -35,6 +37,44 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **Test baseline (v0.2.2):** 256 tests across 12 projects, all passing.
 **After Session B:** 95 unit tests pass (19 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session C6:** 116 unit tests pass (40 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session D:** 134 unit tests pass (40 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+
+---
+
+## Session D (2026-03-01) — User Cloud Identities + Auth Flows
+
+**Feature**: Users can link cloud provider identities (AWS, Azure) to their profile. Identity data is encrypted via Data Protection API. Azure OAuth2 flow fully implemented. AWS OIDC gated on RS256 (Session F).
+
+**New files created**:
+1. `src/Connapse.Core/Models/CloudProvider.cs` — enum: AWS, Azure
+2. `src/Connapse.Identity/Data/Entities/UserCloudIdentityEntity.cs` — entity with encrypted identity JSON
+3. `src/Connapse.Identity/Stores/ICloudIdentityStore.cs` — CRUD interface
+4. `src/Connapse.Identity/Stores/PostgresCloudIdentityStore.cs` — Postgres implementation
+5. `src/Connapse.Identity/Services/AzureAdSettings.cs` — Azure AD OAuth2 settings model
+6. `src/Connapse.Identity/Services/ICloudIdentityService.cs` — service interface
+7. `src/Connapse.Identity/Services/CloudIdentityService.cs` — encryption, Azure OAuth2 token exchange, AWS RS256 gate
+8. `src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs` — 5 endpoints (list, azure connect/callback, aws connect, disconnect)
+9. `src/Connapse.Web/Components/Pages/Profile.razor` — user profile page with Cloud Identities section
+10. EF migration `AddUserCloudIdentities` — `user_cloud_identities` table
+11. `tests/Connapse.Identity.Tests/CloudIdentityServiceTests.cs` — 18 unit tests
+
+**Files modified**:
+1. `src/Connapse.Identity/Data/Entities/ConnapseUser.cs` — added CloudIdentities navigation property
+2. `src/Connapse.Identity/Data/ConnapseIdentityDbContext.cs` — DbSet + ConfigureUserCloudIdentities
+3. `src/Connapse.Identity/Services/JwtSettings.cs` — added SigningAlgorithm property (default HS256)
+4. `src/Connapse.Identity/IdentityServiceExtensions.cs` — registered store, service, AzureAdSettings
+5. `src/Connapse.Web/Program.cs` — mapped CloudIdentityEndpoints
+6. `src/Connapse.Web/Components/Layout/NavMenu.razor` — username now links to /profile
+7. `src/Connapse.Web/appsettings.json` — added Identity:AzureAd section
+8. `src/Connapse.Core/Models/AuthModels.cs` — added CloudIdentityDto, CloudIdentityData, AzureConnectResult
+
+**Key design decisions**:
+- Identity data encrypted with `IDataProtectionProvider.CreateProtector("CloudIdentity.v1")` — gracefully degrades if keys rotate
+- Azure OAuth2 CSRF protection via `__connapse_az_state` cookie (HttpOnly, Secure, SameSite=Lax, 10-min expiry)
+- Azure callback decodes ID token without signature validation (received directly from Microsoft over HTTPS)
+- AWS connect always returns error until RS256 is implemented in Session F — no AWS SDK dependency in Identity project
+- Profile page accessible via clickable username in nav sidebar bottom — not a separate nav link
+- Upsert pattern for cloud identities: delete existing + create new (avoids unique constraint issues)
 
 ---
 

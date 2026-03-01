@@ -6,6 +6,7 @@ using Connapse.Identity.Authorization;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
+using Connapse.Identity.Stores;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -58,10 +59,13 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<CliAuthService>();
+        services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
+        services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);
