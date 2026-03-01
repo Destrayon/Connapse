@@ -571,22 +571,13 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 ### Settings Live Reload in WebApplicationFactory Tests
 
-**Severity**: Low (3 tests failing, production works correctly)
+**Severity**: Low (3 tests were failing; now fixed)
 
-**Description**: IOptionsMonitor not reflecting database setting changes immediately in integration tests. Settings save to database correctly and reload mechanism (`DatabaseSettingsProvider.Reload()`) is implemented, but tests using `WebApplicationFactory` don't see the changes.
+**Description**: `IOptionsMonitor` live-reload did not propagate reliably inside `WebApplicationFactory` integration tests. The `DatabaseSettingsProvider.Reload()` mechanism works in production but the `IConfigurationRoot` change-token chain is not guaranteed to fire in the isolated `WebApplicationFactory` configuration pipeline.
 
-**Root Cause**: WebApplicationFactory creates isolated configuration pipeline. The static `ConfigurationBuilderExtensions.CurrentProvider` may reference a different provider instance than the one used by the test application's DI container.
+**Fix**: Changed the `GET /api/settings/{category}` endpoint to read from `ISettingsStore` (database) first, falling back to `IOptionsMonitor.CurrentValue` only when no DB record exists for a category. Since the PUT endpoint saves to the database immediately, the subsequent GET always sees the latest value regardless of whether the in-memory reload token fired. Added private helper `GetSettingsAsync<T>` to avoid repeating the pattern.
 
-**Affected Tests**:
-- UpdateSettings_ChunkingSettings_LiveReloadWorks
-- UpdateSettings_SearchSettings_LiveReloadWorks
-- UpdateSettings_MultipleCategories_IndependentlyUpdateable
-
-**Production Status**: Working — settings reload works in normal app execution
-
-**Test Status**: Open — test environment may need additional configuration or different reload mechanism
-
-**Workaround**: Test GET endpoints work correctly. Reload mechanism is proven in production use.
+**Status**: Fixed (2026-03-01)
 
 ---
 
@@ -594,13 +585,11 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 **Severity**: Low (resource leak until app restart)
 
-**Description**: The DELETE `/api/containers/{id}` endpoint does not call `ConnectorWatcherService.StopWatchingContainer`. If a Filesystem container is deleted, its `FileSystemWatcher` task and debounce timer continue running until the app restarts. The watcher fires no harmful events (the container and documents are gone from DB) but the OS file handle and timer are held unnecessarily.
+**Description**: The DELETE `/api/containers/{id}` endpoint did not call `ConnectorWatcherService.StopWatchingContainer`. If a Filesystem container was deleted, its `FileSystemWatcher` task and debounce timer continued running until the app restarted.
 
-**Root Cause**: `ConnectorWatcherService` is not injected into the delete endpoint.
+**Fix**: Injected `ConnectorWatcherService` into the DELETE endpoint. After a successful delete, calls `watcherService.StopWatchingContainer(containerId)` when `container.ConnectorType == Filesystem`.
 
-**Fix**: Inject `ConnectorWatcherService` into the delete endpoint and call `StopWatchingContainer(containerId)` after a successful delete.
-
-**Status**: Open
+**Status**: Fixed (2026-03-01)
 
 ---
 
@@ -608,13 +597,11 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 **Severity**: Low (watcher tasks survive graceful shutdown briefly)
 
-**Description**: `ContainersEndpoints` calls `watcherService.StartWatchingContainer(container)` without a `stoppingToken`. The internal `CancellationTokenSource` for dynamically-created watchers is linked to `CancellationToken.None`, so it is not cancelled by `BackgroundService.StopAsync` on graceful app shutdown. Watchers started at startup (from `ExecuteAsync`) are unaffected.
+**Description**: `ContainersEndpoints` called `watcherService.StartWatchingContainer(container)` without a `stoppingToken`, so the CTS for runtime-created watchers was linked to `CancellationToken.None` and never cancelled by graceful shutdown.
 
-**Root Cause**: `StartWatchingContainer` has `stoppingToken = default`. The endpoint has no access to the host's stopping token.
+**Fix**: Added `private readonly CancellationTokenSource _masterCts` to `ConnectorWatcherService`. In `ExecuteAsync`, registered `stoppingToken.Register(_masterCts.Cancel)`. Changed `StartWatchingContainer` to create each per-container CTS as `CreateLinkedTokenSource(stoppingToken, _masterCts.Token)`. Also changed `InitialSyncAsync` task to use `cts.Token` instead of the raw `stoppingToken` parameter so both background tasks for a container share the same lifetime.
 
-**Fix**: Either pass `IHostApplicationLifetime.ApplicationStopping` into the endpoint (awkward), or refactor `StartWatchingContainer` to use an internal tracking token that `StopAsync` drains before returning.
-
-**Status**: Open
+**Status**: Fixed (2026-03-01)
 
 ---
 

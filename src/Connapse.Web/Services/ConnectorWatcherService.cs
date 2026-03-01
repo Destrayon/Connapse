@@ -29,6 +29,10 @@ public class ConnectorWatcherService : BackgroundService
     // Active watch tasks keyed by containerId
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _watcherCts = new();
 
+    // Cancelled on BackgroundService shutdown to stop any watcher created after ExecuteAsync started
+    // (i.e. runtime-created watchers triggered by the containers endpoint, which have no stoppingToken).
+    private readonly CancellationTokenSource _masterCts = new();
+
     // Cached root paths per container for virtual-path computation
     private readonly ConcurrentDictionary<Guid, string> _rootPaths = new();
 
@@ -53,6 +57,10 @@ public class ConnectorWatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Ensure runtime-created watchers (started via the containers endpoint without a stoppingToken)
+        // are also cancelled when the BackgroundService stops.
+        stoppingToken.Register(_masterCts.Cancel);
+
         // Load all Filesystem containers on startup and start watchers
         await using var scope = _scopeFactory.CreateAsyncScope();
         var containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
@@ -83,11 +91,14 @@ public class ConnectorWatcherService : BackgroundService
         if (_watcherCts.ContainsKey(Guid.Parse(container.Id)))
             return; // already watching
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        // Link to both the caller's token and _masterCts so that:
+        // - Startup watchers: cancelled by BackgroundService.StopAsync (stoppingToken) OR shutdown
+        // - Runtime watchers (endpoint-created, stoppingToken=default): cancelled by shutdown via _masterCts
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _masterCts.Token);
         _watcherCts[Guid.Parse(container.Id)] = cts;
 
         _ = Task.Run(() => WatchContainerAsync(container, cts.Token), cts.Token);
-        _ = Task.Run(() => InitialSyncAsync(container, stoppingToken), stoppingToken);
+        _ = Task.Run(() => InitialSyncAsync(container, cts.Token), cts.Token);
     }
 
     /// <summary>

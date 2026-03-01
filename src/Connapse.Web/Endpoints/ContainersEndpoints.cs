@@ -92,6 +92,7 @@ public static class ContainersEndpoints
             Guid containerId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] ConnectorWatcherService watcherService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -111,6 +112,10 @@ public static class ContainersEndpoints
 
             await auditLogger.LogAsync("container.deleted", "container", containerId.ToString(),
                 new { Name = container.Name }, ct);
+
+            // Stop the filesystem watcher if one was running for this container.
+            if (container.ConnectorType == ConnectorType.Filesystem)
+                watcherService.StopWatchingContainer(containerId);
 
             return Results.NoContent();
         })

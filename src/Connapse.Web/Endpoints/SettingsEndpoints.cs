@@ -21,21 +21,26 @@ public static class SettingsEndpoints
             .RequireAuthorization("RequireAdmin");
 
         // GET /api/settings/{category} - Get settings for a category
+        // Reads from the database first so callers always see the latest saved value.
+        // Falls back to IOptionsMonitor (appsettings.json + env vars) for categories
+        // that have never been persisted to the database.
         group.MapGet("/{category}", async (
             [FromRoute] string category,
-            [FromServices] IServiceProvider serviceProvider) =>
+            [FromServices] ISettingsStore settingsStore,
+            [FromServices] IServiceProvider serviceProvider,
+            CancellationToken ct) =>
         {
             var categoryLower = category.ToLowerInvariant();
 
             return categoryLower switch
             {
-                "embedding" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue),
-                "chunking" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<ChunkingSettings>>().CurrentValue),
-                "search" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<SearchSettings>>().CurrentValue),
-                "llm" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<LlmSettings>>().CurrentValue),
-                "upload" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<UploadSettings>>().CurrentValue),
-                "websearch" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<WebSearchSettings>>().CurrentValue),
-                "storage" => Results.Ok(serviceProvider.GetRequiredService<IOptionsMonitor<StorageSettings>>().CurrentValue),
+                "embedding" => Results.Ok(await GetSettingsAsync<EmbeddingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "chunking" => Results.Ok(await GetSettingsAsync<ChunkingSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "websearch" => Results.Ok(await GetSettingsAsync<WebSearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "storage" => Results.Ok(await GetSettingsAsync<StorageSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 _ => Results.BadRequest(new { error = $"Unknown category: {category}" })
             };
         })
@@ -140,6 +145,23 @@ public static class SettingsEndpoints
         .WithDescription("Test connectivity to external services (Ollama, MinIO, etc.)");
 
         return app;
+    }
+
+    /// <summary>
+    /// Returns the persisted DB value for <typeparamref name="T"/> when one exists,
+    /// otherwise falls back to the IOptionsMonitor in-memory value (from appsettings / env vars).
+    /// Reading from the DB ensures the endpoint always reflects the latest saved settings,
+    /// which is particularly important for integration tests where IOptionsMonitor live-reload
+    /// may not propagate correctly inside WebApplicationFactory.
+    /// </summary>
+    private static async Task<T> GetSettingsAsync<T>(
+        string category,
+        ISettingsStore settingsStore,
+        IServiceProvider serviceProvider,
+        CancellationToken ct) where T : class
+    {
+        var stored = await settingsStore.GetAsync<T>(category, ct);
+        return stored ?? serviceProvider.GetRequiredService<IOptionsMonitor<T>>().CurrentValue;
     }
 
     private static async Task<ConnectionTestResult> TestEmbeddingConnection(
