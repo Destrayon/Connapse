@@ -92,8 +92,10 @@ public class RecursiveChunkerTests
 
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
-        // Should not create chunk if below min size
-        result.Should().BeEmpty();
+        // Small documents are returned as a single chunk even when below MinChunkSize
+        // to avoid silently discarding valid content
+        result.Should().HaveCount(1);
+        result[0].Content.Should().Be(content.Trim());
     }
 
     [Fact]
