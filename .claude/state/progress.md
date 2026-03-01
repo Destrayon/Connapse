@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-02-28) — v0.3.0 Session B complete
+## Current Status (2026-03-01) — v0.3.0 Session C6 complete
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -16,12 +16,11 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 |---------|-------|--------|
 | A | IConnector abstraction + schema migration + IContainerSettingsResolver | **COMPLETE** |
 | B | MinIO as IConnector + Filesystem connector + InMemory connector + ConnectorWatcherService | **COMPLETE** |
-| C | S3 connector (DefaultAWSCredentials / IAM) | Pending |
-| D | AzureBlob connector (DefaultAzureCredential) | Pending |
-| E | Cloud RBAC — AWS OIDC federation + Azure OAuth2 identity linking | Pending |
-| F | OpenAI + Azure OpenAI embedding providers; ILlmProvider formalization | Pending |
-| G | Agentic search (SearchMode.Agentic, iterative LLM-driven retrieval) | Pending |
-| H | Testing + docs | Pending |
+| C | S3 + AzureBlob connectors, sync endpoint, connection testers, UI | **COMPLETE** |
+| D | Cloud RBAC — AWS OIDC federation + Azure OAuth2 identity linking | Pending |
+| E | OpenAI + Azure OpenAI embedding providers; ILlmProvider formalization | Pending |
+| F | Agentic search (SearchMode.Agentic, iterative LLM-driven retrieval) | Pending |
+| G | Testing + docs | Pending |
 
 ---
 
@@ -35,6 +34,38 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 
 **Test baseline (v0.2.2):** 256 tests across 12 projects, all passing.
 **After Session B:** 95 unit tests pass (19 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session C6:** 116 unit tests pass (40 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+
+---
+
+## Session C6 (2026-03-01) — S3 + Azure Blob connectors
+
+**Feature**: All 5 connector types now functional. S3 and Azure Blob containers can be created, configured, connection-tested, and synced on demand.
+
+**New files created**:
+1. `src/Connapse.Storage/Connectors/S3ConnectorConfig.cs` — config record: bucketName, region, prefix, roleArn
+2. `src/Connapse.Storage/Connectors/S3Connector.cs` — IConnector backed by AWS S3 via default credential chain; optional STS AssumeRole for cross-account
+3. `src/Connapse.Storage/Connectors/AzureBlobConnectorConfig.cs` — config record: storageAccountName, containerName, prefix, managedIdentityClientId
+4. `src/Connapse.Storage/Connectors/AzureBlobConnector.cs` — IConnector backed by Azure Blob Storage via DefaultAzureCredential
+5. `src/Connapse.Storage/ConnectionTesters/S3ConnectionTester.cs` — tests S3 bucket access, handles STS AssumeRole
+6. `src/Connapse.Storage/ConnectionTesters/AzureBlobConnectionTester.cs` — tests Azure Blob container access
+7. `tests/Connapse.Core.Tests/Connectors/ConnectorFactoryTests.cs` — 13 unit tests for factory wiring + error cases
+8. `tests/Connapse.Core.Tests/Connectors/ConnectorConfigTests.cs` — 8 unit tests for config deserialization + round-trips
+
+**Files modified**:
+1. `src/Connapse.Storage/Connapse.Storage.csproj` — added AWSSDK.SecurityToken, Azure.Storage.Blobs, Azure.Identity
+2. `src/Connapse.Storage/Connectors/ConnectorFactory.cs` — replaced NotImplementedException with CreateS3Connector/CreateAzureBlobConnector
+3. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — registered S3ConnectionTester + AzureBlobConnectionTester
+4. `src/Connapse.Web/Endpoints/ContainersEndpoints.cs` — added connector config validation for S3/AzureBlob in create, new `POST /api/containers/test-connection` and `POST /api/containers/{id}/sync` endpoints
+5. `src/Connapse.Web/Components/Pages/Home.razor` — S3 and AzureBlob config fields in create modal, Test Connection button
+
+**Key design decisions**:
+- S3Connector creates its own AmazonS3Client (separate from global MinIO client) — uses RegionEndpoint, no ForcePathStyle
+- Both connectors support optional prefix filtering — only index files/blobs under a configured prefix
+- Sync endpoint (`POST /api/containers/{id}/sync`) mirrors ConnectorWatcherService.InitialSyncAsync pattern: list remote files, compare to DB, enqueue new/changed, skip Ready/Failed
+- Returns 400 for Filesystem (live watch) and InMemory (no remote source)
+- Connection testers accept config as JSON string and return ConnectionTestResult with detailed error messages
+- Used `new AmazonS3Client(region)` instead of deprecated `FallbackCredentialsFactory.GetCredentials()` for v4 SDK compatibility
 
 ---
 

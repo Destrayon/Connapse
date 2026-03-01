@@ -38,10 +38,8 @@ public class ConnectorFactory : IConnectorFactory
             ConnectorType.MinIO => new MinioConnector(_s3, _minioOptions),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.InMemory => _inMemoryConnectors.GetOrAdd(containerId, _ => new InMemoryConnector()),
-            ConnectorType.S3 => throw new NotImplementedException(
-                "S3 connector will be implemented in Session C. Configure an AWS IAM role on the container."),
-            ConnectorType.AzureBlob => throw new NotImplementedException(
-                "AzureBlob connector will be implemented in Session D. Configure managed identity on the container."),
+            ConnectorType.S3 => CreateS3Connector(container),
+            ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
     }
@@ -51,6 +49,44 @@ public class ConnectorFactory : IConnectorFactory
     /// </summary>
     public void EvictInMemoryConnector(Guid containerId)
         => _inMemoryConnectors.TryRemove(containerId, out _);
+
+    private static S3Connector CreateS3Connector(Container container)
+    {
+        if (string.IsNullOrEmpty(container.ConnectorConfig))
+            throw new InvalidOperationException(
+                $"S3 connector for container '{container.Name}' requires bucket configuration. No connector config found.");
+
+        var config = JsonSerializer.Deserialize<S3ConnectorConfig>(container.ConnectorConfig, JsonOptions)
+            ?? throw new InvalidOperationException(
+                $"Failed to deserialize S3 connector config for container '{container.Name}'.");
+
+        if (string.IsNullOrWhiteSpace(config.BucketName))
+            throw new InvalidOperationException(
+                $"S3 connector for container '{container.Name}' has an empty bucket name.");
+
+        return new S3Connector(config);
+    }
+
+    private static AzureBlobConnector CreateAzureBlobConnector(Container container)
+    {
+        if (string.IsNullOrEmpty(container.ConnectorConfig))
+            throw new InvalidOperationException(
+                $"AzureBlob connector for container '{container.Name}' requires storage account configuration. No connector config found.");
+
+        var config = JsonSerializer.Deserialize<AzureBlobConnectorConfig>(container.ConnectorConfig, JsonOptions)
+            ?? throw new InvalidOperationException(
+                $"Failed to deserialize AzureBlob connector config for container '{container.Name}'.");
+
+        if (string.IsNullOrWhiteSpace(config.StorageAccountName))
+            throw new InvalidOperationException(
+                $"AzureBlob connector for container '{container.Name}' has an empty storage account name.");
+
+        if (string.IsNullOrWhiteSpace(config.ContainerName))
+            throw new InvalidOperationException(
+                $"AzureBlob connector for container '{container.Name}' has an empty container name.");
+
+        return new AzureBlobConnector(config);
+    }
 
     private static FilesystemConnector CreateFilesystemConnector(Container container)
     {

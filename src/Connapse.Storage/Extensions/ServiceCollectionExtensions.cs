@@ -103,6 +103,8 @@ public static class ServiceCollectionExtensions
         // Connection testers
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
+        services.AddScoped<S3ConnectionTester>();
+        services.AddScoped<AzureBlobConnectionTester>();
 
         return services;
     }

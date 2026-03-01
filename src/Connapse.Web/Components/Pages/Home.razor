@@ -8,7 +8,10 @@
 @inject IContainerStore ContainerStore
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthStateProvider
+@using Connapse.Storage.ConnectionTesters
 @inject ConnectorWatcherService WatcherService
+@inject S3ConnectionTester S3Tester
+@inject AzureBlobConnectionTester AzureBlobTester
 
 <PageTitle>Connapse</PageTitle>
 
@@ -153,6 +156,80 @@ else
                                @bind="newFilesystemExcludePatterns" />
                     </div>
                 }
+                @if (newConnectorType == ConnectorType.S3)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Bucket Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="my-knowledge-bucket"
+                               @bind="newS3BucketName" @bind:event="oninput" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Region</label>
+                        <input type="text" class="form-control" placeholder="us-east-1"
+                               @bind="newS3Region" @bind:event="oninput" />
+                        <small class="text-muted">AWS region for the bucket.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Prefix <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="documents/"
+                               @bind="newS3Prefix" @bind:event="oninput" />
+                        <small class="text-muted">Only index files under this prefix.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Role ARN <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="arn:aws:iam::123456789012:role/ConnapseRead"
+                               @bind="newS3RoleArn" @bind:event="oninput" />
+                        <small class="text-muted">STS AssumeRole for cross-account access. Leave blank to use default credentials.</small>
+                    </div>
+                    <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestConnectorConnection"
+                            disabled="@isTestingConnection">
+                        @if (isTestingConnection) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Test Connection
+                    </button>
+                    @if (connectionTestResult is not null)
+                    {
+                        <div class="alert @(connectionTestSuccess ? "alert-success" : "alert-danger") py-2 mt-2 mb-0">
+                            @connectionTestResult
+                        </div>
+                    }
+                }
+                @if (newConnectorType == ConnectorType.AzureBlob)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Storage Account Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="myknowledgeaccount"
+                               @bind="newAzureStorageAccountName" @bind:event="oninput" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Container Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="documents"
+                               @bind="newAzureContainerName" @bind:event="oninput" />
+                        <small class="text-muted">The blob container name (not the Connapse container).</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Prefix <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="team-wiki/"
+                               @bind="newAzurePrefix" @bind:event="oninput" />
+                        <small class="text-muted">Only index blobs under this prefix.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Managed Identity Client ID <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="00000000-0000-0000-0000-000000000000"
+                               @bind="newAzureManagedIdentityClientId" @bind:event="oninput" />
+                        <small class="text-muted">For user-assigned managed identity. Leave blank for system-assigned or az login.</small>
+                    </div>
+                    <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestConnectorConnection"
+                            disabled="@isTestingConnection">
+                        @if (isTestingConnection) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Test Connection
+                    </button>
+                    @if (connectionTestResult is not null)
+                    {
+                        <div class="alert @(connectionTestSuccess ? "alert-success" : "alert-danger") py-2 mt-2 mb-0">
+                            @connectionTestResult
+                        </div>
+                    }
+                }
                 @if (createError is not null)
                 {
                     <div class="alert alert-danger py-2">@createError</div>
@@ -290,6 +367,20 @@ else
     private string newFilesystemRootPath = "";
     private string newFilesystemIncludePatterns = "";
     private string newFilesystemExcludePatterns = "";
+    // S3 config fields
+    private string newS3BucketName = "";
+    private string newS3Region = "us-east-1";
+    private string newS3Prefix = "";
+    private string newS3RoleArn = "";
+    // AzureBlob config fields
+    private string newAzureStorageAccountName = "";
+    private string newAzureContainerName = "";
+    private string newAzurePrefix = "";
+    private string newAzureManagedIdentityClientId = "";
+    // Connection test state
+    private bool isTestingConnection;
+    private string? connectionTestResult;
+    private bool connectionTestSuccess;
     private string? createError;
     private bool isCreating;
 
@@ -349,6 +440,15 @@ else
         newFilesystemRootPath = "";
         newFilesystemIncludePatterns = "";
         newFilesystemExcludePatterns = "";
+        newS3BucketName = "";
+        newS3Region = "us-east-1";
+        newS3Prefix = "";
+        newS3RoleArn = "";
+        newAzureStorageAccountName = "";
+        newAzureContainerName = "";
+        newAzurePrefix = "";
+        newAzureManagedIdentityClientId = "";
+        connectionTestResult = null;
         createError = null;
         showFolderBrowser = false;
     }
@@ -387,7 +487,7 @@ else
                 return;
             }
 
-            // Build connector config JSON for Filesystem containers
+            // Build connector config JSON
             string? connectorConfig = null;
             if (newConnectorType == ConnectorType.Filesystem)
             {
@@ -404,6 +504,36 @@ else
                     rootPath = newFilesystemRootPath.Trim(),
                     includePatterns,
                     excludePatterns
+                });
+            }
+            else if (newConnectorType == ConnectorType.S3)
+            {
+                if (string.IsNullOrWhiteSpace(newS3BucketName))
+                {
+                    createError = "Bucket name is required for S3 containers.";
+                    return;
+                }
+                connectorConfig = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    bucketName = newS3BucketName.Trim(),
+                    region = string.IsNullOrWhiteSpace(newS3Region) ? "us-east-1" : newS3Region.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newS3Prefix) ? (string?)null : newS3Prefix.Trim(),
+                    roleArn = string.IsNullOrWhiteSpace(newS3RoleArn) ? (string?)null : newS3RoleArn.Trim()
+                });
+            }
+            else if (newConnectorType == ConnectorType.AzureBlob)
+            {
+                if (string.IsNullOrWhiteSpace(newAzureStorageAccountName) || string.IsNullOrWhiteSpace(newAzureContainerName))
+                {
+                    createError = "Storage account name and container name are required for Azure Blob containers.";
+                    return;
+                }
+                connectorConfig = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    storageAccountName = newAzureStorageAccountName.Trim(),
+                    containerName = newAzureContainerName.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newAzurePrefix) ? (string?)null : newAzurePrefix.Trim(),
+                    managedIdentityClientId = string.IsNullOrWhiteSpace(newAzureManagedIdentityClientId) ? (string?)null : newAzureManagedIdentityClientId.Trim()
                 });
             }
 
@@ -553,6 +683,51 @@ else
         ConnectorType.AzureBlob  => "Azure Blob",
         _                        => type.ToString()
     };
+
+    private async Task TestConnectorConnection()
+    {
+        isTestingConnection = true;
+        connectionTestResult = null;
+        try
+        {
+            ConnectionTestResult result;
+            if (newConnectorType == ConnectorType.S3)
+            {
+                var config = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    bucketName = newS3BucketName.Trim(),
+                    region = string.IsNullOrWhiteSpace(newS3Region) ? "us-east-1" : newS3Region.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newS3Prefix) ? (string?)null : newS3Prefix.Trim(),
+                    roleArn = string.IsNullOrWhiteSpace(newS3RoleArn) ? (string?)null : newS3RoleArn.Trim()
+                });
+                result = await S3Tester.TestConnectionAsync(config, TimeSpan.FromSeconds(15));
+            }
+            else if (newConnectorType == ConnectorType.AzureBlob)
+            {
+                var config = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    storageAccountName = newAzureStorageAccountName.Trim(),
+                    containerName = newAzureContainerName.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newAzurePrefix) ? (string?)null : newAzurePrefix.Trim(),
+                    managedIdentityClientId = string.IsNullOrWhiteSpace(newAzureManagedIdentityClientId) ? (string?)null : newAzureManagedIdentityClientId.Trim()
+                });
+                result = await AzureBlobTester.TestConnectionAsync(config, TimeSpan.FromSeconds(15));
+            }
+            else return;
+
+            connectionTestSuccess = result.Success;
+            connectionTestResult = result.Message;
+        }
+        catch (Exception ex)
+        {
+            connectionTestSuccess = false;
+            connectionTestResult = ex.Message;
+        }
+        finally
+        {
+            isTestingConnection = false;
+        }
+    }
 
     private static string[] ParsePatterns(string input) =>
         string.IsNullOrWhiteSpace(input)
