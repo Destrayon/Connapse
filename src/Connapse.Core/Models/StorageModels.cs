@@ -49,21 +49,6 @@ public record VectorSearchResult(
     float Score,
     Dictionary<string, string> Metadata);
 
-public record WebSearchResult(
-    List<WebSearchHit> Hits,
-    int TotalResults);
-
-public record WebSearchHit(
-    string Title,
-    string Url,
-    string Snippet,
-    float? Score);
-
-public record WebSearchOptions(
-    int MaxResults = 10,
-    string? Region = null,
-    string? Language = null);
-
 public record FileSystemEntry(
     string Name,
     string VirtualPath,

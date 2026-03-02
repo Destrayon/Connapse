@@ -52,6 +52,7 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session H2:** 367 tests pass (166 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
 **After Session I:** 405 tests pass (204 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
 **After Session J:** 415+ tests pass (214+ Core). Build: 0 errors.
+**After Settings Cleanup:** 253 unit tests pass (156 Core + 46 Identity + 51 Ingestion). Removed dead settings: WebSearchSettings (entire record + IWebSearchProvider), StorageSettings (entire record + tab), and 11 unimplemented properties from SearchSettings/UploadSettings/LlmSettings/ChunkingSettings.
 
 ---
 

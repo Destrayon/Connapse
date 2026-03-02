@@ -11,8 +11,6 @@
 @inject IOptionsMonitor<SearchSettings> SearchOptions
 @inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IOptionsMonitor<UploadSettings> UploadOptions
-@inject IOptionsMonitor<WebSearchSettings> WebSearchOptions
-@inject IOptionsMonitor<StorageSettings> StorageOptions
 @inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @rendermode InteractiveServer
@@ -71,20 +69,6 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "websearch" ? "active" : "")"
-                    @onclick='() => activeTab = "websearch"'
-                    type="button">
-                Web Search
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "storage" ? "active" : "")"
-                    @onclick='() => activeTab = "storage"'
-                    type="button">
-                Storage
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
             <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
                     @onclick='() => activeTab = "awssso"'
                     type="button">
@@ -122,14 +106,6 @@
         {
             <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
         }
-        else if (activeTab == "websearch")
-        {
-            <WebSearchSettingsTab Settings="webSearchSettings" OnSave="SaveWebSearchSettings" />
-        }
-        else if (activeTab == "storage")
-        {
-            <StorageSettingsTab Settings="storageSettings" OnSave="SaveStorageSettings" />
-        }
         else if (activeTab == "awssso")
         {
             <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
@@ -151,8 +127,6 @@
     private SearchSettings searchSettings = new();
     private LlmSettings llmSettings = new();
     private UploadSettings uploadSettings = new();
-    private WebSearchSettings webSearchSettings = new();
-    private StorageSettings storageSettings = new();
     private AwsSsoSettings awsSsoSettings = new();
     private AzureAdSettings azureAdSettings = new();
 
@@ -164,8 +138,6 @@
         searchSettings = SearchOptions.CurrentValue;
         llmSettings = LlmOptions.CurrentValue;
         uploadSettings = UploadOptions.CurrentValue;
-        webSearchSettings = WebSearchOptions.CurrentValue;
-        storageSettings = StorageOptions.CurrentValue;
         awsSsoSettings = AwsSsoOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
     }
@@ -198,18 +170,6 @@
     {
         await SaveSettings("Upload", settings);
         uploadSettings = settings;
-    }
-
-    private async Task SaveWebSearchSettings(WebSearchSettings settings)
-    {
-        await SaveSettings("WebSearch", settings);
-        webSearchSettings = settings;
-    }
-
-    private async Task SaveStorageSettings(StorageSettings settings)
-    {
-        await SaveSettings("Storage", settings);
-        storageSettings = settings;
     }
 
     private async Task SaveAwsSsoSettings(AwsSsoSettings settings)

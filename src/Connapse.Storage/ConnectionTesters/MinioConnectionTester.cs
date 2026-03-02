@@ -157,13 +157,16 @@ public class MinioConnectionTester : IConnectionTester
 
     private static (string? endpoint, string? accessKey, string? secretKey, string? bucketName, bool useSSL) ExtractMinioSettings(object settings)
     {
-        // Use reflection to extract MinIO properties from StorageSettings
+        if (settings is FileSystem.MinioOptions opts)
+            return (opts.Endpoint, opts.AccessKey, opts.SecretKey, opts.BucketName, opts.UseSSL);
+
+        // Reflection fallback for arbitrary DTOs
         var type = settings.GetType();
-        var endpoint = type.GetProperty("MinioEndpoint")?.GetValue(settings)?.ToString();
-        var accessKey = type.GetProperty("MinioAccessKey")?.GetValue(settings)?.ToString();
-        var secretKey = type.GetProperty("MinioSecretKey")?.GetValue(settings)?.ToString();
-        var bucketName = type.GetProperty("MinioBucketName")?.GetValue(settings)?.ToString();
-        var useSSL = type.GetProperty("MinioUseSSL")?.GetValue(settings) as bool? ?? false;
+        var endpoint = (type.GetProperty("MinioEndpoint") ?? type.GetProperty("Endpoint"))?.GetValue(settings)?.ToString();
+        var accessKey = (type.GetProperty("MinioAccessKey") ?? type.GetProperty("AccessKey"))?.GetValue(settings)?.ToString();
+        var secretKey = (type.GetProperty("MinioSecretKey") ?? type.GetProperty("SecretKey"))?.GetValue(settings)?.ToString();
+        var bucketName = (type.GetProperty("MinioBucketName") ?? type.GetProperty("BucketName"))?.GetValue(settings)?.ToString();
+        var useSSL = (type.GetProperty("MinioUseSSL") ?? type.GetProperty("UseSSL"))?.GetValue(settings) as bool? ?? false;
 
         return (endpoint, accessKey, secretKey, bucketName, useSSL);
     }

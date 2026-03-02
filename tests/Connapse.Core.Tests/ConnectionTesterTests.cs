@@ -164,7 +164,7 @@ public class MinioConnectionTesterTests
     {
         // Arrange
         var tester = new MinioConnectionTester(_logger);
-        var settings = new StorageSettings { MinioEndpoint = null };
+        var settings = new Connapse.Storage.FileSystem.MinioOptions { Endpoint = null! };
 
         // Act
         var result = await tester.TestConnectionAsync(settings);
@@ -179,11 +179,11 @@ public class MinioConnectionTesterTests
     {
         // Arrange
         var tester = new MinioConnectionTester(_logger);
-        var settings = new StorageSettings
+        var settings = new Connapse.Storage.FileSystem.MinioOptions
         {
-            MinioEndpoint = "localhost:9000",
-            MinioAccessKey = null,
-            MinioSecretKey = null
+            Endpoint = "localhost:9000",
+            AccessKey = null!,
+            SecretKey = null!
         };
 
         // Act

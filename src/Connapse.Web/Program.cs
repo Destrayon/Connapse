@@ -117,10 +117,6 @@ builder.Services.Configure<LlmSettings>(
     builder.Configuration.GetSection("Knowledge:LLM"));
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
-builder.Services.Configure<WebSearchSettings>(
-    builder.Configuration.GetSection("Knowledge:WebSearch"));
-builder.Services.Configure<StorageSettings>(
-    builder.Configuration.GetSection("Knowledge:Storage"));
 
 // Add CORS policy — restrict to same-origin by default
 builder.Services.AddCors(options =>

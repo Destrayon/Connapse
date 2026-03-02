@@ -11,7 +11,7 @@ namespace Connapse.Storage.Connectors;
 
 /// <summary>
 /// IConnector implementation backed by MinIO (or any S3-compatible object store).
-/// Uses the globally configured StorageSettings — no per-container MinIO server.
+/// Uses the globally configured MinioOptions — no per-container MinIO server.
 /// SupportsLiveWatch = false; WatchAsync throws NotSupportedException.
 /// </summary>
 public class MinioConnector : IConnector

@@ -17,67 +17,6 @@ public class ConnectionTestIntegrationTests(SharedWebAppFixture fixture)
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     [Fact]
-    public async Task TestConnection_MinioWithValidCredentials_ReturnsSuccess()
-    {
-        // Arrange
-        var request = new
-        {
-            Category = "storage",
-            Settings = new StorageSettings
-            {
-                MinioEndpoint = fixture.MinioHostPort,
-                MinioAccessKey = fixture.MinioAccessKey,
-                MinioSecretKey = fixture.MinioSecretKey,
-                MinioBucketName = "test-bucket",
-                MinioUseSSL = false
-            },
-            TimeoutSeconds = 10
-        };
-
-        // Act
-        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
-        result.Should().NotBeNull();
-        result!.Success.Should().BeTrue();
-        result.Message.Should().Contain("Connected to MinIO");
-        result.Details.Should().ContainKey("bucketExists");
-    }
-
-    [Fact]
-    public async Task TestConnection_MinioWithInvalidCredentials_ReturnsFailure()
-    {
-        // Arrange
-        var request = new
-        {
-            Category = "storage",
-            Settings = new StorageSettings
-            {
-                MinioEndpoint = fixture.MinioHostPort,
-                MinioAccessKey = "invalid_key",
-                MinioSecretKey = "invalid_secret",
-                MinioBucketName = "test-bucket",
-                MinioUseSSL = false
-            },
-            TimeoutSeconds = 10
-        };
-
-        // Act
-        var response = await fixture.AdminClient.PostAsJsonAsync("/api/settings/test-connection", request);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
-        result.Should().NotBeNull();
-        result!.Success.Should().BeFalse();
-        result.Message.Should().Contain("Access denied");
-    }
-
-    [Fact]
     public async Task TestConnection_OllamaUnavailable_ReturnsFailure()
     {
         // Arrange - Use a non-existent Ollama endpoint

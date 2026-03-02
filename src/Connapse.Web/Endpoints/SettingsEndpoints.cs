@@ -40,8 +40,6 @@ public static class SettingsEndpoints
                 "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "websearch" => Results.Ok(await GetSettingsAsync<WebSearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "storage" => Results.Ok(await GetSettingsAsync<StorageSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "awssso" => Results.Ok(await GetSettingsAsync<AwsSsoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "azuread" => Results.Ok(await GetSettingsAsync<AzureAdSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 _ => Results.BadRequest(new { error = $"Unknown category: {category}" })
@@ -70,8 +68,6 @@ public static class SettingsEndpoints
                     "search" => JsonSerializer.Deserialize<SearchSettings>(settingsJson.GetRawText(), JsonOptions),
                     "llm" => JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText(), JsonOptions),
                     "upload" => JsonSerializer.Deserialize<UploadSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "websearch" => JsonSerializer.Deserialize<WebSearchSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "storage" => JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText(), JsonOptions),
                     "awssso" => JsonSerializer.Deserialize<AwsSsoSettings>(settingsJson.GetRawText(), JsonOptions),
                     "azuread" => JsonSerializer.Deserialize<AzureAdSettings>(settingsJson.GetRawText(), JsonOptions),
                     _ => null
@@ -143,7 +139,6 @@ public static class SettingsEndpoints
         group.MapPost("/test-connection", async (
             [FromBody] TestConnectionRequest request,
             [FromServices] OllamaConnectionTester ollamaTester,
-            [FromServices] MinioConnectionTester minioTester,
             [FromServices] AwsSsoConnectionTester awsSsoTester,
             [FromServices] AzureAdConnectionTester azureAdTester,
             [FromServices] OpenAiConnectionTester openAiTester,
@@ -176,7 +171,6 @@ public static class SettingsEndpoints
                 {
                     "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, openAiTester, azureOpenAiTester, request.TimeoutSeconds, ct),
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, openAiLlmTester, azureOpenAiLlmTester, anthropicTester, request.TimeoutSeconds, ct),
-                    "storage" => await TestStorageConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
                     "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, request.TimeoutSeconds, ct),
@@ -350,22 +344,6 @@ public static class SettingsEndpoints
             _ => ollamaTester
         };
 
-        return await tester.TestConnectionAsync(settings, timeout, ct);
-    }
-
-    private static async Task<ConnectionTestResult> TestStorageConnection(
-        JsonElement settingsJson,
-        MinioConnectionTester tester,
-        int? timeoutSeconds,
-        CancellationToken ct)
-    {
-        var settings = JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText(), JsonOptions);
-        if (settings == null)
-        {
-            return ConnectionTestResult.CreateFailure("Invalid StorageSettings");
-        }
-
-        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 

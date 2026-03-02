@@ -82,10 +82,6 @@ public record ChunkingSettings
     /// </summary>
     public string[] RecursiveSeparators { get; set; } = ["\n\n", "\n", ". ", " "];
 
-    /// <summary>
-    /// Respect document structure (headings, paragraphs) when chunking.
-    /// </summary>
-    public bool RespectDocumentStructure { get; set; } = true;
 }
 
 /// <summary>
@@ -112,12 +108,6 @@ public record SearchSettings
     /// RRF k-value for rank fusion (default: 60).
     /// </summary>
     public int RrfK { get; set; } = 60;
-
-    /// <summary>
-    /// For hybrid search: weight of vector search (0.0-1.0, default: 0.7).
-    /// Keyword weight = 1.0 - VectorWeight.
-    /// </summary>
-    public double VectorWeight { get; set; } = 0.7;
 
     /// <summary>
     /// Minimum similarity score threshold (0.0-1.0, default: 0.5).
@@ -155,16 +145,6 @@ public record SearchSettings
     /// Request timeout in seconds for cross-encoder reranking.
     /// </summary>
     public int CrossEncoderTimeoutSeconds { get; set; } = 30;
-
-    /// <summary>
-    /// Enable query expansion (generate alternative queries).
-    /// </summary>
-    public bool EnableQueryExpansion { get; set; } = false;
-
-    /// <summary>
-    /// Include web search results alongside knowledge base results.
-    /// </summary>
-    public bool IncludeWebSearch { get; set; } = false;
 
     /// <summary>
     /// When true, Semantic searches automatically include keyword results to surface
@@ -219,10 +199,6 @@ public record LlmSettings
     /// </summary>
     public int TimeoutSeconds { get; set; } = 60;
 
-    /// <summary>
-    /// System prompt prefix for agent interactions.
-    /// </summary>
-    public string? SystemPrompt { get; set; }
 }
 
 /// <summary>
@@ -231,134 +207,8 @@ public record LlmSettings
 public record UploadSettings
 {
     /// <summary>
-    /// Maximum file size in MB (default: 100).
-    /// </summary>
-    public int MaxFileSizeMb { get; set; } = 100;
-
-    /// <summary>
-    /// Allowed file extensions (empty = all allowed).
-    /// </summary>
-    public string[] AllowedExtensions { get; set; } = [".txt", ".md", ".pdf", ".docx", ".pptx", ".csv"];
-
-    /// <summary>
-    /// Default virtual path for uploads (default: "/uploads").
-    /// </summary>
-    public string DefaultPath { get; set; } = "/uploads";
-
-    /// <summary>
     /// Number of parallel ingestion workers (default: 4).
     /// </summary>
     public int ParallelWorkers { get; set; } = 4;
-
-    /// <summary>
-    /// Enable virus scanning on upload (requires ClamAV or similar).
-    /// </summary>
-    public bool EnableVirusScanning { get; set; } = false;
-
-    /// <summary>
-    /// Automatically start ingestion after upload (default: true).
-    /// </summary>
-    public bool AutoStartIngestion { get; set; } = true;
-
-    /// <summary>
-    /// Batch size for bulk operations (default: 100).
-    /// </summary>
-    public int BatchSize { get; set; } = 100;
 }
 
-/// <summary>
-/// Web search provider settings.
-/// </summary>
-public record WebSearchSettings
-{
-    /// <summary>
-    /// Provider type: None | Brave | Serper | Tavily
-    /// </summary>
-    public string Provider { get; set; } = "None";
-
-    /// <summary>
-    /// API key for the web search provider.
-    /// </summary>
-    public string? ApiKey { get; set; }
-
-    /// <summary>
-    /// Number of web results to retrieve (default: 5).
-    /// </summary>
-    public int MaxResults { get; set; } = 5;
-
-    /// <summary>
-    /// Request timeout in seconds (default: 10).
-    /// </summary>
-    public int TimeoutSeconds { get; set; } = 10;
-
-    /// <summary>
-    /// Enable safe search filtering.
-    /// </summary>
-    public bool SafeSearch { get; set; } = true;
-
-    /// <summary>
-    /// Country/region for search results (ISO 3166-1 alpha-2, e.g., "US").
-    /// </summary>
-    public string? Region { get; set; }
-}
-
-/// <summary>
-/// Storage backend settings.
-/// </summary>
-public record StorageSettings
-{
-    /// <summary>
-    /// Vector store provider: SqliteVec | PgVector | Qdrant | Pinecone | AzureAISearch
-    /// </summary>
-    public string VectorStoreProvider { get; set; } = "PgVector";
-
-    /// <summary>
-    /// Document store provider: Postgres | MongoDB
-    /// </summary>
-    public string DocumentStoreProvider { get; set; } = "Postgres";
-
-    /// <summary>
-    /// File storage provider: Local | MinIO | AzureBlob | S3
-    /// </summary>
-    public string FileStorageProvider { get; set; } = "MinIO";
-
-    /// <summary>
-    /// MinIO/S3 endpoint (e.g., "localhost:9000").
-    /// </summary>
-    public string? MinioEndpoint { get; set; } = "localhost:9000";
-
-    /// <summary>
-    /// MinIO/S3 access key.
-    /// </summary>
-    public string? MinioAccessKey { get; set; }
-
-    /// <summary>
-    /// MinIO/S3 secret key.
-    /// </summary>
-    public string? MinioSecretKey { get; set; }
-
-    /// <summary>
-    /// MinIO/S3 bucket name (default: "aikp-files").
-    /// </summary>
-    public string MinioBucketName { get; set; } = "aikp-files";
-
-    /// <summary>
-    /// Use SSL/TLS for MinIO/S3 connection.
-    /// </summary>
-    public bool MinioUseSSL { get; set; } = false;
-
-    /// <summary>
-    /// Local file system root path (when FileStorageProvider = Local).
-    /// </summary>
-    public string? LocalStorageRootPath { get; set; } = "knowledge-data";
-
-    /// <summary>
-    /// Azure Blob Storage connection string.
-    /// </summary>
-    public string? AzureBlobConnectionString { get; set; }
-
-    /// <summary>
-    /// Azure Blob container name.
-    /// </summary>
-    public string? AzureBlobContainerName { get; set; }
-}

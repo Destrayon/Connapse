@@ -36,12 +36,6 @@
         </div>
 
         <div class="col-md-6">
-            <label class="form-label">Vector Weight</label>
-            <InputNumber @bind-Value="localSettings.VectorWeight" class="form-control" step="0.1" min="0" max="1" />
-            <small class="form-text text-muted">For hybrid search (0.0-1.0)</small>
-        </div>
-
-        <div class="col-md-6">
             <label class="form-label">Minimum Score Threshold</label>
             <InputNumber @bind-Value="localSettings.MinimumScore" class="form-control" step="0.1" min="0" max="1" />
         </div>
@@ -105,20 +99,6 @@
 
         <div class="col-md-6">
             <div class="form-check mt-4">
-                <InputCheckbox @bind-Value="localSettings.EnableQueryExpansion" class="form-check-input" id="queryExpansion" />
-                <label class="form-check-label" for="queryExpansion">
-                    Enable Query Expansion
-                </label>
-            </div>
-
-            <div class="form-check mt-2">
-                <InputCheckbox @bind-Value="localSettings.IncludeWebSearch" class="form-check-input" id="includeWeb" />
-                <label class="form-check-label" for="includeWeb">
-                    Include Web Search Results
-                </label>
-            </div>
-
-            <div class="form-check mt-2">
                 <InputCheckbox @bind-Value="localSettings.EnableCrossModelSearch" class="form-check-input" id="crossModel" />
                 <label class="form-check-label" for="crossModel">
                     Enable Cross-Model Search
