@@ -2,6 +2,7 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Vectors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -84,6 +85,23 @@ public static class SettingsEndpoints
                 // Save to database
                 await settingsStore.SaveAsync(categoryLower, settings, ct);
 
+                // When embedding settings change, reconcile partial IVFFlat indexes
+                // so the new model gets an index once enough vectors are ingested.
+                if (categoryLower == "embedding")
+                {
+                    var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await using var scope = scopeFactory.CreateAsyncScope();
+                            var mgr = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
+                            await mgr.EnsureIndexesAsync();
+                        }
+                        catch { /* Index reconciliation is best-effort; retried on next startup */ }
+                    });
+                }
+
                 return Results.Ok(new { success = true, message = $"Settings for '{category}' updated successfully" });
             }
             catch (JsonException ex)
@@ -108,6 +126,8 @@ public static class SettingsEndpoints
             [FromServices] MinioConnectionTester minioTester,
             [FromServices] AwsSsoConnectionTester awsSsoTester,
             [FromServices] AzureAdConnectionTester azureAdTester,
+            [FromServices] OpenAiConnectionTester openAiTester,
+            [FromServices] AzureOpenAiConnectionTester azureOpenAiTester,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -127,7 +147,7 @@ public static class SettingsEndpoints
                 // Deserialize settings and select appropriate tester
                 ConnectionTestResult result = categoryLower switch
                 {
-                    "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, request.TimeoutSeconds, ct),
+                    "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, openAiTester, azureOpenAiTester, request.TimeoutSeconds, ct),
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, request.TimeoutSeconds, ct),
                     "storage" => await TestStorageConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
@@ -174,7 +194,9 @@ public static class SettingsEndpoints
 
     private static async Task<ConnectionTestResult> TestEmbeddingConnection(
         JsonElement settingsJson,
-        OllamaConnectionTester tester,
+        OllamaConnectionTester ollamaTester,
+        OpenAiConnectionTester openAiTester,
+        AzureOpenAiConnectionTester azureOpenAiTester,
         int? timeoutSeconds,
         CancellationToken ct)
     {
@@ -185,6 +207,14 @@ public static class SettingsEndpoints
         }
 
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+
+        IConnectionTester tester = settings.Provider switch
+        {
+            "OpenAI" => openAiTester,
+            "AzureOpenAI" => azureOpenAiTester,
+            _ => ollamaTester
+        };
+
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 

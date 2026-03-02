@@ -174,18 +174,27 @@ public class PgVectorStore : IVectorStore
                 whereClauses.Add("d.path LIKE @pathPrefix");
                 parameters.Add(new NpgsqlParameter("@pathPrefix", NpgsqlDbType.Text) { Value = pathPrefix + "%" });
             }
+
+            if (filters.TryGetValue("modelId", out var modelId) &&
+                !string.IsNullOrWhiteSpace(modelId))
+            {
+                whereClauses.Add("cv.model_id = @modelId");
+                parameters.Add(new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId });
+            }
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
 
-        // Use raw SQL to leverage pgvector's <=> cosine distance operator
-        // Named parameters avoid positional binding issues with the Vector type
+        // Dimension cast: the embedding column is unconstrained (vector without dimensions).
+        // The cast ensures pgvector can use partial IVFFlat indexes per model_id and that
+        // the distance operator works correctly with the query vector's dimension.
+        var dims = queryVector.Length;
         var sql = $@"
             SELECT
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
                 cv.container_id as ""ContainerId"",
-                (cv.embedding <=> @queryVector) as ""Distance"",
+                (cv.embedding::vector({dims}) <=> @queryVector) as ""Distance"",
                 c.content as ""Content"",
                 c.chunk_index as ""ChunkIndex"",
                 d.file_name as ""FileName"",

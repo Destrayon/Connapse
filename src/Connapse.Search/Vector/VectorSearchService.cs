@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Connapse.Search.Vector;
 
@@ -12,15 +13,18 @@ public class VectorSearchService
 {
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingProvider _embeddingProvider;
+    private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<VectorSearchService> _logger;
 
     public VectorSearchService(
         IVectorStore vectorStore,
         IEmbeddingProvider embeddingProvider,
+        IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         ILogger<VectorSearchService> logger)
     {
         _vectorStore = vectorStore;
         _embeddingProvider = embeddingProvider;
+        _embeddingSettings = embeddingSettings;
         _logger = logger;
     }
 
@@ -55,6 +59,13 @@ public class VectorSearchService
             {
                 filters[key] = value;
             }
+        }
+
+        // Filter by current embedding model to ensure dimension consistency.
+        // Cosine similarity between vectors from different models is meaningless.
+        if (!filters.ContainsKey("modelId"))
+        {
+            filters["modelId"] = _embeddingSettings.CurrentValue.Model;
         }
 
         // Search the vector store

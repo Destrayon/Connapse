@@ -11,6 +11,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Extensions;
 using Connapse.Storage.FileSystem;
 using Connapse.Storage.Settings;
+using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
@@ -165,6 +166,10 @@ using (var scope = app.Services.CreateScope())
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)
         await minio.EnsureBucketExistsAsync();
+
+    // Ensure partial IVFFlat indexes exist for each embedding model in chunk_vectors
+    var vectorColumnManager = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
+    await vectorColumnManager.EnsureIndexesAsync();
 
     // Sweep ephemeral (InMemory) containers: delete all DB records left from the previous run.
     // The in-process InMemoryConnector dictionary is always empty on startup, so DB is the only

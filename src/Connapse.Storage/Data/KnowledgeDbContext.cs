@@ -265,7 +265,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Embedding)
                 .HasColumnName("embedding")
                 .IsRequired()
-                .HasColumnType("vector(768)");
+                .HasColumnType("vector");
 
             entity.Property(e => e.ModelId)
                 .HasColumnName("model_id")
@@ -277,11 +277,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.ContainerId)
                 .HasDatabaseName("idx_chunk_vectors_container_id");
 
-            entity.HasIndex(e => e.Embedding)
-                .HasDatabaseName("idx_chunk_vectors_embedding")
-                .HasMethod("ivfflat")
-                .HasOperators("vector_cosine_ops")
-                .HasStorageParameter("lists", 100);
+            // B-tree index on model_id for search filtering and partial index WHERE clauses
+            entity.HasIndex(e => e.ModelId)
+                .HasDatabaseName("idx_chunk_vectors_model_id");
+
+            // NOTE: IVFFlat partial indexes per model_id are managed dynamically
+            // by VectorColumnManager at startup and when embedding settings change.
 
             entity.HasOne(e => e.Chunk)
                 .WithOne(c => c.ChunkVector)

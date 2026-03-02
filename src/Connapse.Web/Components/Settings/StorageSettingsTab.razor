@@ -1,5 +1,5 @@
 @using Connapse.Core
-@using System.Net.Http.Json
+@using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -124,24 +124,9 @@
     </div>
 </EditForm>
 
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
+@inject MinioConnectionTester ConnectionTester
 
 @code {
-    private HttpClient? _httpClient;
-    private HttpClient Http
-    {
-        get
-        {
-            if (_httpClient == null)
-            {
-                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
-                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
-            }
-            return _httpClient;
-        }
-    }
-
     [Parameter]
     public StorageSettings Settings { get; set; } = new();
 
@@ -176,26 +161,11 @@
 
         try
         {
-            var request = new
-            {
-                Category = "storage",
-                Settings = localSettings,
-                TimeoutSeconds = 10
-            };
+            var result = await ConnectionTester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(10));
 
-            var response = await Http.PostAsJsonAsync("/api/settings/test-connection", request);
-            var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
-
-            if (result != null)
-            {
-                testSuccess = result.Success;
-                testMessage = result.Message;
-            }
-            else
-            {
-                testSuccess = false;
-                testMessage = "No response from server";
-            }
+            testSuccess = result.Success;
+            testMessage = result.Message;
         }
         catch (Exception ex)
         {

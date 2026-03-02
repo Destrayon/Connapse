@@ -15,6 +15,7 @@ using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Connapse.Storage.Extensions;
@@ -81,9 +82,20 @@ public static class ServiceCollectionExtensions
         else
             services.AddSingleton<IKnowledgeFileSystem>(sp => sp.GetRequiredService<LocalKnowledgeFileSystem>());
 
-        // Embedding provider
+        // Embedding providers — resolved at runtime based on EmbeddingSettings.Provider
         services.AddHttpClient<OllamaEmbeddingProvider>();
-        services.AddScoped<IEmbeddingProvider, OllamaEmbeddingProvider>();
+        services.AddScoped<OpenAiEmbeddingProvider>();
+        services.AddScoped<AzureOpenAiEmbeddingProvider>();
+        services.AddScoped<IEmbeddingProvider>(sp =>
+        {
+            var settings = sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue;
+            return settings.Provider switch
+            {
+                "OpenAI" => sp.GetRequiredService<OpenAiEmbeddingProvider>(),
+                "AzureOpenAI" => sp.GetRequiredService<AzureOpenAiEmbeddingProvider>(),
+                _ => sp.GetRequiredService<OllamaEmbeddingProvider>()
+            };
+        });
 
         // Container store
         services.AddScoped<IContainerStore, PostgresContainerStore>();
@@ -97,6 +109,9 @@ public static class ServiceCollectionExtensions
         // Vector store
         services.AddScoped<IVectorStore, PgVectorStore>();
 
+        // Vector index management (partial IVFFlat indexes per embedding model)
+        services.AddScoped<VectorColumnManager>();
+
         // Connector factory (singleton — InMemoryConnector instances must outlive requests)
         services.AddSingleton<ConnectorFactory>();
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
@@ -108,6 +123,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AwsSsoConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();
+        services.AddScoped<OpenAiConnectionTester>();
+        services.AddScoped<AzureOpenAiConnectionTester>();
 
         // Cloud scope discovery
         services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();

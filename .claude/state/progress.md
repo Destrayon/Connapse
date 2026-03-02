@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-01) — v0.3.0 Azure SSO settings + PKCE
+## Current Status (2026-03-02) — v0.3.0 Multi-dimension vector support
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -24,7 +24,8 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | G2 | AWS SSO device authorization flow — replaces auth_code+PKCE (loopback limitation) | **COMPLETE** |
 | G3 | Cloud container background polling (S3/AzureBlob/MinIO every 5 min) | **COMPLETE** |
 | G4 | Azure AD Settings UI + PKCE public client (mirrors AWS SSO admin experience) | **COMPLETE** |
-| H | OpenAI + Azure OpenAI embedding providers | Pending |
+| H | OpenAI + Azure OpenAI embedding providers | **COMPLETE** |
+| H2 | Multi-dimension vector support (unconstrained pgvector column + partial indexes) | **COMPLETE** |
 | I | ILlmProvider + Agentic search | Pending |
 | J | Testing + docs | Pending |
 
@@ -45,6 +46,68 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session E:** 159 unit tests pass (65 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session F:** 173 unit tests pass (65 Core + 57 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session G:** 161 unit tests pass (65 Core + 45 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session H:** 358 tests pass (157 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
+**After Session H2:** 367 tests pass (166 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
+
+---
+
+## Session H2 (2026-03-02) — Multi-Dimension Vector Support
+
+**Feature**: The `chunk_vectors.embedding` column was hardcoded to `vector(768)`, causing failures when switching to OpenAI (1536-dim) or other providers. Now uses pgvector's recommended pattern: unconstrained `vector` column with partial IVFFlat indexes per `model_id`. Different containers can use different embedding models with different dimensions.
+
+**New files created**:
+1. `src/Connapse.Storage/Vectors/VectorColumnManager.cs` — manages partial IVFFlat indexes per model_id (create when ≥10 vectors, drop orphaned, idempotent)
+2. `src/Connapse.Storage/Migrations/20260302030200_UnconstrainedVectorColumn.cs` — EF migration: drops monolithic IVFFlat index, alters column from `vector(768)` to `vector`, adds `model_id` B-tree index
+3. `tests/Connapse.Core.Tests/Vectors/VectorColumnManagerTests.cs` — 6 unit tests for index name generation/sanitization
+
+**Files modified**:
+1. `src/Connapse.Storage/Data/KnowledgeDbContext.cs` — `HasColumnType("vector(768)")` → `HasColumnType("vector")`, removed IVFFlat index config, added `model_id` B-tree index
+2. `src/Connapse.Storage/Vectors/PgVectorStore.cs` — search SQL now adds `model_id` filter and `::vector(N)` dimension cast (N = queryVector.Length)
+3. `src/Connapse.Search/Vector/VectorSearchService.cs` — injects `IOptionsMonitor<EmbeddingSettings>`, passes `modelId` filter to vector store
+4. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — registered `VectorColumnManager` (Scoped), added `InternalsVisibleTo` for tests
+5. `src/Connapse.Web/Program.cs` — calls `VectorColumnManager.EnsureIndexesAsync()` at startup after migrations
+6. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — fire-and-forget index reconciliation when embedding settings change
+
+**Key design decisions**:
+- Unconstrained `vector` column allows any dimension in one table — follows pgvector's official recommendation
+- Partial IVFFlat indexes per model_id: `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cv_emb_{model} ON chunk_vectors USING ivfflat ((embedding::vector(N)) vector_cosine_ops) WHERE (model_id = '...')`
+- model_id filter in search prevents cross-model comparisons (cosine similarity between vectors from different models is meaningless)
+- Dimension cast derived from `queryVector.Length` — no need to inject settings into PgVectorStore
+- IVFFlat threshold ≥10 vectors — small sets use exact scan
+- No `IVectorStore` interface changes — `modelId` passes through existing `filters` dictionary (backward compatible)
+- `VectorColumnManager` uses raw `DbConnection` for DDL (not `ExecuteSqlRawAsync`) to avoid implicit transactions from `CREATE INDEX CONCURRENTLY`
+
+**Known limitation**: Per-container search uses global `EmbeddingSettings.Model` for the `modelId` filter. Containers with custom embedding overrides would need the search path to resolve per-container settings (follow-up task).
+
+---
+
+## Session H (2026-03-01) — OpenAI + Azure OpenAI Embedding Providers
+
+**Feature**: Non-Ollama embedding providers now functional. `EmbeddingSettings.Provider` drives runtime resolution — switching to "OpenAI" or "Azure OpenAI" in settings uses the correct SDK client. Settings UI shows/hides fields by provider. Connection testers validate credentials before saving.
+
+**New files created**:
+1. `src/Connapse.Storage/Vectors/OpenAiEmbeddingProvider.cs` — `IEmbeddingProvider` via OpenAI .NET SDK (`EmbeddingClient`), Matryoshka dimensions for v3 models
+2. `src/Connapse.Storage/Vectors/AzureOpenAiEmbeddingProvider.cs` — `IEmbeddingProvider` via `AzureOpenAIClient` → `GetEmbeddingClient(deploymentName)`
+3. `src/Connapse.Storage/ConnectionTesters/OpenAiConnectionTester.cs` — tests by embedding a test string, returns model + dimensions
+4. `src/Connapse.Storage/ConnectionTesters/AzureOpenAiConnectionTester.cs` — same approach, validates endpoint + key + deployment
+5. `tests/Connapse.Core.Tests/Vectors/OpenAiEmbeddingProviderTests.cs` — 6 unit tests
+6. `tests/Connapse.Core.Tests/Vectors/AzureOpenAiEmbeddingProviderTests.cs` — 8 unit tests
+7. `tests/Connapse.Core.Tests/Vectors/EmbeddingProviderResolutionTests.cs` — 5 unit tests for provider switch logic
+
+**Files modified**:
+1. `src/Connapse.Storage/Connapse.Storage.csproj` — added NuGet: `OpenAI` 2.9.0, `Azure.AI.OpenAI` 2.1.0
+2. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — provider-aware `IEmbeddingProvider` factory delegate (reads `EmbeddingSettings.Provider` at resolve time)
+3. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — `TestEmbeddingConnection` dispatches to correct tester based on provider
+4. `src/Connapse.Web/Components/Settings/EmbeddingSettingsTab.razor` — provider-specific fields (Ollama: BaseUrl/Model; OpenAI: ApiKey/Model/BaseUrl; AzureOpenAI: ApiKey/Endpoint/DeploymentName); auto-fills defaults on switch
+
+**Key design decisions**:
+- Used official SDKs (`OpenAI` 2.9.0 + `Azure.AI.OpenAI` 2.1.0) instead of raw HttpClient — handles auth, retries, serialization
+- New providers inject `IOptions<EmbeddingSettings>` + `ILogger<T>` (no HttpClient — SDK manages its own)
+- `OllamaEmbeddingProvider` keeps existing typed HttpClient pattern (backward compat)
+- Factory delegate pattern: `AddScoped<IEmbeddingProvider>(sp => switch on Provider)` — resolves correct implementation per scope
+- `EmbeddingGenerationOptions.Dimensions` only sent for `text-embedding-3-*` models (Matryoshka truncation)
+- Removed "Anthropic" from provider dropdown (Anthropic doesn't offer embeddings)
+- Net test gain: +19 unit tests (157 Core total, 358 total)
 
 ---
 
