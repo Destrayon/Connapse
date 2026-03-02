@@ -5,6 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.8.0" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.2" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.5.10" />
     <PackageReference Include="AWSSDK.SSO" Version="4.0.2.14" />
@@ -19,7 +20,7 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
-    <PackageReference Include="OpenAI" Version="2.9.0" />
+    <PackageReference Include="OpenAI" Version="2.1.0" />
     <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
   </ItemGroup>
 

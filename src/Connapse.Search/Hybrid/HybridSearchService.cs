@@ -19,7 +19,7 @@ public class HybridSearchService : IKnowledgeSearch
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEnumerable<ISearchReranker> _rerankers;
     private readonly ILogger<HybridSearchService> _logger;
-    private readonly SearchSettings _searchSettings;
+    private readonly IOptionsMonitor<SearchSettings> _searchSettingsMonitor;
 
     public HybridSearchService(
         IServiceScopeFactory scopeFactory,
@@ -30,7 +30,7 @@ public class HybridSearchService : IKnowledgeSearch
         _scopeFactory = scopeFactory;
         _rerankers = rerankers;
         _logger = logger;
-        _searchSettings = searchSettings.CurrentValue;
+        _searchSettingsMonitor = searchSettings;
     }
 
     /// <summary>
@@ -51,8 +51,20 @@ public class HybridSearchService : IKnowledgeSearch
 
         List<SearchHit> hits;
 
+        // Read settings at search time (not constructor time) so changes propagate immediately
+        var searchSettings = _searchSettingsMonitor.CurrentValue;
+
         // Determine search mode (from options or settings)
         var mode = options.Mode;
+
+        // Cross-model search: override Semantic to Hybrid so keyword results can
+        // surface documents embedded with previous models (keyword search is model-agnostic).
+        if (searchSettings.EnableCrossModelSearch && mode == SearchMode.Semantic)
+        {
+            mode = SearchMode.Hybrid;
+            _logger.LogInformation(
+                "Cross-model search active: overriding Semantic to Hybrid for legacy vector coverage");
+        }
 
         _logger.LogInformation(
             "Starting {Mode} search for query: '{Query}' (topK={TopK})",
@@ -82,7 +94,7 @@ public class HybridSearchService : IKnowledgeSearch
         }
 
         // Apply reranking if configured
-        var rerankerName = _searchSettings.Reranker;
+        var rerankerName = searchSettings.Reranker;
         if (!string.IsNullOrEmpty(rerankerName) && rerankerName != "None")
         {
             var reranker = _rerankers.FirstOrDefault(r =>

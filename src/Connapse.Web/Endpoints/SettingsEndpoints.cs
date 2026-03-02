@@ -86,7 +86,7 @@ public static class SettingsEndpoints
                 await settingsStore.SaveAsync(categoryLower, settings, ct);
 
                 // When embedding settings change, reconcile partial IVFFlat indexes
-                // so the new model gets an index once enough vectors are ingested.
+                // and detect legacy vectors for cross-model search notification.
                 if (categoryLower == "embedding")
                 {
                     var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
@@ -100,6 +100,26 @@ public static class SettingsEndpoints
                         }
                         catch { /* Index reconciliation is best-effort; retried on next startup */ }
                     });
+
+                    // Detect legacy vectors for the new model
+                    var embeddingSettings = (EmbeddingSettings)settings;
+                    var discovery = serviceProvider.GetRequiredService<VectorModelDiscovery>();
+                    var models = await discovery.GetModelsAsync(containerId: null, ct);
+                    var legacyModels = models
+                        .Where(m => !string.Equals(m.ModelId, embeddingSettings.Model, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    if (legacyModels.Count > 0)
+                    {
+                        return Results.Ok(new
+                        {
+                            success = true,
+                            message = $"Settings for '{category}' updated successfully",
+                            legacyVectorsExist = true,
+                            legacyModels = legacyModels.Select(m => new { m.ModelId, m.VectorCount }),
+                            legacyVectorCount = legacyModels.Sum(m => m.VectorCount)
+                        });
+                    }
                 }
 
                 return Results.Ok(new { success = true, message = $"Settings for '{category}' updated successfully" });
@@ -128,6 +148,13 @@ public static class SettingsEndpoints
             [FromServices] AzureAdConnectionTester azureAdTester,
             [FromServices] OpenAiConnectionTester openAiTester,
             [FromServices] AzureOpenAiConnectionTester azureOpenAiTester,
+            [FromServices] OpenAiLlmConnectionTester openAiLlmTester,
+            [FromServices] AzureOpenAiLlmConnectionTester azureOpenAiLlmTester,
+            [FromServices] AnthropicConnectionTester anthropicTester,
+            [FromServices] TeiConnectionTester teiTester,
+            [FromServices] CohereConnectionTester cohereTester,
+            [FromServices] JinaConnectionTester jinaTester,
+            [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -148,10 +175,11 @@ public static class SettingsEndpoints
                 ConnectionTestResult result = categoryLower switch
                 {
                     "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, openAiTester, azureOpenAiTester, request.TimeoutSeconds, ct),
-                    "llm" => await TestLlmConnection(request.Settings, ollamaTester, request.TimeoutSeconds, ct),
+                    "llm" => await TestLlmConnection(request.Settings, ollamaTester, openAiLlmTester, azureOpenAiLlmTester, anthropicTester, request.TimeoutSeconds, ct),
                     "storage" => await TestStorageConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
+                    "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, request.TimeoutSeconds, ct),
                     _ => ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing")
                 };
 
@@ -171,6 +199,85 @@ public static class SettingsEndpoints
         })
         .WithName("TestConnection")
         .WithDescription("Test connectivity to external services (Ollama, MinIO, etc.)");
+
+        // GET /api/settings/embedding-models - Get all embedding models with vectors (global)
+        group.MapGet("/embedding-models", async (
+            [FromServices] VectorModelDiscovery modelDiscovery,
+            [FromServices] IOptionsMonitor<EmbeddingSettings> embeddingSettings,
+            CancellationToken ct) =>
+        {
+            var models = await modelDiscovery.GetModelsAsync(containerId: null, ct);
+            var currentModel = embeddingSettings.CurrentValue.Model;
+
+            return Results.Ok(new
+            {
+                currentModel,
+                models = models.Select(m => new
+                {
+                    m.ModelId,
+                    m.Dimensions,
+                    m.VectorCount,
+                    isCurrent = string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
+                }),
+                hasLegacyVectors = models.Any(m =>
+                    !string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))
+            });
+        })
+        .WithName("GetGlobalEmbeddingModels")
+        .WithDescription("Get all embedding models with vectors across all containers");
+
+        // POST /api/settings/reindex - Trigger re-embedding of documents with outdated embedding models
+        group.MapPost("/reindex", async (
+            [FromBody] ReindexTriggerRequest? request,
+            [FromServices] IServiceProvider serviceProvider,
+            CancellationToken ct) =>
+        {
+            var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
+
+            // Run reindex asynchronously — don't block the HTTP request
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var scope = scopeFactory.CreateAsyncScope();
+                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
+
+                    // Also auto-enable cross-model search during re-embedding
+                    var settingsStore = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+                    var searchSettings = await settingsStore.GetAsync<SearchSettings>("search", CancellationToken.None)
+                        ?? new SearchSettings();
+                    if (!searchSettings.EnableCrossModelSearch)
+                    {
+                        searchSettings.EnableCrossModelSearch = true;
+                        await settingsStore.SaveAsync("search", searchSettings, CancellationToken.None);
+                    }
+
+                    await reindexService.ReindexAsync(new ReindexOptions
+                    {
+                        ContainerId = request?.ContainerId,
+                        DetectSettingsChanges = true
+                    }, CancellationToken.None);
+                }
+                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
+            });
+
+            return Results.Ok(new { success = true, message = "Re-embedding started in background" });
+        })
+        .WithName("TriggerReindex")
+        .WithDescription("Start background re-embedding of documents with outdated embedding models");
+
+        // GET /api/settings/reindex/status - Get queue depth as a proxy for re-embedding progress
+        group.MapGet("/reindex/status", (
+            [FromServices] IIngestionQueue queue) =>
+        {
+            return Results.Ok(new
+            {
+                queueDepth = queue.QueueDepth,
+                isActive = queue.QueueDepth > 0
+            });
+        })
+        .WithName("GetReindexStatus")
+        .WithDescription("Get current re-embedding/reindex queue status");
 
         return app;
     }
@@ -220,7 +327,10 @@ public static class SettingsEndpoints
 
     private static async Task<ConnectionTestResult> TestLlmConnection(
         JsonElement settingsJson,
-        OllamaConnectionTester tester,
+        OllamaConnectionTester ollamaTester,
+        OpenAiLlmConnectionTester openAiLlmTester,
+        AzureOpenAiLlmConnectionTester azureOpenAiLlmTester,
+        AnthropicConnectionTester anthropicTester,
         int? timeoutSeconds,
         CancellationToken ct)
     {
@@ -231,6 +341,15 @@ public static class SettingsEndpoints
         }
 
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+
+        IConnectionTester tester = settings.Provider switch
+        {
+            "OpenAI" => openAiLlmTester,
+            "AzureOpenAI" => azureOpenAiLlmTester,
+            "Anthropic" => anthropicTester,
+            _ => ollamaTester
+        };
+
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 
@@ -281,6 +400,31 @@ public static class SettingsEndpoints
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
+    private static async Task<ConnectionTestResult> TestCrossEncoderConnection(
+        JsonElement settingsJson,
+        TeiConnectionTester teiTester,
+        CohereConnectionTester cohereTester,
+        JinaConnectionTester jinaTester,
+        AzureAIFoundryConnectionTester azureAIFoundryTester,
+        int? timeoutSeconds,
+        CancellationToken ct)
+    {
+        var settings = JsonSerializer.Deserialize<SearchSettings>(settingsJson.GetRawText(), JsonOptions);
+        if (settings == null)
+            return ConnectionTestResult.CreateFailure("Invalid SearchSettings");
+
+        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+
+        IConnectionTester tester = settings.CrossEncoderProvider switch
+        {
+            "Cohere" => cohereTester,
+            "Jina" => jinaTester,
+            "AzureAIFoundry" => azureAIFoundryTester,
+            _ => teiTester
+        };
+
+        return await tester.TestConnectionAsync(settings, timeout, ct);
+    }
 }
 
 // Request DTOs
@@ -288,3 +432,6 @@ public record TestConnectionRequest(
     string Category,
     JsonElement Settings,
     int? TimeoutSeconds = null);
+
+public record ReindexTriggerRequest(
+    string? ContainerId = null);

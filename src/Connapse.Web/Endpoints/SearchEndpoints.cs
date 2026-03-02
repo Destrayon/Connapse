@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Vectors;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -98,8 +99,10 @@ public static class SearchEndpoints
 
             var effectiveMinScore = request.MinScore ?? (float)searchSettings.CurrentValue.MinimumScore;
 
+            var requestMode = request.Mode ?? SearchMode.Hybrid;
+
             var options = new SearchOptions(
-                Mode: request.Mode ?? SearchMode.Hybrid,
+                Mode: requestMode,
                 TopK: request.TopK ?? 10,
                 MinScore: effectiveMinScore,
                 ContainerId: containerId.ToString(),
@@ -110,6 +113,36 @@ public static class SearchEndpoints
         })
         .WithName("AdvancedSearch")
         .WithDescription("Search within a container with advanced filters and options");
+
+        // GET /api/containers/{containerId}/search/models - Get embedding models with vectors
+        group.MapGet("/models", async (
+            Guid containerId,
+            [FromServices] IContainerStore containerStore,
+            [FromServices] VectorModelDiscovery modelDiscovery,
+            [FromServices] IOptionsMonitor<EmbeddingSettings> embeddingSettings,
+            CancellationToken ct) =>
+        {
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var models = await modelDiscovery.GetModelsAsync(containerId, ct);
+            var currentModel = embeddingSettings.CurrentValue.Model;
+
+            return Results.Ok(new
+            {
+                currentModel,
+                models = models.Select(m => new
+                {
+                    m.ModelId,
+                    m.Dimensions,
+                    m.VectorCount,
+                    isCurrent = string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
+                })
+            });
+        })
+        .WithName("GetEmbeddingModels")
+        .WithDescription("Get embedding models with vectors in this container");
 
         return app;
     }
@@ -151,6 +184,7 @@ public static class SearchEndpoints
         var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(idClaim, out var userId) ? userId : null;
     }
+
 }
 
 // Request DTO

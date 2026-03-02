@@ -127,9 +127,34 @@ public record SearchSettings
     public double MinimumScore { get; set; } = 0.5;
 
     /// <summary>
-    /// Cross-encoder model for reranking (if Reranker = CrossEncoder).
+    /// Cross-encoder reranking provider: TEI | Cohere | Jina | AzureAIFoundry
+    /// </summary>
+    public string CrossEncoderProvider { get; set; } = "TEI";
+
+    /// <summary>
+    /// Cross-encoder model name (e.g., "BAAI/bge-reranker-large", "rerank-v3.5", "jina-reranker-v3").
     /// </summary>
     public string? CrossEncoderModel { get; set; }
+
+    /// <summary>
+    /// Base URL for self-hosted reranker (TEI) or Azure AI Foundry endpoint.
+    /// </summary>
+    public string? CrossEncoderBaseUrl { get; set; } = "http://localhost:8080";
+
+    /// <summary>
+    /// API key for cloud reranker providers (Cohere, Jina).
+    /// </summary>
+    public string? CrossEncoderApiKey { get; set; }
+
+    /// <summary>
+    /// Maximum results to return from cross-encoder reranking (0 = no limit, rerank all).
+    /// </summary>
+    public int CrossEncoderTopN { get; set; } = 0;
+
+    /// <summary>
+    /// Request timeout in seconds for cross-encoder reranking.
+    /// </summary>
+    public int CrossEncoderTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
     /// Enable query expansion (generate alternative queries).
@@ -140,6 +165,13 @@ public record SearchSettings
     /// Include web search results alongside knowledge base results.
     /// </summary>
     public bool IncludeWebSearch { get; set; } = false;
+
+    /// <summary>
+    /// When true, Semantic searches automatically include keyword results to surface
+    /// documents embedded with previous embedding models. Useful during model transitions
+    /// before re-embedding completes.
+    /// </summary>
+    public bool EnableCrossModelSearch { get; set; } = false;
 }
 
 /// <summary>

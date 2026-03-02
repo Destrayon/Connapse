@@ -24,7 +24,10 @@ public static class ServiceCollectionExtensions
 
         // Register rerankers
         services.AddScoped<ISearchReranker, RrfReranker>();
-        services.AddHttpClient<ISearchReranker, CrossEncoderReranker>();
+        services.AddScoped<ISearchReranker, CrossEncoderReranker>();
+
+        // Named HttpClient for cross-encoder providers (TEI, Cohere, Jina)
+        services.AddHttpClient("CrossEncoder");
 
         // Register hybrid search as the main IKnowledgeSearch implementation
         services.AddScoped<IKnowledgeSearch, HybridSearchService>();

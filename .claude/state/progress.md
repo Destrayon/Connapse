@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-02) — v0.3.0 Multi-dimension vector support
+## Current Status (2026-03-02) — v0.3.0 Cross-Embedding Reranking
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -26,8 +26,10 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | G4 | Azure AD Settings UI + PKCE public client (mirrors AWS SSO admin experience) | **COMPLETE** |
 | H | OpenAI + Azure OpenAI embedding providers | **COMPLETE** |
 | H2 | Multi-dimension vector support (unconstrained pgvector column + partial indexes) | **COMPLETE** |
-| I | ILlmProvider + Agentic search | Pending |
-| J | Testing + docs | Pending |
+| I | ILlmProvider + Agentic search | **COMPLETE** |
+| I2 | Agentic search quality improvements (HyDE, relevance filtering, corrective RAG) | **COMPLETE** |
+| J | Cross-embedding reranking + model discovery + re-embedding | **COMPLETE** |
+| K | Testing + docs | Pending |
 
 ---
 
@@ -48,6 +50,95 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session G:** 161 unit tests pass (65 Core + 45 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session H:** 358 tests pass (157 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
 **After Session H2:** 367 tests pass (166 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
+**After Session I:** 405 tests pass (204 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
+**After Session J:** 415+ tests pass (214+ Core). Build: 0 errors.
+
+---
+
+## Session J (2026-03-02) — Cross-Embedding Reranking + Model Discovery + Re-Embedding
+
+**Feature**: When users change embedding models, previously-embedded documents become invisible to search (VectorSearchService filters by `modelId`). Session J adds: (1) VectorModelDiscovery to detect which embedding models have vectors, (2) cross-model search that bridges model transitions via keyword fallback + RRF fusion, (3) automatic legacy vector detection when embedding settings change, (4) re-embedding trigger via existing ReindexService.
+
+**Key insight**: We can't query old-model indexes with the current model's query vector (cosine similarity across embedding spaces is meaningless). Instead, keyword search (PostgreSQL FTS) is model-agnostic. When cross-model search is enabled, Semantic mode auto-overrides to Hybrid so keyword results surface legacy-model documents alongside vector results from the current model. RRF and CrossEncoder reranking handle the fusion — both are text-based, not vector-based.
+
+**New files created:**
+1. `src/Connapse.Storage/Vectors/VectorModelDiscovery.cs` — Scoped service: `GetModelsAsync(containerId?)` returns distinct model_ids with dimensions+counts, `HasLegacyVectorsAsync(currentModelId)` detects old-model vectors
+2. `tests/Connapse.Core.Tests/Search/CrossModelSearchTests.cs` — 7 unit tests for cross-model settings and override logic
+3. `tests/Connapse.Core.Tests/Vectors/VectorModelDiscoveryTests.cs` — 3 unit tests for EmbeddingModelInfo record
+
+**Files modified:**
+1. `src/Connapse.Core/Models/SettingsModels.cs` — added `EnableCrossModelSearch` to SearchSettings (default: false)
+2. `src/Connapse.Search/Hybrid/HybridSearchService.cs` — when `EnableCrossModelSearch && mode == Semantic`, overrides to Hybrid
+3. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — registered `VectorModelDiscovery` (Scoped)
+4. `src/Connapse.Web/Endpoints/SearchEndpoints.cs` — added `GET /search/models` per-container endpoint
+5. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — added `GET /embedding-models` (global), `POST /reindex` (trigger), `GET /reindex/status`; embedding save now detects legacy vectors and returns `legacyVectorsExist` in response
+6. `src/Connapse.Web/Components/Settings/SearchSettingsTab.razor` — "Enable Cross-Model Search" checkbox + embedding model summary table
+7. `src/Connapse.Web/Components/Settings/EmbeddingSettingsTab.razor` — post-save legacy detection banner with "Re-Embed Now" and "Skip — Use Cross-Model Search" buttons; re-embedding progress indicator
+8. `src/Connapse.Web/Components/Pages/Search.razor` — cross-model info badge when active + legacy vectors exist
+
+**Key design decisions:**
+- No new ReEmbeddingService needed — `ReindexService.ReindexAsync(DetectSettingsChanges: true)` already handles full re-ingestion of documents with outdated embedding models
+- Cross-model search auto-enables when re-embedding starts (documents findable during transition), auto-overrides Semantic→Hybrid
+- RRF is rank-based (no score calibration needed), CrossEncoder scores raw text pairs (model-agnostic) — both work natively across embedding spaces
+- `VectorModelDiscovery` reuses VectorColumnManager's SQL pattern (raw ADO.NET, GROUP BY model_id)
+- EmbeddingModelInfo record used in both API endpoints and UI components
+
+---
+
+## Session I (2026-03-01) — ILlmProvider + Agentic Search
+
+**Feature**: Formalized the LLM provider layer with `ILlmProvider` interface and 4 implementations (Ollama, OpenAI, AzureOpenAI, Anthropic). Shipped `SearchMode.Agentic` — LLM-driven iterative retrieval that generates queries, evaluates sufficiency, and refines until the answer is found.
+
+**Phase 11 — ILlmProvider Formalization:**
+
+**New files created:**
+1. `src/Connapse.Core/Interfaces/ILlmProvider.cs` — `CompleteAsync` + `StreamAsync` (IAsyncEnumerable)
+2. `src/Connapse.Core/Models/LlmCompletionOptions.cs` — per-call Temperature/MaxTokens overrides
+3. `src/Connapse.Storage/Llm/OllamaLlmProvider.cs` — typed HttpClient, POST `/api/chat`, NDJSON streaming
+4. `src/Connapse.Storage/Llm/OpenAiLlmProvider.cs` — OpenAI SDK 2.9.0 `ChatClient`, BaseUrl override
+5. `src/Connapse.Storage/Llm/AzureOpenAiLlmProvider.cs` — `AzureOpenAIClient` → `GetChatClient(deployment)`
+6. `src/Connapse.Storage/Llm/AnthropicLlmProvider.cs` — Anthropic SDK 12.8.0, streaming via `CreateStreaming`
+7. `src/Connapse.Storage/ConnectionTesters/OpenAiLlmConnectionTester.cs` — minimal chat completion test
+8. `src/Connapse.Storage/ConnectionTesters/AzureOpenAiLlmConnectionTester.cs` — validates endpoint+key+deployment
+9. `src/Connapse.Storage/ConnectionTesters/AnthropicConnectionTester.cs` — tests via Anthropic SDK
+
+**Files modified:**
+1. `src/Connapse.Storage/Connapse.Storage.csproj` — added `Anthropic` 12.8.0 NuGet
+2. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — LLM provider factory delegate + 3 tester registrations
+3. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — TestLlmConnection dispatches by provider
+4. `src/Connapse.Web/Components/Settings/LlmSettingsTab.razor` — provider-specific fields, OnProviderChanged defaults, per-provider Test Connection
+5. `src/Connapse.Search/Reranking/CrossEncoderReranker.cs` — replaced HttpClient+raw Ollama HTTP with ILlmProvider
+6. `src/Connapse.Search/Extensions/ServiceCollectionExtensions.cs` — CrossEncoder: AddHttpClient → AddScoped
+
+**Phase 12 — Agentic Search:**
+
+**New files created:**
+1. `src/Connapse.Search/Agentic/AgenticSearchService.cs` — iterative loop: generate queries → execute hybrid search → deduplicate → evaluate sufficiency → refine or exit
+2. `tests/Connapse.Core.Tests/Llm/LlmProviderResolutionTests.cs` — 8 tests (factory switch logic)
+3. `tests/Connapse.Core.Tests/Llm/OpenAiLlmProviderTests.cs` — 6 tests
+4. `tests/Connapse.Core.Tests/Llm/AzureOpenAiLlmProviderTests.cs` — 5 tests
+5. `tests/Connapse.Core.Tests/Llm/AnthropicLlmProviderTests.cs` — 4 tests
+6. `tests/Connapse.Core.Tests/Agentic/AgenticMetadataTests.cs` — 3 tests
+7. `tests/Connapse.Core.Tests/Agentic/AgenticSearchServiceTests.cs` — 12 tests
+
+**Files modified:**
+1. `src/Connapse.Core/Models/SearchModels.cs` — `Agentic` added to `SearchMode`, `AgenticMetadata` + `AgenticSearchResult : SearchResult`
+2. `src/Connapse.Core/Models/SettingsModels.cs` — `AgenticMaxIterations`, `AgenticEvaluationPrompt` in SearchSettings
+3. `src/Connapse.Search/Hybrid/HybridSearchService.cs` — `case SearchMode.Agentic:` delegates to AgenticSearchService
+4. `src/Connapse.Web/Endpoints/SearchEndpoints.cs` — LLM gate returns 400 `llm_not_configured` if Agentic without LLM
+5. `src/Connapse.Web/Components/Pages/Search.razor` — Agentic option (hidden when no LLM), AgenticMetadata display
+6. `src/Connapse.Web/Components/Settings/SearchSettingsTab.razor` — AgenticMaxIterations + evaluation prompt fields
+7. `src/Connapse.Search/Connapse.Search.csproj` — added InternalsVisibleTo for tests
+
+**Key design decisions:**
+- ILlmProvider mirrors IEmbeddingProvider: factory delegate in DI resolves by LlmSettings.Provider at scope time
+- `IAsyncEnumerable<string>` for streaming (no framework-specific abstractions)
+- Ollama uses typed HttpClient; cloud providers use official SDKs (OpenAI 2.9.0, Azure.AI.OpenAI 2.1.0, Anthropic 12.8.0)
+- Agentic search deduplicates by ChunkId across iterations — no duplicate chunks in results
+- LLM gate at endpoint level: Agentic mode returns 400 when cloud LLM provider lacks API key; Ollama always passes (assumed available)
+- AgenticSearchResult inherits SearchResult — backward compatible with existing consumers
+- Chunk summary capped at ~3000 chars for LLM evaluation context (prevents token overflow)
+- SearchSettings.AgenticEvaluationPrompt allows custom sufficiency evaluation prompt (null = built-in default)
 
 ---
 

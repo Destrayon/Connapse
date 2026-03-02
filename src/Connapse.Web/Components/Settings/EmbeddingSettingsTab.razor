@@ -1,6 +1,8 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Storage.ConnectionTesters
+@using Connapse.Storage.Vectors
+@using Microsoft.Extensions.Options
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -122,12 +124,58 @@
                 </div>
             </div>
         }
+
+        @if (showLegacyBanner)
+        {
+            <div class="col-12 mt-3">
+                <div class="alert alert-warning" role="alert">
+                    <strong>Legacy vectors detected.</strong>
+                    @legacyVectorCount.ToString("N0") documents are still embedded with a previous model.
+                    They won't appear in Semantic search results until re-embedded.
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-warning btn-sm me-2" @onclick="StartReEmbed" disabled="@isReEmbedding">
+                            @if (isReEmbedding)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>Starting...</span>
+                            }
+                            else
+                            {
+                                <span>Re-Embed Now</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="EnableCrossModelSearch">
+                            Skip - Use Cross-Model Search
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (reEmbedStarted)
+        {
+            <div class="col-12 mt-3">
+                <div class="alert alert-info" role="alert">
+                    <strong>Re-embedding in progress.</strong>
+                    Documents are being re-embedded in the background. Cross-model search has been enabled automatically
+                    so all documents remain findable during the transition.
+                    <div class="mt-2">
+                        <small class="text-muted">Queue depth: @queueDepth</small>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 </EditForm>
 
 @inject OllamaConnectionTester OllamaTester
 @inject OpenAiConnectionTester OpenAiTester
 @inject AzureOpenAiConnectionTester AzureOpenAiTester
+@inject VectorModelDiscovery ModelDiscovery
+@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettingsMonitor
+@inject ISettingsStore SettingsStore
+@inject IIngestionQueue IngestionQueue
+@inject IServiceScopeFactory ScopeFactory
 
 @code {
     [Parameter]
@@ -140,6 +188,13 @@
     private bool isTestingConnection;
     private string? testMessage;
     private bool testSuccess;
+
+    // Legacy vector / re-embedding state
+    private bool showLegacyBanner;
+    private long legacyVectorCount;
+    private bool isReEmbedding;
+    private bool reEmbedStarted;
+    private int queueDepth;
 
     private bool IsOllama => localSettings.Provider is null or "Ollama";
     private bool IsOpenAi => localSettings.Provider == "OpenAI";
@@ -193,12 +248,107 @@
 
     private async Task HandleSubmit()
     {
+        // Save via parent callback (triggers API call)
         await OnSave.InvokeAsync(localSettings);
+
+        // Check for legacy vectors after save
+        await CheckForLegacyVectors();
+    }
+
+    private async Task CheckForLegacyVectors()
+    {
+        try
+        {
+            var hasLegacy = await ModelDiscovery.HasLegacyVectorsAsync(localSettings.Model);
+            if (hasLegacy)
+            {
+                var models = await ModelDiscovery.GetModelsAsync();
+                legacyVectorCount = models
+                    .Where(m => !string.Equals(m.ModelId, localSettings.Model, StringComparison.OrdinalIgnoreCase))
+                    .Sum(m => m.VectorCount);
+                showLegacyBanner = legacyVectorCount > 0;
+            }
+            else
+            {
+                showLegacyBanner = false;
+            }
+        }
+        catch
+        {
+            showLegacyBanner = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task StartReEmbed()
+    {
+        isReEmbedding = true;
+        StateHasChanged();
+
+        try
+        {
+            // Enable cross-model search during re-embedding so documents remain findable
+            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
+            if (!searchSettings.EnableCrossModelSearch)
+            {
+                searchSettings.EnableCrossModelSearch = true;
+                await SettingsStore.SaveAsync("search", searchSettings);
+            }
+
+            // Fire-and-forget reindex via IReindexService (same pattern as SettingsEndpoints)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var scope = ScopeFactory.CreateAsyncScope();
+                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
+                    await reindexService.ReindexAsync(new ReindexOptions
+                    {
+                        DetectSettingsChanges = true
+                    }, CancellationToken.None);
+                }
+                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
+            });
+
+            showLegacyBanner = false;
+            reEmbedStarted = true;
+            queueDepth = IngestionQueue.QueueDepth;
+        }
+        catch { /* Best-effort */ }
+        finally
+        {
+            isReEmbedding = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task EnableCrossModelSearch()
+    {
+        try
+        {
+            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
+            searchSettings.EnableCrossModelSearch = true;
+            await SettingsStore.SaveAsync("search", searchSettings);
+
+            showLegacyBanner = false;
+            testSuccess = true;
+            testMessage = "Cross-model search enabled. Legacy documents will appear in Hybrid search results.";
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Failed to enable cross-model search: {ex.Message}";
+        }
+
+        StateHasChanged();
     }
 
     private void Reset()
     {
         localSettings = Settings with { };
+        showLegacyBanner = false;
+        reEmbedStarted = false;
     }
 
     private async Task TestConnection()
