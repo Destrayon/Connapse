@@ -41,6 +41,8 @@ public static class SettingsEndpoints
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "websearch" => Results.Ok(await GetSettingsAsync<WebSearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "storage" => Results.Ok(await GetSettingsAsync<StorageSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "awssso" => Results.Ok(await GetSettingsAsync<AwsSsoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "azuread" => Results.Ok(await GetSettingsAsync<AzureAdSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 _ => Results.BadRequest(new { error = $"Unknown category: {category}" })
             };
         })
@@ -69,6 +71,8 @@ public static class SettingsEndpoints
                     "upload" => JsonSerializer.Deserialize<UploadSettings>(settingsJson.GetRawText(), JsonOptions),
                     "websearch" => JsonSerializer.Deserialize<WebSearchSettings>(settingsJson.GetRawText(), JsonOptions),
                     "storage" => JsonSerializer.Deserialize<StorageSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "awssso" => JsonSerializer.Deserialize<AwsSsoSettings>(settingsJson.GetRawText(), JsonOptions),
+                    "azuread" => JsonSerializer.Deserialize<AzureAdSettings>(settingsJson.GetRawText(), JsonOptions),
                     _ => null
                 };
 
@@ -102,6 +106,8 @@ public static class SettingsEndpoints
             [FromBody] TestConnectionRequest request,
             [FromServices] OllamaConnectionTester ollamaTester,
             [FromServices] MinioConnectionTester minioTester,
+            [FromServices] AwsSsoConnectionTester awsSsoTester,
+            [FromServices] AzureAdConnectionTester azureAdTester,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -124,6 +130,8 @@ public static class SettingsEndpoints
                     "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, request.TimeoutSeconds, ct),
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, request.TimeoutSeconds, ct),
                     "storage" => await TestStorageConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
+                    "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
+                    "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
                     _ => ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing")
                 };
 
@@ -211,9 +219,41 @@ public static class SettingsEndpoints
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
+
+    private static async Task<ConnectionTestResult> TestAwsSsoConnection(
+        JsonElement settingsJson,
+        AwsSsoConnectionTester tester,
+        int? timeoutSeconds,
+        CancellationToken ct)
+    {
+        var settings = JsonSerializer.Deserialize<AwsSsoSettings>(settingsJson.GetRawText(), JsonOptions);
+        if (settings == null)
+        {
+            return ConnectionTestResult.CreateFailure("Invalid AwsSsoSettings");
+        }
+
+        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+        return await tester.TestConnectionAsync(settings, timeout, ct);
+    }
+
+    private static async Task<ConnectionTestResult> TestAzureAdConnection(
+        JsonElement settingsJson,
+        AzureAdConnectionTester tester,
+        int? timeoutSeconds,
+        CancellationToken ct)
+    {
+        var settings = JsonSerializer.Deserialize<AzureAdSettings>(settingsJson.GetRawText(), JsonOptions);
+        if (settings == null)
+        {
+            return ConnectionTestResult.CreateFailure("Invalid AzureAdSettings");
+        }
+
+        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+        return await tester.TestConnectionAsync(settings, timeout, ct);
+    }
 }
 
-// Request DTO
+// Request DTOs
 public record TestConnectionRequest(
     string Category,
     JsonElement Settings,

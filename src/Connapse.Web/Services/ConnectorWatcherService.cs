@@ -3,8 +3,6 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
-using Connapse.Storage.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,9 +11,10 @@ using Microsoft.Extensions.Options;
 namespace Connapse.Web.Services;
 
 /// <summary>
-/// BackgroundService that manages FileSystemWatcher instances for all Filesystem containers.
-/// Events are debounced (750ms) before triggering ingestion or deletion.
-/// A periodic full rescan runs every 5 minutes as a fallback for buffer overflow events.
+/// BackgroundService that manages file change detection for all watchable containers.
+/// Filesystem containers use FileSystemWatcher with 750ms debounce.
+/// Cloud containers (S3, AzureBlob, MinIO) use 5-minute polling with delta detection.
+/// A periodic rescan runs every 5 minutes as a fallback for all container types.
 /// </summary>
 public class ConnectorWatcherService : BackgroundService
 {
@@ -36,8 +35,12 @@ public class ConnectorWatcherService : BackgroundService
     // Cached root paths per container for virtual-path computation
     private readonly ConcurrentDictionary<Guid, string> _rootPaths = new();
 
+    // In-memory snapshots for cloud container delta detection: containerId → (path → (LastModified, SizeBytes))
+    private readonly ConcurrentDictionary<Guid, Dictionary<string, (DateTime LastModified, long SizeBytes)>> _cloudSnapshots = new();
+
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RescanInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CloudPollInterval = TimeSpan.FromMinutes(5);
 
     public ConnectorWatcherService(
         IServiceScopeFactory scopeFactory,
@@ -61,17 +64,17 @@ public class ConnectorWatcherService : BackgroundService
         // are also cancelled when the BackgroundService stops.
         stoppingToken.Register(_masterCts.Cancel);
 
-        // Load all Filesystem containers on startup and start watchers
+        // Load all watchable containers on startup and start watchers/pollers
         await using var scope = _scopeFactory.CreateAsyncScope();
         var containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
         var containers = await containerStore.ListAsync(stoppingToken);
 
-        foreach (var container in containers.Where(c => c.ConnectorType == ConnectorType.Filesystem))
+        foreach (var container in containers.Where(c => IsWatchableConnector(c.ConnectorType)))
         {
             StartWatchingContainer(container, stoppingToken);
         }
 
-        // Periodic rescan loop (fallback for FileSystemWatcher buffer overflow)
+        // Periodic rescan loop (fallback for FileSystemWatcher buffer overflow + cloud poll)
         using var rescanTimer = new PeriodicTimer(RescanInterval);
         while (await rescanTimer.WaitForNextTickAsync(stoppingToken))
         {
@@ -80,12 +83,12 @@ public class ConnectorWatcherService : BackgroundService
     }
 
     /// <summary>
-    /// Called when a new Filesystem container is created at runtime.
-    /// Starts a watcher and performs an initial sync.
+    /// Called when a container is created at runtime.
+    /// Starts a FileSystemWatcher (Filesystem) or a polling loop (S3, AzureBlob, MinIO).
     /// </summary>
     public void StartWatchingContainer(Container container, CancellationToken stoppingToken = default)
     {
-        if (container.ConnectorType != ConnectorType.Filesystem)
+        if (!IsWatchableConnector(container.ConnectorType))
             return;
 
         if (_watcherCts.ContainsKey(Guid.Parse(container.Id)))
@@ -97,12 +100,19 @@ public class ConnectorWatcherService : BackgroundService
         var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _masterCts.Token);
         _watcherCts[Guid.Parse(container.Id)] = cts;
 
-        _ = Task.Run(() => WatchContainerAsync(container, cts.Token), cts.Token);
-        _ = Task.Run(() => InitialSyncAsync(container, cts.Token), cts.Token);
+        if (container.ConnectorType == ConnectorType.Filesystem)
+        {
+            _ = Task.Run(() => WatchContainerAsync(container, cts.Token), cts.Token);
+            _ = Task.Run(() => InitialSyncAsync(container, cts.Token), cts.Token);
+        }
+        else
+        {
+            _ = Task.Run(() => PollCloudContainerAsync(container, cts.Token), cts.Token);
+        }
     }
 
     /// <summary>
-    /// Called when a Filesystem container is deleted — stops its watcher.
+    /// Called when a container is deleted — stops its watcher or polling loop.
     /// </summary>
     public void StopWatchingContainer(Guid containerId)
     {
@@ -111,6 +121,7 @@ public class ConnectorWatcherService : BackgroundService
             cts.Cancel();
             cts.Dispose();
         }
+        _cloudSnapshots.TryRemove(containerId, out _);
     }
 
     private async Task WatchContainerAsync(Container container, CancellationToken ct)
@@ -383,6 +394,193 @@ public class ConnectorWatcherService : BackgroundService
         }
     }
 
+    private async Task PollCloudContainerAsync(Container container, CancellationToken ct)
+    {
+        var containerId = Guid.Parse(container.Id);
+        _logger.LogInformation(
+            "Starting cloud polling for {ConnectorType} container '{ContainerName}'",
+            container.ConnectorType, container.Name);
+
+        // Initial sync: detect creates and deletes against DB (no change detection without a snapshot)
+        await CloudSyncAsync(container, ct);
+
+        // Polling loop
+        using var pollTimer = new PeriodicTimer(CloudPollInterval);
+        while (await pollTimer.WaitForNextTickAsync(ct))
+        {
+            try
+            {
+                await CloudSyncAsync(container, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Error polling cloud container '{ContainerName}'. Will retry next cycle.",
+                    container.Name);
+            }
+        }
+    }
+
+    internal async Task CloudSyncAsync(Container container, CancellationToken ct)
+    {
+        var containerId = Guid.Parse(container.Id);
+
+        IConnector connector;
+        try
+        {
+            connector = _connectorFactory.Create(container);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to create connector for cloud container '{ContainerName}' ({ContainerId}). Skipping poll.",
+                container.Name, containerId);
+            return;
+        }
+
+        try
+        {
+            var remoteFiles = await connector.ListFilesAsync(ct: ct);
+            var remoteByPath = new Dictionary<string, ConnectorFile>(remoteFiles.Count);
+            foreach (var file in remoteFiles)
+            {
+                var vp = file.Path.StartsWith('/') ? file.Path : "/" + file.Path;
+                remoteByPath[vp] = file;
+            }
+
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            var existingDocs = await documentStore.ListAsync(containerId, ct: ct);
+            var existingByPath = existingDocs.ToDictionary(d => d.Path);
+
+            _cloudSnapshots.TryGetValue(containerId, out var previousSnapshot);
+
+            // Phase 1: Build the complete change set before processing anything.
+            // Pre-generate document IDs so we can notify the UI before ingestion starts.
+            var toCreate = new List<(string VirtualPath, string? ContentType, string DocumentId)>();
+            var toUpdate = new List<(string VirtualPath, string? ContentType, string DocumentId)>();
+            var toDelete = new List<string>(); // virtual paths
+
+            foreach (var (virtualPath, file) in remoteByPath)
+            {
+                if (!existingByPath.TryGetValue(virtualPath, out var existing))
+                {
+                    toCreate.Add((virtualPath, file.ContentType, Guid.NewGuid().ToString()));
+                }
+                else if (previousSnapshot is not null
+                    && previousSnapshot.TryGetValue(virtualPath, out var prev)
+                    && (prev.LastModified != file.LastModified || prev.SizeBytes != file.SizeBytes))
+                {
+                    var status = existing.Metadata.GetValueOrDefault("Status");
+                    if (status is not ("Pending" or "Queued" or "Processing"))
+                        toUpdate.Add((virtualPath, file.ContentType, existing.Id));
+                }
+            }
+
+            foreach (var doc in existingDocs)
+            {
+                if (!remoteByPath.ContainsKey(doc.Path))
+                    toDelete.Add(doc.Path);
+            }
+
+            if (toCreate.Count > 0 || toUpdate.Count > 0 || toDelete.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Cloud sync for '{ContainerName}': found {Created} new, {Changed} changed, {Deleted} deleted — processing",
+                    container.Name, toCreate.Count, toUpdate.Count, toDelete.Count);
+
+                // Phase 2: Notify the file browser for ALL new/changed files at once before ingestion starts.
+                // This lets the UI show every detected file immediately (with "Queued" status).
+                // Deletes are notified by DeleteDocumentByVirtualPathAsync in Phase 3.
+                foreach (var (virtualPath, _, documentId) in toCreate)
+                    _fileChangeNotifier.NotifyAdded(container.Id, virtualPath, Path.GetFileName(virtualPath), documentId);
+
+                foreach (var (virtualPath, _, documentId) in toUpdate)
+                    _fileChangeNotifier.NotifyAdded(container.Id, virtualPath, Path.GetFileName(virtualPath), documentId);
+
+                // Phase 2b: Pre-register new documents in the database with "Pending" status
+                // so they appear in the file browser immediately, before embedding starts.
+                foreach (var (virtualPath, contentType, documentId) in toCreate)
+                {
+                    var remoteFile = remoteByPath[virtualPath];
+                    await documentStore.StoreAsync(new Document(
+                        Id: documentId,
+                        ContainerId: container.Id,
+                        FileName: Path.GetFileName(virtualPath),
+                        ContentType: contentType ?? GetContentType(Path.GetFileName(virtualPath)),
+                        Path: virtualPath,
+                        SizeBytes: remoteFile.SizeBytes,
+                        CreatedAt: DateTime.UtcNow,
+                        Metadata: new Dictionary<string, string>
+                        {
+                            ["Source"] = "CloudPoll",
+                            ["SyncedAt"] = DateTime.UtcNow.ToString("O")
+                        }), ct);
+                }
+
+                // Phase 3: Enqueue ingestion jobs and delete DB records
+                foreach (var (virtualPath, contentType, documentId) in toCreate)
+                    await EnqueueCloudIngestionAsync(container, virtualPath, contentType, ct, documentId);
+
+                foreach (var (virtualPath, contentType, documentId) in toUpdate)
+                    await EnqueueCloudIngestionAsync(container, virtualPath, contentType, ct, documentId);
+
+                foreach (var virtualPath in toDelete)
+                    await DeleteDocumentByVirtualPathAsync(containerId, virtualPath, ct);
+            }
+
+            // Update snapshot for next poll
+            var newSnapshot = new Dictionary<string, (DateTime LastModified, long SizeBytes)>(remoteByPath.Count);
+            foreach (var (vp, file) in remoteByPath)
+                newSnapshot[vp] = (file.LastModified, file.SizeBytes);
+            _cloudSnapshots[containerId] = newSnapshot;
+        }
+        finally
+        {
+            if (connector is IDisposable d) d.Dispose();
+        }
+    }
+
+    private async Task EnqueueCloudIngestionAsync(
+        Container container, string virtualPath, string? contentType, CancellationToken ct, string? existingDocumentId = null)
+    {
+        var fileName = Path.GetFileName(virtualPath);
+        var documentId = existingDocumentId ?? Guid.NewGuid().ToString();
+        contentType ??= GetContentType(fileName);
+
+        var strategy = Enum.TryParse<ChunkingStrategy>(_chunkingSettings.CurrentValue.Strategy, ignoreCase: true, out var parsed)
+            ? parsed
+            : ChunkingStrategy.Recursive;
+
+        var job = new IngestionJob(
+            JobId: Guid.NewGuid().ToString(),
+            DocumentId: documentId,
+            Path: virtualPath,
+            Options: new IngestionOptions(
+                DocumentId: documentId,
+                FileName: fileName,
+                ContentType: contentType,
+                ContainerId: container.Id,
+                Path: virtualPath,
+                Strategy: strategy,
+                Metadata: new Dictionary<string, string>
+                {
+                    ["OriginalFileName"] = fileName,
+                    ["Source"] = "CloudPoll",
+                    ["SyncedAt"] = DateTime.UtcNow.ToString("O")
+                }));
+
+        await _queue.EnqueueAsync(job, ct);
+
+        _logger.LogInformation(
+            "Enqueued cloud ingestion for '{VirtualPath}' in container '{ContainerName}'",
+            virtualPath, container.Name);
+
+        // NotifyAdded is called in bulk by CloudSyncAsync Phase 2 (before enqueue),
+        // so we don't duplicate it here.
+    }
+
     private async Task RescanAllAsync(CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -392,6 +590,19 @@ public class ConnectorWatcherService : BackgroundService
         foreach (var container in containers.Where(c => c.ConnectorType == ConnectorType.Filesystem))
         {
             await InitialSyncAsync(container, ct);
+        }
+
+        // Cloud containers are polled by their own PollCloudContainerAsync loops,
+        // but RescanAllAsync serves as a safety net (e.g. if a polling task died).
+        foreach (var container in containers.Where(c => IsCloudConnector(c.ConnectorType)))
+        {
+            if (!_watcherCts.ContainsKey(Guid.Parse(container.Id)))
+            {
+                _logger.LogWarning(
+                    "Cloud container '{ContainerName}' has no active polling task. Restarting.",
+                    container.Name);
+                StartWatchingContainer(container);
+            }
         }
     }
 
@@ -421,6 +632,12 @@ public class ConnectorWatcherService : BackgroundService
 
         return "/" + Path.GetFileName(absPath);
     }
+
+    private static bool IsWatchableConnector(ConnectorType type) =>
+        type is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO;
+
+    private static bool IsCloudConnector(ConnectorType type) =>
+        type is ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO;
 
     private static string? GetContentType(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch

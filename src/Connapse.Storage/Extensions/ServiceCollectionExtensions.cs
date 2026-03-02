@@ -106,11 +106,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
+        services.AddScoped<AwsSsoConnectionTester>();
+        services.AddScoped<AzureAdConnectionTester>();
 
         // Cloud scope discovery
         services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();
         services.AddScoped<ICloudIdentityProvider, AzureIdentityProvider>();
         services.AddSingleton<IConnectorScopeCache, ConnectorScopeCache>();
+
+        // AWS SSO client registration and token exchange
+        services.AddScoped<IAwsSsoClientRegistrar, AwsSsoClientRegistrar>();
 
         return services;
     }

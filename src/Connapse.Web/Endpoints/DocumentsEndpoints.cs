@@ -36,6 +36,9 @@ public static class DocumentsEndpoints
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeDenied is not null) return scopeDenied;
 
+            if (IsReadOnlyConnector(container.ConnectorType))
+                return ReadOnlyResult(container);
+
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
@@ -271,6 +274,9 @@ public static class DocumentsEndpoints
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeDenied is not null) return scopeDenied;
 
+            if (IsReadOnlyConnector(container.ConnectorType))
+                return ReadOnlyResult(container);
+
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
@@ -362,6 +368,16 @@ public static class DocumentsEndpoints
             message = scopeResult.Error ?? "Access denied.",
             containerId = containerId.ToString()
         }, statusCode: 403);
+
+    private static bool IsReadOnlyConnector(ConnectorType type) =>
+        type is ConnectorType.S3 or ConnectorType.AzureBlob;
+
+    private static IResult ReadOnlyResult(Container container) =>
+        Results.BadRequest(new
+        {
+            error = "read_only_container",
+            message = $"{container.ConnectorType} containers are read-only. Files are synced from the source."
+        });
 
     private static Guid? GetUserId(HttpContext httpContext)
     {

@@ -63,9 +63,9 @@ public static class ContainersEndpoints
             await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
                 new { container.Name, container.ConnectorType }, ct);
 
-            // For Filesystem containers: start watching and perform initial sync
-            if (container.ConnectorType == ConnectorType.Filesystem)
-                watcherService.StartWatchingContainer(container);
+            // Start watching (Filesystem) or polling (S3/AzureBlob/MinIO).
+            // InMemory containers are skipped internally by the watcher service.
+            watcherService.StartWatchingContainer(container);
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
@@ -126,9 +126,8 @@ public static class ContainersEndpoints
             await auditLogger.LogAsync("container.deleted", "container", containerId.ToString(),
                 new { Name = container.Name }, ct);
 
-            // Stop the filesystem watcher if one was running for this container.
-            if (container.ConnectorType == ConnectorType.Filesystem)
-                watcherService.StopWatchingContainer(containerId);
+            // Stop the watcher/poller if one was running for this container.
+            watcherService.StopWatchingContainer(containerId);
 
             return Results.NoContent();
         })
@@ -294,6 +293,9 @@ public static class ContainersEndpoints
                 ? parsed
                 : ChunkingStrategy.Recursive;
 
+            // Collect jobs to enqueue, pre-registering new documents in the DB first
+            var jobsToEnqueue = new List<IngestionJob>();
+
             foreach (var file in remoteFiles)
             {
                 var virtualPath = file.Path.StartsWith('/') ? file.Path : "/" + file.Path;
@@ -309,10 +311,29 @@ public static class ContainersEndpoints
                 }
 
                 var fileName = Path.GetFileName(virtualPath);
-                var documentId = existingByPath.TryGetValue(virtualPath, out var doc) ? doc.Id : Guid.NewGuid().ToString();
+                var isNew = !existingByPath.TryGetValue(virtualPath, out var doc);
+                var documentId = isNew ? Guid.NewGuid().ToString() : doc!.Id;
                 var contentType = GetContentType(fileName);
 
-                var job = new IngestionJob(
+                // Pre-register new documents so they appear in the file browser immediately
+                if (isNew)
+                {
+                    await documentStore.StoreAsync(new Document(
+                        Id: documentId,
+                        ContainerId: container.Id,
+                        FileName: fileName,
+                        ContentType: contentType,
+                        Path: virtualPath,
+                        SizeBytes: file.SizeBytes,
+                        CreatedAt: DateTime.UtcNow,
+                        Metadata: new Dictionary<string, string>
+                        {
+                            ["Source"] = "ConnectorSync",
+                            ["SyncedAt"] = DateTime.UtcNow.ToString("O")
+                        }), ct);
+                }
+
+                jobsToEnqueue.Add(new IngestionJob(
                     JobId: Guid.NewGuid().ToString(),
                     DocumentId: documentId,
                     Path: virtualPath,
@@ -329,11 +350,13 @@ public static class ContainersEndpoints
                             ["Source"] = "ConnectorSync",
                             ["SyncedAt"] = DateTime.UtcNow.ToString("O")
                         }),
-                    BatchId: batchId);
+                    BatchId: batchId));
 
-                await queue.EnqueueAsync(job, ct);
                 enqueued++;
             }
+
+            foreach (var job in jobsToEnqueue)
+                await queue.EnqueueAsync(job, ct);
 
             await auditLogger.LogAsync("container.synced", "container", containerId.ToString(),
                 new { enqueued, skipped, total = remoteFiles.Count }, ct);

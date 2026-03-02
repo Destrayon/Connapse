@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using Connapse.Identity.Stores;
@@ -17,60 +18,67 @@ public class CloudIdentityServiceTests
     private readonly ICloudIdentityStore _store = Substitute.For<ICloudIdentityStore>();
     private readonly IDataProtectionProvider _dpProvider;
     private readonly IOptionsMonitor<AzureAdSettings> _azureAdOptions;
-    private readonly IOptionsMonitor<JwtSettings> _jwtOptions;
+    private readonly IOptionsMonitor<AwsSsoSettings> _awsSsoOptions;
+    private readonly IAwsSsoClientRegistrar _awsSsoRegistrar = Substitute.For<IAwsSsoClientRegistrar>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
 
     private readonly AzureAdSettings _azureAdSettings = new()
     {
         ClientId = "test-client-id",
         TenantId = "test-tenant-id",
-        ClientSecret = "test-secret"
+        ClientSecret = "test-client-secret"
     };
 
-    private readonly JwtSettings _jwtSettings = new()
+    private readonly AwsSsoSettings _awsSsoSettings = new()
     {
-        SigningAlgorithm = "HS256"
+        IssuerUrl = "https://d-123456.awsapps.com/start",
+        Region = "us-east-1",
+        ClientId = "test-sso-client-id",
+        ClientSecret = "test-sso-client-secret",
+        ClientSecretExpiresAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds()
     };
 
     public CloudIdentityServiceTests()
     {
-        // Use the ephemeral data protection provider for tests
         _dpProvider = new EphemeralDataProtectionProvider();
 
         _azureAdOptions = Substitute.For<IOptionsMonitor<AzureAdSettings>>();
         _azureAdOptions.CurrentValue.Returns(_azureAdSettings);
 
-        _jwtOptions = Substitute.For<IOptionsMonitor<JwtSettings>>();
-        _jwtOptions.CurrentValue.Returns(_jwtSettings);
+        _awsSsoOptions = Substitute.For<IOptionsMonitor<AwsSsoSettings>>();
+        _awsSsoOptions.CurrentValue.Returns(_awsSsoSettings);
+
+        _awsSsoRegistrar.EnsureRegisteredAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => callInfo.Arg<AwsSsoSettings>());
     }
 
     private ICloudIdentityService CreateService() =>
-        new CloudIdentityService(_store, _dpProvider, _azureAdOptions, _jwtOptions, _httpClientFactory,
-            NullLogger<CloudIdentityService>.Instance);
+        new CloudIdentityService(_store, _dpProvider, _azureAdOptions, _awsSsoOptions,
+            _awsSsoRegistrar, _httpClientFactory, NullLogger<CloudIdentityService>.Instance);
 
-    // ── IsRs256Enabled ────────────────────────────────────────────────────
+    // ── IsAwsSsoConfigured ────────────────────────────────────────────────
 
     [Fact]
-    public void IsRs256Enabled_HS256_ReturnsFalse()
+    public void IsAwsSsoConfigured_WithIssuerUrlAndRegion_ReturnsTrue()
     {
         var sut = CreateService();
-        sut.IsRs256Enabled().Should().BeFalse();
+        sut.IsAwsSsoConfigured().Should().BeTrue();
     }
 
     [Fact]
-    public void IsRs256Enabled_RS256_ReturnsTrue()
+    public void IsAwsSsoConfigured_MissingIssuerUrl_ReturnsFalse()
     {
-        _jwtSettings.SigningAlgorithm = "RS256";
+        _awsSsoSettings.IssuerUrl = "";
         var sut = CreateService();
-        sut.IsRs256Enabled().Should().BeTrue();
+        sut.IsAwsSsoConfigured().Should().BeFalse();
     }
 
     [Fact]
-    public void IsRs256Enabled_EmptyAlgorithm_ReturnsFalse()
+    public void IsAwsSsoConfigured_MissingRegion_ReturnsFalse()
     {
-        _jwtSettings.SigningAlgorithm = "";
+        _awsSsoSettings.Region = "";
         var sut = CreateService();
-        sut.IsRs256Enabled().Should().BeFalse();
+        sut.IsAwsSsoConfigured().Should().BeFalse();
     }
 
     // ── IsAzureAdConfigured ───────────────────────────────────────────────
@@ -98,28 +106,77 @@ public class CloudIdentityServiceTests
         sut.IsAzureAdConfigured().Should().BeFalse();
     }
 
-    // ── ConnectAws ────────────────────────────────────────────────────────
+    // ── StartAwsDeviceAuthAsync ───────────────────────────────────────────
 
     [Fact]
-    public async Task ConnectAws_Rs256NotEnabled_ReturnsFailure()
+    public async Task StartAwsDeviceAuthAsync_CallsEnsureRegistered()
     {
-        var sut = CreateService();
-        var result = await sut.ConnectAwsAsync(Guid.NewGuid());
+        _awsSsoRegistrar.StartDeviceAuthorizationAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new AwsDeviceAuthorizationResult("device-code", "USER-CODE", "https://device.sso.us-east-1.amazonaws.com", "https://device.sso.us-east-1.amazonaws.com/?user_code=USER-CODE", 600, 5));
 
-        result.Success.Should().BeFalse();
-        result.Error.Should().Contain("RS256");
-        result.Identity.Should().BeNull();
+        var sut = CreateService();
+        await sut.StartAwsDeviceAuthAsync();
+
+        await _awsSsoRegistrar.Received(1).EnsureRegisteredAsync(
+            Arg.Any<AwsSsoSettings>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ConnectAws_Rs256Enabled_ReturnsNotImplementedYet()
+    public async Task StartAwsDeviceAuthAsync_ReturnsDeviceAuthResult()
     {
-        _jwtSettings.SigningAlgorithm = "RS256";
-        var sut = CreateService();
-        var result = await sut.ConnectAwsAsync(Guid.NewGuid());
+        _awsSsoRegistrar.StartDeviceAuthorizationAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new AwsDeviceAuthorizationResult("device-code", "ABCD-EFGH", "https://device.sso.us-east-1.amazonaws.com", "https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH", 600, 5));
 
-        result.Success.Should().BeFalse();
-        result.Error.Should().Contain("not yet implemented");
+        var sut = CreateService();
+        var result = await sut.StartAwsDeviceAuthAsync();
+
+        result.UserCode.Should().Be("ABCD-EFGH");
+        result.DeviceCode.Should().Be("device-code");
+        result.VerificationUri.Should().Contain("device.sso");
+        result.ExpiresInSeconds.Should().Be(600);
+        result.IntervalSeconds.Should().Be(5);
+    }
+
+    [Fact]
+    public async Task PollAwsDeviceAuthAsync_Pending_ReturnsNull()
+    {
+        _awsSsoRegistrar.PollForTokenAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((string?)null);
+
+        var sut = CreateService();
+        var result = await sut.PollAwsDeviceAuthAsync(Guid.NewGuid(), "device-code");
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PollAwsDeviceAuthAsync_Complete_StoresIdentityAndReturnsDto()
+    {
+        var userId = Guid.NewGuid();
+        _awsSsoRegistrar.PollForTokenAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("access-token-123");
+        _awsSsoRegistrar.ListUserAccountsAsync(Arg.Any<AwsSsoSettings>(), "access-token-123", Arg.Any<CancellationToken>())
+            .Returns(new AwsSsoUserInfo("111222333444", "111222333444", "Test Account"));
+
+        _store.GetByUserAndProviderAsync(userId, CloudProvider.AWS, Arg.Any<CancellationToken>())
+            .Returns((UserCloudIdentityEntity?)null);
+        _store.CreateAsync(Arg.Any<UserCloudIdentityEntity>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var e = callInfo.Arg<UserCloudIdentityEntity>();
+                e.Id = Guid.NewGuid();
+                e.CreatedAt = DateTime.UtcNow;
+                return e;
+            });
+
+        var sut = CreateService();
+        var result = await sut.PollAwsDeviceAuthAsync(userId, "device-code");
+
+        result.Should().NotBeNull();
+        result!.Provider.Should().Be(CloudProvider.AWS);
+        result.Data.AccountId.Should().Be("111222333444");
+        result.Data.DisplayName.Should().Be("Test Account");
     }
 
     // ── GetAzureConnectUrl ────────────────────────────────────────────────
@@ -140,9 +197,8 @@ public class CloudIdentityServiceTests
     }
 
     [Fact]
-    public void GetAzureConnectUrl_AutoDerivesRedirectUri_WhenNotConfigured()
+    public void GetAzureConnectUrl_AutoDerivesRedirectUri()
     {
-        _azureAdSettings.RedirectUri = "";
         var sut = CreateService();
         var result = sut.GetAzureConnectUrl("https://connapse.local");
 
@@ -150,13 +206,15 @@ public class CloudIdentityServiceTests
     }
 
     [Fact]
-    public void GetAzureConnectUrl_UsesConfiguredRedirectUri_WhenProvided()
+    public void GetAzureConnectUrl_IncludesPkceParameters()
     {
-        _azureAdSettings.RedirectUri = "https://custom.redirect/callback";
         var sut = CreateService();
         var result = sut.GetAzureConnectUrl("https://connapse.local");
 
-        result.AuthorizeUrl.Should().Contain("custom.redirect");
+        result.AuthorizeUrl.Should().Contain("code_challenge=");
+        result.AuthorizeUrl.Should().Contain("code_challenge_method=S256");
+        result.CodeVerifier.Should().NotBeNullOrEmpty();
+        result.CodeVerifier.Length.Should().BeGreaterThanOrEqualTo(43);
     }
 
     [Fact]
@@ -167,6 +225,16 @@ public class CloudIdentityServiceTests
         var result2 = sut.GetAzureConnectUrl("https://connapse.local");
 
         result1.State.Should().NotBe(result2.State);
+    }
+
+    [Fact]
+    public void GetAzureConnectUrl_GeneratesUniqueCodeVerifier_EachCall()
+    {
+        var sut = CreateService();
+        var result1 = sut.GetAzureConnectUrl("https://connapse.local");
+        var result2 = sut.GetAzureConnectUrl("https://connapse.local");
+
+        result1.CodeVerifier.Should().NotBe(result2.CodeVerifier);
     }
 
     // ── Disconnect ────────────────────────────────────────────────────────

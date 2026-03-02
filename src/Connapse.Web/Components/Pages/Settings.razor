@@ -13,6 +13,8 @@
 @inject IOptionsMonitor<UploadSettings> UploadOptions
 @inject IOptionsMonitor<WebSearchSettings> WebSearchOptions
 @inject IOptionsMonitor<StorageSettings> StorageOptions
+@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
+@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -82,6 +84,20 @@
                 Storage
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
+                    @onclick='() => activeTab = "awssso"'
+                    type="button">
+                AWS SSO
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
+                    @onclick='() => activeTab = "azuread"'
+                    type="button">
+                Azure AD
+            </button>
+        </li>
     </ul>
 
     <!-- Tab Content -->
@@ -114,6 +130,14 @@
         {
             <StorageSettingsTab Settings="storageSettings" OnSave="SaveStorageSettings" />
         }
+        else if (activeTab == "awssso")
+        {
+            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
+        }
+        else if (activeTab == "azuread")
+        {
+            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
+        }
     </div>
 </div>
 
@@ -129,6 +153,8 @@
     private UploadSettings uploadSettings = new();
     private WebSearchSettings webSearchSettings = new();
     private StorageSettings storageSettings = new();
+    private AwsSsoSettings awsSsoSettings = new();
+    private AzureAdSettings azureAdSettings = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -140,6 +166,8 @@
         uploadSettings = UploadOptions.CurrentValue;
         webSearchSettings = WebSearchOptions.CurrentValue;
         storageSettings = StorageOptions.CurrentValue;
+        awsSsoSettings = AwsSsoOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
@@ -182,6 +210,18 @@
     {
         await SaveSettings("Storage", settings);
         storageSettings = settings;
+    }
+
+    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
+    {
+        await SaveSettings("awssso", settings);
+        awsSsoSettings = settings;
+    }
+
+    private async Task SaveAzureAdSettings(AzureAdSettings settings)
+    {
+        await SaveSettings("azuread", settings);
+        azureAdSettings = settings;
     }
 
     private async Task SaveSettings<T>(string category, T settings) where T : class

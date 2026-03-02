@@ -9,11 +9,11 @@ public interface ICloudIdentityService
     Task<bool> DisconnectAsync(Guid userId, CloudProvider provider, CancellationToken ct = default);
 
     AzureConnectResult GetAzureConnectUrl(string baseUrl);
-    Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string redirectUri, CancellationToken ct = default);
+    Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string codeVerifier, string redirectUri, CancellationToken ct = default);
 
-    Task<CloudIdentityConnectResult> ConnectAwsAsync(Guid userId, CancellationToken ct = default);
-    bool IsRs256Enabled();
+    Task<AwsDeviceAuthStartResult> StartAwsDeviceAuthAsync(CancellationToken ct = default);
+    Task<CloudIdentityDto?> PollAwsDeviceAuthAsync(Guid userId, string deviceCode, CancellationToken ct = default);
+
+    bool IsAwsSsoConfigured();
     bool IsAzureAdConfigured();
 }
-
-public record CloudIdentityConnectResult(bool Success, string? Error, CloudIdentityDto? Identity);

@@ -9,5 +9,4 @@ public class JwtSettings
     public int RefreshTokenLifetimeDays { get; set; } = 7;
     public string Issuer { get; set; } = "Connapse";
     public string Audience { get; set; } = "Connapse";
-    public string SigningAlgorithm { get; set; } = "HS256";
 }

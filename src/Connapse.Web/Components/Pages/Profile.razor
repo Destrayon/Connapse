@@ -6,6 +6,7 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>Profile - Connapse</PageTitle>
 
@@ -67,24 +68,54 @@
                         }
                     </div>
 
-                    @if (!rs256Enabled)
+                    @if (!awsSsoConfigured)
                     {
                         <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
                             <small class="d-flex align-items-start" style="color: #fbbf24;">
-                                <span class="bi-exclamation-triangle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>RS256 JWT signing is required. An admin must enable it in <strong>Settings &gt; Security</strong>.</span>
+                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+                                <span>AWS SSO is not configured. An admin must set the IAM Identity Center Issuer URL and Region in settings.</span>
                             </small>
+                        </div>
+                    }
+                    else if (awsDeviceAuth is not null)
+                    {
+                        <!-- Device Authorization in progress -->
+                        <div class="rounded-3 p-3 mb-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <p class="small mb-2">Open the link below and enter this code:</p>
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <code style="font-size: 1.4rem; letter-spacing: 0.15em; padding: 0.5rem 1rem; background: rgba(0,0,0,0.2); border-radius: 0.5rem;">
+                                    @awsDeviceAuth.UserCode
+                                </code>
+                            </div>
+                            <div class="text-center">
+                                <a href="@awsDeviceAuth.VerificationUriComplete" target="_blank" rel="noopener noreferrer" class="small">
+                                    <span class="bi-box-arrow-up-right me-1"></span>Open AWS Sign-in
+                                </a>
+                            </div>
+                            <div class="text-center mt-2">
+                                <small class="text-muted">
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                    Waiting for authentication...
+                                </small>
+                            </div>
                         </div>
                     }
                     else if (awsIdentity is not null)
                     {
                         <div class="d-flex flex-column gap-2 mb-3">
+                            @if (!string.IsNullOrEmpty(awsIdentity.Data.DisplayName))
+                            {
+                                <div>
+                                    <small class="text-muted d-block">Display Name</small>
+                                    <span class="small">@awsIdentity.Data.DisplayName</span>
+                                </div>
+                            }
                             <div>
                                 <small class="text-muted d-block">Account ID</small>
                                 <span class="font-monospace small">@(awsIdentity.Data.AccountId ?? "—")</span>
                             </div>
                             <div>
-                                <small class="text-muted d-block">Principal ARN</small>
+                                <small class="text-muted d-block">AWS Accounts</small>
                                 <span class="font-monospace small text-break">@(awsIdentity.Data.PrincipalArn ?? "—")</span>
                             </div>
                             <div class="d-flex gap-4">
@@ -105,14 +136,20 @@
                     else
                     {
                         <p class="text-muted small mb-0">
-                            Connect your AWS identity to access S3 containers with your own IAM permissions.
+                            Sign in with your AWS IAM Identity Center account to access S3 containers with your own permissions.
                         </p>
                     }
                 </div>
-                @if (rs256Enabled)
+                @if (awsSsoConfigured)
                 {
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                        @if (awsIdentity is not null)
+                        @if (awsDeviceAuth is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAwsDeviceAuth">
+                                Cancel
+                            </button>
+                        }
+                        else if (awsIdentity is not null)
                         {
                             @if (confirmDisconnectProvider == CloudProvider.AWS)
                             {
@@ -134,12 +171,8 @@
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-primary" @onclick="ConnectAwsAsync" disabled="@isProcessing">
-                                @if (isProcessing)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                }
-                                <span class="bi-link-45deg me-1"></span>Connect AWS
+                            <button class="btn btn-sm btn-primary" @onclick="StartAwsDeviceAuthAsync" disabled="@isProcessing">
+                                <span class="bi-link-45deg me-1"></span>Sign in with AWS
                             </button>
                         }
                     </div>
@@ -261,8 +294,12 @@
 
     private CloudIdentityDto? awsIdentity;
     private CloudIdentityDto? azureIdentity;
-    private bool rs256Enabled;
+    private bool awsSsoConfigured;
     private bool azureAdConfigured;
+
+    // Device auth flow state
+    private AwsDeviceAuthStartResult? awsDeviceAuth;
+    private CancellationTokenSource? pollCts;
 
     protected override async Task OnInitializedAsync()
     {
@@ -277,7 +314,7 @@
         userEmail = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
             ?? user.Identity?.Name;
 
-        rs256Enabled = CloudIdentityService.IsRs256Enabled();
+        awsSsoConfigured = CloudIdentityService.IsAwsSsoConfigured();
         azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
 
         await LoadIdentitiesAsync();
@@ -292,38 +329,72 @@
 
     private void ConnectAzureAsync()
     {
-        // Navigate to the server-side endpoint which handles the OAuth redirect
         Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
     }
 
-    private async Task ConnectAwsAsync()
+    private async Task StartAwsDeviceAuthAsync()
     {
         isProcessing = true;
         statusMessage = null;
         try
         {
-            var result = await CloudIdentityService.ConnectAwsAsync(currentUserId);
-            if (result.Success)
-            {
-                statusMessage = "AWS identity connected successfully.";
-                statusSuccess = true;
-                await LoadIdentitiesAsync();
-            }
-            else
-            {
-                statusMessage = result.Error;
-                statusSuccess = false;
-            }
+            awsDeviceAuth = await CloudIdentityService.StartAwsDeviceAuthAsync();
+            _ = PollForAwsCompletionAsync(awsDeviceAuth.DeviceCode);
         }
         catch (Exception ex)
         {
-            statusMessage = $"Failed to connect AWS identity: {ex.Message}";
+            statusMessage = $"Failed to start AWS sign-in: {ex.Message}";
             statusSuccess = false;
+            awsDeviceAuth = null;
         }
         finally
         {
             isProcessing = false;
         }
+    }
+
+    private async Task PollForAwsCompletionAsync(string deviceCode)
+    {
+        pollCts?.Cancel();
+        pollCts = new CancellationTokenSource();
+        var ct = pollCts.Token;
+        var interval = awsDeviceAuth?.IntervalSeconds ?? 5;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(interval), ct);
+
+                var identity = await CloudIdentityService.PollAwsDeviceAuthAsync(currentUserId, deviceCode, ct);
+                if (identity is not null)
+                {
+                    awsIdentity = identity;
+                    awsDeviceAuth = null;
+                    statusMessage = "AWS identity connected successfully.";
+                    statusSuccess = true;
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancelled or component disposed
+        }
+        catch (Exception ex)
+        {
+            awsDeviceAuth = null;
+            statusMessage = $"AWS sign-in failed: {ex.Message}";
+            statusSuccess = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CancelAwsDeviceAuth()
+    {
+        pollCts?.Cancel();
+        awsDeviceAuth = null;
     }
 
     private async Task DisconnectAsync(CloudProvider provider)
@@ -355,5 +426,11 @@
         {
             isProcessing = false;
         }
+    }
+
+    public void Dispose()
+    {
+        pollCts?.Cancel();
+        pollCts?.Dispose();
     }
 }

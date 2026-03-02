@@ -20,8 +20,7 @@ public class JwtTokenService(
     public string GenerateAccessToken(IEnumerable<Claim> claims)
     {
         var settings = jwtSettings.CurrentValue;
-        var key = GetSigningKey(settings);
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var credentials = GetSigningCredentials(settings);
 
         var token = new JwtSecurityToken(
             issuer: settings.Issuer,
@@ -141,12 +140,11 @@ public class JwtTokenService(
     public ClaimsPrincipal? ValidateToken(string token)
     {
         var settings = jwtSettings.CurrentValue;
-        var key = GetSigningKey(settings);
 
         var validationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = key,
+            IssuerSigningKeys = GetValidationKeys(settings),
             ValidateIssuer = true,
             ValidIssuer = settings.Issuer,
             ValidateAudience = true,
@@ -167,7 +165,16 @@ public class JwtTokenService(
         }
     }
 
-    private static SymmetricSecurityKey GetSigningKey(JwtSettings settings)
+    private static SigningCredentials GetSigningCredentials(JwtSettings settings) =>
+        new(GetHs256Key(settings), SecurityAlgorithms.HmacSha256);
+
+    private static IEnumerable<SecurityKey> GetValidationKeys(JwtSettings settings)
+    {
+        if (!string.IsNullOrEmpty(settings.Secret))
+            yield return GetHs256Key(settings);
+    }
+
+    private static SymmetricSecurityKey GetHs256Key(JwtSettings settings)
     {
         var secret = settings.Secret
             ?? throw new InvalidOperationException(

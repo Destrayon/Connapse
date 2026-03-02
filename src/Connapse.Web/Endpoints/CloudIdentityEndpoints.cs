@@ -9,7 +9,8 @@ namespace Connapse.Web.Endpoints;
 
 public static class CloudIdentityEndpoints
 {
-    private const string StateCookieName = "__connapse_az_state";
+    private const string AzureStateCookieName = "__connapse_az_state";
+    private const string AzurePkceCookieName = "__connapse_az_pkce";
 
     public static IEndpointRouteBuilder MapCloudIdentityEndpoints(this IEndpointRouteBuilder app)
     {
@@ -28,10 +29,12 @@ public static class CloudIdentityEndpoints
             return Results.Ok(new
             {
                 identities,
-                rs256Enabled = service.IsRs256Enabled(),
+                awsSsoConfigured = service.IsAwsSsoConfigured(),
                 azureAdConfigured = service.IsAzureAdConfigured()
             });
         }).RequireAuthorization();
+
+        // --- Azure OAuth2 ---
 
         // GET /api/v1/auth/cloud/azure/connect — redirect to Azure AD authorize endpoint
         group.MapGet("/azure/connect", (
@@ -44,15 +47,17 @@ public static class CloudIdentityEndpoints
             var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
             var result = service.GetAzureConnectUrl(baseUrl);
 
-            // Set state cookie for CSRF protection
-            httpContext.Response.Cookies.Append(StateCookieName, result.State, new CookieOptions
+            var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
                 Secure = true,
                 SameSite = SameSiteMode.Lax,
                 MaxAge = TimeSpan.FromMinutes(10),
                 Path = "/api/v1/auth/cloud/azure"
-            });
+            };
+
+            httpContext.Response.Cookies.Append(AzureStateCookieName, result.State, cookieOptions);
+            httpContext.Response.Cookies.Append(AzurePkceCookieName, result.CodeVerifier, cookieOptions);
 
             return Results.Redirect(result.AuthorizeUrl);
         }).RequireAuthorization();
@@ -65,16 +70,17 @@ public static class CloudIdentityEndpoints
             [FromServices] ICloudIdentityService service,
             CancellationToken ct) =>
         {
-            // Validate state against cookie
-            var expectedState = httpContext.Request.Cookies[StateCookieName];
+            var expectedState = httpContext.Request.Cookies[AzureStateCookieName];
             if (string.IsNullOrEmpty(expectedState) || expectedState != state)
                 return Results.BadRequest(new { error = "invalid_state", message = "Invalid or expired state parameter." });
 
-            // Clear the state cookie
-            httpContext.Response.Cookies.Delete(StateCookieName, new CookieOptions
-            {
-                Path = "/api/v1/auth/cloud/azure"
-            });
+            var codeVerifier = httpContext.Request.Cookies[AzurePkceCookieName];
+            if (string.IsNullOrEmpty(codeVerifier))
+                return Results.BadRequest(new { error = "invalid_pkce", message = "Missing PKCE code verifier." });
+
+            var deleteCookieOptions = new CookieOptions { Path = "/api/v1/auth/cloud/azure" };
+            httpContext.Response.Cookies.Delete(AzureStateCookieName, deleteCookieOptions);
+            httpContext.Response.Cookies.Delete(AzurePkceCookieName, deleteCookieOptions);
 
             var userId = GetUserId(httpContext);
             if (userId is null) return Results.Unauthorized();
@@ -84,7 +90,7 @@ public static class CloudIdentityEndpoints
 
             try
             {
-                await service.HandleAzureCallbackAsync(userId.Value, code, redirectUri, ct);
+                await service.HandleAzureCallbackAsync(userId.Value, code, codeVerifier, redirectUri, ct);
                 return Results.Redirect("/profile");
             }
             catch (InvalidOperationException ex)
@@ -93,20 +99,55 @@ public static class CloudIdentityEndpoints
             }
         }).RequireAuthorization();
 
-        // POST /api/v1/auth/cloud/aws/connect — AWS OIDC connect
-        group.MapPost("/aws/connect", async (
+        // --- AWS SSO (Device Authorization Flow) ---
+
+        // POST /api/v1/auth/cloud/aws/device-auth — start device authorization
+        group.MapPost("/aws/device-auth", async (
             HttpContext httpContext,
+            [FromServices] ICloudIdentityService service,
+            CancellationToken ct) =>
+        {
+            if (!service.IsAwsSsoConfigured())
+                return Results.BadRequest(new
+                {
+                    error = "aws_sso_not_configured",
+                    message = "AWS IAM Identity Center SSO is not configured. An admin must set the Issuer URL and Region in settings."
+                });
+
+            try
+            {
+                var result = await service.StartAwsDeviceAuthAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = "aws_device_auth_failed", message = ex.Message });
+            }
+        }).RequireAuthorization();
+
+        // POST /api/v1/auth/cloud/aws/device-auth/poll — poll for device authorization completion
+        group.MapPost("/aws/device-auth/poll", async (
+            HttpContext httpContext,
+            [FromBody] AwsDevicePollRequest request,
             [FromServices] ICloudIdentityService service,
             CancellationToken ct) =>
         {
             var userId = GetUserId(httpContext);
             if (userId is null) return Results.Unauthorized();
 
-            var result = await service.ConnectAwsAsync(userId.Value, ct);
-            if (!result.Success)
-                return Results.BadRequest(new { error = "aws_connect_failed", message = result.Error });
+            try
+            {
+                var identity = await service.PollAwsDeviceAuthAsync(userId.Value, request.DeviceCode, ct);
 
-            return Results.Ok(result.Identity);
+                if (identity is null)
+                    return Results.Ok(new { status = "pending" });
+
+                return Results.Ok(new { status = "complete", identity });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = "aws_poll_failed", message = ex.Message });
+            }
         }).RequireAuthorization();
 
         // DELETE /api/v1/auth/cloud/{provider} — disconnect a cloud identity
@@ -154,3 +195,5 @@ public static class CloudIdentityEndpoints
         return Guid.TryParse(idClaim, out var id) ? id : null;
     }
 }
+
+public record AwsDevicePollRequest(string DeviceCode);

@@ -539,10 +539,9 @@ else
 
             var container = await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim(), newConnectorType, connectorConfig));
 
-            // For Filesystem containers: start the watcher and trigger immediate initial sync.
-            // Without this, pre-existing files wouldn't be picked up until the 5-minute rescan.
-            if (container.ConnectorType == ConnectorType.Filesystem)
-                WatcherService.StartWatchingContainer(container);
+            // Start the watcher (Filesystem) or polling loop (S3/AzureBlob/MinIO).
+            // Without this, files wouldn't be picked up until the 5-minute rescan.
+            WatcherService.StartWatchingContainer(container);
 
             showCreateModal = false;
             await LoadContainers();

@@ -18,9 +18,9 @@ Record significant decisions with context and rationale. Future sessions should 
 
 4. **Cloud RBAC model**: Connapse indexes what the service credential (IAM role, managed identity) can see. Per-user scope is derived from the cloud's own IAM at access time — Connapse does NOT maintain a shadow permission table for cloud connectors. Scopes cached with 15-min TTL. Local connectors use role-level RBAC for now.
 
-5. **Cloud identity per user**: Each Connapse user links one identity per cloud provider. AWS: OIDC federation via STS:AssumeRoleWithWebIdentity (requires RS256). Azure: OAuth2/OIDC authorization code flow. Identity facts stored encrypted (no access tokens, no keys).
+5. **Cloud identity per user**: Each Connapse user links one identity per cloud provider. AWS: IAM Identity Center SSO (device authorization flow). Azure: OAuth2 authorization code + PKCE with client secret (confidential client, Web platform). AWS admin config: 2 fields (IssuerUrl, Region). Azure admin config: 3 fields (ClientId, TenantId, ClientSecret). Identity facts stored encrypted (no access tokens, no keys). Connapse auto-registers as a public OAuth2 client with IAM Identity Center via the RegisterClient API. Azure uses Web platform (requires client_secret for server-side token exchange); PKCE is sent additionally for defense in depth.
 
-6. **RS256**: Optional setting (HS256 default). Required for AWS OIDC federation. Connapse generates RSA key pair, exposes JWKS endpoint, provides setup guidance. Admin must configure AWS OIDC trust relationship once.
+6. ~~**RS256**~~: *Removed*. RS256 was required for the old per-user OIDC federation model where Connapse acted as an identity provider to AWS. With the switch to IAM Identity Center SSO (AWS is now the identity provider to Connapse), RS256/JWKS endpoints are no longer needed. JWTs are HS256-only.
 
 7. **Filesystem connector**: FileSystemWatcher only — fully automatic, transparent to user. No manual sync. Debounced 750ms. Buffer overflow fallback: full rescan every 5 minutes.
 

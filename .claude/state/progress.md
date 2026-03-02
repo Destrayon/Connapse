@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-01) — v0.3.0 Session E complete
+## Current Status (2026-03-01) — v0.3.0 Azure SSO settings + PKCE
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -19,10 +19,14 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | C | S3 + AzureBlob connectors, sync endpoint, connection testers, UI | **COMPLETE** |
 | D | User cloud identities — Azure OAuth2 + AWS OIDC gate + Profile page | **COMPLETE** |
 | E | Cloud scope discovery + query-time enforcement | **COMPLETE** |
-| F | RS256 + JWKS endpoint + AWS OIDC federation | Pending |
-| G | OpenAI + Azure OpenAI embedding providers | Pending |
-| H | ILlmProvider + Agentic search | Pending |
-| I | Testing + docs | Pending |
+| F | RS256 + JWKS endpoint + AWS OIDC federation | **COMPLETE** (replaced by G) |
+| G | AWS SSO refactor — IAM Identity Center OAuth2+PKCE replaces OIDC/RS256 | **COMPLETE** (auth_code replaced by G2) |
+| G2 | AWS SSO device authorization flow — replaces auth_code+PKCE (loopback limitation) | **COMPLETE** |
+| G3 | Cloud container background polling (S3/AzureBlob/MinIO every 5 min) | **COMPLETE** |
+| G4 | Azure AD Settings UI + PKCE public client (mirrors AWS SSO admin experience) | **COMPLETE** |
+| H | OpenAI + Azure OpenAI embedding providers | Pending |
+| I | ILlmProvider + Agentic search | Pending |
+| J | Testing + docs | Pending |
 
 ---
 
@@ -39,6 +43,90 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session C6:** 116 unit tests pass (40 Core + 25 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session D:** 134 unit tests pass (40 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
 **After Session E:** 159 unit tests pass (65 Core + 43 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session F:** 173 unit tests pass (65 Core + 57 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+**After Session G:** 161 unit tests pass (65 Core + 45 Identity + 51 Ingestion). Build: 0 warnings, 0 errors.
+
+---
+
+## Session G (2026-03-01) — AWS SSO Refactor (IAM Identity Center replaces OIDC/RS256)
+
+**Feature**: Replaced per-user OIDC federation (RS256 JWKS + STS AssumeRoleWithWebIdentity) with global AWS IAM Identity Center SSO (OAuth2 Authorization Code + PKCE). Admin configures Identity Center Issuer URL + Region in settings; users click "Sign in with AWS" (same UX as Azure flow). Connapse discovers permitted accounts via `sso:ListAccounts`.
+
+**New files created**:
+1. `src/Connapse.Core/Models/AwsSsoSettings.cs` — config: IssuerUrl, Region, auto-populated ClientId/Secret/endpoints
+2. `src/Connapse.Core/Interfaces/IAwsSsoClientRegistrar.cs` — interface + AwsSsoUserInfo record
+3. `src/Connapse.Storage/CloudScope/AwsSsoClientRegistrar.cs` — RegisterClient, token exchange, ListAccounts via AWS SDK
+
+**Files deleted**:
+1. `src/Connapse.Core/Interfaces/IAwsOidcFederator.cs` — replaced by IAwsSsoClientRegistrar
+2. `src/Connapse.Storage/CloudScope/AwsOidcFederator.cs` — STS flow no longer needed
+3. `src/Connapse.Identity/Services/RsaKeyHelper.cs` — RS256 infrastructure removed
+4. `src/Connapse.Web/Endpoints/WellKnownEndpoints.cs` — JWKS/OIDC discovery no longer needed
+5. `tests/Connapse.Identity.Tests/RsaKeyHelperTests.cs` — tests for deleted code
+
+**Files modified**:
+1. `src/Connapse.Storage/Connapse.Storage.csproj` — added AWSSDK.SSO + AWSSDK.SSOOIDC
+2. `src/Connapse.Identity/Services/JwtSettings.cs` — removed RsaPrivateKeyPem
+3. `src/Connapse.Identity/Services/JwtTokenService.cs` — removed RS256 signing/validation
+4. `src/Connapse.Identity/IdentityServiceExtensions.cs` — removed EnsureRs256Key, RS256 JWT Bearer; added AwsSsoSettings config
+5. `src/Connapse.Identity/Services/ICloudIdentityService.cs` — replaced ConnectAwsAsync/IsRs256Enabled with SSO methods
+6. `src/Connapse.Identity/Services/CloudIdentityService.cs` — full rewrite: OAuth2+PKCE flow via IAwsSsoClientRegistrar
+7. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — IAwsOidcFederator → IAwsSsoClientRegistrar
+8. `src/Connapse.Storage/CloudScope/AwsIdentityProvider.cs` — account-list check instead of STS
+9. `src/Connapse.Core/Models/AuthModels.cs` — AwsConnectRequest → AwsSsoConnectResult
+10. `src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs` — POST /aws/connect → GET /aws/connect + GET /aws/callback
+11. `src/Connapse.Web/Program.cs` — removed MapWellKnownEndpoints
+12. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — added "awssso" settings category
+13. `src/Connapse.Web/Components/Pages/Profile.razor` — "Sign in with AWS" button replaces Role ARN input
+14. `tests/Connapse.Identity.Tests/CloudIdentityServiceTests.cs` — replaced OIDC tests with SSO tests
+15. `tests/Connapse.Identity.Tests/JwtTokenServiceTests.cs` — removed RS256 tests
+16. `tests/Connapse.Core.Tests/CloudScope/AwsIdentityProviderTests.cs` — updated deny message assertion
+
+**Key design decisions**:
+- Connapse no longer acts as OIDC provider; AWS IAM Identity Center is the identity provider to Connapse
+- OAuth2 CSRF: `__connapse_aws_state` + `__connapse_aws_verifier` cookies (HttpOnly, Secure, Lax, path-scoped)
+- RegisterClient API auto-registers Connapse as OAuth2 client; credentials cached + persisted via ISettingsStore
+- `CloudIdentityData.PrincipalArn` repurposed to store comma-separated account IDs from ListAccounts
+- AwsSsoSettings in Core (not Identity) to avoid circular deps; AWS SDK packages stay in Storage
+- Net test reduction: -12 RS256/OIDC tests, +4 SSO tests = 161 total (was 173)
+
+---
+
+## Session F (2026-03-01) — RS256 + JWKS Endpoint + AWS OIDC Federation [SUPERSEDED by Session G]
+
+**Feature**: Optional RS256 JWT signing with JWKS/OIDC discovery endpoints and end-to-end AWS OIDC federation. Admins can enable RS256 via Settings > Security (generate or import RSA key). Once enabled, users can link their AWS identity by providing an IAM Role ARN that trusts the Connapse OIDC provider.
+
+**New files created**:
+1. `src/Connapse.Identity/Services/RsaKeyHelper.cs` — static utility: generate RSA 2048 key pair, PEM import, RsaSecurityKey, JsonWebKey extraction
+2. `src/Connapse.Core/Interfaces/IAwsOidcFederator.cs` — interface + AwsOidcFederationResult record
+3. `src/Connapse.Storage/CloudScope/AwsOidcFederator.cs` — STS AssumeRoleWithWebIdentity implementation
+4. `src/Connapse.Web/Endpoints/WellKnownEndpoints.cs` — `/.well-known/jwks.json` + `/.well-known/openid-configuration` (AllowAnonymous)
+5. `src/Connapse.Web/Components/Settings/SecuritySettingsTab.razor` — RS256 enable/import UI, JWKS URL display, AWS OIDC trust setup guide
+6. `tests/Connapse.Identity.Tests/RsaKeyHelperTests.cs` — 8 unit tests
+
+**Files modified**:
+1. `src/Connapse.Identity/Services/JwtSettings.cs` — added `RsaPrivateKeyPem` property
+2. `src/Connapse.Identity/Services/JwtTokenService.cs` — dual-algorithm signing (RS256/HS256) + dual-key validation for transition
+3. `src/Connapse.Identity/IdentityServiceExtensions.cs` — dual-key JWT Bearer validation, CONNAPSE_RSA_PRIVATE_KEY env var loading
+4. `src/Connapse.Identity/Services/ICloudIdentityService.cs` — `ConnectAwsAsync` now takes `roleArn` parameter
+5. `src/Connapse.Identity/Services/CloudIdentityService.cs` — added ITokenService + IAwsOidcFederator deps, implemented AWS OIDC flow
+6. `src/Connapse.Core/Models/AuthModels.cs` — added `AwsConnectRequest` record
+7. `src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs` — POST /aws/connect accepts AwsConnectRequest body
+8. `src/Connapse.Web/Endpoints/SettingsEndpoints.cs` — "security" category GET/PUT + generate-rsa-key + import-rsa-key endpoints
+9. `src/Connapse.Web/Components/Pages/Settings.razor` — added Security tab
+10. `src/Connapse.Web/Components/Pages/Profile.razor` — AWS Role ARN input field, updated ConnectAwsAsync
+11. `src/Connapse.Web/Program.cs` — wired MapWellKnownEndpoints
+12. `src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs` — registered IAwsOidcFederator
+13. `tests/Connapse.Identity.Tests/CloudIdentityServiceTests.cs` — updated existing + 4 new AWS OIDC tests
+14. `tests/Connapse.Identity.Tests/JwtTokenServiceTests.cs` — 4 new RS256 signing/validation tests
+
+**Key design decisions**:
+- `IAwsOidcFederator` in Core, implementation in Storage (keeps Identity free of AWS SDK)
+- Dual-key validation: both HS256 + RS256 keys in `IssuerSigningKeys` — old HS256 tokens naturally expire during transition, no time-window logic needed
+- RS256 fallback to HS256 when PEM is missing (even if SigningAlgorithm="RS256")
+- Security settings GET strips private key PEM from response (only returns hasRsaKey + rsaKeyId)
+- JWKS endpoint returns 404 when RS256 not enabled
+- RSA key generation/import requires RequireAdmin + app restart to take effect in JWT Bearer handler
 
 ---
 

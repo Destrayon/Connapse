@@ -1,8 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Stores;
 using Microsoft.AspNetCore.DataProtection;
@@ -15,7 +16,8 @@ public class CloudIdentityService(
     ICloudIdentityStore store,
     IDataProtectionProvider dataProtection,
     IOptionsMonitor<AzureAdSettings> azureAdOptions,
-    IOptionsMonitor<JwtSettings> jwtOptions,
+    IOptionsMonitor<AwsSsoSettings> awsSsoOptions,
+    IAwsSsoClientRegistrar awsSsoRegistrar,
     IHttpClientFactory httpClientFactory,
     ILogger<CloudIdentityService> logger) : ICloudIdentityService
 {
@@ -47,13 +49,15 @@ public class CloudIdentityService(
         return result;
     }
 
+    // --- Azure OAuth2 ---
+
     public AzureConnectResult GetAzureConnectUrl(string baseUrl)
     {
         var settings = azureAdOptions.CurrentValue;
-        var state = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-        var redirectUri = string.IsNullOrEmpty(settings.RedirectUri)
-            ? $"{baseUrl.TrimEnd('/')}/api/v1/auth/cloud/azure/callback"
-            : settings.RedirectUri;
+        var state = GenerateState();
+        var codeVerifier = GenerateCodeVerifier();
+        var codeChallenge = ComputeCodeChallenge(codeVerifier);
+        var redirectUri = $"{baseUrl.TrimEnd('/')}/api/v1/auth/cloud/azure/callback";
 
         var authorizeUrl = $"https://login.microsoftonline.com/{settings.TenantId}/oauth2/v2.0/authorize" +
             $"?client_id={Uri.EscapeDataString(settings.ClientId)}" +
@@ -61,28 +65,34 @@ public class CloudIdentityService(
             $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
             $"&scope={Uri.EscapeDataString("openid profile")}" +
             $"&state={Uri.EscapeDataString(state)}" +
-            $"&response_mode=query";
+            $"&response_mode=query" +
+            $"&code_challenge={Uri.EscapeDataString(codeChallenge)}" +
+            $"&code_challenge_method=S256";
 
-        return new AzureConnectResult(authorizeUrl, state);
+        return new AzureConnectResult(authorizeUrl, state, codeVerifier);
     }
 
-    public async Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string redirectUri, CancellationToken ct)
+    public async Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string codeVerifier, string redirectUri, CancellationToken ct)
     {
         var settings = azureAdOptions.CurrentValue;
 
-        // Exchange authorization code for tokens
         var tokenEndpoint = $"https://login.microsoftonline.com/{settings.TenantId}/oauth2/v2.0/token";
         var httpClient = httpClientFactory.CreateClient();
 
-        var tokenRequest = new FormUrlEncodedContent(new Dictionary<string, string>
+        var tokenParams = new Dictionary<string, string>
         {
             ["client_id"] = settings.ClientId,
-            ["client_secret"] = settings.ClientSecret,
             ["code"] = code,
             ["redirect_uri"] = redirectUri,
             ["grant_type"] = "authorization_code",
-            ["scope"] = "openid profile"
-        });
+            ["scope"] = "openid profile",
+            ["code_verifier"] = codeVerifier
+        };
+
+        if (!string.IsNullOrEmpty(settings.ClientSecret))
+            tokenParams["client_secret"] = settings.ClientSecret;
+
+        var tokenRequest = new FormUrlEncodedContent(tokenParams);
 
         var response = await httpClient.PostAsync(tokenEndpoint, tokenRequest, ct);
         var responseBody = await response.Content.ReadAsStringAsync(ct);
@@ -97,8 +107,6 @@ public class CloudIdentityService(
         var idToken = tokenResponse.GetProperty("id_token").GetString()
             ?? throw new InvalidOperationException("Azure AD response missing id_token");
 
-        // Decode ID token to extract identity claims (no signature validation needed —
-        // we received the token directly from Microsoft's token endpoint over HTTPS)
         var handler = new JwtSecurityTokenHandler();
         var jwt = handler.ReadJwtToken(idToken);
 
@@ -118,31 +126,53 @@ public class CloudIdentityService(
         return await StoreIdentityAsync(userId, CloudProvider.Azure, identityData, ct);
     }
 
-    public Task<CloudIdentityConnectResult> ConnectAwsAsync(Guid userId, CancellationToken ct)
-    {
-        if (!IsRs256Enabled())
-        {
-            return Task.FromResult(new CloudIdentityConnectResult(
-                false,
-                "RS256 JWT signing is not enabled. AWS OIDC federation requires RS256. " +
-                "An admin must enable RS256 in Settings > Security before AWS identity linking is available.",
-                null));
-        }
+    // --- AWS SSO (Device Authorization Flow) ---
 
-        // AWS OIDC federation will be implemented in Session F when RS256 is available.
-        // The STS:AssumeRoleWithWebIdentity call requires the user's JWT to be RS256-signed
-        // so that AWS can verify it against Connapse's JWKS endpoint.
-        return Task.FromResult(new CloudIdentityConnectResult(
-            false,
-            "AWS OIDC federation is not yet implemented. It will be available once RS256 signing is enabled.",
-            null));
+    public async Task<AwsDeviceAuthStartResult> StartAwsDeviceAuthAsync(CancellationToken ct)
+    {
+        var settings = awsSsoOptions.CurrentValue;
+        settings = await awsSsoRegistrar.EnsureRegisteredAsync(settings, ct);
+
+        var result = await awsSsoRegistrar.StartDeviceAuthorizationAsync(settings, ct);
+
+        return new AwsDeviceAuthStartResult(
+            UserCode: result.UserCode,
+            VerificationUri: result.VerificationUri,
+            VerificationUriComplete: result.VerificationUriComplete,
+            DeviceCode: result.DeviceCode,
+            ExpiresInSeconds: result.ExpiresInSeconds,
+            IntervalSeconds: result.IntervalSeconds);
     }
 
-    public bool IsRs256Enabled()
+    public async Task<CloudIdentityDto?> PollAwsDeviceAuthAsync(
+        Guid userId, string deviceCode, CancellationToken ct)
     {
-        var settings = jwtOptions.CurrentValue;
-        return !string.IsNullOrEmpty(settings.SigningAlgorithm) &&
-               settings.SigningAlgorithm.Equals("RS256", StringComparison.OrdinalIgnoreCase);
+        var settings = awsSsoOptions.CurrentValue;
+        settings = await awsSsoRegistrar.EnsureRegisteredAsync(settings, ct);
+
+        var accessToken = await awsSsoRegistrar.PollForTokenAsync(settings, deviceCode, ct);
+        if (accessToken is null)
+            return null; // Still pending
+
+        var userInfo = await awsSsoRegistrar.ListUserAccountsAsync(settings, accessToken, ct);
+
+        var identityData = new CloudIdentityData(
+            PrincipalArn: userInfo.AccountIds,
+            AccountId: userInfo.PrimaryAccountId,
+            ObjectId: null,
+            TenantId: null,
+            DisplayName: userInfo.DisplayName);
+
+        var dto = await StoreIdentityAsync(userId, CloudProvider.AWS, identityData, ct);
+        logger.LogInformation("AWS SSO identity linked for user {UserId}: {AccountIds}", userId, userInfo.AccountIds);
+
+        return dto;
+    }
+
+    public bool IsAwsSsoConfigured()
+    {
+        var settings = awsSsoOptions.CurrentValue;
+        return !string.IsNullOrEmpty(settings.IssuerUrl) && !string.IsNullOrEmpty(settings.Region);
     }
 
     public bool IsAzureAdConfigured()
@@ -151,14 +181,14 @@ public class CloudIdentityService(
         return !string.IsNullOrEmpty(settings.ClientId) && !string.IsNullOrEmpty(settings.TenantId);
     }
 
+    // --- Storage ---
+
     private async Task<CloudIdentityDto> StoreIdentityAsync(
         Guid userId, CloudProvider provider, CloudIdentityData data, CancellationToken ct)
     {
-        // Encrypt identity data before storing
         var plaintext = JsonSerializer.Serialize(data, JsonOptions);
         var encrypted = Protector.Protect(plaintext);
 
-        // Upsert: delete existing if present, then create new
         var existing = await store.GetByUserAndProviderAsync(userId, provider, ct);
         if (existing is not null)
             await store.DeleteAsync(userId, provider, ct);
@@ -193,4 +223,21 @@ public class CloudIdentityService(
 
         return new CloudIdentityDto(entity.Id, entity.Provider, data, entity.CreatedAt, entity.LastUsedAt);
     }
+
+    // --- Helpers ---
+
+    private static string GenerateState() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private static string GenerateCodeVerifier() =>
+        Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+
+    private static string ComputeCodeChallenge(string codeVerifier) =>
+        Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
 }

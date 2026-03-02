@@ -566,10 +566,11 @@
     private bool canEdit;
     private FilesystemConnectorConfig? filesystemConfig;
 
-    // Permission helpers — false when the Filesystem connector config disables the action
-    private bool AllowUpload => filesystemConfig?.AllowUpload ?? true;
-    private bool AllowDelete => filesystemConfig?.AllowDelete ?? true;
-    private bool AllowCreateFolder => filesystemConfig?.AllowCreateFolder ?? true;
+    // Permission helpers — false when the connector is read-only or Filesystem config disables the action
+    private bool IsReadOnly => container?.ConnectorType is ConnectorType.S3 or ConnectorType.AzureBlob;
+    private bool AllowUpload => !IsReadOnly && (filesystemConfig?.AllowUpload ?? true);
+    private bool AllowDelete => !IsReadOnly && (filesystemConfig?.AllowDelete ?? true);
+    private bool AllowCreateFolder => !IsReadOnly && (filesystemConfig?.AllowCreateFolder ?? true);
 
     // Settings tab — connector permission toggles (Filesystem only)
     private bool settingsAllowDelete;

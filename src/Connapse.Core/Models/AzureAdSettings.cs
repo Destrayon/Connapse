@@ -1,4 +1,4 @@
-namespace Connapse.Identity.Services;
+namespace Connapse.Core;
 
 public class AzureAdSettings
 {
@@ -7,5 +7,4 @@ public class AzureAdSettings
     public string ClientId { get; set; } = string.Empty;
     public string TenantId { get; set; } = string.Empty;
     public string ClientSecret { get; set; } = string.Empty;
-    public string RedirectUri { get; set; } = string.Empty;
 }

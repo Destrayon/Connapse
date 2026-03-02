@@ -32,6 +32,9 @@ public static class FoldersEndpoints
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
 
+            if (IsReadOnlyConnector(container.ConnectorType))
+                return ReadOnlyResult(container);
+
             if (string.IsNullOrWhiteSpace(request.Path))
                 return Results.BadRequest(new { error = "Folder path is required" });
 
@@ -80,6 +83,9 @@ public static class FoldersEndpoints
             var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
+
+            if (IsReadOnlyConnector(container.ConnectorType))
+                return ReadOnlyResult(container);
 
             if (string.IsNullOrWhiteSpace(path))
                 return Results.BadRequest(new { error = "Folder path is required" });
@@ -141,6 +147,16 @@ public static class FoldersEndpoints
             message = scopeResult.Error ?? "Access denied.",
             containerId = containerId.ToString()
         }, statusCode: 403);
+
+    private static bool IsReadOnlyConnector(ConnectorType type) =>
+        type is ConnectorType.S3 or ConnectorType.AzureBlob;
+
+    private static IResult ReadOnlyResult(Container container) =>
+        Results.BadRequest(new
+        {
+            error = "read_only_container",
+            message = $"{container.ConnectorType} containers are read-only. Files are synced from the source."
+        });
 
     private static Guid? GetUserId(HttpContext httpContext)
     {

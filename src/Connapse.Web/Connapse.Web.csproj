@@ -25,4 +25,8 @@
     <NoWarn>$(NoWarn);ASPDEPR005</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Connapse.Core.Tests" />
+  </ItemGroup>
+
 </Project>

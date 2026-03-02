@@ -97,4 +97,12 @@ public record CloudIdentityData(
     string? TenantId,
     string? DisplayName);
 
-public record AzureConnectResult(string AuthorizeUrl, string State);
+public record AzureConnectResult(string AuthorizeUrl, string State, string CodeVerifier);
+
+public record AwsDeviceAuthStartResult(
+    string UserCode,
+    string VerificationUri,
+    string VerificationUriComplete,
+    string DeviceCode,
+    int ExpiresInSeconds,
+    int IntervalSeconds);

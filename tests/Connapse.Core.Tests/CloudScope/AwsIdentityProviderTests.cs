@@ -31,12 +31,12 @@ public class AwsIdentityProviderTests
     }
 
     [Fact]
-    public async Task DiscoverScopesAsync_NullPrincipalArn_DenyMessageMentionsRS256()
+    public async Task DiscoverScopesAsync_NullPrincipalArn_DenyMessageMentionsSso()
     {
         var data = new CloudIdentityData(null, null, null, null, null);
         var result = await _provider.DiscoverScopesAsync(data, MakeS3Container());
 
-        result.Error.Should().Contain("RS256");
+        result.Error.Should().Contain("SSO");
     }
 
     [Fact]

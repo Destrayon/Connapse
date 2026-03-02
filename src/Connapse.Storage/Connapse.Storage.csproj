@@ -7,6 +7,8 @@
   <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.2" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.5.10" />
+    <PackageReference Include="AWSSDK.SSO" Version="4.0.2.14" />
+    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.3.15" />
     <PackageReference Include="Azure.Identity" Version="1.13.2" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.24.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
