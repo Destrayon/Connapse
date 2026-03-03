@@ -1,7 +1,6 @@
 ---
 name: next-task
 description: 'Recommend the best next task to work on based on open GitHub issues. Analyzes priority, dependencies, milestone urgency, and codebase readiness. Trigger when user asks: what should I work on, what is next, next task, pick a task, what to do next, suggest work, prioritize tasks.'
-allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
 # Next Task
@@ -116,9 +115,16 @@ After presenting, ask the user which one they'd like to start — or if they wan
 Once the user picks a task:
 
 1. Create the branch: `git checkout -b <type>/<issue-number>-<short-description>`
-2. Read the issue details: `gh issue view <number>`
-3. Read the relevant source files mentioned in the issue's implementation notes
-4. Summarize what needs to be done and confirm the approach before writing code
+2. Move the issue to "In Progress" on the project board:
+   ```bash
+   # Get the project item ID for this issue
+   ITEM_ID=$(gh project item-list 3 --owner Destrayon --format json | jq -r '.items[] | select(.content.number == <ISSUE_NUMBER> and .content.repository == "Destrayon/Connapse") | .id')
+   # Move to In Progress
+   gh project item-edit --project-id PVT_kwHOAldLE84BQszG --id "$ITEM_ID" --field-id PVTSSF_lAHOAldLE84BQszGzg-vn-U --single-select-option-id 47fc9ee4
+   ```
+3. Read the issue details: `gh issue view <number>`
+4. Read the relevant source files mentioned in the issue's implementation notes
+5. Summarize what needs to be done and confirm the approach before writing code
 
 ## Edge Cases
 

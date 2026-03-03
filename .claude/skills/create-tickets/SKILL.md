@@ -1,7 +1,6 @@
 ---
 name: create-tickets
 description: 'Batch-create GitHub issues from a brainstorming discussion. Decomposes ideas into properly-sized tickets with labels, milestones, and project board placement. Trigger when user says: create tickets, make tickets, turn ideas into issues, create issues from brainstorm, create issues from discussion, batch create issues.'
-allowed-tools: Bash, Read, Grep, Glob, AskUserQuestion, TodoWrite, Agent
 ---
 
 # Create Tickets
