@@ -171,7 +171,15 @@ public class FilesystemConnector : IConnector
         if (Path.IsPathRooted(path))
             return path;
 
-        return Path.Combine(_config.RootPath, path.TrimStart('/', '\\'));
+        var fullPath = Path.GetFullPath(Path.Combine(_config.RootPath, path.TrimStart('/', '\\')));
+
+        // Prevent path traversal — resolved path must stay within the connector's root
+        var rootFull = Path.GetFullPath(_config.RootPath);
+        if (!fullPath.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException(
+                $"Path '{path}' resolves outside the connector root directory.");
+
+        return fullPath;
     }
 
     private static bool MatchesGlob(string fileName, string pattern)

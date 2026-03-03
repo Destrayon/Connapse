@@ -18,6 +18,7 @@ public static partial class PathUtilities
 
     /// <summary>
     /// Normalizes a file path: ensures leading slash, no trailing slash, forward slashes only.
+    /// Collapses any ".." segments to prevent path traversal.
     /// </summary>
     public static string NormalizePath(string path)
     {
@@ -29,6 +30,8 @@ public static partial class PathUtilities
         if (!path.StartsWith('/'))
             path = "/" + path;
 
+        path = CollapseDotSegments(path);
+
         path = path.TrimEnd('/');
 
         return string.IsNullOrEmpty(path) ? "/" : path;
@@ -36,6 +39,7 @@ public static partial class PathUtilities
 
     /// <summary>
     /// Normalizes a folder path: ensures leading slash and trailing slash.
+    /// Collapses any ".." segments to prevent path traversal.
     /// </summary>
     public static string NormalizeFolderPath(string path)
     {
@@ -47,10 +51,51 @@ public static partial class PathUtilities
         if (!path.StartsWith('/'))
             path = "/" + path;
 
+        path = CollapseDotSegments(path);
+
         if (!path.EndsWith('/'))
             path += "/";
 
         return path;
+    }
+
+    /// <summary>
+    /// Returns true if the path contains ".." traversal segments that would escape the root.
+    /// Use this for early rejection before normalization when you want to block traversal attempts.
+    /// </summary>
+    public static bool ContainsPathTraversal(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Any(s => s == "..");
+    }
+
+    /// <summary>
+    /// Resolves "." and ".." segments in a path, clamping at root so traversal
+    /// can never escape above "/".
+    /// </summary>
+    private static string CollapseDotSegments(string path)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var stack = new List<string>();
+
+        foreach (var segment in segments)
+        {
+            if (segment == ".")
+                continue;
+
+            if (segment == "..")
+            {
+                if (stack.Count > 0)
+                    stack.RemoveAt(stack.Count - 1);
+                // At root — clamp, don't escape
+                continue;
+            }
+
+            stack.Add(segment);
+        }
+
+        return "/" + string.Join('/', stack);
     }
 
     /// <summary>

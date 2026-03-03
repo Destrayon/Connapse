@@ -42,6 +42,10 @@ public static class DocumentsEndpoints
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
+            // Reject path traversal attempts before normalization
+            if (path is not null && PathUtilities.ContainsPathTraversal(path))
+                return Results.BadRequest(new { error = "Path must not contain '..' segments" });
+
             var destinationPath = PathUtilities.NormalizeFolderPath(path ?? "/");
             var uploadedDocs = new List<UploadedDocumentResponse>();
             string? batchId = files.Count > 1 ? Guid.NewGuid().ToString() : null;
