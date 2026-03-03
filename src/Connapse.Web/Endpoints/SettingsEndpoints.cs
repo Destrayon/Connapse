@@ -167,6 +167,7 @@ public static class SettingsEndpoints
             [FromServices] CohereConnectionTester cohereTester,
             [FromServices] JinaConnectionTester jinaTester,
             [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
+            [FromServices] MinioConnectionTester minioTester,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Category))
@@ -191,6 +192,7 @@ public static class SettingsEndpoints
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
                     "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, request.TimeoutSeconds, ct),
+                    "minio" => await TestMinioConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     _ => ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing")
                 };
 
@@ -395,6 +397,20 @@ public static class SettingsEndpoints
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
+    private static async Task<ConnectionTestResult> TestMinioConnection(
+        JsonElement settingsJson,
+        MinioConnectionTester tester,
+        int? timeoutSeconds,
+        CancellationToken ct)
+    {
+        var settings = JsonSerializer.Deserialize<Connapse.Storage.FileSystem.MinioOptions>(settingsJson.GetRawText(), JsonOptions);
+        if (settings == null)
+            return ConnectionTestResult.CreateFailure("Invalid MinioOptions");
+
+        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
+        return await tester.TestConnectionAsync(settings, timeout, ct);
+    }
+
     private static async Task<ConnectionTestResult> TestCrossEncoderConnection(
         JsonElement settingsJson,
         TeiConnectionTester teiTester,

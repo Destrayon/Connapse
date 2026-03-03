@@ -38,6 +38,10 @@ public static class FoldersEndpoints
             if (string.IsNullOrWhiteSpace(request.Path))
                 return Results.BadRequest(new { error = "Folder path is required" });
 
+            // Reject path traversal attempts
+            if (PathUtilities.ContainsPathTraversal(request.Path))
+                return Results.BadRequest(new { error = "Path must not contain '..' segments" });
+
             var normalizedPath = PathUtilities.NormalizeFolderPath(request.Path);
 
             // Verify path is within allowed prefixes

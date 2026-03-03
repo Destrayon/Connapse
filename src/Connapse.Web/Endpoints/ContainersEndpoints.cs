@@ -211,6 +211,7 @@ public static class ContainersEndpoints
             [FromBody] TestConnectorConfigRequest request,
             [FromServices] S3ConnectionTester s3Tester,
             [FromServices] AzureBlobConnectionTester azureTester,
+            [FromServices] MinioConnectionTester minioTester,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.ConnectorConfig))
@@ -218,16 +219,15 @@ public static class ContainersEndpoints
 
             try
             {
+                var timeout = request.TimeoutSeconds.HasValue ? TimeSpan.FromSeconds(request.TimeoutSeconds.Value) : (TimeSpan?)null;
                 var result = request.ConnectorType switch
                 {
                     ConnectorType.S3 => await s3Tester.TestConnectionAsync(
-                        request.ConnectorConfig,
-                        request.TimeoutSeconds.HasValue ? TimeSpan.FromSeconds(request.TimeoutSeconds.Value) : null,
-                        ct),
+                        request.ConnectorConfig, timeout, ct),
                     ConnectorType.AzureBlob => await azureTester.TestConnectionAsync(
-                        request.ConnectorConfig,
-                        request.TimeoutSeconds.HasValue ? TimeSpan.FromSeconds(request.TimeoutSeconds.Value) : null,
-                        ct),
+                        request.ConnectorConfig, timeout, ct),
+                    ConnectorType.MinIO => await minioTester.TestConnectionAsync(
+                        request.ConnectorConfig, timeout, ct),
                     _ => ConnectionTestResult.CreateFailure(
                         $"Connector type '{request.ConnectorType}' does not support connection testing from this endpoint")
                 };
@@ -239,7 +239,7 @@ public static class ContainersEndpoints
             }
         })
         .WithName("TestConnectorConfig")
-        .WithDescription("Test connectivity for S3 or AzureBlob connector config before creating a container")
+        .WithDescription("Test connectivity for S3, AzureBlob, or MinIO connector config before creating a container")
         .RequireAuthorization("RequireEditor");
 
         // POST /api/containers/{containerId}/sync - Sync files from remote connector
