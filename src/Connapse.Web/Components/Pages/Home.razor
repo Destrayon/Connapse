@@ -4,9 +4,14 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Web.Services
 @inject IContainerStore ContainerStore
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthStateProvider
+@using Connapse.Storage.ConnectionTesters
+@inject ConnectorWatcherService WatcherService
+@inject S3ConnectionTester S3Tester
+@inject AzureBlobConnectionTester AzureBlobTester
 
 <PageTitle>Connapse</PageTitle>
 
@@ -79,6 +84,7 @@ else
                     }
                 </div>
                 <h3 class="container-card-name">@container.Name</h3>
+                <span class="connector-badge">@GetConnectorLabel(container.ConnectorType)</span>
                 @if (!string.IsNullOrEmpty(container.Description))
                 {
                     <p class="container-card-desc">@container.Description</p>
@@ -114,6 +120,116 @@ else
                     <input type="text" class="form-control" placeholder="What is this container for?"
                            @bind="newContainerDescription" />
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Connector</label>
+                    <select class="form-select" @bind="newConnectorType">
+                        <option value="@ConnectorType.MinIO">MinIO (S3-compatible object storage)</option>
+                        <option value="@ConnectorType.Filesystem">Filesystem (local folder, live watch)</option>
+                        <option value="@ConnectorType.InMemory">In-Memory (ephemeral, session-only)</option>
+                        <option value="@ConnectorType.S3">AWS S3 (IAM / DefaultAWSCredentials)</option>
+                        <option value="@ConnectorType.AzureBlob">Azure Blob (managed identity)</option>
+                    </select>
+                </div>
+                @if (newConnectorType == ConnectorType.Filesystem)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Root Path <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control"
+                                   placeholder="@(OperatingSystem.IsWindows() ? @"C:\data\wiki" : "/data/wiki")"
+                                   @bind="newFilesystemRootPath" @bind:event="oninput" />
+                            <button class="btn btn-outline-secondary" type="button"
+                                    @onclick="OpenFolderBrowser" title="Browse server folders">
+                                <span class="bi-folder2-open"></span>
+                            </button>
+                        </div>
+                        <small class="text-muted">Directory to watch. Files are auto-ingested when added or changed.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Include Patterns <small class="text-muted">(optional, comma-separated)</small></label>
+                        <input type="text" class="form-control" placeholder="*.pdf,*.md,*.txt"
+                               @bind="newFilesystemIncludePatterns" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Exclude Patterns <small class="text-muted">(optional, comma-separated)</small></label>
+                        <input type="text" class="form-control" placeholder="*.tmp,~*"
+                               @bind="newFilesystemExcludePatterns" />
+                    </div>
+                }
+                @if (newConnectorType == ConnectorType.S3)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Bucket Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="my-knowledge-bucket"
+                               @bind="newS3BucketName" @bind:event="oninput" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Region</label>
+                        <input type="text" class="form-control" placeholder="us-east-1"
+                               @bind="newS3Region" @bind:event="oninput" />
+                        <small class="text-muted">AWS region for the bucket.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Prefix <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="documents/"
+                               @bind="newS3Prefix" @bind:event="oninput" />
+                        <small class="text-muted">Only index files under this prefix.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Role ARN <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="arn:aws:iam::123456789012:role/ConnapseRead"
+                               @bind="newS3RoleArn" @bind:event="oninput" />
+                        <small class="text-muted">STS AssumeRole for cross-account access. Leave blank to use default credentials.</small>
+                    </div>
+                    <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestConnectorConnection"
+                            disabled="@isTestingConnection">
+                        @if (isTestingConnection) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Test Connection
+                    </button>
+                    @if (connectionTestResult is not null)
+                    {
+                        <div class="alert @(connectionTestSuccess ? "alert-success" : "alert-danger") py-2 mt-2 mb-0">
+                            @connectionTestResult
+                        </div>
+                    }
+                }
+                @if (newConnectorType == ConnectorType.AzureBlob)
+                {
+                    <div class="mb-3">
+                        <label class="form-label">Storage Account Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="myknowledgeaccount"
+                               @bind="newAzureStorageAccountName" @bind:event="oninput" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Container Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" placeholder="documents"
+                               @bind="newAzureContainerName" @bind:event="oninput" />
+                        <small class="text-muted">The blob container name (not the Connapse container).</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Prefix <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="team-wiki/"
+                               @bind="newAzurePrefix" @bind:event="oninput" />
+                        <small class="text-muted">Only index blobs under this prefix.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Managed Identity Client ID <small class="text-muted">(optional)</small></label>
+                        <input type="text" class="form-control" placeholder="00000000-0000-0000-0000-000000000000"
+                               @bind="newAzureManagedIdentityClientId" @bind:event="oninput" />
+                        <small class="text-muted">For user-assigned managed identity. Leave blank for system-assigned or az login.</small>
+                    </div>
+                    <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestConnectorConnection"
+                            disabled="@isTestingConnection">
+                        @if (isTestingConnection) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                        Test Connection
+                    </button>
+                    @if (connectionTestResult is not null)
+                    {
+                        <div class="alert @(connectionTestSuccess ? "alert-success" : "alert-danger") py-2 mt-2 mb-0">
+                            @connectionTestResult
+                        </div>
+                    }
+                }
                 @if (createError is not null)
                 {
                     <div class="alert alert-danger py-2">@createError</div>
@@ -145,7 +261,13 @@ else
             </div>
             <div class="modal-body-custom">
                 <p>Are you sure you want to delete <strong>@containerToDelete.Name</strong>?</p>
-                @if (containerToDelete.DocumentCount > 0)
+                @if (containerToDelete.ConnectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob)
+                {
+                    <div class="alert alert-info py-2">
+                        This will remove the container and its search index. Your actual files will not be deleted — they remain in their original location.
+                    </div>
+                }
+                else if (containerToDelete.DocumentCount > 0)
                 {
                     <div class="alert alert-warning py-2">
                         This container has @containerToDelete.DocumentCount file(s). It must be empty before deletion.
@@ -170,6 +292,67 @@ else
     </div>
 }
 
+@* Folder Browser Modal *@
+@if (showFolderBrowser)
+{
+    <div class="modal-backdrop folder-browser-backdrop" @onclick="() => showFolderBrowser = false"></div>
+    <div class="modal-dialog-centered folder-browser-dialog">
+        <div class="modal-content-custom">
+            <div class="modal-header-custom">
+                <div class="d-flex align-items-center gap-2 flex-fill me-3 min-w-0">
+                    @if (browserCanGoUp)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button"
+                                @onclick="BrowserGoUp" @onclick:stopPropagation title="Go up one level">
+                            <span class="bi-arrow-up"></span>
+                        </button>
+                    }
+                    <span class="folder-browser-path flex-fill">
+                        @(string.IsNullOrEmpty(browserCurrentPath) ? "This PC" : browserCurrentPath)
+                    </span>
+                </div>
+                <button class="btn-close btn-close-white flex-shrink-0" @onclick="() => showFolderBrowser = false"></button>
+            </div>
+            <div class="folder-browser-body">
+                @if (browserError is not null)
+                {
+                    <div class="folder-browser-error">
+                        <span class="bi-exclamation-triangle me-1"></span>@browserError
+                    </div>
+                }
+                @if (browserDirs.Count == 0 && browserError is null)
+                {
+                    <div class="folder-browser-empty">No subfolders in this location</div>
+                }
+                @foreach (var dir in browserDirs)
+                {
+                    <button class="folder-browser-item" type="button"
+                            @onclick="() => BrowseToPath(dir)" @onclick:stopPropagation>
+                        <span class="bi-folder-fill folder-browser-item-icon"></span>
+                        @GetDirDisplayName(dir)
+                    </button>
+                }
+            </div>
+            <div class="modal-footer-custom">
+                <span class="folder-browser-selected me-auto">
+                    @if (!string.IsNullOrEmpty(browserCurrentPath))
+                    {
+                        <span class="bi-check2-circle me-1 text-success"></span>
+                        <span class="text-muted small">@browserCurrentPath</span>
+                    }
+                </span>
+                <button class="btn btn-outline-secondary" type="button" @onclick="() => showFolderBrowser = false">
+                    Cancel
+                </button>
+                <button class="btn btn-primary" type="button" @onclick="BrowserSelectFolder"
+                        disabled="@string.IsNullOrEmpty(browserCurrentPath)">
+                    Select Folder
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private bool canEdit;
     private List<Container> containers = new();
@@ -180,8 +363,35 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
+    private ConnectorType newConnectorType = ConnectorType.MinIO;
+    private string newFilesystemRootPath = "";
+    private string newFilesystemIncludePatterns = "";
+    private string newFilesystemExcludePatterns = "";
+    // S3 config fields
+    private string newS3BucketName = "";
+    private string newS3Region = "us-east-1";
+    private string newS3Prefix = "";
+    private string newS3RoleArn = "";
+    // AzureBlob config fields
+    private string newAzureStorageAccountName = "";
+    private string newAzureContainerName = "";
+    private string newAzurePrefix = "";
+    private string newAzureManagedIdentityClientId = "";
+    // Connection test state
+    private bool isTestingConnection;
+    private string? connectionTestResult;
+    private bool connectionTestSuccess;
     private string? createError;
     private bool isCreating;
+
+    // Folder browser state
+    private bool showFolderBrowser;
+    private string browserCurrentPath = "";
+    private List<string> browserDirs = new();
+    private string? browserError;
+    private bool browserCanGoUp => OperatingSystem.IsWindows()
+        ? !string.IsNullOrEmpty(browserCurrentPath)
+        : browserCurrentPath != "/";
 
     // Delete modal state
     private Container? containerToDelete;
@@ -226,12 +436,27 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
+        newConnectorType = ConnectorType.MinIO;
+        newFilesystemRootPath = "";
+        newFilesystemIncludePatterns = "";
+        newFilesystemExcludePatterns = "";
+        newS3BucketName = "";
+        newS3Region = "us-east-1";
+        newS3Prefix = "";
+        newS3RoleArn = "";
+        newAzureStorageAccountName = "";
+        newAzureContainerName = "";
+        newAzurePrefix = "";
+        newAzureManagedIdentityClientId = "";
+        connectionTestResult = null;
         createError = null;
+        showFolderBrowser = false;
     }
 
     private void HideCreateModal()
     {
         showCreateModal = false;
+        showFolderBrowser = false;
     }
 
     private async Task CreateContainer()
@@ -262,7 +487,62 @@ else
                 return;
             }
 
-            await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim()));
+            // Build connector config JSON
+            string? connectorConfig = null;
+            if (newConnectorType == ConnectorType.Filesystem)
+            {
+                if (string.IsNullOrWhiteSpace(newFilesystemRootPath))
+                {
+                    createError = "Root path is required for Filesystem containers.";
+                    return;
+                }
+
+                var includePatterns = ParsePatterns(newFilesystemIncludePatterns);
+                var excludePatterns = ParsePatterns(newFilesystemExcludePatterns);
+                connectorConfig = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    rootPath = newFilesystemRootPath.Trim(),
+                    includePatterns,
+                    excludePatterns
+                });
+            }
+            else if (newConnectorType == ConnectorType.S3)
+            {
+                if (string.IsNullOrWhiteSpace(newS3BucketName))
+                {
+                    createError = "Bucket name is required for S3 containers.";
+                    return;
+                }
+                connectorConfig = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    bucketName = newS3BucketName.Trim(),
+                    region = string.IsNullOrWhiteSpace(newS3Region) ? "us-east-1" : newS3Region.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newS3Prefix) ? (string?)null : newS3Prefix.Trim(),
+                    roleArn = string.IsNullOrWhiteSpace(newS3RoleArn) ? (string?)null : newS3RoleArn.Trim()
+                });
+            }
+            else if (newConnectorType == ConnectorType.AzureBlob)
+            {
+                if (string.IsNullOrWhiteSpace(newAzureStorageAccountName) || string.IsNullOrWhiteSpace(newAzureContainerName))
+                {
+                    createError = "Storage account name and container name are required for Azure Blob containers.";
+                    return;
+                }
+                connectorConfig = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    storageAccountName = newAzureStorageAccountName.Trim(),
+                    containerName = newAzureContainerName.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newAzurePrefix) ? (string?)null : newAzurePrefix.Trim(),
+                    managedIdentityClientId = string.IsNullOrWhiteSpace(newAzureManagedIdentityClientId) ? (string?)null : newAzureManagedIdentityClientId.Trim()
+                });
+            }
+
+            var container = await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim(), newConnectorType, connectorConfig));
+
+            // Start the watcher (Filesystem) or polling loop (S3/AzureBlob/MinIO).
+            // Without this, files wouldn't be picked up until the 5-minute rescan.
+            WatcherService.StartWatchingContainer(container);
+
             showCreateModal = false;
             await LoadContainers();
         }
@@ -327,4 +607,129 @@ else
             isDeleting = false;
         }
     }
+
+    // Folder browser logic
+    private void OpenFolderBrowser()
+    {
+        var startPath = newFilesystemRootPath.Trim();
+        browserCurrentPath = Directory.Exists(startPath) ? startPath : "";
+        showFolderBrowser = true;
+        LoadBrowserDirs();
+    }
+
+    private void LoadBrowserDirs()
+    {
+        browserError = null;
+        browserDirs.Clear();
+
+        try
+        {
+            if (string.IsNullOrEmpty(browserCurrentPath))
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    browserDirs = [.. DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.RootDirectory.FullName)];
+                }
+                else
+                {
+                    browserCurrentPath = "/";
+                    LoadBrowserDirs();
+                }
+            }
+            else
+            {
+                browserDirs = [.. Directory.GetDirectories(browserCurrentPath).Order()];
+            }
+        }
+        catch (Exception ex)
+        {
+            browserError = ex.Message;
+        }
+    }
+
+    private void BrowseToPath(string path)
+    {
+        browserCurrentPath = path;
+        LoadBrowserDirs();
+    }
+
+    private void BrowserGoUp()
+    {
+        if (string.IsNullOrEmpty(browserCurrentPath)) return;
+        var parent = Directory.GetParent(browserCurrentPath);
+        browserCurrentPath = parent is null && OperatingSystem.IsWindows() ? "" : (parent?.FullName ?? "/");
+        LoadBrowserDirs();
+    }
+
+    private void BrowserSelectFolder()
+    {
+        newFilesystemRootPath = browserCurrentPath;
+        showFolderBrowser = false;
+    }
+
+    private static string GetDirDisplayName(string path)
+    {
+        var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return string.IsNullOrEmpty(name) ? path : name;
+    }
+
+    private static string GetConnectorLabel(ConnectorType type) => type switch
+    {
+        ConnectorType.MinIO      => "MinIO",
+        ConnectorType.Filesystem => "Filesystem",
+        ConnectorType.InMemory   => "In-Memory",
+        ConnectorType.S3         => "AWS S3",
+        ConnectorType.AzureBlob  => "Azure Blob",
+        _                        => type.ToString()
+    };
+
+    private async Task TestConnectorConnection()
+    {
+        isTestingConnection = true;
+        connectionTestResult = null;
+        try
+        {
+            ConnectionTestResult result;
+            if (newConnectorType == ConnectorType.S3)
+            {
+                var config = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    bucketName = newS3BucketName.Trim(),
+                    region = string.IsNullOrWhiteSpace(newS3Region) ? "us-east-1" : newS3Region.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newS3Prefix) ? (string?)null : newS3Prefix.Trim(),
+                    roleArn = string.IsNullOrWhiteSpace(newS3RoleArn) ? (string?)null : newS3RoleArn.Trim()
+                });
+                result = await S3Tester.TestConnectionAsync(config, TimeSpan.FromSeconds(15));
+            }
+            else if (newConnectorType == ConnectorType.AzureBlob)
+            {
+                var config = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    storageAccountName = newAzureStorageAccountName.Trim(),
+                    containerName = newAzureContainerName.Trim(),
+                    prefix = string.IsNullOrWhiteSpace(newAzurePrefix) ? (string?)null : newAzurePrefix.Trim(),
+                    managedIdentityClientId = string.IsNullOrWhiteSpace(newAzureManagedIdentityClientId) ? (string?)null : newAzureManagedIdentityClientId.Trim()
+                });
+                result = await AzureBlobTester.TestConnectionAsync(config, TimeSpan.FromSeconds(15));
+            }
+            else return;
+
+            connectionTestSuccess = result.Success;
+            connectionTestResult = result.Message;
+        }
+        catch (Exception ex)
+        {
+            connectionTestSuccess = false;
+            connectionTestResult = ex.Message;
+        }
+        finally
+        {
+            isTestingConnection = false;
+        }
+    }
+
+    private static string[] ParsePatterns(string input) =>
+        string.IsNullOrWhiteSpace(input)
+            ? []
+            : input.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

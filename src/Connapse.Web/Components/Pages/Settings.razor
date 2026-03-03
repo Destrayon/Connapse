@@ -11,8 +11,8 @@
 @inject IOptionsMonitor<SearchSettings> SearchOptions
 @inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IOptionsMonitor<UploadSettings> UploadOptions
-@inject IOptionsMonitor<WebSearchSettings> WebSearchOptions
-@inject IOptionsMonitor<StorageSettings> StorageOptions
+@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
+@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -69,17 +69,17 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "websearch" ? "active" : "")"
-                    @onclick='() => activeTab = "websearch"'
+            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
+                    @onclick='() => activeTab = "awssso"'
                     type="button">
-                Web Search
+                AWS SSO
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "storage" ? "active" : "")"
-                    @onclick='() => activeTab = "storage"'
+            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
+                    @onclick='() => activeTab = "azuread"'
                     type="button">
-                Storage
+                Azure AD
             </button>
         </li>
     </ul>
@@ -106,13 +106,13 @@
         {
             <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
         }
-        else if (activeTab == "websearch")
+        else if (activeTab == "awssso")
         {
-            <WebSearchSettingsTab Settings="webSearchSettings" OnSave="SaveWebSearchSettings" />
+            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
         }
-        else if (activeTab == "storage")
+        else if (activeTab == "azuread")
         {
-            <StorageSettingsTab Settings="storageSettings" OnSave="SaveStorageSettings" />
+            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
     </div>
 </div>
@@ -127,8 +127,8 @@
     private SearchSettings searchSettings = new();
     private LlmSettings llmSettings = new();
     private UploadSettings uploadSettings = new();
-    private WebSearchSettings webSearchSettings = new();
-    private StorageSettings storageSettings = new();
+    private AwsSsoSettings awsSsoSettings = new();
+    private AzureAdSettings azureAdSettings = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -138,8 +138,8 @@
         searchSettings = SearchOptions.CurrentValue;
         llmSettings = LlmOptions.CurrentValue;
         uploadSettings = UploadOptions.CurrentValue;
-        webSearchSettings = WebSearchOptions.CurrentValue;
-        storageSettings = StorageOptions.CurrentValue;
+        awsSsoSettings = AwsSsoOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
@@ -172,16 +172,16 @@
         uploadSettings = settings;
     }
 
-    private async Task SaveWebSearchSettings(WebSearchSettings settings)
+    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
     {
-        await SaveSettings("WebSearch", settings);
-        webSearchSettings = settings;
+        await SaveSettings("awssso", settings);
+        awsSsoSettings = settings;
     }
 
-    private async Task SaveStorageSettings(StorageSettings settings)
+    private async Task SaveAzureAdSettings(AzureAdSettings settings)
     {
-        await SaveSettings("Storage", settings);
-        storageSettings = settings;
+        await SaveSettings("azuread", settings);
+        azureAdSettings = settings;
     }
 
     private async Task SaveSettings<T>(string category, T settings) where T : class

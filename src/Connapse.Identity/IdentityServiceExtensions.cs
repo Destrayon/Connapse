@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Authorization;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
+using Connapse.Identity.Stores;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -58,10 +60,14 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<CliAuthService>();
+        services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
+        services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
+        services.Configure<AwsSsoSettings>(configuration.GetSection(AwsSsoSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);
@@ -150,10 +156,15 @@ public static class IdentityServiceExtensions
                 ApiKeyAuthenticationOptions.SchemeName, _ => { })
             .AddJwtBearer(options =>
             {
+                var validationKeys = new List<SecurityKey>
+                {
+                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+                };
+
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+                    IssuerSigningKeys = validationKeys,
                     ValidateIssuer = true,
                     ValidIssuer = jwtSettings.Issuer,
                     ValidateAudience = true,

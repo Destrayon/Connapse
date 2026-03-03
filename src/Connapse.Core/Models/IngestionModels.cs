@@ -26,6 +26,8 @@ public record IngestionProgress(
 /// </summary>
 public record IngestionProgressUpdate(
     string JobId,
+    string DocumentId,
+    string? ContainerId,
     string State,
     string? CurrentPhase,
     double PercentComplete,

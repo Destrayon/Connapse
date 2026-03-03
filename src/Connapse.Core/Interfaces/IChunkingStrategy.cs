@@ -32,4 +32,5 @@ public record ChunkInfo(
     int TokenCount,
     int StartOffset,
     int EndOffset,
-    Dictionary<string, string> Metadata);
+    Dictionary<string, string> Metadata,
+    float[]? PrecomputedEmbedding = null);

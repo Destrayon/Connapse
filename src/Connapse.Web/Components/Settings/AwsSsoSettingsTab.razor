@@ -1,0 +1,152 @@
+@using Connapse.Core
+@using Connapse.Storage.ConnectionTesters
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <span class="bi-info-circle me-2"></span>
+                Configure your AWS IAM Identity Center instance. Users will be able to link their AWS identity
+                from their Profile page using "Sign in with AWS". The Client ID and endpoints are auto-registered
+                on first use.
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <label class="form-label">Issuer URL</label>
+            <InputText @bind-Value="localSettings.IssuerUrl" class="form-control"
+                       placeholder="https://d-1234567890.awsapps.com/start" />
+            <div class="form-text">The IAM Identity Center issuer URL (e.g., https://d-xxxxxxxxxx.awsapps.com/start)</div>
+        </div>
+
+        <div class="col-md-4">
+            <label class="form-label">Region</label>
+            <InputText @bind-Value="localSettings.Region" class="form-control" placeholder="us-east-1" />
+            <div class="form-text">AWS region where Identity Center is deployed</div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(localSettings.ClientId))
+        {
+            <div class="col-12">
+                <h5 class="mt-4 mb-3">Auto-Registered Client</h5>
+                <div class="alert alert-secondary">
+                    These fields are managed automatically. They are populated when the first user connects via AWS SSO.
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Client ID</label>
+                <input type="text" class="form-control" value="@localSettings.ClientId" readonly />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Client Secret Expires</label>
+                <input type="text" class="form-control" value="@FormatExpiry(localSettings.ClientSecretExpiresAt)" readonly />
+            </div>
+        }
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary me-2" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+            <button type="button" class="btn btn-info" @onclick="TestConnection" disabled="@isTestingConnection">
+                @if (isTestingConnection)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Testing...</span>
+                }
+                else
+                {
+                    <span class="bi-plug me-1"></span>
+                    <span>Test Connection</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(testMessage))
+        {
+            <div class="col-12 mt-3">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                    @testMessage
+                    <button type="button" class="btn-close" @onclick="@(() => testMessage = null)"></button>
+                </div>
+            </div>
+        }
+    </div>
+</EditForm>
+
+@inject AwsSsoConnectionTester ConnectionTester
+
+@code {
+    [Parameter]
+    public AwsSsoSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<AwsSsoSettings> OnSave { get; set; }
+
+    private AwsSsoSettings localSettings = new();
+    private bool isTestingConnection;
+    private string? testMessage;
+    private bool testSuccess;
+
+    protected override void OnParametersSet()
+    {
+        localSettings = new AwsSsoSettings
+        {
+            IssuerUrl = Settings.IssuerUrl,
+            Region = Settings.Region,
+            ClientId = Settings.ClientId,
+            ClientSecret = Settings.ClientSecret,
+            ClientSecretExpiresAt = Settings.ClientSecretExpiresAt
+        };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        OnParametersSet();
+    }
+
+    private async Task TestConnection()
+    {
+        isTestingConnection = true;
+        testMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ConnectionTester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(10));
+
+            testSuccess = result.Success;
+            testMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            isTestingConnection = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string FormatExpiry(long? epochSeconds)
+    {
+        if (epochSeconds is null) return "N/A";
+        var dt = DateTimeOffset.FromUnixTimeSeconds(epochSeconds.Value);
+        return dt.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+    }
+}

@@ -7,6 +7,8 @@
 @inject IContainerStore ContainerStore
 @inject IKnowledgeSearch SearchService
 @inject IOptionsMonitor<SearchSettings> SearchSettings
+@inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
+@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettingsMonitor
 
 <PageTitle>Search - Connapse</PageTitle>
 
@@ -93,6 +95,13 @@
         </div>
     }
 
+    @if (crossModelInfo is not null)
+    {
+        <div class="alert alert-info mt-3 py-2 mb-0" role="alert" style="font-size: 0.85rem;">
+            <strong>Cross-model search active:</strong> @crossModelInfo
+        </div>
+    }
+
     @if (searchResult != null && !isSearching)
     {
         <div class="search-results mt-4">
@@ -170,10 +179,12 @@
     private SearchResult? searchResult;
     private string? errorMessage;
     private List<Container> containers = new();
+    private string? crossModelInfo;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadContainers();
+        await CheckCrossModelStatus();
     }
 
     private async Task LoadContainers()
@@ -187,6 +198,39 @@
                 selectedContainerId = containers[0].Id;
         }
         catch { /* Silently ignore - user can still type */ }
+    }
+
+    private async Task CheckCrossModelStatus()
+    {
+        try
+        {
+            if (!SearchSettings.CurrentValue.EnableCrossModelSearch)
+            {
+                crossModelInfo = null;
+                return;
+            }
+
+            var currentModel = EmbeddingSettingsMonitor.CurrentValue.Model;
+            var models = await ModelDiscovery.GetModelsAsync();
+            var legacyModels = models
+                .Where(m => !string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (legacyModels.Count > 0)
+            {
+                var totalLegacy = legacyModels.Sum(m => m.VectorCount);
+                var modelNames = string.Join(", ", legacyModels.Select(m => m.ModelId));
+                crossModelInfo = $"{totalLegacy:N0} vectors from {modelNames} included via keyword retrieval";
+            }
+            else
+            {
+                crossModelInfo = null;
+            }
+        }
+        catch
+        {
+            crossModelInfo = null;
+        }
     }
 
     private async Task HandleKeyPress(KeyboardEventArgs e)

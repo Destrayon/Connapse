@@ -18,6 +18,8 @@ public class ReindexService : IReindexService
 {
     private readonly KnowledgeDbContext _context;
     private readonly IKnowledgeFileSystem _fileSystem;
+    private readonly IConnectorFactory _connectorFactory;
+    private readonly IContainerStore _containerStore;
     private readonly IIngestionQueue _queue;
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
@@ -26,6 +28,8 @@ public class ReindexService : IReindexService
     public ReindexService(
         KnowledgeDbContext context,
         IKnowledgeFileSystem fileSystem,
+        IConnectorFactory connectorFactory,
+        IContainerStore containerStore,
         IIngestionQueue queue,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
@@ -33,10 +37,58 @@ public class ReindexService : IReindexService
     {
         _context = context;
         _fileSystem = fileSystem;
+        _connectorFactory = connectorFactory;
+        _containerStore = containerStore;
         _queue = queue;
         _chunkingSettings = chunkingSettings;
         _embeddingSettings = embeddingSettings;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Returns true if the file backing this document exists, using the container's connector when available.
+    /// </summary>
+    private async Task<bool> FileExistsAsync(DocumentEntity doc, CancellationToken ct)
+    {
+        var container = await _containerStore.GetAsync(doc.ContainerId, ct);
+        if (container is not null)
+        {
+            try
+            {
+                return await _connectorFactory.Create(container).ExistsAsync(doc.Path, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Connector ExistsAsync failed for container {ContainerId}; falling back to legacy file system",
+                    doc.ContainerId);
+            }
+        }
+
+        return await _fileSystem.ExistsAsync(doc.Path, ct);
+    }
+
+    /// <summary>
+    /// Opens the file backing this document, using the container's connector when available.
+    /// </summary>
+    private async Task<Stream> OpenFileAsync(DocumentEntity doc, CancellationToken ct)
+    {
+        var container = await _containerStore.GetAsync(doc.ContainerId, ct);
+        if (container is not null)
+        {
+            try
+            {
+                return await _connectorFactory.Create(container).ReadFileAsync(doc.Path, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Connector ReadFileAsync failed for container {ContainerId}; falling back to legacy file system",
+                    doc.ContainerId);
+            }
+        }
+
+        return await _fileSystem.OpenFileAsync(doc.Path, ct);
     }
 
     public async Task<ReindexResult> ReindexAsync(ReindexOptions options, CancellationToken ct = default)
@@ -124,8 +176,8 @@ public class ReindexService : IReindexService
                 StoredHash: null);
         }
 
-        // Check if file exists
-        if (!await _fileSystem.ExistsAsync(doc.Path, ct))
+        // Check if file exists (via connector for connector-backed containers)
+        if (!await FileExistsAsync(doc, ct))
         {
             return new ReindexCheck(
                 documentId,
@@ -135,11 +187,11 @@ public class ReindexService : IReindexService
                 StoredHash: doc.ContentHash);
         }
 
-        // Compute current content hash
+        // Compute current content hash (via connector for connector-backed containers)
         string currentHash;
         try
         {
-            using var stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
+            using var stream = await OpenFileAsync(doc, ct);
             currentHash = await ComputeContentHashAsync(stream, ct);
         }
         catch (Exception ex)
@@ -251,8 +303,8 @@ public class ReindexService : IReindexService
                 return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.Forced, ct);
             }
 
-            // Check if file exists
-            if (!await _fileSystem.ExistsAsync(doc.Path, ct))
+            // Check if file exists (via connector for connector-backed containers)
+            if (!await FileExistsAsync(doc, ct))
             {
                 _logger.LogWarning(
                     "Document {DocumentId} file not found at {Path}",
@@ -266,11 +318,11 @@ public class ReindexService : IReindexService
                     ReindexReason.FileNotFound);
             }
 
-            // Compute current content hash
+            // Compute current content hash (via connector for connector-backed containers)
             string currentHash;
             try
             {
-                using var stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
+                using var stream = await OpenFileAsync(doc, ct);
                 currentHash = await ComputeContentHashAsync(stream, ct);
             }
             catch (Exception ex)

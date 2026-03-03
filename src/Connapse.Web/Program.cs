@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Connapse.Core;
 using Connapse.Identity;
 using Connapse.Identity.Data;
@@ -10,10 +11,12 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Extensions;
 using Connapse.Storage.FileSystem;
 using Connapse.Storage.Settings;
+using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
 using Connapse.Web.Mcp;
+using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
@@ -21,6 +24,10 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Serialize enums as strings in all Minimal API JSON responses and request bodies.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 // Persist Data Protection keys to the appdata volume so they survive container restarts.
 // In dev this lands in <ContentRoot>/appdata/DataProtection-Keys; in the container it
@@ -65,11 +72,23 @@ builder.Services.AddHttpClient("BlazorClient");
 // notifications without creating a server-to-server SignalR client connection.
 builder.Services.AddSingleton<IngestionProgressNotifier>();
 
+// In-process event bus so FileBrowser can receive real-time file-list changes
+// (add/delete) triggered by ConnectorWatcherService without polling.
+builder.Services.AddSingleton<FileBrowserChangeNotifier>();
+
 // Add background services
 builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 
+// ConnectorWatcherService: manages FileSystemWatcher instances per Filesystem container.
+// Registered as singleton so endpoints can call StartWatchingContainer() at runtime.
+builder.Services.AddSingleton<ConnectorWatcherService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherService>());
+
 // Add MCP server
 builder.Services.AddSingleton<McpServer>();
+
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 
 builder.Services.AddConnapseStorage(builder.Configuration);
 
@@ -98,10 +117,6 @@ builder.Services.Configure<LlmSettings>(
     builder.Configuration.GetSection("Knowledge:LLM"));
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
-builder.Services.Configure<WebSearchSettings>(
-    builder.Configuration.GetSection("Knowledge:WebSearch"));
-builder.Services.Configure<StorageSettings>(
-    builder.Configuration.GetSection("Knowledge:Storage"));
 
 // Add CORS policy — restrict to same-origin by default
 builder.Services.AddCors(options =>
@@ -147,6 +162,31 @@ using (var scope = app.Services.CreateScope())
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)
         await minio.EnsureBucketExistsAsync();
+
+    // Ensure partial IVFFlat indexes exist for each embedding model in chunk_vectors
+    var vectorColumnManager = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
+    await vectorColumnManager.EnsureIndexesAsync();
+
+    // Sweep ephemeral (InMemory) containers: delete all DB records left from the previous run.
+    // The in-process InMemoryConnector dictionary is always empty on startup, so DB is the only
+    // artifact that needs cleaning.
+    var ephemeralContainerIds = await db.Containers
+        .Where(c => c.IsEphemeral)
+        .Select(c => c.Id)
+        .ToListAsync();
+
+    if (ephemeralContainerIds.Count > 0)
+    {
+        // Delete documents (cascade removes chunks, vectors, folders via FK constraints)
+        foreach (var ephemeralId in ephemeralContainerIds)
+        {
+            var docs = db.Documents.Where(d => d.ContainerId == ephemeralId);
+            db.Documents.RemoveRange(docs);
+            var folders = db.Folders.Where(f => f.ContainerId == ephemeralId);
+            db.Folders.RemoveRange(folders);
+        }
+        await db.SaveChangesAsync();
+    }
 }
 
 // Configure the HTTP request pipeline.
@@ -193,6 +233,7 @@ app.MapGet("/health", () => Results.Ok());
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery();
 api.MapAuthEndpoints();
+api.MapCloudIdentityEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
 api.MapDocumentsEndpoints();

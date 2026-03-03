@@ -1,5 +1,6 @@
 @using Connapse.Core
-@using System.Net.Http.Json
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -7,7 +8,7 @@
     <div class="row g-3">
         <div class="col-md-6">
             <label class="form-label">Provider</label>
-            <InputSelect @bind-Value="localSettings.Provider" class="form-select">
+            <InputSelect @bind-Value="localSettings.Provider" class="form-select" @bind-Value:after="OnProviderChanged">
                 <option value="Ollama">Ollama</option>
                 <option value="OpenAI">OpenAI</option>
                 <option value="AzureOpenAI">Azure OpenAI</option>
@@ -15,16 +16,66 @@
             </InputSelect>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Model</label>
-            <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="llama3.2" />
-        </div>
+        @if (IsOllama)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="llama3.2" />
+            </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Base URL</label>
-            <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
-            <small class="form-text text-muted">For Ollama or custom endpoints</small>
-        </div>
+            <div class="col-md-6">
+                <label class="form-label">Base URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
+            </div>
+        }
+        else if (IsOpenAi)
+        {
+            <div class="col-md-6">
+                <label class="form-label">API Key</label>
+                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-..." />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="gpt-4o" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Base URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
+                <small class="form-text text-muted">Override for OpenAI-compatible endpoints (Groq, Together, etc.)</small>
+            </div>
+        }
+        else if (IsAzureOpenAi)
+        {
+            <div class="col-md-6">
+                <label class="form-label">API Key</label>
+                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Endpoint URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://your-resource.openai.azure.com" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Deployment Name</label>
+                <InputText @bind-Value="localSettings.AzureDeploymentName" class="form-control" placeholder="gpt-4o" />
+                <small class="form-text text-muted">The deployment name in your Azure OpenAI resource</small>
+            </div>
+        }
+        else if (IsAnthropic)
+        {
+            <div class="col-md-6">
+                <label class="form-label">API Key</label>
+                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-ant-..." />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="claude-sonnet-4-20250514" />
+            </div>
+        }
 
         <div class="col-md-6">
             <label class="form-label">Temperature</label>
@@ -40,21 +91,6 @@
         <div class="col-md-6">
             <label class="form-label">Timeout (seconds)</label>
             <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
-        </div>
-
-        <div class="col-md-6">
-            <label class="form-label">API Key</label>
-            <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="Optional for cloud providers" />
-        </div>
-
-        <div class="col-md-6">
-            <label class="form-label">Azure Deployment Name</label>
-            <InputText @bind-Value="localSettings.AzureDeploymentName" class="form-control" placeholder="For Azure OpenAI only" />
-        </div>
-
-        <div class="col-12">
-            <label class="form-label">System Prompt</label>
-            <InputTextArea @bind-Value="localSettings.SystemPrompt" class="form-control" rows="4" placeholder="Optional system prompt prefix" />
         </div>
 
         <div class="col-12 mt-4">
@@ -91,24 +127,12 @@
     </div>
 </EditForm>
 
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
+@inject OllamaConnectionTester OllamaTester
+@inject OpenAiLlmConnectionTester OpenAiLlmTester
+@inject AzureOpenAiLlmConnectionTester AzureOpenAiLlmTester
+@inject AnthropicConnectionTester AnthropicTester
 
 @code {
-    private HttpClient? _httpClient;
-    private HttpClient Http
-    {
-        get
-        {
-            if (_httpClient == null)
-            {
-                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
-                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
-            }
-            return _httpClient;
-        }
-    }
-
     [Parameter]
     public LlmSettings Settings { get; set; } = new();
 
@@ -120,9 +144,57 @@
     private string? testMessage;
     private bool testSuccess;
 
+    private bool IsOllama => localSettings.Provider is null or "Ollama";
+    private bool IsOpenAi => localSettings.Provider == "OpenAI";
+    private bool IsAzureOpenAi => localSettings.Provider == "AzureOpenAI";
+    private bool IsAnthropic => localSettings.Provider == "Anthropic";
+
     protected override void OnParametersSet()
     {
         localSettings = Settings with { };
+    }
+
+    private void OnProviderChanged()
+    {
+        switch (localSettings.Provider)
+        {
+            case "OpenAI":
+                if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
+                    localSettings.Model = "gpt-4o";
+                if (localSettings.BaseUrl == "http://localhost:11434")
+                    localSettings.BaseUrl = null;
+                if (localSettings.MaxTokens == 2000)
+                    localSettings.MaxTokens = 4096;
+                break;
+
+            case "AzureOpenAI":
+                if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
+                    localSettings.Model = "gpt-4o";
+                if (localSettings.BaseUrl == "http://localhost:11434")
+                    localSettings.BaseUrl = null;
+                if (localSettings.MaxTokens == 2000)
+                    localSettings.MaxTokens = 4096;
+                break;
+
+            case "Anthropic":
+                if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
+                    localSettings.Model = "claude-sonnet-4-20250514";
+                if (localSettings.BaseUrl == "http://localhost:11434")
+                    localSettings.BaseUrl = null;
+                if (localSettings.MaxTokens == 2000)
+                    localSettings.MaxTokens = 4096;
+                break;
+
+            case "Ollama":
+            default:
+                if (localSettings.Model is "gpt-4o" or "claude-sonnet-4-20250514")
+                    localSettings.Model = "llama3.2";
+                if (string.IsNullOrWhiteSpace(localSettings.BaseUrl))
+                    localSettings.BaseUrl = "http://localhost:11434";
+                if (localSettings.MaxTokens == 4096)
+                    localSettings.MaxTokens = 2000;
+                break;
+        }
     }
 
     private async Task HandleSubmit()
@@ -143,26 +215,19 @@
 
         try
         {
-            var request = new
+            IConnectionTester tester = localSettings.Provider switch
             {
-                Category = "llm",
-                Settings = localSettings,
-                TimeoutSeconds = 10
+                "OpenAI" => OpenAiLlmTester,
+                "AzureOpenAI" => AzureOpenAiLlmTester,
+                "Anthropic" => AnthropicTester,
+                _ => OllamaTester
             };
 
-            var response = await Http.PostAsJsonAsync("/api/settings/test-connection", request);
-            var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
+            var result = await tester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(10));
 
-            if (result != null)
-            {
-                testSuccess = result.Success;
-                testMessage = result.Message;
-            }
-            else
-            {
-                testSuccess = false;
-                testMessage = "No response from server";
-            }
+            testSuccess = result.Success;
+            testMessage = result.Message;
         }
         catch (Exception ex)
         {

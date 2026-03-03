@@ -10,24 +10,27 @@ namespace Connapse.Storage.Documents;
 
 /// <summary>
 /// PostgreSQL-backed document store implementation.
-/// Handles CRUD operations for documents in the knowledge base.
+/// Uses IDbContextFactory to create a short-lived DbContext per operation,
+/// preventing concurrent-access exceptions in Blazor Server circuits.
 /// </summary>
 public class PostgresDocumentStore : IDocumentStore
 {
-    private readonly KnowledgeDbContext _context;
+    private readonly IDbContextFactory<KnowledgeDbContext> _factory;
     private readonly ILogger<PostgresDocumentStore> _logger;
 
     public PostgresDocumentStore(
-        KnowledgeDbContext context,
+        IDbContextFactory<KnowledgeDbContext> factory,
         ILogger<PostgresDocumentStore> logger)
     {
-        _context = context;
+        _factory = factory;
         _logger = logger;
     }
 
     public async Task<string> StoreAsync(Document document, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(document);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
 
         var entity = new DocumentEntity
         {
@@ -36,7 +39,7 @@ public class PostgresDocumentStore : IDocumentStore
             FileName = document.FileName,
             ContentType = document.ContentType,
             Path = document.Path,
-            ContentHash = string.Empty, // Will be set by ingestion pipeline
+            ContentHash = string.Empty,
             SizeBytes = document.SizeBytes,
             ChunkCount = 0,
             Status = "Pending",
@@ -44,8 +47,8 @@ public class PostgresDocumentStore : IDocumentStore
             Metadata = document.Metadata ?? new Dictionary<string, string>()
         };
 
-        _context.Documents.Add(entity);
-        await _context.SaveChangesAsync(ct);
+        context.Documents.Add(entity);
+        await context.SaveChangesAsync(ct);
 
         _logger.LogInformation(
             "Stored document {DocumentId} ({FileName}, {SizeBytes} bytes) in container {ContainerId}",
@@ -65,7 +68,9 @@ public class PostgresDocumentStore : IDocumentStore
             return null;
         }
 
-        var entity = await _context.Documents
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents
             .AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == guid, ct);
 
@@ -77,7 +82,9 @@ public class PostgresDocumentStore : IDocumentStore
         string? pathPrefix = null,
         CancellationToken ct = default)
     {
-        var query = _context.Documents
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var query = context.Documents
             .AsNoTracking()
             .Where(d => d.ContainerId == containerId);
 
@@ -101,7 +108,9 @@ public class PostgresDocumentStore : IDocumentStore
             return;
         }
 
-        var entity = await _context.Documents
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents
             .FirstOrDefaultAsync(d => d.Id == guid, ct);
 
         if (entity == null)
@@ -110,8 +119,8 @@ public class PostgresDocumentStore : IDocumentStore
             return;
         }
 
-        _context.Documents.Remove(entity);
-        await _context.SaveChangesAsync(ct);
+        context.Documents.Remove(entity);
+        await context.SaveChangesAsync(ct);
 
         _logger.LogInformation(
             "Deleted document {DocumentId} ({FileName})",
@@ -121,13 +130,25 @@ public class PostgresDocumentStore : IDocumentStore
 
     public async Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default)
     {
-        return await _context.Documents
-            .AnyAsync(d => d.ContainerId == containerId && d.Path == path, ct);
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        return await context.Documents
+            .AnyAsync(d => d.ContainerId == containerId && d.Path == path && d.Status == "Ready", ct);
+    }
+
+    public async Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.ContainerId == containerId && d.Path == path, ct);
+
+        return entity is null ? null : MapToModel(entity);
     }
 
     private static Document MapToModel(DocumentEntity entity)
     {
-        // Merge entity columns into metadata so the API exposes them
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
         metadata["Status"] = entity.Status;
         metadata["ContentHash"] = entity.ContentHash;

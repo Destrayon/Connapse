@@ -1,5 +1,8 @@
 @using Connapse.Core
-@using System.Net.Http.Json
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.ConnectionTesters
+@using Connapse.Storage.Vectors
+@using Microsoft.Extensions.Options
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -7,50 +10,87 @@
     <div class="row g-3">
         <div class="col-md-6">
             <label class="form-label">Provider</label>
-            <InputSelect @bind-Value="localSettings.Provider" class="form-select">
+            <InputSelect @bind-Value="localSettings.Provider" class="form-select" @bind-Value:after="OnProviderChanged">
                 <option value="Ollama">Ollama</option>
                 <option value="OpenAI">OpenAI</option>
                 <option value="AzureOpenAI">Azure OpenAI</option>
-                <option value="Anthropic">Anthropic</option>
             </InputSelect>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Model</label>
-            <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="nomic-embed-text" />
-        </div>
+        @if (IsOllama)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="nomic-embed-text" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Base URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
+            </div>
+        }
+        else if (IsOpenAi)
+        {
+            <div class="col-md-6">
+                <label class="form-label">API Key</label>
+                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-..." />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.Model" class="form-control" placeholder="text-embedding-3-small" />
+                <small class="form-text text-muted">text-embedding-3-small (1536d) or text-embedding-3-large (3072d)</small>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Base URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
+                <small class="form-text text-muted">Override for OpenAI-compatible proxies</small>
+            </div>
+        }
+        else if (IsAzureOpenAi)
+        {
+            <div class="col-md-6">
+                <label class="form-label">API Key</label>
+                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Endpoint URL</label>
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://your-resource.openai.azure.com" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Deployment Name</label>
+                <InputText @bind-Value="localSettings.AzureDeploymentName" class="form-control" placeholder="text-embedding-3-small" />
+                <small class="form-text text-muted">The deployment name in your Azure OpenAI resource</small>
+            </div>
+        }
 
         <div class="col-md-6">
             <label class="form-label">Dimensions</label>
             <InputNumber @bind-Value="localSettings.Dimensions" class="form-control" />
-            <small class="form-text text-muted">Must match model output dimensions</small>
+            <small class="form-text text-muted">
+                @if (IsOpenAi || IsAzureOpenAi)
+                {
+                    @:text-embedding-3-small: 1536 (default), text-embedding-3-large: 3072
+                }
+                else
+                {
+                    @:Must match model output dimensions
+                }
+            </small>
         </div>
 
         <div class="col-md-6">
             <label class="form-label">Batch Size</label>
             <InputNumber @bind-Value="localSettings.BatchSize" class="form-control" />
-            <small class="form-text text-muted">Number of texts to embed in parallel</small>
-        </div>
-
-        <div class="col-md-6">
-            <label class="form-label">Base URL</label>
-            <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
-            <small class="form-text text-muted">For Ollama or custom endpoints</small>
+            <small class="form-text text-muted">Number of texts per embedding request</small>
         </div>
 
         <div class="col-md-6">
             <label class="form-label">Timeout (seconds)</label>
             <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
-        </div>
-
-        <div class="col-md-6">
-            <label class="form-label">API Key</label>
-            <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="Optional for cloud providers" />
-        </div>
-
-        <div class="col-md-6">
-            <label class="form-label">Azure Deployment Name</label>
-            <InputText @bind-Value="localSettings.AzureDeploymentName" class="form-control" placeholder="For Azure OpenAI only" />
         </div>
 
         <div class="col-12 mt-4">
@@ -84,11 +124,58 @@
                 </div>
             </div>
         }
+
+        @if (showLegacyBanner)
+        {
+            <div class="col-12 mt-3">
+                <div class="alert alert-warning" role="alert">
+                    <strong>Legacy vectors detected.</strong>
+                    @legacyVectorCount.ToString("N0") documents are still embedded with a previous model.
+                    They won't appear in Semantic search results until re-embedded.
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-warning btn-sm me-2" @onclick="StartReEmbed" disabled="@isReEmbedding">
+                            @if (isReEmbedding)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                <span>Starting...</span>
+                            }
+                            else
+                            {
+                                <span>Re-Embed Now</span>
+                            }
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="EnableCrossModelSearch">
+                            Skip - Use Cross-Model Search
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (reEmbedStarted)
+        {
+            <div class="col-12 mt-3">
+                <div class="alert alert-info" role="alert">
+                    <strong>Re-embedding in progress.</strong>
+                    Documents are being re-embedded in the background. Cross-model search has been enabled automatically
+                    so all documents remain findable during the transition.
+                    <div class="mt-2">
+                        <small class="text-muted">Queue depth: @queueDepth</small>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 </EditForm>
 
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
+@inject OllamaConnectionTester OllamaTester
+@inject OpenAiConnectionTester OpenAiTester
+@inject AzureOpenAiConnectionTester AzureOpenAiTester
+@inject VectorModelDiscovery ModelDiscovery
+@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettingsMonitor
+@inject ISettingsStore SettingsStore
+@inject IIngestionQueue IngestionQueue
+@inject IServiceScopeFactory ScopeFactory
 
 @code {
     [Parameter]
@@ -99,36 +186,169 @@
 
     private EmbeddingSettings localSettings = new();
     private bool isTestingConnection;
-    private HttpClient? _httpClient;
-    private HttpClient Http
-    {
-        get
-        {
-            if (_httpClient == null)
-            {
-                _httpClient = HttpClientFactory.CreateClient("BlazorClient");
-                _httpClient.BaseAddress = new Uri(Navigation.BaseUri);
-            }
-            return _httpClient;
-        }
-    }
     private string? testMessage;
     private bool testSuccess;
 
+    // Legacy vector / re-embedding state
+    private bool showLegacyBanner;
+    private long legacyVectorCount;
+    private bool isReEmbedding;
+    private bool reEmbedStarted;
+    private int queueDepth;
+
+    private bool IsOllama => localSettings.Provider is null or "Ollama";
+    private bool IsOpenAi => localSettings.Provider == "OpenAI";
+    private bool IsAzureOpenAi => localSettings.Provider == "AzureOpenAI";
+
     protected override void OnParametersSet()
     {
-        // Clone settings to avoid modifying parent until save
         localSettings = Settings with { };
+    }
+
+    private void OnProviderChanged()
+    {
+        // Auto-fill sensible defaults when switching providers (only if fields are empty/default)
+        switch (localSettings.Provider)
+        {
+            case "OpenAI":
+                if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "nomic-embed-text")
+                    localSettings.Model = "text-embedding-3-small";
+                if (localSettings.Dimensions == 768)
+                    localSettings.Dimensions = 1536;
+                if (localSettings.BaseUrl == "http://localhost:11434")
+                    localSettings.BaseUrl = null;
+                if (localSettings.BatchSize == 16)
+                    localSettings.BatchSize = 64;
+                break;
+
+            case "AzureOpenAI":
+                if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "nomic-embed-text")
+                    localSettings.Model = "text-embedding-3-small";
+                if (localSettings.Dimensions == 768)
+                    localSettings.Dimensions = 1536;
+                if (localSettings.BaseUrl == "http://localhost:11434")
+                    localSettings.BaseUrl = null;
+                if (localSettings.BatchSize == 16)
+                    localSettings.BatchSize = 64;
+                break;
+
+            case "Ollama":
+            default:
+                if (localSettings.Model is "text-embedding-3-small" or "text-embedding-3-large")
+                    localSettings.Model = "nomic-embed-text";
+                if (localSettings.Dimensions == 1536 || localSettings.Dimensions == 3072)
+                    localSettings.Dimensions = 768;
+                if (string.IsNullOrWhiteSpace(localSettings.BaseUrl))
+                    localSettings.BaseUrl = "http://localhost:11434";
+                if (localSettings.BatchSize == 64)
+                    localSettings.BatchSize = 16;
+                break;
+        }
     }
 
     private async Task HandleSubmit()
     {
+        // Save via parent callback (triggers API call)
         await OnSave.InvokeAsync(localSettings);
+
+        // Check for legacy vectors after save
+        await CheckForLegacyVectors();
+    }
+
+    private async Task CheckForLegacyVectors()
+    {
+        try
+        {
+            var hasLegacy = await ModelDiscovery.HasLegacyVectorsAsync(localSettings.Model);
+            if (hasLegacy)
+            {
+                var models = await ModelDiscovery.GetModelsAsync();
+                legacyVectorCount = models
+                    .Where(m => !string.Equals(m.ModelId, localSettings.Model, StringComparison.OrdinalIgnoreCase))
+                    .Sum(m => m.VectorCount);
+                showLegacyBanner = legacyVectorCount > 0;
+            }
+            else
+            {
+                showLegacyBanner = false;
+            }
+        }
+        catch
+        {
+            showLegacyBanner = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task StartReEmbed()
+    {
+        isReEmbedding = true;
+        StateHasChanged();
+
+        try
+        {
+            // Enable cross-model search during re-embedding so documents remain findable
+            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
+            if (!searchSettings.EnableCrossModelSearch)
+            {
+                searchSettings.EnableCrossModelSearch = true;
+                await SettingsStore.SaveAsync("search", searchSettings);
+            }
+
+            // Fire-and-forget reindex via IReindexService (same pattern as SettingsEndpoints)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var scope = ScopeFactory.CreateAsyncScope();
+                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
+                    await reindexService.ReindexAsync(new ReindexOptions
+                    {
+                        DetectSettingsChanges = true
+                    }, CancellationToken.None);
+                }
+                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
+            });
+
+            showLegacyBanner = false;
+            reEmbedStarted = true;
+            queueDepth = IngestionQueue.QueueDepth;
+        }
+        catch { /* Best-effort */ }
+        finally
+        {
+            isReEmbedding = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task EnableCrossModelSearch()
+    {
+        try
+        {
+            var searchSettings = await SettingsStore.GetAsync<SearchSettings>("search") ?? new SearchSettings();
+            searchSettings.EnableCrossModelSearch = true;
+            await SettingsStore.SaveAsync("search", searchSettings);
+
+            showLegacyBanner = false;
+            testSuccess = true;
+            testMessage = "Cross-model search enabled. Legacy documents will appear in Hybrid search results.";
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Failed to enable cross-model search: {ex.Message}";
+        }
+
+        StateHasChanged();
     }
 
     private void Reset()
     {
         localSettings = Settings with { };
+        showLegacyBanner = false;
+        reEmbedStarted = false;
     }
 
     private async Task TestConnection()
@@ -139,26 +359,18 @@
 
         try
         {
-            var request = new
+            IConnectionTester tester = localSettings.Provider switch
             {
-                Category = "embedding",
-                Settings = localSettings,
-                TimeoutSeconds = 10
+                "OpenAI" => OpenAiTester,
+                "AzureOpenAI" => AzureOpenAiTester,
+                _ => OllamaTester
             };
 
-            var response = await Http.PostAsJsonAsync("/api/settings/test-connection", request);
-            var result = await response.Content.ReadFromJsonAsync<ConnectionTestResult>();
+            var result = await tester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(10));
 
-            if (result != null)
-            {
-                testSuccess = result.Success;
-                testMessage = result.Message;
-            }
-            else
-            {
-                testSuccess = false;
-                testMessage = "No response from server";
-            }
+            testSuccess = result.Success;
+            testMessage = result.Message;
         }
         catch (Exception ex)
         {

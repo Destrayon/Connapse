@@ -96,6 +96,9 @@ Search → Core
       → Storage
 
 Storage → Core
+       → AWSSDK.S3, AWSSDK.SSOAdmin, AWSSDK.SSOOIDC
+       → Azure.Storage.Blobs, Azure.Identity
+       → OpenAI, Azure.AI.OpenAI, Anthropic
 
 CLI → Core
    (no longer references Identity, Ingestion, Search, or Storage — uses HTTP API only)
@@ -119,14 +122,19 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IFolderStore` | Folder management within containers | `PostgresFolderStore` |
 | `IDocumentStore` | Document metadata CRUD (container-scoped) | `PostgresDocumentStore` |
 | `IVectorStore` | Vector storage + similarity search | `PgVectorStore` |
-| `IEmbeddingProvider` | Text → vector | `OllamaEmbeddingProvider` |
+| `IEmbeddingProvider` | Text → vector | `OllamaEmbeddingProvider`, `OpenAiEmbeddingProvider`, `AzureOpenAiEmbeddingProvider` |
 | `IIngestionQueue` | Background ingestion job queue + cancellation | `IngestionQueue` |
 | `IReindexService` | Content-hash dedup reindexing | `ReindexService` |
 | `IDocumentParser` | File → ParsedDocument | `TextParser`, `PdfParser`, `OfficeParser` |
 | `IChunkingStrategy` | ParsedDocument → Chunks | `SemanticChunker`, `FixedSizeChunker`, `RecursiveChunker` |
 | `ISearchReranker` | Result fusion + reranking | `RrfReranker`, `CrossEncoderReranker` |
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
-| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester` |
+| `ILlmProvider` | LLM completion + streaming | `OllamaLlmProvider`, `OpenAiLlmProvider`, `AzureOpenAiLlmProvider`, `AnthropicLlmProvider` |
+| `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `InMemoryConnector`, `S3Connector`, `AzureBlobConnector` |
+| `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
+| `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
+| `ICloudScopeService` | IAM-derived access control | `CloudScopeService` |
+| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `AzureBlobConnectionTester`, `AwsSsoConnectionTester`, `AzureAdConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
 
 **Identity (`Connapse.Identity`)**:
 
@@ -137,6 +145,8 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IAuditLogger` | Structured audit trail | `AuditLogger` |
 | `IAgentService` | Agent + agent API key CRUD | `AgentService` |
 | `IInviteService` | Invite-only registration tokens | `InviteService` |
+| `ICloudIdentityService` | Cloud identity linking (AWS/Azure) | `CloudIdentityService` |
+| `ICloudIdentityStore` | Encrypted cloud identity persistence | `PostgresCloudIdentityStore` |
 
 ### Core Models
 
@@ -144,8 +154,13 @@ All domain types live in the `Connapse.Core` namespace (files in `Models/` folde
 
 ```csharp
 // Containers & Storage
-record Container(string Id, string Name, string? Description, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
-record CreateContainerRequest(string Name, string? Description);
+enum ConnectorType { MinIO = 0, Filesystem = 1, InMemory = 2, S3 = 3, AzureBlob = 4 }
+record Container(string Id, string Name, string? Description, ConnectorType ConnectorType,
+    string? ConnectorConfig, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
+record ContainerSettingsOverrides { ChunkingSettings? Chunking, EmbeddingSettings? Embedding,
+    SearchSettings? Search, UploadSettings? Upload };
+record CreateContainerRequest(string Name, string? Description,
+    ConnectorType? ConnectorType, string? ConnectorConfig);
 record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 record Document(string Id, string ContainerId, string FileName, string? ContentType, string Path,
     long SizeBytes, DateTime CreatedAt, Dictionary<string, string> Metadata);
@@ -164,14 +179,16 @@ record SearchOptions(int TopK = 10, float MinScore = 0.0f, string? ContainerId =
 record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
 record SearchHit(string ChunkId, string DocumentId, string Content, float Score, ...);
 
-// Settings (7 categories)
+// Settings (5 app categories + 2 identity categories)
 record EmbeddingSettings(string Provider, string BaseUrl, string Model, int Dimensions, ...);
 record ChunkingSettings(string Strategy, int MaxTokens, int Overlap, ...);
-record SearchSettings(string Mode, int TopK, float MinimumScore, string RerankerStrategy, ...);
-record LlmSettings(string Provider, string BaseUrl, string Model, ...);
-record StorageSettings(string MinioEndpoint, string MinioAccessKey, ...);
+record SearchSettings(string Mode, int TopK, float MinimumScore, string RerankerStrategy,
+    bool EnableCrossModelSearch, ...);
+record LlmSettings(string Provider, string BaseUrl, string Model, string? ApiKey, ...);
 record UploadSettings(long MaxFileSizeBytes, List<string> AllowedExtensions, ...);
-record WebSearchSettings(string Provider, string ApiKey, ...);
+// Identity settings (separate config sections)
+class AwsSsoSettings { IssuerUrl, Region, ClientId?, ClientSecret?, ClientSecretExpiresAt? }
+class AzureAdSettings { ClientId, TenantId, ClientSecret }
 ```
 
 ## Data Flow
@@ -256,7 +273,8 @@ chunks (id, document_id, container_id, content, chunk_index,
 -- Chunk vectors (denormalized container_id)
 chunk_vectors (id, chunk_id, container_id, embedding, model_id, metadata)
 -- FK: chunk_id → chunks (CASCADE DELETE)
--- pgvector: embedding vector(dimensions) with cosine distance index
+-- pgvector: embedding vector (UNCONSTRAINED — supports mixed dimensions)
+-- Partial IVFFlat indexes per model_id (created when ≥10 vectors)
 
 -- Folders (for empty folder support)
 folders (id, container_id, path, created_at)
@@ -265,7 +283,12 @@ folders (id, container_id, path, created_at)
 
 -- Settings (runtime-mutable, JSONB per category)
 settings (category, values, updated_at)
--- JSONB per category (embedding, chunking, search, llm, storage, upload, websearch)
+-- JSONB per category (embedding, chunking, search, llm, upload, awssso, azuread)
+
+-- Cloud identities (user ↔ cloud provider linkage)
+user_cloud_identities (id, user_id, provider, encrypted_data, created_at, last_used_at)
+-- Unique index on (user_id, provider)
+-- DataProtection-encrypted identity data
 ```
 
 **Indexes**:
@@ -278,7 +301,8 @@ settings (category, values, updated_at)
 - `chunks.search_vector` (GIN) — full-text search
 - `chunk_vectors.chunk_id` (B-tree) — cascade delete
 - `chunk_vectors.container_id` (B-tree) — container-scoped vector search
-- `chunk_vectors.embedding` (HNSW) — vector similarity search
+- `chunk_vectors.embedding` — partial IVFFlat per model_id (created dynamically when ≥10 vectors)
+- `chunk_vectors.model_id` (B-tree) — model-specific vector queries
 - `folders.(container_id, path)` (unique B-tree) — folder path uniqueness
 
 **pgvector Operator**: `<=>` (cosine distance). Converted to similarity: `1 - distance`.
@@ -326,13 +350,17 @@ Bucket: knowledge-files
 
 ### Embedding (IEmbeddingProvider)
 
-**Current Implementation**: `OllamaEmbeddingProvider`
-- Model: `nomic-embed-text` (768d) or configurable
-- Batch support: Parallel requests (default: 4 concurrent)
-- Fallback: Single-threaded if batch fails
-- Validation: Warns if returned dimensions ≠ expected
+Three providers, selected at runtime via `EmbeddingSettings.Provider`:
 
-**Future Providers**: `OpenAIEmbeddingProvider`, `AzureOpenAIEmbeddingProvider`, `AnthropicEmbeddingProvider`
+| Provider | Implementation | SDK | Notes |
+|----------|---------------|-----|-------|
+| **Ollama** | `OllamaEmbeddingProvider` | HttpClient | Default, local-first, `nomic-embed-text` (768d) |
+| **OpenAI** | `OpenAiEmbeddingProvider` | `OpenAI` 2.9.0 | `text-embedding-3-small/large`, Matryoshka truncation |
+| **Azure OpenAI** | `AzureOpenAiEmbeddingProvider` | `Azure.AI.OpenAI` 2.1.0 | Same models via Azure endpoint |
+
+**DI registration**: Factory delegate reads `EmbeddingSettings.Provider` at scope time — no restart needed.
+
+**Multi-dimension support**: The `chunk_vectors.embedding` column is unconstrained `vector` (no fixed dimension). Partial IVFFlat indexes are created per `model_id` by `VectorColumnManager` when ≥10 vectors exist. Queries cast to `::vector(N)` where N = query vector length.
 
 ### Vector Storage (IVectorStore)
 
@@ -362,6 +390,8 @@ LIMIT @top_k;
 | **Semantic** | Vector similarity only | Conceptual queries ("machine learning basics") |
 | **Keyword** | Full-text search (FTS) only | Exact terms ("API key configuration") |
 | **Hybrid** | Vector + Keyword + RRF fusion | Most queries (default) |
+
+**Cross-Model Search**: When `SearchSettings.EnableCrossModelSearch` is true and legacy vectors exist (vectors from a different embedding model), Semantic mode is automatically overridden to Hybrid. This ensures keyword search covers documents whose vectors are incompatible with the current model's query vector.
 
 ### Hybrid Search Flow
 
@@ -480,7 +510,7 @@ All surfaces call the same domain services (`IKnowledgeIngester`, `IKnowledgeSea
 | **Auth** | ASP.NET Core Identity | Cookie + PAT + JWT (HS256) |
 | **HTTP Client** | HttpClient | Built-in, typed clients |
 | **Real-time** | SignalR | Ingestion progress (JWT auth via query string) |
-| **Testing** | xUnit + FluentAssertions + Testcontainers | 256 tests (unit + integration) |
+| **Testing** | xUnit + FluentAssertions + Testcontainers | 457 tests (unit + integration) |
 | **Containerization** | Docker + Docker Compose | Latest |
 | **CI/CD** | GitHub Actions | Build, test, release (native binaries + NuGet) |
 
@@ -675,6 +705,104 @@ On a fresh install, `AdminSeedService` runs on startup:
 - **Entity extraction**: NER (Named Entity Recognition) for metadata
 - **Question answering**: RAG-powered Q&A with citations
 - **Agent tools**: Extended MCP tools for summarization, conversation memory
+
+## Connector Architecture (v0.3.0)
+
+### Connector Types
+
+A **Container** is a logical knowledge base; a **Connector** is the storage technology that backs it.
+
+| Type | `SupportsLiveWatch` | Background Sync | Config Required |
+|------|---------------------|-----------------|-----------------|
+| **MinIO** | No | 5-min polling | No (global) |
+| **Filesystem** | Yes (`FileSystemWatcher`) | Live + 5-min rescan | `rootPath` |
+| **InMemory** | No | None | No |
+| **S3** | No | 5-min polling | `bucketName`, `region` |
+| **AzureBlob** | No | 5-min polling | `storageAccountName`, `containerName` |
+
+### IConnector Interface
+
+All connectors implement `IConnector`: `ReadFileAsync`, `WriteFileAsync`, `DeleteFileAsync`, `ListFilesAsync`, `ExistsAsync`, `WatchAsync`. Paths are virtual (`/docs/file.pdf`), not filesystem-absolute.
+
+### ConnectorWatcherService
+
+`BackgroundService` (Singleton + HostedService) that manages all container watching:
+
+- **Filesystem**: `FileSystemWatcher` with 750ms debounce, 5-min rescan safety net
+- **Cloud (S3/AzureBlob/MinIO)**: 5-min `PeriodicTimer` polling, in-memory snapshot for change detection
+- First poll: detects creates + deletes; subsequent polls: also detects LastModified/SizeBytes changes
+- New remote files pre-registered as "Pending" in DB before ingestion starts (immediate UI feedback)
+
+### Per-Container Settings
+
+`ContainerSettingsOverrides` allows each container to override global settings:
+
+```
+Resolution order: Container override → Global DB setting → Application default
+```
+
+Resolved via `IContainerSettingsResolver` for chunking, embedding, search, and upload settings.
+
+See [connectors.md](connectors.md) for full connector documentation.
+
+## Cloud Identity & Scope Enforcement (v0.3.0)
+
+### Identity Linking
+
+Users link one cloud identity per provider via their Profile page:
+
+| Provider | Flow | Stored Data |
+|----------|------|-------------|
+| **AWS** | IAM Identity Center device authorization | Account IDs, primary account, display name |
+| **Azure** | OAuth2 authorization code + PKCE | Object ID, Tenant ID, display name |
+
+Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`).
+
+### Scope Enforcement
+
+`CloudScopeService` checks cloud identity permissions before allowing access to cloud-backed containers:
+
+1. Retrieve user's linked identity for the container's cloud provider
+2. Call provider-specific `ICloudIdentityProvider.DiscoverScopesAsync()`
+3. Cache result: 15-min allow TTL, 5-min deny TTL (`IConnectorScopeCache`)
+4. Inject allowed prefix filter into search/browse queries
+
+Enforcement applied to: document endpoints, search endpoints, folder endpoints, sync trigger.
+
+See [aws-sso-setup.md](aws-sso-setup.md) and [azure-identity-setup.md](azure-identity-setup.md) for setup guides.
+
+## Multi-Provider Support (v0.3.0)
+
+### Embedding Providers
+
+| Provider | SDK | Models |
+|----------|-----|--------|
+| Ollama | HttpClient (typed) | nomic-embed-text, all-minilm, etc. |
+| OpenAI | `OpenAI` 2.9.0 | text-embedding-3-small, text-embedding-3-large |
+| Azure OpenAI | `Azure.AI.OpenAI` 2.1.0 | Same models via Azure endpoint |
+
+### LLM Providers
+
+| Provider | SDK | Models |
+|----------|-----|--------|
+| Ollama | HttpClient (NDJSON) | llama3.2, mistral, etc. |
+| OpenAI | `OpenAI` 2.9.0 | gpt-4o, gpt-4o-mini, etc. |
+| Azure OpenAI | `Azure.AI.OpenAI` 2.1.0 | Same models via Azure endpoint |
+| Anthropic | `Anthropic` 12.8.0 | claude-sonnet-4-20250514, etc. |
+
+All providers implement `ILlmProvider` (CompleteAsync + StreamAsync via IAsyncEnumerable). Resolved at scope time via factory delegate reading `LlmSettings.Provider`.
+
+### Cross-Encoder Reranking Providers
+
+`CrossEncoderReranker` uses `ILlmProvider` for reranking (refactored from raw Ollama HTTP).
+
+### Multi-Dimension Vector Support
+
+The `chunk_vectors.embedding` column is unconstrained `vector` (no fixed dimension). This enables:
+- Switching embedding models without dropping existing vectors
+- Mixed embedding dimensions across containers/time periods
+- `VectorColumnManager` creates partial IVFFlat indexes per `model_id` when ≥10 vectors exist
+- Search queries add `model_id` WHERE filter and `::vector(N)` dimension cast
 
 ## References
 

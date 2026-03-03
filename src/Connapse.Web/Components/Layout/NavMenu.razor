@@ -50,10 +50,10 @@
             <nav class="nav flex-column nav-bottom">
                 <div class="nav-separator"></div>
                 <div class="nav-item px-3">
-                    <div class="nav-user-info">
+                    <NavLink class="nav-link nav-user-info" href="profile">
                         <span class="nav-icon bi-person-fill" aria-hidden="true"></span>
                         <span class="text-muted small">@(context.User.FindFirst("DisplayName")?.Value ?? context.User.Identity?.Name)</span>
-                    </div>
+                    </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <form method="post" action="/logout" @formname="logout">

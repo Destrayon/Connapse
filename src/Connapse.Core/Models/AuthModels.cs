@@ -82,3 +82,27 @@ public record CliExchangeResponse(
     Guid PatId,
     DateTime? ExpiresAt,
     string Email);
+
+public record CloudIdentityDto(
+    Guid Id,
+    CloudProvider Provider,
+    CloudIdentityData Data,
+    DateTime CreatedAt,
+    DateTime? LastUsedAt);
+
+public record CloudIdentityData(
+    string? PrincipalArn,
+    string? AccountId,
+    string? ObjectId,
+    string? TenantId,
+    string? DisplayName);
+
+public record AzureConnectResult(string AuthorizeUrl, string State, string CodeVerifier);
+
+public record AwsDeviceAuthStartResult(
+    string UserCode,
+    string VerificationUri,
+    string VerificationUriComplete,
+    string DeviceCode,
+    int ExpiresInSeconds,
+    int IntervalSeconds);

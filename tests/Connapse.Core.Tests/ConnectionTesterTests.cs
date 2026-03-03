@@ -164,7 +164,7 @@ public class MinioConnectionTesterTests
     {
         // Arrange
         var tester = new MinioConnectionTester(_logger);
-        var settings = new StorageSettings { MinioEndpoint = null };
+        var settings = new Connapse.Storage.FileSystem.MinioOptions { Endpoint = null! };
 
         // Act
         var result = await tester.TestConnectionAsync(settings);
@@ -179,11 +179,11 @@ public class MinioConnectionTesterTests
     {
         // Arrange
         var tester = new MinioConnectionTester(_logger);
-        var settings = new StorageSettings
+        var settings = new Connapse.Storage.FileSystem.MinioOptions
         {
-            MinioEndpoint = "localhost:9000",
-            MinioAccessKey = null,
-            MinioSecretKey = null
+            Endpoint = "localhost:9000",
+            AccessKey = null!,
+            SecretKey = null!
         };
 
         // Act
@@ -195,6 +195,92 @@ public class MinioConnectionTesterTests
     }
 
     // Note: Full MinIO integration tests require real service and are covered in Integration.Tests
+}
+
+[Trait("Category", "Unit")]
+public class AzureAdConnectionTesterTests
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<AzureAdConnectionTester> _logger;
+    private readonly HttpMessageHandlerStub _httpHandler;
+
+    public AzureAdConnectionTesterTests()
+    {
+        _httpHandler = new HttpMessageHandlerStub();
+        _httpClientFactory = Substitute.For<IHttpClientFactory>();
+        _httpClientFactory.CreateClient().Returns(new HttpClient(_httpHandler));
+        _logger = Substitute.For<ILogger<AzureAdConnectionTester>>();
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_MissingTenantId_ReturnsFailure()
+    {
+        var tester = new AzureAdConnectionTester(_httpClientFactory, _logger);
+        var settings = new AzureAdSettings { ClientId = "test-id", TenantId = "" };
+
+        var result = await tester.TestConnectionAsync(settings);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("Tenant ID is required");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_MissingClientId_ReturnsFailure()
+    {
+        var tester = new AzureAdConnectionTester(_httpClientFactory, _logger);
+        var settings = new AzureAdSettings { ClientId = "", TenantId = "test-tenant" };
+
+        var result = await tester.TestConnectionAsync(settings);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("Client ID is required");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_ValidTenant_ReturnsSuccess()
+    {
+        var tester = new AzureAdConnectionTester(_httpClientFactory, _logger);
+        var settings = new AzureAdSettings
+        {
+            ClientId = "00000000-0000-0000-0000-000000000001",
+            TenantId = "00000000-0000-0000-0000-000000000002"
+        };
+
+        var metadata = new
+        {
+            issuer = "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000002/v2.0",
+            token_endpoint = "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000002/oauth2/v2.0/token"
+        };
+        _httpHandler.ResponseContent = JsonSerializer.Serialize(metadata);
+        _httpHandler.ResponseStatusCode = HttpStatusCode.OK;
+
+        var result = await tester.TestConnectionAsync(settings);
+
+        result.Success.Should().BeTrue();
+        result.Message.Should().Contain("Connected to Azure AD tenant");
+        result.Details.Should().ContainKey("issuer");
+        result.Details!["tenantId"].Should().Be("00000000-0000-0000-0000-000000000002");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_InvalidTenant_ReturnsFailure()
+    {
+        var tester = new AzureAdConnectionTester(_httpClientFactory, _logger);
+        var settings = new AzureAdSettings
+        {
+            ClientId = "test-id",
+            TenantId = "invalid-tenant"
+        };
+
+        _httpHandler.ResponseStatusCode = HttpStatusCode.BadRequest;
+        _httpHandler.ResponseContent = "{ \"error\": \"invalid_tenant\" }";
+
+        var result = await tester.TestConnectionAsync(settings);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("400");
+        result.Message.Should().Contain("verify the Tenant ID");
+    }
 }
 
 /// <summary>

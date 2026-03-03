@@ -173,7 +173,7 @@ namespace Connapse.Storage.Migrations
 
                     b.Property<Vector>("Embedding")
                         .IsRequired()
-                        .HasColumnType("vector(768)")
+                        .HasColumnType("vector")
                         .HasColumnName("embedding");
 
                     b.Property<string>("ModelId")
@@ -189,12 +189,8 @@ namespace Connapse.Storage.Migrations
                     b.HasIndex("DocumentId")
                         .HasDatabaseName("idx_chunk_vectors_document_id");
 
-                    b.HasIndex("Embedding")
-                        .HasDatabaseName("idx_chunk_vectors_embedding")
-                        .HasAnnotation("Npgsql:StorageParameter:lists", 100);
-
-                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Embedding"), "ivfflat");
-                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Embedding"), new[] { "vector_cosine_ops" });
+                    b.HasIndex("ModelId")
+                        .HasDatabaseName("idx_chunk_vectors_model_id");
 
                     b.ToTable("chunk_vectors", (string)null);
                 });
@@ -207,6 +203,16 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<JsonDocument>("ConnectorConfig")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("connector_config");
+
+                    b.Property<int>("ConnectorType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("connector_type");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -217,11 +223,21 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<bool>("IsEphemeral")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_ephemeral");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
+
+                    b.Property<JsonDocument>("SettingsOverridesJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("settings_overrides");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()

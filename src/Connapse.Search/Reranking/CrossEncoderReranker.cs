@@ -1,183 +1,128 @@
-using System.Net.Http.Json;
-using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Search.Reranking.Providers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Search.Reranking;
 
 /// <summary>
-/// Cross-encoder reranker that uses an LLM to score (query, chunk) pairs.
-/// More accurate than RRF but slower and more expensive.
+/// Cross-encoder reranker that uses dedicated reranking models (TEI, Cohere, Jina)
+/// to score (query, document) pairs. More accurate than RRF for relevance ranking.
 /// </summary>
 public class CrossEncoderReranker : ISearchReranker
 {
-    private readonly HttpClient _httpClient;
+    private readonly IOptionsMonitor<SearchSettings> _searchSettingsMonitor;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CrossEncoderReranker> _logger;
-    private readonly SearchSettings _searchSettings;
-    private readonly LlmSettings _llmSettings;
 
     public string Name => "CrossEncoder";
 
     public CrossEncoderReranker(
-        HttpClient httpClient,
         IOptionsMonitor<SearchSettings> searchSettings,
-        IOptionsMonitor<LlmSettings> llmSettings,
+        IHttpClientFactory httpClientFactory,
         ILogger<CrossEncoderReranker> logger)
     {
-        _httpClient = httpClient;
+        _searchSettingsMonitor = searchSettings;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _searchSettings = searchSettings.CurrentValue;
-        _llmSettings = llmSettings.CurrentValue;
     }
 
-    /// <summary>
-    /// Reranks hits by scoring each (query, chunk) pair using an LLM.
-    /// Sends a prompt asking the LLM to rate relevance on a 0-10 scale.
-    /// </summary>
     public async Task<List<SearchHit>> RerankAsync(
         string query,
         List<SearchHit> hits,
         CancellationToken cancellationToken = default)
     {
         if (hits.Count == 0)
-        {
             return hits;
-        }
 
-        // Check if cross-encoder model is configured
-        if (string.IsNullOrEmpty(_searchSettings.CrossEncoderModel))
+        var settings = _searchSettingsMonitor.CurrentValue;
+
+        if (string.IsNullOrEmpty(settings.CrossEncoderModel))
         {
-            _logger.LogWarning(
-                "CrossEncoderModel not configured, falling back to original scores");
+            _logger.LogWarning("CrossEncoderModel not configured, returning original order");
             return hits;
         }
 
         _logger.LogInformation(
-            "Cross-encoder reranking {Count} hits using model '{Model}'",
+            "Cross-encoder reranking {Count} hits using {Provider}/{Model}",
             hits.Count,
-            _searchSettings.CrossEncoderModel);
+            settings.CrossEncoderProvider,
+            settings.CrossEncoderModel);
 
-        var scoredHits = new List<(SearchHit hit, float score)>();
-
-        // Score each hit
-        foreach (var hit in hits)
+        try
         {
-            try
+            var provider = CreateProvider(settings);
+            var documents = hits.Select(h => h.Content).ToList();
+
+            var scores = await provider.RerankAsync(
+                query,
+                documents,
+                settings.CrossEncoderTopN > 0 ? settings.CrossEncoderTopN : null,
+                cancellationToken);
+
+            var scoreLookup = scores.ToDictionary(s => s.Index, s => s.Score);
+
+            var scoredHits = new List<(SearchHit hit, float score)>();
+            for (var i = 0; i < hits.Count; i++)
             {
-                var score = await ScoreRelevanceAsync(query, hit.Content, cancellationToken);
-                scoredHits.Add((hit, score));
+                if (scoreLookup.TryGetValue(i, out var score))
+                    scoredHits.Add((hits[i], score));
             }
-            catch (Exception ex)
+
+            if (scoredHits.Count == 0)
             {
-                _logger.LogWarning(
-                    ex,
-                    "Failed to score chunk {ChunkId}, using original score",
-                    hit.ChunkId);
-                scoredHits.Add((hit, hit.Score));
+                _logger.LogWarning("Cross-encoder returned no scores, returning original order");
+                return hits;
             }
-        }
 
-        // Normalize scores to 0-1 range
-        var maxScore = scoredHits.Max(s => s.score);
-        var minScore = scoredHits.Min(s => s.score);
-        var scoreRange = maxScore - minScore;
+            // Normalize scores to 0-1 range
+            var maxScore = scoredHits.Max(s => s.score);
+            var minScore = scoredHits.Min(s => s.score);
+            var scoreRange = maxScore - minScore;
 
-        var rerankedHits = scoredHits
-            .Select(s =>
-            {
-                var normalizedScore = scoreRange > 0
-                    ? (s.score - minScore) / scoreRange
-                    : 1.0f;
-
-                return s.hit with
+            var rerankedHits = scoredHits
+                .Select(s => s.hit with
                 {
-                    Score = normalizedScore,
+                    Score = scoreRange > 0
+                        ? (s.score - minScore) / scoreRange
+                        : 1.0f,
                     Metadata = new Dictionary<string, string>(s.hit.Metadata)
                     {
                         ["crossEncoderScore"] = s.score.ToString("F4"),
-                        ["reranker"] = "CrossEncoder"
+                        ["reranker"] = "CrossEncoder",
+                        ["crossEncoderProvider"] = settings.CrossEncoderProvider
                     }
-                };
-            })
-            .OrderByDescending(h => h.Score)
-            .ToList();
+                })
+                .OrderByDescending(h => h.Score)
+                .ToList();
 
-        _logger.LogInformation(
-            "Cross-encoder reranking complete, score range: [{Min:F2}, {Max:F2}]",
-            minScore,
-            maxScore);
+            _logger.LogInformation(
+                "Cross-encoder reranking complete: {InputCount} -> {OutputCount} hits, score range [{Min:F4}, {Max:F4}]",
+                hits.Count,
+                rerankedHits.Count,
+                minScore,
+                maxScore);
 
-        return rerankedHits;
+            return rerankedHits;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cross-encoder reranking failed, returning original order");
+            return hits;
+        }
     }
 
-    /// <summary>
-    /// Scores the relevance of a chunk to a query using an LLM.
-    /// Returns a score between 0 and 10.
-    /// </summary>
-    private async Task<float> ScoreRelevanceAsync(
-        string query,
-        string chunk,
-        CancellationToken ct)
+    private ICrossEncoderProvider CreateProvider(SearchSettings settings)
     {
-        var prompt = $@"Rate how relevant the following text is to answering the query, on a scale from 0 to 10.
-Only respond with a single number.
+        var httpClient = _httpClientFactory.CreateClient("CrossEncoder");
 
-Query: {query}
-
-Text: {chunk}
-
-Relevance score (0-10):";
-
-        var requestBody = new
+        return settings.CrossEncoderProvider switch
         {
-            model = _searchSettings.CrossEncoderModel ?? _llmSettings.Model,
-            prompt,
-            stream = false,
-            options = new
-            {
-                temperature = 0.1, // Low temperature for consistent scoring
-                num_predict = 10   // Short response
-            }
+            "Cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
+            "Jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
+            "AzureAIFoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
+            _ => new TeiCrossEncoderProvider(httpClient, settings, _logger)
         };
-
-        var baseUrl = _llmSettings.BaseUrl ?? "http://localhost:11434";
-        var url = $"{baseUrl.TrimEnd('/')}/api/generate";
-
-        var response = await _httpClient.PostAsJsonAsync(url, requestBody, ct);
-        response.EnsureSuccessStatusCode();
-
-        var result = await response.Content.ReadFromJsonAsync<OllamaGenerateResponse>(ct);
-
-        if (result?.Response == null)
-        {
-            _logger.LogWarning("Empty response from LLM");
-            return 5.0f; // Neutral score
-        }
-
-        // Extract numeric score from response
-        var scoreText = result.Response.Trim();
-        if (float.TryParse(scoreText, out var score))
-        {
-            return Math.Clamp(score, 0f, 10f);
-        }
-
-        // Try to extract first number from response if parsing failed
-        var numbers = new string(scoreText.Where(c => char.IsDigit(c) || c == '.').ToArray());
-        if (float.TryParse(numbers, out score))
-        {
-            return Math.Clamp(score, 0f, 10f);
-        }
-
-        _logger.LogWarning(
-            "Failed to parse score from LLM response: '{Response}'",
-            scoreText);
-        return 5.0f; // Neutral score
     }
-
-    private record OllamaGenerateResponse(
-        string? Model,
-        string? Response,
-        bool Done);
 }

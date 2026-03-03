@@ -1,4 +1,6 @@
 @using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -34,47 +36,161 @@
         </div>
 
         <div class="col-md-6">
-            <label class="form-label">Vector Weight</label>
-            <InputNumber @bind-Value="localSettings.VectorWeight" class="form-control" step="0.1" min="0" max="1" />
-            <small class="form-text text-muted">For hybrid search (0.0-1.0)</small>
-        </div>
-
-        <div class="col-md-6">
             <label class="form-label">Minimum Score Threshold</label>
             <InputNumber @bind-Value="localSettings.MinimumScore" class="form-control" step="0.1" min="0" max="1" />
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Cross-Encoder Model</label>
-            <InputText @bind-Value="localSettings.CrossEncoderModel" class="form-control" placeholder="Optional" />
-        </div>
+        @if (localSettings.Reranker == "CrossEncoder")
+        {
+            <div class="col-12">
+                <hr />
+                <h6>Cross-Encoder Configuration</h6>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Provider</label>
+                <InputSelect @bind-Value="localSettings.CrossEncoderProvider" @bind-Value:after="OnCrossEncoderProviderChanged" class="form-select">
+                    <option value="TEI">TEI (HuggingFace Text Embeddings Inference)</option>
+                    <option value="Cohere">Cohere Rerank</option>
+                    <option value="Jina">Jina Reranker</option>
+                    <option value="AzureAIFoundry">Azure AI Foundry</option>
+                </InputSelect>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Model</label>
+                <InputText @bind-Value="localSettings.CrossEncoderModel" class="form-control" />
+            </div>
+
+            @if (localSettings.CrossEncoderProvider is "TEI" or "AzureAIFoundry")
+            {
+                <div class="col-md-6">
+                    <label class="form-label">Base URL</label>
+                    <InputText @bind-Value="localSettings.CrossEncoderBaseUrl" class="form-control"
+                        placeholder="@(localSettings.CrossEncoderProvider == "AzureAIFoundry" ? "https://<deployment>.<region>.models.ai.azure.com" : "http://localhost:8080")" />
+                    @if (localSettings.CrossEncoderProvider == "AzureAIFoundry")
+                    {
+                        <small class="form-text text-muted">
+                            Use the model deployment URL from Azure AI Foundry. Both <code>*.models.ai.azure.com</code> and <code>*.services.ai.azure.com</code> endpoints are supported.
+                        </small>
+                    }
+                </div>
+            }
+
+            @if (localSettings.CrossEncoderProvider != "TEI")
+            {
+                <div class="col-md-6">
+                    <label class="form-label">API Key</label>
+                    <InputText @bind-Value="localSettings.CrossEncoderApiKey" class="form-control" type="password" />
+                </div>
+            }
+
+            <div class="col-md-3">
+                <label class="form-label">Top N</label>
+                <InputNumber @bind-Value="localSettings.CrossEncoderTopN" class="form-control" />
+                <small class="form-text text-muted">0 = rerank all</small>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Timeout (seconds)</label>
+                <InputNumber @bind-Value="localSettings.CrossEncoderTimeoutSeconds" class="form-control" />
+            </div>
+        }
 
         <div class="col-md-6">
             <div class="form-check mt-4">
-                <InputCheckbox @bind-Value="localSettings.EnableQueryExpansion" class="form-check-input" id="queryExpansion" />
-                <label class="form-check-label" for="queryExpansion">
-                    Enable Query Expansion
+                <InputCheckbox @bind-Value="localSettings.EnableCrossModelSearch" class="form-check-input" id="crossModel" />
+                <label class="form-check-label" for="crossModel">
+                    Enable Cross-Model Search
                 </label>
             </div>
-
-            <div class="form-check mt-2">
-                <InputCheckbox @bind-Value="localSettings.IncludeWebSearch" class="form-check-input" id="includeWeb" />
-                <label class="form-check-label" for="includeWeb">
-                    Include Web Search Results
-                </label>
-            </div>
+            <small class="form-text text-muted d-block mt-1">
+                When enabled, Semantic searches automatically include keyword results to surface documents from previous embedding models.
+            </small>
         </div>
+
+        @if (embeddingModels.Count > 0)
+        {
+            <div class="col-12">
+                <label class="form-label">Embedding Models in Store</label>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" style="max-width: 500px;">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Dimensions</th>
+                                <th>Vectors</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var model in embeddingModels)
+                            {
+                                <tr>
+                                    <td>@model.ModelId</td>
+                                    <td>@model.Dimensions</td>
+                                    <td>@model.VectorCount.ToString("N0")</td>
+                                    <td>
+                                        @if (model.IsCurrent)
+                                        {
+                                            <span class="badge bg-success">Current</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning text-dark">Legacy</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
 
         <div class="col-12 mt-4">
             <button type="submit" class="btn btn-primary me-2">
                 <span class="bi-save me-1"></span> Save Changes
             </button>
-            <button type="button" class="btn btn-secondary" @onclick="Reset">
+            <button type="button" class="btn btn-secondary me-2" @onclick="Reset">
                 <span class="bi-arrow-counterclockwise me-1"></span> Reset
             </button>
+            @if (localSettings.Reranker == "CrossEncoder")
+            {
+                <button type="button" class="btn btn-info" @onclick="TestCrossEncoderConnection" disabled="@isTestingConnection">
+                    @if (isTestingConnection)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span class="bi-plug me-1"></span>
+                        <span>Test Reranker</span>
+                    }
+                </button>
+            }
         </div>
+
+        @if (!string.IsNullOrEmpty(testMessage))
+        {
+            <div class="col-12 mt-3">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                    @testMessage
+                    <button type="button" class="btn-close" @onclick="() => testMessage = null"></button>
+                </div>
+            </div>
+        }
     </div>
 </EditForm>
+
+@inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
+@inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettings
+@inject TeiConnectionTester TeiTester
+@inject CohereConnectionTester CohereTester
+@inject JinaConnectionTester JinaTester
+@inject AzureAIFoundryConnectionTester AzureAIFoundryTester
+@using Microsoft.Extensions.Options
 
 @code {
     [Parameter]
@@ -84,10 +200,56 @@
     public EventCallback<SearchSettings> OnSave { get; set; }
 
     private SearchSettings localSettings = new();
+    private List<EmbeddingModelDisplay> embeddingModels = new();
+    private bool isTestingConnection;
+    private bool testSuccess;
+    private string? testMessage;
 
     protected override void OnParametersSet()
     {
         localSettings = Settings with { };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEmbeddingModels();
+    }
+
+    private async Task LoadEmbeddingModels()
+    {
+        try
+        {
+            var currentModel = EmbeddingSettings.CurrentValue.Model;
+            var models = await ModelDiscovery.GetModelsAsync();
+            embeddingModels = models.Select(m => new EmbeddingModelDisplay(
+                m.ModelId,
+                m.Dimensions,
+                m.VectorCount,
+                string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
+            )).ToList();
+        }
+        catch
+        {
+            embeddingModels = new();
+        }
+    }
+
+    private void OnCrossEncoderProviderChanged()
+    {
+        localSettings.CrossEncoderModel = localSettings.CrossEncoderProvider switch
+        {
+            "Cohere" => "rerank-v3.5",
+            "Jina" => "jina-reranker-v3",
+            "AzureAIFoundry" => null,
+            _ => "BAAI/bge-reranker-large"
+        };
+
+        localSettings.CrossEncoderBaseUrl = localSettings.CrossEncoderProvider == "TEI"
+            ? "http://localhost:8080"
+            : null;
+
+        localSettings.CrossEncoderApiKey = null;
+        testMessage = null;
     }
 
     private async Task HandleSubmit()
@@ -98,5 +260,42 @@
     private void Reset()
     {
         localSettings = Settings with { };
+        testMessage = null;
     }
+
+    private async Task TestCrossEncoderConnection()
+    {
+        isTestingConnection = true;
+        testMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            IConnectionTester tester = localSettings.CrossEncoderProvider switch
+            {
+                "Cohere" => CohereTester,
+                "Jina" => JinaTester,
+                "AzureAIFoundry" => AzureAIFoundryTester,
+                _ => TeiTester
+            };
+
+            var result = await tester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(localSettings.CrossEncoderTimeoutSeconds));
+
+            testSuccess = result.Success;
+            testMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            isTestingConnection = false;
+            StateHasChanged();
+        }
+    }
+
+    private record EmbeddingModelDisplay(string ModelId, int Dimensions, long VectorCount, bool IsCurrent);
 }

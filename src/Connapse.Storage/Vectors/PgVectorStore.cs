@@ -96,6 +96,45 @@ public class PgVectorStore : IVectorStore
             vector.Length);
     }
 
+    public async Task UpsertBatchAsync(
+        IReadOnlyList<(string Id, float[] Vector, Dictionary<string, string> Metadata)> items,
+        CancellationToken ct = default)
+    {
+        if (items.Count == 0)
+            return;
+
+        foreach (var (id, vector, metadata) in items)
+        {
+            if (!Guid.TryParse(id, out var chunkId))
+                throw new ArgumentException($"ID '{id}' must be a valid GUID", nameof(items));
+
+            if (!metadata.TryGetValue("documentId", out var documentIdStr) ||
+                !Guid.TryParse(documentIdStr, out var documentId))
+                throw new ArgumentException("Each item's metadata must contain a valid 'documentId'", nameof(items));
+
+            if (!metadata.TryGetValue("modelId", out var modelId))
+                throw new ArgumentException("Each item's metadata must contain a 'modelId'", nameof(items));
+
+            Guid containerId = Guid.Empty;
+            if (metadata.TryGetValue("containerId", out var containerIdStr))
+                Guid.TryParse(containerIdStr, out containerId);
+
+            _context.ChunkVectors.Add(new ChunkVectorEntity
+            {
+                ChunkId = chunkId,
+                DocumentId = documentId,
+                ContainerId = containerId,
+                Embedding = new Vector(vector),
+                ModelId = modelId
+            });
+        }
+
+        // One SaveChangesAsync for all vectors (+ any pending chunk entities added by IngestionPipeline).
+        await _context.SaveChangesAsync(ct);
+
+        _logger.LogDebug("Batch-upserted {Count} chunk vectors", items.Count);
+    }
+
     public async Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
         float[] queryVector,
         int topK,
@@ -135,18 +174,27 @@ public class PgVectorStore : IVectorStore
                 whereClauses.Add("d.path LIKE @pathPrefix");
                 parameters.Add(new NpgsqlParameter("@pathPrefix", NpgsqlDbType.Text) { Value = pathPrefix + "%" });
             }
+
+            if (filters.TryGetValue("modelId", out var modelId) &&
+                !string.IsNullOrWhiteSpace(modelId))
+            {
+                whereClauses.Add("cv.model_id = @modelId");
+                parameters.Add(new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId });
+            }
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
 
-        // Use raw SQL to leverage pgvector's <=> cosine distance operator
-        // Named parameters avoid positional binding issues with the Vector type
+        // Dimension cast: the embedding column is unconstrained (vector without dimensions).
+        // The cast ensures pgvector can use partial IVFFlat indexes per model_id and that
+        // the distance operator works correctly with the query vector's dimension.
+        var dims = queryVector.Length;
         var sql = $@"
             SELECT
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
                 cv.container_id as ""ContainerId"",
-                (cv.embedding <=> @queryVector) as ""Distance"",
+                (cv.embedding::vector({dims}) <=> @queryVector) as ""Distance"",
                 c.content as ""Content"",
                 c.chunk_index as ""ChunkIndex"",
                 d.file_name as ""FileName"",

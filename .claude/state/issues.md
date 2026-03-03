@@ -518,26 +518,142 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 ---
 
+### Filesystem Connector: Documents Stored with Absolute Paths
+
+**Severity**: High (file browser API returned empty for all Filesystem containers)
+
+**Description**: `ConnectorWatcherService.EnqueueIngestionAsync` passed the absolute filesystem path (e.g. `C:\Users\...\file.md`) as `IngestionOptions.Path`, which `IngestionPipeline` stored directly in `DocumentEntity.Path`. The file browser endpoint (`/api/containers/{id}/files`) filters documents by virtual path (`GetParentPath(doc.Path) == "/"`), so absolute paths never matched — the API returned `[]` despite `documentCount` being correct. The UI appeared to show files only because of in-process `FileBrowserChangeNotifier` events fired during sync (events are lost on page reload).
+
+**Root cause**: `IngestionJob.Path` (for reading the file) and `IngestionOptions.Path` (for storing in DB) were both set to the absolute path. They should be different: absolute for reading, virtual for storage.
+
+**Fix** (`ConnectorWatcherService.cs`):
+1. `EnqueueIngestionAsync` now requires an explicit `virtualPath` parameter, uses it for `IngestionOptions.Path` and `NotifyAdded`.
+2. `InitialSyncAsync` computes `"/" + Path.GetRelativePath(connector.RootPath, file.Path).Replace('\\', '/')` per file.
+3. `HandleFileEventAsync` calls new `ComputeVirtualPath()` helper before all DB lookups.
+4. `DeleteDocumentByVirtualPathAsync` now receives pre-computed virtual path.
+5. `ComputeVirtualPath()` uses cached `_rootPaths` dict first, then parses connector config JSON as fallback.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Npgsql EnableDynamicJson + string? → jsonb: Invalid JSON Escape
+
+**Severity**: High (Filesystem container creation failed with 22P02)
+
+**Description**: `ContainerEntity.ConnectorConfig` and `SettingsOverridesJson` were typed as `string?` but mapped to `jsonb` columns. With Npgsql 10 + `EnableDynamicJson()`, strings are routed through `JsonSerializer.Serialize()` before being sent to PostgreSQL. A Windows path like `C:\Users\...` contains `\U` which is not a valid JSON escape sequence, causing `PostgresException: 22P02: invalid input syntax for type json`.
+
+**Fix**:
+1. Changed both properties to `JsonDocument?` in `ContainerEntity` and updated `KnowledgeDbContextModelSnapshot`.
+2. `PostgresContainerStore` now parses incoming strings with `JsonDocument.Parse()` before assigning.
+3. `ContainersEndpoints` validates `connectorConfig` JSON with `JsonDocument.Parse()` before calling the store (returns 400 on invalid JSON).
+4. `ContainerSettingsResolver` and `MapToModel` updated to use `.RootElement.GetRawText()`.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Filesystem Watcher: Failed Files Disappear and Reappear After Upload
+
+**Severity**: Medium (confusing UX — files flicker on failed upload)
+
+**Description**: When uploading files to a Filesystem container and some fail ingestion quickly (< 750ms after the file lands on disk), the FileSystemWatcher debounce fires while the DB status is already "Failed". The guard only skipped "Pending"/"Queued"/"Processing", so the watcher immediately re-queued the file, causing the UI to flip it from "Error" back to "Queued" and then fail again.
+
+**Root Cause**: The `Created` and `Changed` event cases in `HandleFileEventAsync` shared the same guard. The 5-minute rescan already retries all failed files; the watcher debounce should not re-trigger an immediate retry for `Created` events (which fire because the file was just written).
+
+**Fix**: Split `Created` and `Changed` into separate case blocks. `Created` now also skips "Failed" status (watcher fires for the same write that caused the failure). `Changed` still allows retrying failed files (the user may have replaced the file externally). The `InitialSyncAsync` 5-minute rescan continues to handle retries.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+## Intentionally Removed Features
+
+### Agentic Search (Sessions I/I2)
+
+**Description**: `SearchMode.Agentic`, `AgenticSearchService`, `HydeQueryEnricher`, and related UI/settings were implemented in Sessions I and I2 but intentionally removed by the user before Session K. The `SearchMode` enum now only has `{ Semantic, Keyword, Hybrid }`.
+
+**Reason**: User decision — not a bug. The agentic search code may return in a future version.
+
+---
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests
 
-**Severity**: Low (3 tests failing, production works correctly)
+**Severity**: Low (3 tests were failing; now fixed)
 
-**Description**: IOptionsMonitor not reflecting database setting changes immediately in integration tests. Settings save to database correctly and reload mechanism (`DatabaseSettingsProvider.Reload()`) is implemented, but tests using `WebApplicationFactory` don't see the changes.
+**Description**: `IOptionsMonitor` live-reload did not propagate reliably inside `WebApplicationFactory` integration tests. The `DatabaseSettingsProvider.Reload()` mechanism works in production but the `IConfigurationRoot` change-token chain is not guaranteed to fire in the isolated `WebApplicationFactory` configuration pipeline.
 
-**Root Cause**: WebApplicationFactory creates isolated configuration pipeline. The static `ConfigurationBuilderExtensions.CurrentProvider` may reference a different provider instance than the one used by the test application's DI container.
+**Fix**: Changed the `GET /api/settings/{category}` endpoint to read from `ISettingsStore` (database) first, falling back to `IOptionsMonitor.CurrentValue` only when no DB record exists for a category. Since the PUT endpoint saves to the database immediately, the subsequent GET always sees the latest value regardless of whether the in-memory reload token fired. Added private helper `GetSettingsAsync<T>` to avoid repeating the pattern.
 
-**Affected Tests**:
-- UpdateSettings_ChunkingSettings_LiveReloadWorks
-- UpdateSettings_SearchSettings_LiveReloadWorks
-- UpdateSettings_MultipleCategories_IndependentlyUpdateable
+**Status**: Fixed (2026-03-01)
 
-**Production Status**: Working — settings reload works in normal app execution
+---
 
-**Test Status**: Open — test environment may need additional configuration or different reload mechanism
+### Filesystem Watcher Not Stopped on Container Delete
 
-**Workaround**: Test GET endpoints work correctly. Reload mechanism is proven in production use.
+**Severity**: Low (resource leak until app restart)
+
+**Description**: The DELETE `/api/containers/{id}` endpoint did not call `ConnectorWatcherService.StopWatchingContainer`. If a Filesystem container was deleted, its `FileSystemWatcher` task and debounce timer continued running until the app restarted.
+
+**Fix**: Injected `ConnectorWatcherService` into the DELETE endpoint. After a successful delete, calls `watcherService.StopWatchingContainer(containerId)` when `container.ConnectorType == Filesystem`.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Filesystem Watcher for Runtime-Created Containers Not Cancelled on App Shutdown
+
+**Severity**: Low (watcher tasks survive graceful shutdown briefly)
+
+**Description**: `ContainersEndpoints` called `watcherService.StartWatchingContainer(container)` without a `stoppingToken`, so the CTS for runtime-created watchers was linked to `CancellationToken.None` and never cancelled by graceful shutdown.
+
+**Fix**: Added `private readonly CancellationTokenSource _masterCts` to `ConnectorWatcherService`. In `ExecuteAsync`, registered `stoppingToken.Register(_masterCts.Cancel)`. Changed `StartWatchingContainer` to create each per-container CTS as `CreateLinkedTokenSource(stoppingToken, _masterCts.Token)`. Also changed `InitialSyncAsync` task to use `cts.Token` instead of the raw `stoppingToken` parameter so both background tasks for a container share the same lifetime.
+
+**Status**: Fixed (2026-03-01)
+
+---
+
+### Cloud Scope: Multi-Prefix Search Not Supported
+
+**Severity**: Low (edge case — most users have single-prefix or full access)
+
+**Description**: When `CloudScopeResult.AllowedPrefixes` contains more than one prefix, only the first prefix is injected as a `pathPrefix` search filter. Search results from other allowed prefixes are excluded.
+
+**Root Cause**: The existing `pathPrefix` filter in `VectorSearchService`/`KeywordSearchService` supports a single LIKE clause. Adding OR-clause support for multiple prefixes requires extending the SQL WHERE builder.
+
+**Workaround**: Most common cases (FullAccess = `["/"]`, or single container-prefix scope) work correctly. Multi-prefix is only relevant when Azure RBAC or AWS IAM granularity is implemented in Session F+.
+
+**Status**: Open — deferred to Session F or G
+
+---
+
+### Cloud Scope: AWS SimulatePrincipalPolicy Not Yet Implemented
+
+**Severity**: Low (AWS OIDC federation isn't functional until Session F)
+
+**Description**: `AwsIdentityProvider.DiscoverScopesAsync` returns `FullAccess()` when a PrincipalArn is present, instead of calling `IAM:SimulatePrincipalPolicy` to discover actual prefix-level permissions.
+
+**Root Cause**: `SimulatePrincipalPolicy` requires `AWSSDK.IdentityManagement` NuGet and a working AWS OIDC flow (Session F). Adding it now would be dead code.
+
+**Workaround**: AWS access is currently gated at the identity level — no PrincipalArn = no access. Once Session F enables OIDC, the provider should be enhanced with actual policy simulation.
+
+**Status**: Open — deferred to Session F
+
+---
+
+### Cloud Scope: Azure RBAC Granularity Limited to Container Prefix
+
+**Severity**: Low (Azure per-folder RBAC is uncommon)
+
+**Description**: `AzureIdentityProvider` grants access at the container's configured prefix level, not at individual blob prefix levels derived from Azure RBAC role assignments.
+
+**Root Cause**: True RBAC enumeration requires `Azure.ResourceManager` NuGet and subscription/resource-group metadata in `AzureBlobConnectorConfig`, which don't exist yet.
+
+**Workaround**: The service credential defines what Connapse can see. The user's linked Azure identity confirms they belong to the same AAD tenant. Per-prefix RBAC adds marginal value until Connapse supports multi-tenant scenarios.
+
+**Status**: Open — deferred
 
 ---
 

@@ -81,6 +81,25 @@ public class RecursiveChunker : IChunkingStrategy
             }
         }
 
+        // Safety net: MinChunkSize prevents micro-fragments from large documents, but must
+        // never discard the entire content of a small document. If every segment was filtered
+        // out, return the whole content as a single chunk.
+        if (chunks.Count == 0)
+        {
+            var tc = TokenCounter.EstimateTokenCount(content);
+            chunks.Add(new ChunkInfo(
+                Content: content.Trim(),
+                ChunkIndex: 0,
+                TokenCount: tc,
+                StartOffset: 0,
+                EndOffset: content.Length,
+                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
+                {
+                    ["ChunkingStrategy"] = Name,
+                    ["ChunkIndex"] = "0"
+                }));
+        }
+
         return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
     }
 

@@ -13,7 +13,7 @@ namespace Connapse.Search.Reranking;
 public class RrfReranker : ISearchReranker
 {
     private readonly ILogger<RrfReranker> _logger;
-    private readonly int _k;
+    private readonly IOptionsMonitor<SearchSettings> _searchSettingsMonitor;
 
     public string Name => "RRF";
 
@@ -22,7 +22,7 @@ public class RrfReranker : ISearchReranker
         ILogger<RrfReranker> logger)
     {
         _logger = logger;
-        _k = searchSettings.CurrentValue.RrfK;
+        _searchSettingsMonitor = searchSettings;
     }
 
     /// <summary>
@@ -53,6 +53,9 @@ public class RrfReranker : ISearchReranker
             return Task.FromResult(hits);
         }
 
+        // Read k at rerank time so settings changes propagate immediately
+        var k = _searchSettingsMonitor.CurrentValue.RrfK;
+
         // Build ranked lists per source
         var rankedLists = new Dictionary<string, List<(SearchHit hit, int rank)>>();
 
@@ -73,7 +76,7 @@ public class RrfReranker : ISearchReranker
         {
             foreach (var (hit, rank) in rankedHits)
             {
-                var rrfScore = 1.0 / (_k + rank);
+                var rrfScore = 1.0 / (k + rank);
 
                 if (rrfScores.TryGetValue(hit.ChunkId, out var existing))
                 {
@@ -115,7 +118,7 @@ public class RrfReranker : ISearchReranker
 
         _logger.LogInformation(
             "RRF reranking with k={K} merged {InputCount} hits from {SourceCount} sources into {OutputCount} unique results",
-            _k,
+            k,
             hits.Count,
             sources.Count,
             rerankedHits.Count);

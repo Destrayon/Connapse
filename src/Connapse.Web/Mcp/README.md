@@ -2,133 +2,169 @@
 
 This directory contains the MCP server implementation that exposes the Connapse Platform as tools for AI agents like Claude.
 
+## Authentication
+
+All MCP endpoints require authentication. Use one of:
+
+- **Agent API Key** (recommended): `X-Api-Key: cnp_<token>`
+- **JWT Bearer Token**: `Authorization: Bearer <jwt>`
+
+Agent API keys are created in the admin panel under **Agents**. The key must belong to an agent with `Agent`, `Admin`, or `Owner` role.
+
 ## Endpoints
 
 ### JSON-RPC 2.0 Endpoint
 `POST /mcp`
 
-Standard MCP endpoint following JSON-RPC 2.0 specification.
+Standard MCP endpoint following JSON-RPC 2.0 specification. Supports `tools/list`, `tools/call`, and `ping` methods.
 
 ### Convenience Endpoint
 `GET /mcp/tools`
 
 Returns a list of all available tools in JSON format.
 
-## Available Tools
+## Available Tools (7)
 
-### 1. search_knowledge
+### 1. container_create
 
-Search the knowledge base using semantic, keyword, or hybrid search.
-
-**Parameters:**
-- `query` (required): Search query text
-- `mode` (optional): "Semantic", "Keyword", or "Hybrid" (default: "Hybrid")
-- `topK` (optional): Number of results to return (default: 10)
-- `collectionId` (optional): Filter by collection ID
-
-**Example:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "search_knowledge",
-    "arguments": {
-      "query": "machine learning best practices",
-      "mode": "Hybrid",
-      "topK": 5
-    }
-  },
-  "id": "1"
-}
-```
-
-### 2. list_documents
-
-List all documents in the knowledge base.
+Create a new container for organizing files. Containers provide isolated vector indexes.
 
 **Parameters:**
-- `collectionId` (optional): Filter by collection ID
+- `name` (string, required): Container name (lowercase alphanumeric and hyphens, 2-128 chars)
+- `description` (string, optional): Optional description for the container
 
-**Example:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "list_documents",
-    "arguments": {
-      "collectionId": "research"
-    }
-  },
-  "id": "2"
-}
-```
+### 2. container_list
 
-### 3. ingest_document
+List all containers with their document counts.
 
-Add a document to the knowledge base.
+**Parameters:** None
+
+### 3. container_delete
+
+Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers stop being indexed — underlying data is not deleted.
 
 **Parameters:**
-- `path` (required): Virtual path for the document (e.g., "/documents/report.pdf")
-- `content` (required): Base64-encoded document content
-- `fileName` (required): Original file name with extension
-- `collectionId` (optional): Collection ID to organize documents
-- `strategy` (optional): "Semantic", "FixedSize", or "Recursive" (default: "Semantic")
+- `name` (string, required): Container name to delete
 
-**Example:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "ingest_document",
-    "arguments": {
-      "path": "/documents/report.pdf",
-      "content": "SGVsbG8gV29ybGQh",
-      "fileName": "report.pdf",
-      "collectionId": "research",
-      "strategy": "Semantic"
-    }
-  },
-  "id": "3"
-}
-```
+### 4. upload_file
+
+Upload a file to a container. The file will be parsed, chunked, embedded, and made searchable.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `content` (string, required): Base64-encoded file content
+- `fileName` (string, required): Original file name with extension
+- `path` (string, optional): Destination folder path (e.g., `/docs/2026/`). Default: `/`
+- `strategy` (string, optional): Chunking strategy: `Semantic`, `FixedSize`, or `Recursive`. Default: `Semantic`
+
+### 5. list_files
+
+List files and folders in a container at a given path.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `path` (string, optional): Folder path to list. Default: root `/`
+
+### 6. delete_file
+
+Delete a file from a container. This also deletes all associated chunks and vectors.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `fileId` (string, required): File (document) ID to delete
+
+### 7. search_knowledge
+
+Search within a container using semantic, keyword, or hybrid search. Returns relevant document chunks with scores.
+
+**Parameters:**
+- `query` (string, required): The search query text
+- `containerId` (string, required): Container ID or name to search within
+- `mode` (string, optional): Search mode: `Semantic` (vector), `Keyword` (full-text), or `Hybrid` (both). Default: `Hybrid`
+- `topK` (number, optional): Number of results to return. Default: `10`
+- `path` (string, optional): Filter results to a folder subtree (e.g., `/docs/`)
+- `minScore` (number, optional): Minimum similarity score threshold (0.0-1.0). Defaults to server setting (typically 0.5)
 
 ## Testing
 
-You can test the MCP server using curl:
+You can test the MCP server using curl. All requests require authentication:
 
 ```bash
 # List tools
-curl https://localhost:5001/mcp/tools
+curl https://localhost:5001/mcp/tools \
+  -H "X-Api-Key: cnp_your_agent_key_here"
+
+# List containers
+curl -X POST https://localhost:5001/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: cnp_your_agent_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "container_list",
+      "arguments": {}
+    },
+    "id": "1"
+  }'
 
 # Search knowledge base
 curl -X POST https://localhost:5001/mcp \
   -H "Content-Type: application/json" \
+  -H "X-Api-Key: cnp_your_agent_key_here" \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {
       "name": "search_knowledge",
       "arguments": {
-        "query": "test query",
+        "query": "machine learning best practices",
+        "containerId": "my-container",
         "mode": "Hybrid",
         "topK": 5
       }
     },
-    "id": "1"
+    "id": "2"
+  }'
+
+# Upload a file
+curl -X POST https://localhost:5001/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: cnp_your_agent_key_here" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "upload_file",
+      "arguments": {
+        "containerId": "my-container",
+        "fileName": "notes.txt",
+        "content": "SGVsbG8gV29ybGQh",
+        "path": "/documents/"
+      }
+    },
+    "id": "3"
   }'
 ```
 
-## Using with Claude
+## Using with Claude Desktop
 
-The MCP server allows Claude and other AI assistants to interact with your knowledge base. Configure your AI assistant to connect to your deployed instance:
+Add the following to your Claude Desktop MCP configuration:
 
+```json
+{
+  "mcpServers": {
+    "connapse": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://localhost:5001/mcp"],
+      "env": {
+        "API_KEY": "cnp_your_agent_key_here"
+      }
+    }
+  }
+}
 ```
-https://your-server.com/mcp
-```
 
-Replace `your-server.com` with your actual server address. For local development, use `https://localhost:5001/mcp`.
+Replace `https://localhost:5001` with your server address and `cnp_your_agent_key_here` with a valid Agent API key.
 
-The AI assistant can then use the exposed tools to search documents, list available content, and add new documents to your knowledge base.
+The AI assistant can then use the exposed tools to create containers, search documents, upload files, and manage your knowledge base.

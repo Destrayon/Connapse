@@ -58,7 +58,7 @@ public class McpServer
 
             new McpTool(
                 Name: "container_delete",
-                Description: "Delete an empty container. Fails if the container has files.",
+                Description: "Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.",
                 InputSchema: new McpToolInputSchema(
                     Type: "object",
                     Properties: new Dictionary<string, McpToolProperty>

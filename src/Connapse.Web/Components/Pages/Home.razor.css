@@ -105,6 +105,18 @@
     color: var(--bs-body-color);
 }
 
+.connector-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(139, 92, 246, 0.15);
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.02em;
+}
+
 .container-card-desc {
     color: var(--text-muted);
     font-size: 0.85rem;
@@ -177,4 +189,76 @@
     gap: 0.75rem;
     padding: 1rem 1.25rem;
     border-top: 1px solid var(--bs-border-color);
+}
+
+/* ===== Folder Browser Dialog ===== */
+
+.folder-browser-backdrop {
+    z-index: 1060;
+}
+
+.folder-browser-dialog {
+    z-index: 1070;
+    max-width: 540px;
+}
+
+.folder-browser-path {
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-browser-body {
+    min-height: 200px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 0.25rem 0;
+}
+
+.folder-browser-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.45rem 1.25rem;
+    background: none;
+    border: none;
+    text-align: left;
+    font-size: 0.9rem;
+    color: var(--bs-body-color);
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.folder-browser-item:hover {
+    background: var(--surface-hover);
+    color: var(--accent);
+}
+
+.folder-browser-item-icon {
+    color: var(--accent);
+    margin-right: 0.6rem;
+    flex-shrink: 0;
+}
+
+.folder-browser-empty {
+    padding: 2rem 1.25rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.folder-browser-error {
+    padding: 0.5rem 1.25rem;
+    font-size: 0.85rem;
+    color: var(--bs-danger);
+}
+
+.folder-browser-selected {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }

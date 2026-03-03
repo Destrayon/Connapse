@@ -25,14 +25,16 @@ connapse config set <key> <value> # Update settings
 src/
 ├── Connapse.Web/          # Blazor WebApp (UI + API endpoints)
 ├── Connapse.Core/         # Domain models, interfaces, shared logic
+├── Connapse.Identity/     # Auth: ASP.NET Core Identity, PAT, JWT, RBAC, cloud identity
 ├── Connapse.Ingestion/    # Document parsing, chunking, embedding pipeline
-├── Connapse.Search/       # Vector search, hybrid search, web search
+├── Connapse.Search/       # Vector search, hybrid search, reranking
 ├── Connapse.Agents/       # Agent orchestration, tool definitions, memory
-├── Connapse.Storage/      # Vector DB, document store, file storage adapters
+├── Connapse.Storage/      # Vector DB, document store, connectors, cloud providers
 └── Connapse.CLI/          # Command-line interface
 
 tests/
 ├── Connapse.Core.Tests/
+├── Connapse.Identity.Tests/
 ├── Connapse.Ingestion.Tests/
 └── Connapse.Integration.Tests/
 ```
@@ -86,9 +88,13 @@ tests/
 ```csharp
 IKnowledgeIngester      // File → parsed → chunked → embedded → stored
 IKnowledgeSearch        // Query → retrieve relevant chunks
-IEmbeddingProvider      // Text → vector (swappable: Ollama, OpenAI, Azure)
-IVectorStore            // Vector storage (swappable: SQLite-vec, Qdrant, Pinecone)
-IWebSearchProvider      // External search (Brave, Serper, Tavily)
+IEmbeddingProvider      // Text → vector (swappable: Ollama, OpenAI, AzureOpenAI)
+ILlmProvider            // LLM completion + streaming (swappable: Ollama, OpenAI, AzureOpenAI, Anthropic)
+IVectorStore            // Vector storage (PgVector with partial IVFFlat indexes per model)
+IConnector              // Storage backend I/O (MinIO, Filesystem, InMemory, S3, AzureBlob)
+IConnectorFactory       // Create connector from container config
+IContainerSettingsResolver // Per-container settings overrides merged with global defaults
+ICloudScopeService      // IAM-derived access control for cloud containers
 IAgentTool              // Tool interface for agent capabilities
 IAgentMemory            // Persistent notes/memory for agents
 ```
@@ -110,17 +116,17 @@ IAgentMemory            // Persistent notes/memory for agents
 All swappable via `appsettings.json` or UI settings:
 
 - **Chunking**: `Semantic` | `FixedSize` | `Recursive` | `DocumentAware`
-- **Embedding**: `Ollama` | `OpenAI` | `AzureOpenAI` | `Anthropic`
-- **Vector Store**: `SqliteVec` | `Qdrant` | `Pinecone` | `AzureAISearch`
-- **LLM**: `Anthropic` | `OpenAI` | `AzureOpenAI` | `Ollama`
-- **Web Search**: `Brave` | `Serper` | `Tavily` | `None`
+- **Embedding**: `Ollama` | `OpenAI` | `AzureOpenAI`
+- **Vector Store**: `PgVector` (with partial IVFFlat indexes per embedding model)
+- **LLM**: `Ollama` | `OpenAI` | `AzureOpenAI` | `Anthropic`
+- **Connector**: `MinIO` | `Filesystem` | `InMemory` | `S3` | `AzureBlob`
 
 ## Local-First Design
 
 Default runs entirely local:
-- SQLite + sqlite-vec for storage
+- PostgreSQL + pgvector for storage
+- MinIO for file storage
 - Ollama for embeddings and LLM
-- File system for uploads
 
 Cloud deployment swaps in managed services via DI—no code changes.
 

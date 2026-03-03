@@ -95,6 +95,18 @@ public static class AgentEndpoints
         .WithName("SetAgentActive")
         .WithDescription("Enable or disable an agent (Admin only)");
 
+        // GET /api/v1/agents/{id}/keys — list API keys for an agent
+        group.MapGet("/{id:guid}/keys", async (
+            Guid id,
+            [FromServices] IAgentService agentService,
+            CancellationToken ct) =>
+        {
+            var keys = await agentService.ListKeysAsync(id, ct);
+            return Results.Ok(keys);
+        })
+        .WithName("ListAgentKeys")
+        .WithDescription("List API keys for an agent (Admin only)");
+
         // POST /api/v1/agents/{id}/keys — create a new API key for an agent
         group.MapPost("/{id:guid}/keys", async (
             Guid id,

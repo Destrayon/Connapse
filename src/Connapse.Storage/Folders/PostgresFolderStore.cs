@@ -9,12 +9,14 @@ using Microsoft.Extensions.Logging;
 namespace Connapse.Storage.Folders;
 
 public class PostgresFolderStore(
-    KnowledgeDbContext context,
+    IDbContextFactory<KnowledgeDbContext> factory,
     ILogger<PostgresFolderStore> logger) : IFolderStore
 {
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
 
         var exists = await context.Folders
             .AnyAsync(f => f.ContainerId == containerId && f.Path == normalizedPath, ct);
@@ -43,14 +45,13 @@ public class PostgresFolderStore(
         string? parentPath = null,
         CancellationToken ct = default)
     {
-        var query = context.Folders
-            .AsNoTracking()
-            .Where(f => f.ContainerId == containerId);
+        await using var context = await factory.CreateDbContextAsync(ct);
 
         var normalizedParent = PathUtilities.NormalizeFolderPath(parentPath ?? "/");
-        query = query.Where(f => f.Path.StartsWith(normalizedParent) && f.Path != normalizedParent);
 
-        var entities = await query
+        var entities = await context.Folders
+            .AsNoTracking()
+            .Where(f => f.ContainerId == containerId && f.Path.StartsWith(normalizedParent) && f.Path != normalizedParent)
             .OrderBy(f => f.Path)
             .ToListAsync(ct);
 
@@ -69,7 +70,8 @@ public class PostgresFolderStore(
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
 
-        // Delete all sub-folders under this path
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         var foldersToDelete = await context.Folders
             .Where(f => f.ContainerId == containerId && f.Path.StartsWith(normalizedPath))
             .ToListAsync(ct);
@@ -77,7 +79,6 @@ public class PostgresFolderStore(
         if (foldersToDelete.Count == 0)
             return false;
 
-        // Delete all documents under this folder path
         var documentsToDelete = await context.Documents
             .Where(d => d.ContainerId == containerId && d.Path.StartsWith(normalizedPath))
             .ToListAsync(ct);
@@ -102,6 +103,9 @@ public class PostgresFolderStore(
     public async Task<bool> ExistsAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(path);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
         return await context.Folders
             .AnyAsync(f => f.ContainerId == containerId && f.Path == normalizedPath, ct);
     }

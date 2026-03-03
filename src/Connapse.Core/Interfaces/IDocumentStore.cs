@@ -7,4 +7,5 @@ public interface IDocumentStore
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
     Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default);
+    Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
 }

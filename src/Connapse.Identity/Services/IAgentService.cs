@@ -26,6 +26,10 @@ public interface IAgentService
         Guid keyId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<AgentKeyListItem>> ListKeysAsync(
+        Guid agentId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> SetActiveAsync(
         Guid agentId,
         bool isActive,

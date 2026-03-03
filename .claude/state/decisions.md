@@ -4,6 +4,38 @@ Record significant decisions with context and rationale. Future sessions should 
 
 ---
 
+### 2026-02-27 — v0.3.0 Architecture: Connector System + Cloud Identity
+
+**Context**: v0.2.0 delivered auth/RBAC. v0.3.0 needs to generalize storage into pluggable connectors and add cloud storage with proper IAM-derived access control.
+
+**Decisions**:
+
+1. **Naming**: Container = storage unit (unchanged term/API). Connector = technology type. A container *uses* a connector.
+
+2. **Connector types**: MinIO (existing, global StorageSettings), Filesystem (FileSystemWatcher live watch, cross-platform), InMemory (ephemeral, dynamic short-term RAG), S3 (IAM-only, no stored keys), AzureBlob (managed identity).
+
+3. **Per-container settings**: Each container overrides global chunking/embedding/search/upload settings. `IContainerSettingsResolver` merges: appsettings.json → env vars → global DB → container override (highest). Changing embedding model requires full container reindex.
+
+4. **Cloud RBAC model**: Connapse indexes what the service credential (IAM role, managed identity) can see. Per-user scope is derived from the cloud's own IAM at access time — Connapse does NOT maintain a shadow permission table for cloud connectors. Scopes cached with 15-min TTL. Local connectors use role-level RBAC for now.
+
+5. **Cloud identity per user**: Each Connapse user links one identity per cloud provider. AWS: IAM Identity Center SSO (device authorization flow). Azure: OAuth2 authorization code + PKCE with client secret (confidential client, Web platform). AWS admin config: 2 fields (IssuerUrl, Region). Azure admin config: 3 fields (ClientId, TenantId, ClientSecret). Identity facts stored encrypted (no access tokens, no keys). Connapse auto-registers as a public OAuth2 client with IAM Identity Center via the RegisterClient API. Azure uses Web platform (requires client_secret for server-side token exchange); PKCE is sent additionally for defense in depth.
+
+6. ~~**RS256**~~: *Removed*. RS256 was required for the old per-user OIDC federation model where Connapse acted as an identity provider to AWS. With the switch to IAM Identity Center SSO (AWS is now the identity provider to Connapse), RS256/JWKS endpoints are no longer needed. JWTs are HS256-only.
+
+7. **Filesystem connector**: FileSystemWatcher only — fully automatic, transparent to user. No manual sync. Debounced 750ms. Buffer overflow fallback: full rescan every 5 minutes.
+
+8. **S3/AzureBlob sync**: Sync-on-demand via `POST /api/containers/{id}/sync` for v0.3.0. Live events (SQS, Event Grid) deferred to v0.4.0.
+
+9. **InMemory connector**: Files in process memory. Chunks/vectors in PostgreSQL (is_ephemeral = true). Cleaned on startup. Full ingestion pipeline and search quality preserved within a session.
+
+10. ~~**Agentic search**~~: *Removed*. Was implemented in Sessions I/I2 (SearchMode.Agentic, AgenticSearchService, HydeQueryEnricher) but intentionally removed before Session K. SearchMode only has { Semantic, Keyword, Hybrid }.
+
+11. **Additional LLM/embedding providers**: OpenAI + Azure OpenAI for embeddings. Ollama + OpenAI + Anthropic for LLM. ILlmProvider formalized.
+
+**Full plan**: [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md)
+
+---
+
 ### 2026-02-22 — Invite-Only Registration Model
 
 **Context**: Open registration (`Identity:AllowRegistration`) allows anyone to create an account. For a knowledge management platform, the admin should control who has access.

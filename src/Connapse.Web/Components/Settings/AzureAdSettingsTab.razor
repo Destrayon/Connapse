@@ -1,0 +1,132 @@
+@using Connapse.Core
+@using Connapse.Storage.ConnectionTesters
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <span class="bi-info-circle me-2"></span>
+                Configure your Azure AD app registration. Users will be able to link their Azure identity
+                from their Profile page using "Connect Azure". Register the app with the <strong>Web</strong> platform
+                and redirect URI <code>https://&lt;your-host&gt;/api/v1/auth/cloud/azure/callback</code>.
+                Create a client secret under <strong>Certificates &amp; secrets</strong> in the Azure portal.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Client ID</label>
+            <InputText @bind-Value="localSettings.ClientId" class="form-control"
+                       placeholder="00000000-0000-0000-0000-000000000000" />
+            <div class="form-text">Application (client) ID from Azure AD app registration</div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Tenant ID</label>
+            <InputText @bind-Value="localSettings.TenantId" class="form-control"
+                       placeholder="00000000-0000-0000-0000-000000000000" />
+            <div class="form-text">Directory (tenant) ID from Azure AD</div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Client Secret</label>
+            <InputText @bind-Value="localSettings.ClientSecret" class="form-control" type="password"
+                       placeholder="Enter client secret value" />
+            <div class="form-text">Secret value from Certificates &amp; secrets in Azure portal</div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary me-2" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+            <button type="button" class="btn btn-info" @onclick="TestConnection" disabled="@isTestingConnection">
+                @if (isTestingConnection)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Testing...</span>
+                }
+                else
+                {
+                    <span class="bi-plug me-1"></span>
+                    <span>Test Connection</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(testMessage))
+        {
+            <div class="col-12 mt-3">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                    @testMessage
+                    <button type="button" class="btn-close" @onclick="@(() => testMessage = null)"></button>
+                </div>
+            </div>
+        }
+    </div>
+</EditForm>
+
+@inject AzureAdConnectionTester ConnectionTester
+
+@code {
+    [Parameter]
+    public AzureAdSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<AzureAdSettings> OnSave { get; set; }
+
+    private AzureAdSettings localSettings = new();
+    private bool isTestingConnection;
+    private string? testMessage;
+    private bool testSuccess;
+
+    protected override void OnParametersSet()
+    {
+        localSettings = new AzureAdSettings
+        {
+            ClientId = Settings.ClientId,
+            TenantId = Settings.TenantId,
+            ClientSecret = Settings.ClientSecret
+        };
+    }
+
+    private async Task HandleSubmit()
+    {
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        OnParametersSet();
+    }
+
+    private async Task TestConnection()
+    {
+        isTestingConnection = true;
+        testMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ConnectionTester.TestConnectionAsync(
+                localSettings, TimeSpan.FromSeconds(10));
+
+            testSuccess = result.Success;
+            testMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            isTestingConnection = false;
+            StateHasChanged();
+        }
+    }
+}

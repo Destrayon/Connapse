@@ -406,6 +406,7 @@ WORKDIR /src
 # Copy project files
 COPY ["src/Connapse.Web/Connapse.Web.csproj", "Connapse.Web/"]
 COPY ["src/Connapse.Core/Connapse.Core.csproj", "Connapse.Core/"]
+COPY ["src/Connapse.Identity/Connapse.Identity.csproj", "Connapse.Identity/"]
 COPY ["src/Connapse.Ingestion/Connapse.Ingestion.csproj", "Connapse.Ingestion/"]
 COPY ["src/Connapse.Search/Connapse.Search.csproj", "Connapse.Search/"]
 COPY ["src/Connapse.Storage/Connapse.Storage.csproj", "Connapse.Storage/"]
@@ -593,6 +594,36 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Identity__Jwt__RefreshTokenExpiryDays` | JWT refresh token lifetime | `30` |
 | `Identity__Cookie__SlidingExpirationDays` | Cookie session lifetime | `14` |
 
+#### LLM Settings (v0.3.0+)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `Knowledge__Llm__Provider` | LLM provider (`Ollama`, `OpenAI`, `AzureOpenAI`, `Anthropic`) | `Ollama` |
+| `Knowledge__Llm__BaseUrl` | Ollama/OpenAI base URL | `http://ollama:11434` |
+| `Knowledge__Llm__Model` | LLM model name | `llama2` |
+| `Knowledge__Llm__ApiKey` | API key for OpenAI/AzureOpenAI/Anthropic | (optional) |
+| `Knowledge__Llm__AzureDeploymentName` | Azure OpenAI deployment name | (optional) |
+| `Knowledge__Llm__Temperature` | Generation temperature | `0.7` |
+| `Knowledge__Llm__MaxTokens` | Max output tokens | `2048` |
+
+#### Embedding Provider Settings (v0.3.0+)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `Knowledge__Embedding__Provider` | Embedding provider (`Ollama`, `OpenAI`, `AzureOpenAI`) | `Ollama` |
+| `Knowledge__Embedding__ApiKey` | API key for OpenAI/AzureOpenAI | (optional) |
+| `Knowledge__Embedding__AzureDeploymentName` | Azure OpenAI deployment name | (optional) |
+
+#### Cloud Identity Settings (v0.3.0+)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `Identity__AwsSso__IssuerUrl` | AWS IAM Identity Center issuer URL | (optional) |
+| `Identity__AwsSso__Region` | AWS region for SSO | (optional) |
+| `Identity__AzureAd__ClientId` | Azure AD app registration client ID | (optional) |
+| `Identity__AzureAd__TenantId` | Azure AD tenant ID | (optional) |
+| `Identity__AzureAd__ClientSecret` | Azure AD client secret (confidential client) | (optional) |
+
 > **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 
 ### appsettings.json Structure
@@ -653,11 +684,17 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "AllowedExtensions": [".txt", ".md", ".pdf", ".docx", ".pptx", ".csv", ".json", ".xml", ".yaml"],
       "ConcurrentIngestions": 4,
       "QueueCapacity": 1000
+    }
+  },
+  "Identity": {
+    "AwsSso": {
+      "IssuerUrl": "",
+      "Region": "us-east-1"
     },
-    "WebSearch": {
-      "Provider": "None",
-      "ApiKey": "",
-      "MaxResults": 10
+    "AzureAd": {
+      "ClientId": "",
+      "TenantId": "",
+      "ClientSecret": ""
     }
   }
 }
@@ -969,6 +1006,9 @@ volumes:
 
 - [architecture.md](architecture.md) — System architecture
 - [api.md](api.md) — API reference
+- [connectors.md](connectors.md) — Connector types and configuration
+- [aws-sso-setup.md](aws-sso-setup.md) — AWS IAM Identity Center integration
+- [azure-identity-setup.md](azure-identity-setup.md) — Azure AD OAuth2+PKCE integration
 - [Docker Compose Docs](https://docs.docker.com/compose/)
 - [PostgreSQL Docs](https://www.postgresql.org/docs/)
 - [pgvector GitHub](https://github.com/pgvector/pgvector)

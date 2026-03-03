@@ -13,6 +13,17 @@ public class DatabaseSettingsProvider : ConfigurationProvider
 {
     private readonly Action<DbContextOptionsBuilder> _optionsAction;
 
+    /// <summary>
+    /// Maps DB category names to their configuration section prefixes.
+    /// Categories not listed here default to "Knowledge:{category}".
+    /// </summary>
+    private static readonly Dictionary<string, string> CategoryPrefixMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["security"] = "Identity:Jwt",
+        ["awssso"] = "Identity:AwsSso",
+        ["azuread"] = "Identity:AzureAd",
+    };
+
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)
     {
         _optionsAction = optionsAction;
@@ -40,7 +51,11 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                 // Flatten JSONB values into configuration keys
                 // E.g., category "Embedding" with { "Model": "nomic-embed-text" }
                 // becomes "Knowledge:Embedding:Model" = "nomic-embed-text"
-                FlattenJsonDocument($"Knowledge:{setting.Category}", setting.Values);
+                // Some categories map to non-Knowledge prefixes (e.g. "security" → "Identity:Jwt")
+                var prefix = CategoryPrefixMap.TryGetValue(setting.Category, out var mapped)
+                    ? mapped
+                    : $"Knowledge:{setting.Category}";
+                FlattenJsonDocument(prefix, setting.Values);
             }
         }
         catch (Exception)
