@@ -164,7 +164,7 @@ public class CloudIdentityService(
             DisplayName: userInfo.DisplayName);
 
         var dto = await StoreIdentityAsync(userId, CloudProvider.AWS, identityData, ct);
-        logger.LogInformation("AWS SSO identity linked for user {UserId}: {AccountIds}", userId, userInfo.AccountIds);
+        logger.LogInformation("AWS SSO identity linked for user {UserId} with {AccountCount} account(s)", userId, userInfo.AccountIds?.Split(',').Length ?? 0);
 
         return dto;
     }
