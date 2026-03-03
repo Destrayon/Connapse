@@ -1,10 +1,15 @@
-# Progress
+# Progress (ARCHIVED)
 
-Current status and recent work. Update at end of each session.
+> **This file is no longer actively maintained.** Task tracking has moved to the
+> [GitHub Project Board](https://github.com/users/Destrayon/projects/3).
+> PRs now serve as the changelog — each PR documents What/Why/How.
+> Design decisions go in `decisions.md`. Known issues go in `issues.md`.
+>
+> Everything below is kept as historical reference for v0.1.0–v0.3.0 development.
 
 ---
 
-## Current Status (2026-03-02) — v0.3.0 Complete
+## Final Status (2026-03-02) — v0.3.0 Complete
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
