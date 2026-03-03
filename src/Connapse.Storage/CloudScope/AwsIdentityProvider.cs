@@ -42,20 +42,15 @@ public class AwsIdentityProvider(ILogger<AwsIdentityProvider> logger) : ICloudId
             using var stsClient = new AmazonSecurityTokenServiceClient();
             var identity = await stsClient.GetCallerIdentityAsync(new GetCallerIdentityRequest(), ct);
             var serviceAccountId = identity.Account;
-            var maskedAccountId = MaskAccountId(serviceAccountId);
 
             if (!allowedAccountIds.Contains(serviceAccountId))
             {
-                logger.LogInformation(
-                    "AWS SSO user does not have access to service account ending in {MaskedAccount}",
-                    maskedAccountId);
+                logger.LogInformation("AWS SSO user does not have access to the service's AWS account");
                 return CloudScopeResult.Deny(
-                    $"Your AWS SSO identity does not include access to the service's AWS account (****{maskedAccountId}).");
+                    "Your AWS SSO identity does not include access to the service's AWS account.");
             }
 
-            logger.LogInformation(
-                "AWS SSO identity verified: account ending in {MaskedAccount} is in user's permitted accounts",
-                maskedAccountId);
+            logger.LogInformation("AWS SSO identity verified: service account is in user's permitted accounts");
 
             return CloudScopeResult.FullAccess();
         }
@@ -65,7 +60,4 @@ public class AwsIdentityProvider(ILogger<AwsIdentityProvider> logger) : ICloudId
             return CloudScopeResult.Deny($"AWS access verification failed: {ex.Message}");
         }
     }
-
-    private static string MaskAccountId(string accountId) =>
-        accountId.Length > 4 ? accountId[^4..] : accountId;
 }
