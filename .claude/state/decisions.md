@@ -28,7 +28,7 @@ Record significant decisions with context and rationale. Future sessions should 
 
 9. **InMemory connector**: Files in process memory. Chunks/vectors in PostgreSQL (is_ephemeral = true). Cleaned on startup. Full ingestion pipeline and search quality preserved within a session.
 
-10. **Agentic search**: New SearchMode.Agentic. LLM-driven iterative retrieval (max 3 iterations default). Disabled if no LLM configured. Returns standard SearchResult + AgenticMetadata.
+10. ~~**Agentic search**~~: *Removed*. Was implemented in Sessions I/I2 (SearchMode.Agentic, AgenticSearchService, HydeQueryEnricher) but intentionally removed before Session K. SearchMode only has { Semantic, Keyword, Hybrid }.
 
 11. **Additional LLM/embedding providers**: OpenAI + Azure OpenAI for embeddings. Ollama + OpenAI + Anthropic for LLM. ILlmProvider formalized.
 

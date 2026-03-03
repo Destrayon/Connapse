@@ -282,7 +282,7 @@ public class HybridSearchService
 
 ### Vector Search
 - `VectorSearchService` embeds query via `IEmbeddingProvider`, searches `IVectorStore`
-- Supports filters: `collectionId`, `documentId` (merged from SearchOptions.Filters)
+- Supports filters: `containerId`, `documentId`, `pathPrefix`, `modelId` (merged from SearchOptions.Filters)
 - Converts `VectorSearchResult` → `SearchHit` format
 - Applies `MinScore` threshold before returning
 
@@ -350,7 +350,7 @@ public class HybridSearchService
 - Query pattern: `SELECT ... FROM chunk_vectors WHERE ... ORDER BY embedding <=> $1 LIMIT $2`
 - Convert **distance → similarity**: `similarity = 1.0 - distance` (distance 0-2, similarity 0-1)
 - Always include chunk content in results via JOIN on chunks table
-- Filter support: `documentId`, `collectionId` via WHERE clauses
+- Filter support: `documentId`, `containerId`, `pathPrefix`, `modelId` via WHERE clauses
 - Use `Database.SqlQueryRaw<T>()` with DTO record for result mapping
 
 ### Document Store
@@ -392,8 +392,8 @@ var settings = JsonSerializer.Deserialize<ChunkingSettings>(json, JsonOptions);
   - Example: Use `/api/documents/{id}/reindex-check` to verify Status="Ready" before proceeding
   - Wait for `NeedsReindex=false`, not just document existence
 - **Form data patterns**:
-  - Upload endpoint expects `destinationPath` and `collectionId` as separate form fields
-  - Don't conflate virtualPath (internal storage location) with collectionId (logical grouping)
+  - Upload endpoint expects `destinationPath` and `containerId` as form fields (containerId is path param)
+  - Don't conflate virtualPath (internal storage location) with containerId (container scope)
 - **Null checks**: Always add null-conditional operators for properties that can be null (e.g., `response.S3Objects?.Count`)
 
 ### Test Naming

@@ -23,11 +23,21 @@ public record Container(
     string Id,
     string Name,
     string? Description,
+    ConnectorType ConnectorType,
+    bool IsEphemeral,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    int DocumentCount = 0);
+    int DocumentCount = 0,
+    ContainerSettingsOverrides? SettingsOverrides = null,
+    string? ConnectorConfig = null);
 
-public record CreateContainerRequest(string Name, string? Description = null);
+public enum ConnectorType { MinIO = 0, Filesystem = 1, InMemory = 2, S3 = 3, AzureBlob = 4 }
+
+public record CreateContainerRequest(
+    string Name,
+    string? Description = null,
+    ConnectorType ConnectorType = ConnectorType.MinIO,
+    string? ConnectorConfig = null);
 ```
 
 Implementation: `PostgresContainerStore`
@@ -109,11 +119,12 @@ public interface IEmbeddingProvider
     string ModelId { get; }
 }
 
-// Implementation: OllamaEmbeddingProvider
-// - HttpClient with typed client pattern
-// - Batch processing (sends multiple parallel requests)
-// - Dimension validation with warnings
-// - Configurable timeout (default: 30s)
+// Implementations: OllamaEmbeddingProvider, OpenAiEmbeddingProvider, AzureOpenAiEmbeddingProvider
+// - Ollama: HttpClient with typed client pattern
+// - OpenAI: OpenAI SDK 2.9.0 (EmbeddingClient)
+// - Azure OpenAI: Azure.AI.OpenAI SDK 2.1.0 (AzureOpenAIClient)
+// - DI: factory delegate reads EmbeddingSettings.Provider at scope time
+// - Dimensions sent only for text-embedding-3-* models (Matryoshka truncation)
 ```
 
 ### IVectorStore
@@ -130,9 +141,11 @@ public interface IVectorStore
 // Implementation: PgVectorStore
 // - Raw SQL with NAMED NpgsqlParameter objects (CRITICAL: positional params silently drop Vector type)
 // - Cosine distance -> similarity conversion (1 - distance)
-// - Filters: containerId, documentId, pathPrefix via WHERE clauses
+// - Filters: containerId, documentId, pathPrefix, modelId via WHERE clauses
 // - JOINs chunks + documents for complete result metadata
 // - Quoted column aliases in SQL ("ChunkId", "Distance", etc.)
+// - v0.3.0: Unconstrained vector column with partial IVFFlat indexes per model_id
+// - v0.3.0: ::vector(N) dimension cast in search queries (N = queryVector.Length)
 ```
 
 ### IDocumentStore
@@ -303,12 +316,20 @@ public interface IConnectionTester
     Task<ConnectionTestResult> TestConnectionAsync(object settings, TimeSpan? timeout = null, CancellationToken ct = default);
 }
 
-// Implementations: OllamaConnectionTester, MinioConnectionTester
+// Implementations (15 total):
+// - Infrastructure: OllamaConnectionTester, MinioConnectionTester
+// - Cloud Connectors: S3ConnectionTester, AzureBlobConnectionTester
+// - Cloud Identity: AwsSsoConnectionTester, AzureAdConnectionTester
+// - Embedding: OpenAiConnectionTester, AzureOpenAiConnectionTester,
+//              TeiConnectionTester, CohereConnectionTester, JinaConnectionTester, AzureAIFoundryConnectionTester
+// - LLM: OpenAiLlmConnectionTester, AzureOpenAiLlmConnectionTester, AnthropicConnectionTester
 ```
 
-### IAgentTool / IAgentMemory / IKnowledgeFileSystem / IFileStore / IWebSearchProvider
+### IAgentTool / IAgentMemory / IKnowledgeFileSystem / IFileStore
 
 These interfaces remain unchanged from the initial design. See CLAUDE.md for definitions.
+
+> **Note**: `IWebSearchProvider` was removed in v0.3.0 (settings cleanup). Web search is no longer a configurable strategy.
 
 ---
 
@@ -392,6 +413,149 @@ public interface IInviteService
 
 ---
 
+## Connector & Cloud Interfaces (Connapse.Core + Connapse.Storage — v0.3.0)
+
+### IConnector
+
+```csharp
+public interface IConnector
+{
+    ConnectorType Type { get; }
+    bool SupportsLiveWatch { get; }
+    Task<Stream> ReadFileAsync(string path, CancellationToken ct = default);
+    Task WriteFileAsync(string path, Stream content, string? contentType = null, CancellationToken ct = default);
+    Task DeleteFileAsync(string path, CancellationToken ct = default);
+    Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default);
+    Task<bool> ExistsAsync(string path, CancellationToken ct = default);
+    IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default);
+}
+// Implementations: MinioConnector, FilesystemConnector, InMemoryConnector, S3Connector, AzureBlobConnector
+```
+
+### IConnectorFactory
+
+```csharp
+public interface IConnectorFactory
+{
+    IConnector Create(Container container);
+}
+// Implementation: ConnectorFactory (Singleton)
+```
+
+### IContainerSettingsResolver
+
+```csharp
+public interface IContainerSettingsResolver
+{
+    Task<ChunkingSettings> GetChunkingSettingsAsync(Guid containerId, CancellationToken ct = default);
+    Task<EmbeddingSettings> GetEmbeddingSettingsAsync(Guid containerId, CancellationToken ct = default);
+    Task<SearchSettings> GetSearchSettingsAsync(Guid containerId, CancellationToken ct = default);
+    Task<UploadSettings> GetUploadSettingsAsync(Guid containerId, CancellationToken ct = default);
+}
+// Implementation: ContainerSettingsResolver — merges global settings with per-container overrides
+```
+
+### ILlmProvider
+
+```csharp
+public interface ILlmProvider
+{
+    string Provider { get; }
+    string ModelId { get; }
+    Task<string> CompleteAsync(string systemPrompt, string userPrompt,
+        LlmCompletionOptions? options = null, CancellationToken ct = default);
+    IAsyncEnumerable<string> StreamAsync(string systemPrompt, string userPrompt,
+        LlmCompletionOptions? options = null, CancellationToken ct = default);
+}
+public record LlmCompletionOptions(float? Temperature = null, int? MaxTokens = null);
+// Implementations: OllamaLlmProvider, OpenAiLlmProvider, AzureOpenAiLlmProvider, AnthropicLlmProvider
+// DI: factory delegate reads LlmSettings.Provider at scope time
+```
+
+### ICloudScopeService
+
+```csharp
+public interface ICloudScopeService
+{
+    Task<CloudScopeResult?> GetScopesAsync(Guid userId, Container container, CancellationToken ct = default);
+}
+
+public record CloudScopeResult(bool HasAccess, IReadOnlyList<string> AllowedPrefixes, string? Error = null)
+{
+    public static CloudScopeResult Deny(string reason);
+    public static CloudScopeResult Allow(IReadOnlyList<string> prefixes);
+    public static CloudScopeResult FullAccess();
+    public bool IsPathAllowed(string path);
+}
+// Implementation: CloudScopeService (in Connapse.Web)
+```
+
+### ICloudIdentityProvider
+
+```csharp
+public interface ICloudIdentityProvider
+{
+    CloudProvider Provider { get; }
+    Task<CloudScopeResult> DiscoverScopesAsync(CloudIdentityData identityData, Container container, CancellationToken ct = default);
+}
+public enum CloudProvider { AWS = 0, Azure = 1 }
+// Implementations: AwsIdentityProvider, AzureIdentityProvider (in Connapse.Storage/CloudScope)
+```
+
+### IConnectorScopeCache
+
+```csharp
+public interface IConnectorScopeCache
+{
+    Task<CloudScopeResult?> GetAsync(Guid userId, Guid containerId);
+    Task SetAsync(Guid userId, Guid containerId, CloudScopeResult result, TimeSpan ttl);
+    void Invalidate(Guid userId, Guid containerId);
+}
+// Implementation: ConnectorScopeCache (IMemoryCache, 15-min allow TTL, 5-min deny TTL)
+```
+
+### ICloudIdentityService
+
+```csharp
+public interface ICloudIdentityService
+{
+    Task<CloudIdentityDto?> GetAsync(Guid userId, CloudProvider provider, CancellationToken ct = default);
+    Task<IReadOnlyList<CloudIdentityDto>> ListAsync(Guid userId, CancellationToken ct = default);
+    Task<bool> DisconnectAsync(Guid userId, CloudProvider provider, CancellationToken ct = default);
+    AzureConnectResult GetAzureConnectUrl(string baseUrl);
+    Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string codeVerifier, string redirectUri, CancellationToken ct = default);
+    Task<AwsDeviceAuthStartResult> StartAwsDeviceAuthAsync(CancellationToken ct = default);
+    Task<CloudIdentityDto?> PollAwsDeviceAuthAsync(Guid userId, string deviceCode, CancellationToken ct = default);
+    bool IsAwsSsoConfigured();
+    bool IsAzureAdConfigured();
+}
+// Implementation: CloudIdentityService (in Connapse.Identity)
+```
+
+### IAwsSsoClientRegistrar
+
+```csharp
+public interface IAwsSsoClientRegistrar
+{
+    Task<AwsSsoSettings> EnsureRegisteredAsync(AwsSsoSettings settings, CancellationToken ct = default);
+    Task<AwsDeviceAuthorizationResult> StartDeviceAuthorizationAsync(AwsSsoSettings settings, CancellationToken ct = default);
+    Task<string?> PollForTokenAsync(AwsSsoSettings settings, string deviceCode, CancellationToken ct = default);
+    Task<AwsSsoUserInfo> ListUserAccountsAsync(AwsSsoSettings settings, string accessToken, CancellationToken ct = default);
+}
+// Implementation: AwsSsoClientRegistrar (in Connapse.Storage)
+// Device authorization flow: RegisterClient → StartDeviceAuthorization → poll CreateToken
+```
+
+### VectorModelDiscovery
+
+```csharp
+// Not an interface, but a key v0.3.0 service
+public record EmbeddingModelInfo(string ModelId, int Dimensions, long VectorCount);
+// VectorModelDiscovery: GetModelsAsync (GROUP BY model_id), HasLegacyVectorsAsync
+```
+
+---
+
 ## Settings Types
 
 All settings are records with `{ get; set; }` properties for form binding.
@@ -399,11 +563,11 @@ All settings are records with `{ get; set; }` properties for form binding.
 ```csharp
 public record EmbeddingSettings { Provider, Model, Dimensions, BaseUrl, ApiKey, AzureDeploymentName, BatchSize, TimeoutSeconds }
 public record ChunkingSettings  { Strategy, MaxChunkSize, Overlap, MinChunkSize, SemanticThreshold, RecursiveSeparators, RespectDocumentStructure }
-public record SearchSettings    { Mode, TopK, Reranker, RrfK, VectorWeight, MinimumScore (default 0.5), CrossEncoderModel, EnableQueryExpansion, IncludeWebSearch }
+public record SearchSettings    { Mode, TopK, Reranker, RrfK, VectorWeight, MinimumScore (default 0.5), CrossEncoderModel, EnableQueryExpansion, EnableCrossModelSearch (v0.3.0) }
 public record LlmSettings       { Provider, Model, BaseUrl, ApiKey, AzureDeploymentName, Temperature, MaxTokens, TimeoutSeconds, SystemPrompt }
 public record UploadSettings    { MaxFileSizeMb, AllowedExtensions, DefaultPath, ParallelWorkers, EnableVirusScanning, AutoStartIngestion, BatchSize }
-public record WebSearchSettings { Provider, ApiKey, MaxResults, TimeoutSeconds, SafeSearch, Region }
-public record StorageSettings   { VectorStoreProvider, DocumentStoreProvider, FileStorageProvider, MinioEndpoint, MinioAccessKey, MinioSecretKey, MinioBucketName, MinioUseSSL, ... }
+// WebSearchSettings — REMOVED in v0.3.0
+// StorageSettings   — REMOVED in v0.3.0
 ```
 
 **Settings Configuration Categories:**
@@ -412,8 +576,10 @@ public record StorageSettings   { VectorStoreProvider, DocumentStoreProvider, Fi
 - `Knowledge:Search` -> SearchSettings
 - `Knowledge:LLM` -> LlmSettings
 - `Knowledge:Upload` -> UploadSettings
-- `Knowledge:WebSearch` -> WebSearchSettings
-- `Knowledge:Storage` -> StorageSettings
+- `Knowledge:WebSearch` -> ~~WebSearchSettings~~ (REMOVED in v0.3.0)
+- `Knowledge:Storage` -> ~~StorageSettings~~ (REMOVED in v0.3.0)
+- `Identity:AwsSso` -> AwsSsoSettings (v0.3.0)
+- `Identity:AzureAd` -> AzureAdSettings (v0.3.0)
 
 ---
 
@@ -478,12 +644,22 @@ All endpoints (except `POST /api/v1/auth/token` and `POST /api/v1/auth/token/ref
 |--------|------|-------------|
 | `GET` | `/api/containers/{id}/search` | Search within container. Query: `?q=...&path=/folder/&mode=Hybrid&topK=10&minScore=0.5`. |
 | `POST` | `/api/containers/{id}/search` | Search with complex filters. Body: `ContainerSearchRequest`. |
+| `GET` | `/api/containers/{id}/search/models` | Get embedding models with vectors in this container (v0.3.0). |
+
+### Container Connector Operations (v0.3.0)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/containers/test-connection` | Test S3/AzureBlob connector config before creating. Body: `TestConnectorConfigRequest`. |
+| `POST` | `/api/containers/{id}/sync` | Sync files from remote connector (S3/AzureBlob/MinIO). Returns 400 for Filesystem/InMemory. |
+| `GET` | `/api/containers/{id}/settings` | Get per-container settings overrides. |
+| `PUT` | `/api/containers/{id}/settings` | Save per-container settings overrides. |
 
 ### Container Reindex
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/containers/{id}/reindex` | Reindex documents in container. Body: `{ force?, detectSettingsChanges? }`. |
+| `POST` | `/api/containers/{id}/reindex` | Reindex documents in container. Body: `{ force?, detectSettingsChanges?, strategy? }`. |
 
 ### Settings
 
@@ -492,6 +668,20 @@ All endpoints (except `POST /api/v1/auth/token` and `POST /api/v1/auth/token/ref
 | `GET` | `/api/settings/{category}` | Get settings for category. |
 | `PUT` | `/api/settings/{category}` | Update settings. Triggers live reload. |
 | `POST` | `/api/settings/test-connection` | Test connectivity before saving. |
+| `GET` | `/api/settings/embedding-models` | Get all embedding models with vectors globally (v0.3.0). |
+| `POST` | `/api/settings/reindex` | Trigger re-embedding (fire-and-forget) (v0.3.0). |
+| `GET` | `/api/settings/reindex/status` | Get reindex queue depth status (v0.3.0). |
+
+### Cloud Identity Endpoints (v0.3.0)
+
+| Method | Path | Auth Required | Role | Description |
+|--------|------|---------------|------|-------------|
+| `GET` | `/api/v1/auth/cloud/identities` | Yes | Any | List user's linked cloud identities |
+| `GET` | `/api/v1/auth/cloud/azure/connect` | Yes | Any | Redirect to Azure AD authorize endpoint (OAuth2+PKCE) |
+| `GET` | `/api/v1/auth/cloud/azure/callback` | Yes | Any | Azure AD OAuth2 callback handler |
+| `POST` | `/api/v1/auth/cloud/aws/device-auth` | Yes | Any | Start AWS IAM Identity Center device authorization flow |
+| `POST` | `/api/v1/auth/cloud/aws/device-auth/poll` | Yes | Any | Poll for AWS device authorization completion |
+| `DELETE` | `/api/v1/auth/cloud/{provider}` | Yes | Any | Disconnect cloud identity (aws or azure) |
 
 ### Batches
 
@@ -574,6 +764,22 @@ All tools accept container name or ID for `containerId` (resolved via name looku
 ---
 
 ## Breaking Changes
+
+### 2026-03-02 -- Connectors, Cloud Identity, Multi-Provider AI (v0.3.0)
+
+**Change**: Containers now require a `ConnectorType`. Cloud identity linking (AWS IAM Identity Center, Azure AD) enables IAM-derived scope enforcement on cloud-backed containers. Multiple embedding and LLM providers supported. Unconstrained vector column replaces fixed `vector(768)`.
+
+**Migration**:
+- `POST /api/containers` now accepts `connectorType` and `connectorConfig` fields (defaults to `MinIO` for backward compatibility)
+- `WebSearchSettings` and `StorageSettings` removed — `PUT /api/settings/websearch` and `PUT /api/settings/storage` no longer exist
+- `SearchSettings.IncludeWebSearch` removed; `SearchSettings.EnableCrossModelSearch` added
+- `EmbeddingSettings.ApiKey` and `EmbeddingSettings.AzureDeploymentName` added for non-Ollama providers
+- Vector column changed from `vector(768)` to unconstrained `vector` — existing data preserved, partial IVFFlat indexes created per model_id
+- `SearchMode.Agentic` was implemented then intentionally removed — only `Semantic`, `Keyword`, `Hybrid` remain
+- New settings categories: `awssso`, `azuread`, `llm` (LLM was existing but now fully wired)
+
+**New tables added** (AppDbContext migration):
+- `user_cloud_identities` (linked cloud identities with DataProtection-encrypted data)
 
 ### 2026-02-26 -- Authentication Required on All Endpoints (v0.2.0)
 

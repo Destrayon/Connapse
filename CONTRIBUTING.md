@@ -23,7 +23,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 
 **Before submitting a bug report:**
 - Search [existing issues](https://github.com/Destrayon/Connapse/issues) to see if it's already reported
-- Test with the latest code on the `master` branch
+- Test with the latest code on the `main` branch
 - Check [SECURITY.md](SECURITY.md) - some limitations are known and documented
 
 **When submitting a bug report, include:**
@@ -94,7 +94,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/)
 - [Git](https://git-scm.com/)
-- IDE: [Visual Studio 2024](https://visualstudio.microsoft.com/), [VS Code](https://code.visualstudio.com/), or [JetBrains Rider](https://www.jetbrains.com/rider/)
+- IDE: [Visual Studio 2022](https://visualstudio.microsoft.com/), [VS Code](https://code.visualstudio.com/), or [JetBrains Rider](https://www.jetbrains.com/rider/)
 
 ### Initial Setup
 
@@ -126,12 +126,12 @@ dotnet run --project src/Connapse.Web
 # Fetch upstream changes
 git fetch upstream
 
-# Merge upstream/master into your local master
-git checkout master
-git merge upstream/master
+# Merge upstream/main into your local main
+git checkout main
+git merge upstream/main
 
 # Push to your fork
-git push origin master
+git push origin main
 ```
 
 ## 🔀 Pull Request Process
@@ -139,9 +139,9 @@ git push origin master
 ### 1. Create a Feature Branch
 
 ```bash
-# Always branch from master
-git checkout master
-git pull upstream master
+# Always branch from main
+git checkout main
+git pull upstream main
 
 # Create a descriptive branch name
 git checkout -b feature/your-feature-name

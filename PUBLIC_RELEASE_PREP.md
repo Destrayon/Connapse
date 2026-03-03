@@ -1,5 +1,7 @@
 # Public Release Preparation Checklist
 
+> **Note**: This document was originally written before v0.2.0. Authentication was completed in v0.2.0, and cloud connectors + identity linking were completed in v0.3.0. Some sections below are historical and no longer reflect current state. See README.md and SECURITY.md for the current status.
+
 **Branch**: `feature/public-release-prep`
 **Target**: Open-source repository with future commercial cloud hosting
 **License Strategy**: Permissive (MIT or Apache 2.0) to allow adoption while building hosted service
@@ -310,7 +312,7 @@ When ready to make repository public:
 - [ ] No secrets in commit history (`git log --all --full-history -- '*secret*' '*password*'`)
 - [ ] .gitignore covers all sensitive files
 - [ ] Default credentials documented as "change me"
-- [ ] Tests passing (171/171)
+- [ ] Tests passing (457/457)
 - [ ] Documentation links work
 - [ ] Create GitHub Release v0.1.0-alpha
 - [ ] Tag commit: `git tag -a v0.1.0-alpha -m "Pre-alpha public release"`
@@ -350,13 +352,13 @@ The `.claude/state/` documentation is **intentionally public** as it provides va
 
 ## 📝 Notes
 
-### Authentication Implementation (v0.2.0)
-When implementing auth, consider:
-- ASP.NET Core Identity for password auth
-- API keys for programmatic access (CLI, MCP)
-- Optional OAuth/OIDC (Google, GitHub, Microsoft)
-- Settings: `AuthenticationMode: None | Password | OAuth`
-- Backward compat: Keep "None" mode for local dev
+### Authentication Implementation (v0.2.0) — COMPLETED
+Authentication was fully implemented in v0.2.0:
+- ASP.NET Core Identity for password auth (cookie + JWT + PATs)
+- Agent API keys for MCP and automation
+- Role-based access control (Admin, Editor, Viewer, Agent)
+- Invite-only registration
+- Cloud identity linking added in v0.3.0 (AWS IAM Identity Center + Azure AD)
 
 ### Open Source + Commercial Hosting Model
 This model works when:

@@ -2,7 +2,7 @@
 
 ## Development Status
 
-**Connapse v0.2.0 is in beta.** Authentication and authorization are fully implemented. The project is suitable for self-hosted deployments in trusted environments, but is **not yet recommended for production exposure to the public internet** without review of the remaining limitations below.
+**Connapse v0.3.0 is in beta.** Authentication, authorization, and cloud identity linking are fully implemented. The project is suitable for self-hosted deployments in trusted environments, but is **not yet recommended for production exposure to the public internet** without review of the remaining limitations below.
 
 ### What Changed in v0.2.0
 
@@ -22,20 +22,37 @@ v0.2.0 delivered the full authentication and authorization foundation:
 - **Input sanitization**: All user-supplied values sanitized before processing
 - **CodeQL fixes**: Log injection and PII exposure vulnerabilities resolved
 
+### What Changed in v0.3.0
+
+v0.3.0 added cloud connector architecture with identity-based access control:
+
+- **Cloud identity linking**: Users link cloud provider identities (AWS IAM Identity Center, Azure AD) to their Connapse profile
+- **AWS IAM Identity Center**: Device authorization flow — admin configures Issuer URL + Region, users authenticate via browser-based device code flow. No stored AWS access keys.
+- **Azure AD OAuth2+PKCE**: Authorization code flow with PKCE and client secret (defense in depth). CSRF protection via state cookies (HttpOnly, Secure, SameSite=Lax, 10-min TTL).
+- **IAM-derived scope enforcement**: Cloud permissions are the source of truth — Connapse checks the user's linked identity against the cloud provider's IAM before granting access to S3/Azure Blob containers
+- **Encrypted cloud identities**: Cloud identity data encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`)
+- **Scope caching**: 15-minute allow TTL, 5-minute deny TTL — deny results expire faster so users see access changes quickly
+- **Multi-provider AI support**: Embedding (Ollama, OpenAI, Azure OpenAI) and LLM (Ollama, OpenAI, Azure OpenAI, Anthropic) providers with API key management via runtime settings
+- **Connection testing**: All cloud connectors and AI providers can be validated before saving credentials
+- **S3 connector security**: Uses `DefaultAWSCredentials` (IAM roles, instance profiles) — no stored access keys
+- **Azure Blob connector security**: Uses `DefaultAzureCredential` (managed identity) — no stored connection strings
+
 ### Remaining Limitations
 
 These are known gaps to address before v1.0.0:
 
 - **No rate limiting**: APIs have no request throttling. Do not expose publicly without an upstream reverse proxy (nginx, Caddy) that enforces rate limits
 - **No encryption at rest**: Database and object storage data is stored unencrypted. Rely on OS/disk-level encryption (e.g., LUKS, BitLocker, encrypted EBS volumes) for sensitive deployments
-- **No MFA**: Multi-factor authentication is planned for v0.3.0
-- **No OIDC / SSO**: OAuth/OIDC integration (GitHub, Google, Microsoft) is planned for v0.3.0
+- **No MFA**: Multi-factor authentication is not yet implemented
+- **No traditional OIDC / SSO login**: OAuth/OIDC login via GitHub, Google, or Microsoft is not yet implemented. v0.3.0 added cloud identity linking (AWS IAM Identity Center + Azure AD) for cloud container access control, but user login is still password-based.
+- **Cloud scope granularity**: AWS `SimulatePrincipalPolicy` not yet implemented (grants full access when identity is linked). Azure RBAC enforcement at container-prefix level only, not per-folder.
+- **Cloud provider testing**: Cloud connector and AI provider integrations are unit-tested with mocks only — no end-to-end tests against real cloud services
 
 ## Reporting Security Vulnerabilities
 
 We take security seriously.
 
-### For Beta Issues (v0.2.x)
+### For Beta Issues
 
 1. **DO NOT** open a public GitHub issue for security vulnerabilities
 2. Email **psummers1050@gmail.com** or open a [GitHub Security Advisory](https://github.com/Destrayon/Connapse/security/advisories/new)
@@ -65,6 +82,8 @@ If you are self-hosting Connapse:
 - [ ] Review the CHANGELOG for security fixes before upgrading
 - [ ] Monitor audit logs for suspicious authentication activity
 - [ ] Rotate Personal Access Tokens periodically; revoke any tokens that may have been exposed
+- [ ] Set a strong `Identity__Jwt__Secret` (min 32 characters) — see [deployment guide](docs/deployment.md)
+- [ ] For cloud connectors: use IAM roles / managed identities — never store cloud access keys
 
 ## Secure Development Practices
 
@@ -74,10 +93,11 @@ If you are self-hosting Connapse:
 - **Input validation**: All user inputs sanitized; path traversal protection on file system operations
 - **SQL injection prevention**: Parameterized queries only (EF Core + explicit `NpgsqlParameter`)
 - **XSS prevention**: Blazor auto-escapes output
-- **CSRF protection**: ASP.NET Core anti-forgery middleware enforced
+- **CSRF protection**: ASP.NET Core anti-forgery middleware enforced; Azure AD OAuth2 state cookies
 - **Secrets management**: Never commit secrets — use user-secrets in development, environment variables in production
 - **Log safety**: Structured logging with sanitized values; PII excluded from log output
 - **Auth scheme defense-in-depth**: Multi-scheme authentication pipeline (Cookie + Bearer + API Key) with explicit `DefaultAuthenticateScheme` to prevent scheme override bugs
+- **Cloud identity encryption**: Cloud identity data encrypted at rest via DataProtection API
 
 ## Resources
 
@@ -91,11 +111,11 @@ If you are self-hosting Connapse:
 | Version | Status | Authentication | Production Ready |
 |---------|--------|----------------|------------------|
 | v0.1.0-alpha | Released | None | No |
-| v0.2.0 | Current (Beta) | Password + PATs + JWT + CLI PKCE | Self-hosted (trusted networks) |
-| v0.3.0 | Planned | + MFA + OIDC/SSO | Self-hosted (public-facing) |
-| v1.0.0 | Future | Full auth + RBAC + rate limiting + encryption at rest | Yes |
+| v0.2.0 | Released (Beta) | Password + PATs + JWT + CLI PKCE | Self-hosted (trusted networks) |
+| v0.3.0 | Current (Beta) | + Cloud identity (AWS SSO + Azure AD) + IAM scope enforcement | Self-hosted (trusted networks) |
+| v1.0.0 | Future | + MFA + OIDC/SSO login + rate limiting + encryption at rest | Yes |
 
 ---
 
-**Last Updated**: 2026-02-27
-**Status**: Beta (v0.2.0)
+**Last Updated**: 2026-03-02
+**Status**: Beta (v0.3.0)
