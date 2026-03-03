@@ -1,8 +1,8 @@
 using Connapse.Core;
+using Connapse.Core.Tests.Utilities;
 using Connapse.Storage.Llm;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Llm;
@@ -13,11 +13,12 @@ public class AzureOpenAiLlmProviderTests
     [Fact]
     public void Constructor_MissingEndpoint_Throws()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "AzureOpenAI",
             Model = "gpt-4o",
-            ApiKey = "test-key",
+            AzureApiKey = "test-key",
+            AzureEndpoint = null,
             BaseUrl = null
         });
         var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
@@ -31,12 +32,12 @@ public class AzureOpenAiLlmProviderTests
     [Fact]
     public void Constructor_MissingApiKey_Throws()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "AzureOpenAI",
             Model = "gpt-4o",
-            ApiKey = null,
-            BaseUrl = "https://my-resource.openai.azure.com"
+            AzureApiKey = null,
+            AzureEndpoint = "https://my-resource.openai.azure.com"
         });
         var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
 
@@ -49,12 +50,12 @@ public class AzureOpenAiLlmProviderTests
     [Fact]
     public void ModelId_UsesDeploymentName_WhenProvided()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "AzureOpenAI",
             Model = "gpt-4o",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com",
             AzureDeploymentName = "my-deployment"
         });
         var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
@@ -67,12 +68,12 @@ public class AzureOpenAiLlmProviderTests
     [Fact]
     public void ModelId_FallsBackToModel_WhenNoDeploymentName()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "AzureOpenAI",
             Model = "gpt-4o",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com",
             AzureDeploymentName = null
         });
         var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
@@ -85,12 +86,12 @@ public class AzureOpenAiLlmProviderTests
     [Fact]
     public void Provider_ReturnsAzureOpenAI()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "AzureOpenAI",
             Model = "gpt-4o",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com"
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com"
         });
         var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
 

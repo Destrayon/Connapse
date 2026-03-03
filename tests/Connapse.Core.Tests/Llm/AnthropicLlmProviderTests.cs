@@ -1,8 +1,8 @@
 using Connapse.Core;
+using Connapse.Core.Tests.Utilities;
 using Connapse.Storage.Llm;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Llm;
@@ -13,11 +13,11 @@ public class AnthropicLlmProviderTests
     [Fact]
     public void Constructor_MissingApiKey_Throws()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "Anthropic",
             Model = "claude-sonnet-4-20250514",
-            ApiKey = null
+            AnthropicApiKey = null
         });
         var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
 
@@ -30,11 +30,11 @@ public class AnthropicLlmProviderTests
     [Fact]
     public void Constructor_ValidApiKey_SetsProperties()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "Anthropic",
             Model = "claude-sonnet-4-20250514",
-            ApiKey = "sk-ant-test-key"
+            AnthropicApiKey = "sk-ant-test-key"
         });
         var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
 
@@ -47,12 +47,12 @@ public class AnthropicLlmProviderTests
     [Fact]
     public void Constructor_WithCustomBaseUrl_DoesNotThrow()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "Anthropic",
             Model = "claude-sonnet-4-20250514",
-            ApiKey = "sk-ant-test-key",
-            BaseUrl = "https://custom-proxy.example.com"
+            AnthropicApiKey = "sk-ant-test-key",
+            AnthropicBaseUrl = "https://custom-proxy.example.com"
         });
         var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
 
@@ -64,11 +64,11 @@ public class AnthropicLlmProviderTests
     [Fact]
     public void ModelId_ReturnsConfiguredModel()
     {
-        var settings = Options.Create(new LlmSettings
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
         {
             Provider = "Anthropic",
             Model = "claude-opus-4-20250514",
-            ApiKey = "sk-ant-test-key"
+            AnthropicApiKey = "sk-ant-test-key"
         });
         var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
 

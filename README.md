@@ -15,7 +15,7 @@
 
 ## 🎬 Demo
 
-https://github.com/user-attachments/assets/db93c576-3a51-4b17-a56e-5b67ea8b847c
+https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c
 
 > *Upload documents, search your knowledge base, and chat with your data — all in under 30 seconds.*
 

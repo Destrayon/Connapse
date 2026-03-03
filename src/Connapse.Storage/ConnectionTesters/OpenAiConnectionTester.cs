@@ -33,19 +33,21 @@ public class OpenAiConnectionTester : IConnectionTester
             if (embeddingSettings == null)
                 return ConnectionTestResult.CreateFailure("Invalid settings type");
 
-            if (string.IsNullOrWhiteSpace(embeddingSettings.ApiKey))
+            var apiKey = embeddingSettings.OpenAiApiKey ?? embeddingSettings.ApiKey;
+            if (string.IsNullOrWhiteSpace(apiKey))
                 return ConnectionTestResult.CreateFailure("API Key is required for OpenAI");
 
             var model = embeddingSettings.Model;
             if (string.IsNullOrWhiteSpace(model))
                 model = "text-embedding-3-small";
 
-            var credential = new ApiKeyCredential(embeddingSettings.ApiKey);
+            var credential = new ApiKeyCredential(apiKey);
             EmbeddingClient client;
+            var baseUrl = embeddingSettings.OpenAiBaseUrl ?? embeddingSettings.BaseUrl;
 
-            if (!string.IsNullOrWhiteSpace(embeddingSettings.BaseUrl))
+            if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
             {
-                var options = new OpenAIClientOptions { Endpoint = new Uri(embeddingSettings.BaseUrl) };
+                var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
                 var openAiClient = new OpenAIClient(credential, options);
                 client = openAiClient.GetEmbeddingClient(model);
             }

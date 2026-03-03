@@ -31,10 +31,12 @@ public class AzureOpenAiLlmConnectionTester : IConnectionTester
         if (settings is not LlmSettings llmSettings)
             return ConnectionTestResult.CreateFailure("Expected LlmSettings");
 
-        if (string.IsNullOrWhiteSpace(llmSettings.BaseUrl))
+        var endpoint = llmSettings.AzureEndpoint ?? llmSettings.BaseUrl;
+        if (string.IsNullOrWhiteSpace(endpoint))
             return ConnectionTestResult.CreateFailure("Azure OpenAI endpoint URL is required");
 
-        if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+        var apiKey = llmSettings.AzureApiKey ?? llmSettings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             return ConnectionTestResult.CreateFailure("API key is required");
 
         var deploymentName = !string.IsNullOrWhiteSpace(llmSettings.AzureDeploymentName)
@@ -43,8 +45,8 @@ public class AzureOpenAiLlmConnectionTester : IConnectionTester
 
         try
         {
-            var credential = new ApiKeyCredential(llmSettings.ApiKey);
-            var azureClient = new AzureOpenAIClient(new Uri(llmSettings.BaseUrl), credential);
+            var credential = new ApiKeyCredential(apiKey);
+            var azureClient = new AzureOpenAIClient(new Uri(endpoint), credential);
             var client = azureClient.GetChatClient(deploymentName);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -66,7 +68,7 @@ public class AzureOpenAiLlmConnectionTester : IConnectionTester
                 new Dictionary<string, object>
                 {
                     ["deployment"] = deploymentName,
-                    ["endpoint"] = llmSettings.BaseUrl,
+                    ["endpoint"] = endpoint,
                     ["provider"] = "AzureOpenAI"
                 },
                 stopwatch.Elapsed);

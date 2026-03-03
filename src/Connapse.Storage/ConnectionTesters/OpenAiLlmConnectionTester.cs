@@ -31,17 +31,19 @@ public class OpenAiLlmConnectionTester : IConnectionTester
         if (settings is not LlmSettings llmSettings)
             return ConnectionTestResult.CreateFailure("Expected LlmSettings");
 
-        if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+        var apiKey = llmSettings.OpenAiApiKey ?? llmSettings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             return ConnectionTestResult.CreateFailure("API key is required");
 
         try
         {
-            var credential = new ApiKeyCredential(llmSettings.ApiKey);
+            var credential = new ApiKeyCredential(apiKey);
             ChatClient client;
+            var baseUrl = llmSettings.OpenAiBaseUrl ?? llmSettings.BaseUrl;
 
-            if (!string.IsNullOrWhiteSpace(llmSettings.BaseUrl))
+            if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
             {
-                var options = new OpenAIClientOptions { Endpoint = new Uri(llmSettings.BaseUrl) };
+                var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
                 client = new OpenAIClient(credential, options).GetChatClient(llmSettings.Model);
             }
             else

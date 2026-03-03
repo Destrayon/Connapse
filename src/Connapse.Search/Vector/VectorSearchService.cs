@@ -75,9 +75,8 @@ public class VectorSearchService
             filters.Count > 0 ? filters : null,
             ct);
 
-        // Convert VectorSearchResult to SearchHit
+        // Convert VectorSearchResult to SearchHit (MinScore applied later by HybridSearchService)
         var hits = results
-            .Where(r => r.Score >= options.MinScore)
             .Select(r => new SearchHit(
                 ChunkId: r.Id,
                 DocumentId: r.Metadata.GetValueOrDefault("documentId", ""),

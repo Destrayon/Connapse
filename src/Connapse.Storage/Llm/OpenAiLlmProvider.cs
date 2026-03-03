@@ -20,21 +20,23 @@ public class OpenAiLlmProvider : ILlmProvider
     private readonly LlmSettings _settings;
 
     public OpenAiLlmProvider(
-        IOptions<LlmSettings> settings,
+        IOptionsSnapshot<LlmSettings> settings,
         ILogger<OpenAiLlmProvider> logger)
     {
         _logger = logger;
         _settings = settings.Value;
 
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        var apiKey = _settings.OpenAiApiKey ?? _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "OpenAI API key is required. Configure it in Settings > LLM > API Key.");
 
-        var credential = new ApiKeyCredential(_settings.ApiKey);
+        var credential = new ApiKeyCredential(apiKey);
+        var baseUrl = _settings.OpenAiBaseUrl ?? _settings.BaseUrl;
 
-        if (!string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
         {
-            var options = new OpenAIClientOptions { Endpoint = new Uri(_settings.BaseUrl) };
+            var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
             var client = new OpenAIClient(credential, options);
             _client = client.GetChatClient(_settings.Model);
         }

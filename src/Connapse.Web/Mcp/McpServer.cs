@@ -96,7 +96,7 @@ public class McpServer
                             Description: "Optional: Filter results to a folder subtree (e.g., '/docs/')"),
                         ["minScore"] = new McpToolProperty(
                             Type: "number",
-                            Description: "Minimum similarity score threshold (0.0-1.0). Lower values return more results. Defaults to server setting (typically 0.5).")
+                            Description: "Minimum similarity score floor (0.0-1.0). Defaults to 0.05. Rarely needs adjustment — TopK controls result count.")
                     },
                     Required: new List<string> { "query", "containerId" })),
 
@@ -292,7 +292,6 @@ public class McpServer
 
         foreach (var hit in result.Hits)
         {
-            resultText += $"Score: {hit.Score:F3}\n";
             resultText += $"Content: {hit.Content}\n";
             if (hit.Metadata.TryGetValue("FileName", out var fileName))
                 resultText += $"File: {fileName}\n";

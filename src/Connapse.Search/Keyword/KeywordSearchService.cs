@@ -129,7 +129,6 @@ public class KeywordSearchService
                         { "rawRank", r.Rank.ToString("F4") }
                     });
             })
-            .Where(h => h.Score >= options.MinScore)
             .ToList();
 
         _logger.LogInformation(
