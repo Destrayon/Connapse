@@ -144,31 +144,31 @@
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
     {
-        await SaveSettings("Embedding", settings);
+        await SaveSettings("embedding", settings);
         embeddingSettings = settings;
     }
 
     private async Task SaveChunkingSettings(ChunkingSettings settings)
     {
-        await SaveSettings("Chunking", settings);
+        await SaveSettings("chunking", settings);
         chunkingSettings = settings;
     }
 
     private async Task SaveSearchSettings(SearchSettings settings)
     {
-        await SaveSettings("Search", settings);
+        await SaveSettings("search", settings);
         searchSettings = settings;
     }
 
     private async Task SaveLlmSettings(LlmSettings settings)
     {
-        await SaveSettings("LLM", settings);
+        await SaveSettings("llm", settings);
         llmSettings = settings;
     }
 
     private async Task SaveUploadSettings(UploadSettings settings)
     {
-        await SaveSettings("Upload", settings);
+        await SaveSettings("upload", settings);
         uploadSettings = settings;
     }
 

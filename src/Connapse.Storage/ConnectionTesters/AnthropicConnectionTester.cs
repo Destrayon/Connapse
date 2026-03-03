@@ -29,23 +29,25 @@ public class AnthropicConnectionTester : IConnectionTester
         if (settings is not LlmSettings llmSettings)
             return ConnectionTestResult.CreateFailure("Expected LlmSettings");
 
-        if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+        var apiKey = llmSettings.AnthropicApiKey ?? llmSettings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             return ConnectionTestResult.CreateFailure("API key is required");
 
         try
         {
             AnthropicClient client;
-            if (!string.IsNullOrWhiteSpace(llmSettings.BaseUrl))
+            var baseUrl = llmSettings.AnthropicBaseUrl ?? llmSettings.BaseUrl;
+            if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
             {
                 client = new AnthropicClient
                 {
-                    ApiKey = llmSettings.ApiKey,
-                    BaseUrl = llmSettings.BaseUrl
+                    ApiKey = apiKey,
+                    BaseUrl = baseUrl
                 };
             }
             else
             {
-                client = new AnthropicClient { ApiKey = llmSettings.ApiKey };
+                client = new AnthropicClient { ApiKey = apiKey };
             }
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

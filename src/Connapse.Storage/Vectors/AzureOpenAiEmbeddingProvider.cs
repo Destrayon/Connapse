@@ -19,18 +19,20 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
     private readonly EmbeddingSettings _settings;
 
     public AzureOpenAiEmbeddingProvider(
-        IOptions<EmbeddingSettings> settings,
+        IOptionsSnapshot<EmbeddingSettings> settings,
         ILogger<AzureOpenAiEmbeddingProvider> logger)
     {
         _logger = logger;
         _settings = settings.Value;
 
-        if (string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        var endpoint = _settings.AzureEndpoint ?? _settings.BaseUrl;
+        if (string.IsNullOrWhiteSpace(endpoint))
             throw new InvalidOperationException(
-                "Azure OpenAI endpoint URL is required. Configure it in Settings > Embedding > Base URL " +
+                "Azure OpenAI endpoint URL is required. Configure it in Settings > Embedding > Endpoint URL " +
                 "(e.g., https://your-resource.openai.azure.com).");
 
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        var apiKey = _settings.AzureApiKey ?? _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "Azure OpenAI API key is required. Configure it in Settings > Embedding > API Key.");
 
@@ -39,8 +41,8 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
             : _settings.Model;
 
         var azureClient = new AzureOpenAIClient(
-            new Uri(_settings.BaseUrl),
-            new ApiKeyCredential(_settings.ApiKey));
+            new Uri(endpoint),
+            new ApiKeyCredential(apiKey));
 
         _client = azureClient.GetEmbeddingClient(deploymentName);
     }

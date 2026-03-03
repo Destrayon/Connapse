@@ -35,11 +35,6 @@
             <small class="form-text text-muted">For RRF fusion (typically 60)</small>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Minimum Score Threshold</label>
-            <InputNumber @bind-Value="localSettings.MinimumScore" class="form-control" step="0.1" min="0" max="1" />
-        </div>
-
         @if (localSettings.Reranker == "CrossEncoder")
         {
             <div class="col-12">

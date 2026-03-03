@@ -1,8 +1,8 @@
 using Connapse.Core;
+using Connapse.Core.Tests.Utilities;
 using Connapse.Storage.Vectors;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Vectors;
@@ -13,11 +13,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_MissingBaseUrl_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
+            AzureApiKey = "test-key",
+            AzureEndpoint = null,
             BaseUrl = null
         });
         var logger = Substitute.For<ILogger<AzureOpenAiEmbeddingProvider>>();
@@ -31,12 +32,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_MissingApiKey_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            BaseUrl = "https://my-resource.openai.azure.com",
-            ApiKey = null
+            AzureEndpoint = "https://my-resource.openai.azure.com",
+            AzureApiKey = null
         });
         var logger = Substitute.For<ILogger<AzureOpenAiEmbeddingProvider>>();
 
@@ -49,12 +50,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_ValidSettings_SetsProperties()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com",
             AzureDeploymentName = "my-embedding-deployment",
             Dimensions = 1536
         });
@@ -69,12 +70,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public void ModelId_FallsBackToModel_WhenDeploymentNameEmpty()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com",
             AzureDeploymentName = null,
             Dimensions = 1536
         });
@@ -88,12 +89,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public async Task EmbedAsync_EmptyText_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com"
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com"
         });
         var logger = Substitute.For<ILogger<AzureOpenAiEmbeddingProvider>>();
         var provider = new AzureOpenAiEmbeddingProvider(settings, logger);
@@ -107,12 +108,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public async Task EmbedBatchAsync_EmptyList_ReturnsEmpty()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
-            BaseUrl = "https://my-resource.openai.azure.com"
+            AzureApiKey = "test-key",
+            AzureEndpoint = "https://my-resource.openai.azure.com"
         });
         var logger = Substitute.For<ILogger<AzureOpenAiEmbeddingProvider>>();
         var provider = new AzureOpenAiEmbeddingProvider(settings, logger);
@@ -125,12 +126,12 @@ public class AzureOpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_EmptyBaseUrl_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "AzureOpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "test-key",
-            BaseUrl = "  "
+            AzureApiKey = "test-key",
+            AzureEndpoint = "  "
         });
         var logger = Substitute.For<ILogger<AzureOpenAiEmbeddingProvider>>();
 

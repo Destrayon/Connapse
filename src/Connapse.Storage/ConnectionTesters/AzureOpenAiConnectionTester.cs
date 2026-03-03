@@ -33,11 +33,13 @@ public class AzureOpenAiConnectionTester : IConnectionTester
             if (embeddingSettings == null)
                 return ConnectionTestResult.CreateFailure("Invalid settings type");
 
-            if (string.IsNullOrWhiteSpace(embeddingSettings.BaseUrl))
+            var endpoint = embeddingSettings.AzureEndpoint ?? embeddingSettings.BaseUrl;
+            if (string.IsNullOrWhiteSpace(endpoint))
                 return ConnectionTestResult.CreateFailure(
                     "Azure OpenAI endpoint URL is required (e.g., https://your-resource.openai.azure.com)");
 
-            if (string.IsNullOrWhiteSpace(embeddingSettings.ApiKey))
+            var apiKey = embeddingSettings.AzureApiKey ?? embeddingSettings.ApiKey;
+            if (string.IsNullOrWhiteSpace(apiKey))
                 return ConnectionTestResult.CreateFailure("API Key is required for Azure OpenAI");
 
             var deploymentName = !string.IsNullOrWhiteSpace(embeddingSettings.AzureDeploymentName)
@@ -48,14 +50,14 @@ public class AzureOpenAiConnectionTester : IConnectionTester
                 return ConnectionTestResult.CreateFailure("Deployment name is required for Azure OpenAI");
 
             var azureClient = new AzureOpenAIClient(
-                new Uri(embeddingSettings.BaseUrl),
-                new ApiKeyCredential(embeddingSettings.ApiKey));
+                new Uri(endpoint),
+                new ApiKeyCredential(apiKey));
 
             var client = azureClient.GetEmbeddingClient(deploymentName);
 
             _logger.LogDebug(
                 "Testing Azure OpenAI embedding connection at {Endpoint} with deployment {Deployment}",
-                embeddingSettings.BaseUrl, deploymentName);
+                endpoint, deploymentName);
 
             var result = await client.GenerateEmbeddingAsync("connection test", cancellationToken: ct);
             var dimensions = result.Value.ToFloats().Length;
@@ -66,7 +68,7 @@ public class AzureOpenAiConnectionTester : IConnectionTester
                 $"Connected to Azure OpenAI (deployment: {deploymentName}, dimensions: {dimensions})",
                 new Dictionary<string, object>
                 {
-                    ["endpoint"] = embeddingSettings.BaseUrl,
+                    ["endpoint"] = endpoint,
                     ["deployment"] = deploymentName,
                     ["dimensions"] = dimensions
                 },

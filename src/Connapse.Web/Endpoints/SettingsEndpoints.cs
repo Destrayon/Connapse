@@ -60,30 +60,48 @@ public static class SettingsEndpoints
 
             try
             {
-                // Deserialize JSON to the appropriate settings type
-                object? settings = categoryLower switch
-                {
-                    "embedding" => JsonSerializer.Deserialize<EmbeddingSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "chunking" => JsonSerializer.Deserialize<ChunkingSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "search" => JsonSerializer.Deserialize<SearchSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "llm" => JsonSerializer.Deserialize<LlmSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "upload" => JsonSerializer.Deserialize<UploadSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "awssso" => JsonSerializer.Deserialize<AwsSsoSettings>(settingsJson.GetRawText(), JsonOptions),
-                    "azuread" => JsonSerializer.Deserialize<AzureAdSettings>(settingsJson.GetRawText(), JsonOptions),
-                    _ => null
-                };
+                // Deserialize and save with concrete types to preserve generic T
+                // (passing object? erases the type, making JsonSerializer.Serialize<object> fragile)
+                var rawJson = settingsJson.GetRawText();
+                EmbeddingSettings? embeddingSettings = null;
 
-                if (settings == null)
+                switch (categoryLower)
                 {
-                    return Results.BadRequest(new { error = $"Unknown category or invalid settings: {category}" });
+                    case "embedding":
+                        embeddingSettings = JsonSerializer.Deserialize<EmbeddingSettings>(rawJson, JsonOptions);
+                        if (embeddingSettings != null) await settingsStore.SaveAsync(categoryLower, embeddingSettings, ct);
+                        break;
+                    case "chunking":
+                        var chunking = JsonSerializer.Deserialize<ChunkingSettings>(rawJson, JsonOptions);
+                        if (chunking != null) await settingsStore.SaveAsync(categoryLower, chunking, ct);
+                        break;
+                    case "search":
+                        var search = JsonSerializer.Deserialize<SearchSettings>(rawJson, JsonOptions);
+                        if (search != null) await settingsStore.SaveAsync(categoryLower, search, ct);
+                        break;
+                    case "llm":
+                        var llm = JsonSerializer.Deserialize<LlmSettings>(rawJson, JsonOptions);
+                        if (llm != null) await settingsStore.SaveAsync(categoryLower, llm, ct);
+                        break;
+                    case "upload":
+                        var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, JsonOptions);
+                        if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
+                        break;
+                    case "awssso":
+                        var awsSso = JsonSerializer.Deserialize<AwsSsoSettings>(rawJson, JsonOptions);
+                        if (awsSso != null) await settingsStore.SaveAsync(categoryLower, awsSso, ct);
+                        break;
+                    case "azuread":
+                        var azureAd = JsonSerializer.Deserialize<AzureAdSettings>(rawJson, JsonOptions);
+                        if (azureAd != null) await settingsStore.SaveAsync(categoryLower, azureAd, ct);
+                        break;
+                    default:
+                        return Results.BadRequest(new { error = $"Unknown category: {category}" });
                 }
-
-                // Save to database
-                await settingsStore.SaveAsync(categoryLower, settings, ct);
 
                 // When embedding settings change, reconcile partial IVFFlat indexes
                 // and detect legacy vectors for cross-model search notification.
-                if (categoryLower == "embedding")
+                if (embeddingSettings != null)
                 {
                     var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
                     _ = Task.Run(async () =>
@@ -98,7 +116,6 @@ public static class SettingsEndpoints
                     });
 
                     // Detect legacy vectors for the new model
-                    var embeddingSettings = (EmbeddingSettings)settings;
                     var discovery = serviceProvider.GetRequiredService<VectorModelDiscovery>();
                     var models = await discovery.GetModelsAsync(containerId: null, ct);
                     var legacyModels = models

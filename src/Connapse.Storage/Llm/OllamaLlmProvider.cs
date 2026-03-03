@@ -20,7 +20,7 @@ public class OllamaLlmProvider : ILlmProvider
 
     public OllamaLlmProvider(
         HttpClient httpClient,
-        IOptions<LlmSettings> settings,
+        IOptionsSnapshot<LlmSettings> settings,
         ILogger<OllamaLlmProvider> logger)
     {
         _httpClient = httpClient;

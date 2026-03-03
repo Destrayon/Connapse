@@ -1,8 +1,8 @@
 using Connapse.Core;
+using Connapse.Core.Tests.Utilities;
 using Connapse.Storage.Vectors;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Vectors;
@@ -13,11 +13,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_MissingApiKey_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = null
+            OpenAiApiKey = null
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
 
@@ -30,11 +30,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_EmptyApiKey_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "  "
+            OpenAiApiKey = "  "
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
 
@@ -47,11 +47,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_ValidApiKey_SetsPropertiesCorrectly()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "sk-test-key-123",
+            OpenAiApiKey = "sk-test-key-123",
             Dimensions = 1536
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
@@ -65,12 +65,12 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public void Constructor_WithCustomBaseUrl_DoesNotThrow()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "sk-test-key-123",
-            BaseUrl = "https://my-proxy.example.com/v1"
+            OpenAiApiKey = "sk-test-key-123",
+            OpenAiBaseUrl = "https://my-proxy.example.com/v1"
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
 
@@ -82,11 +82,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public async Task EmbedAsync_EmptyText_Throws()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "sk-test-key-123"
+            OpenAiApiKey = "sk-test-key-123"
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
         var provider = new OpenAiEmbeddingProvider(settings, logger);
@@ -100,11 +100,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public async Task EmbedBatchAsync_EmptyList_ReturnsEmpty()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-small",
-            ApiKey = "sk-test-key-123"
+            OpenAiApiKey = "sk-test-key-123"
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
         var provider = new OpenAiEmbeddingProvider(settings, logger);
@@ -117,11 +117,11 @@ public class OpenAiEmbeddingProviderTests
     [Fact]
     public void ModelId_ReturnsConfiguredModel()
     {
-        var settings = Options.Create(new EmbeddingSettings
+        var settings = new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings
         {
             Provider = "OpenAI",
             Model = "text-embedding-3-large",
-            ApiKey = "sk-test-key-123",
+            OpenAiApiKey = "sk-test-key-123",
             Dimensions = 3072
         });
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();

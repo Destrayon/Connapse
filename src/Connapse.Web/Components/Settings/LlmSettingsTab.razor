@@ -32,7 +32,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-..." />
+                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="sk-..." />
             </div>
 
             <div class="col-md-6">
@@ -42,7 +42,7 @@
 
             <div class="col-md-6">
                 <label class="form-label">Base URL</label>
-                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
+                <InputText @bind-Value="localSettings.OpenAiBaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
                 <small class="form-text text-muted">Override for OpenAI-compatible endpoints (Groq, Together, etc.)</small>
             </div>
         }
@@ -50,12 +50,12 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" />
+                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" />
             </div>
 
             <div class="col-md-6">
                 <label class="form-label">Endpoint URL</label>
-                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://your-resource.openai.azure.com" />
+                <InputText @bind-Value="localSettings.AzureEndpoint" class="form-control" placeholder="https://your-resource.openai.azure.com" />
             </div>
 
             <div class="col-md-6">
@@ -68,7 +68,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-ant-..." />
+                <InputText @bind-Value="localSettings.AnthropicApiKey" type="password" class="form-control" placeholder="sk-ant-..." />
             </div>
 
             <div class="col-md-6">
@@ -161,8 +161,6 @@
             case "OpenAI":
                 if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
                     localSettings.Model = "gpt-4o";
-                if (localSettings.BaseUrl == "http://localhost:11434")
-                    localSettings.BaseUrl = null;
                 if (localSettings.MaxTokens == 2000)
                     localSettings.MaxTokens = 4096;
                 break;
@@ -170,8 +168,6 @@
             case "AzureOpenAI":
                 if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
                     localSettings.Model = "gpt-4o";
-                if (localSettings.BaseUrl == "http://localhost:11434")
-                    localSettings.BaseUrl = null;
                 if (localSettings.MaxTokens == 2000)
                     localSettings.MaxTokens = 4096;
                 break;
@@ -179,8 +175,6 @@
             case "Anthropic":
                 if (string.IsNullOrWhiteSpace(localSettings.Model) || localSettings.Model == "llama3.2")
                     localSettings.Model = "claude-sonnet-4-20250514";
-                if (localSettings.BaseUrl == "http://localhost:11434")
-                    localSettings.BaseUrl = null;
                 if (localSettings.MaxTokens == 2000)
                     localSettings.MaxTokens = 4096;
                 break;

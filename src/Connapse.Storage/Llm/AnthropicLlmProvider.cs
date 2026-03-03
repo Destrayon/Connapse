@@ -18,27 +18,30 @@ public class AnthropicLlmProvider : ILlmProvider
     private readonly LlmSettings _settings;
 
     public AnthropicLlmProvider(
-        IOptions<LlmSettings> settings,
+        IOptionsSnapshot<LlmSettings> settings,
         ILogger<AnthropicLlmProvider> logger)
     {
         _logger = logger;
         _settings = settings.Value;
 
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        var apiKey = _settings.AnthropicApiKey ?? _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "Anthropic API key is required. Configure it in Settings > LLM > API Key.");
 
-        if (!string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        var baseUrl = _settings.AnthropicBaseUrl ?? _settings.BaseUrl;
+
+        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
         {
             _client = new AnthropicClient
             {
-                ApiKey = _settings.ApiKey,
-                BaseUrl = _settings.BaseUrl
+                ApiKey = apiKey,
+                BaseUrl = baseUrl
             };
         }
         else
         {
-            _client = new AnthropicClient { ApiKey = _settings.ApiKey };
+            _client = new AnthropicClient { ApiKey = apiKey };
         }
     }
 

@@ -19,21 +19,23 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
     private readonly EmbeddingSettings _settings;
 
     public OpenAiEmbeddingProvider(
-        IOptions<EmbeddingSettings> settings,
+        IOptionsSnapshot<EmbeddingSettings> settings,
         ILogger<OpenAiEmbeddingProvider> logger)
     {
         _logger = logger;
         _settings = settings.Value;
 
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        var apiKey = _settings.OpenAiApiKey ?? _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "OpenAI API key is required. Configure it in Settings > Embedding > API Key.");
 
-        var credential = new ApiKeyCredential(_settings.ApiKey);
+        var credential = new ApiKeyCredential(apiKey);
+        var baseUrl = _settings.OpenAiBaseUrl ?? _settings.BaseUrl;
 
-        if (!string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
         {
-            var options = new OpenAIClientOptions { Endpoint = new Uri(_settings.BaseUrl) };
+            var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
             var client = new OpenAIClient(credential, options);
             _client = client.GetEmbeddingClient(_settings.Model);
         }

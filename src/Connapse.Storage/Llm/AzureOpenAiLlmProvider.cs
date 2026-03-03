@@ -19,17 +19,19 @@ public class AzureOpenAiLlmProvider : ILlmProvider
     private readonly LlmSettings _settings;
 
     public AzureOpenAiLlmProvider(
-        IOptions<LlmSettings> settings,
+        IOptionsSnapshot<LlmSettings> settings,
         ILogger<AzureOpenAiLlmProvider> logger)
     {
         _logger = logger;
         _settings = settings.Value;
 
-        if (string.IsNullOrWhiteSpace(_settings.BaseUrl))
+        var endpoint = _settings.AzureEndpoint ?? _settings.BaseUrl;
+        if (string.IsNullOrWhiteSpace(endpoint))
             throw new InvalidOperationException(
-                "Azure OpenAI endpoint URL is required. Configure it in Settings > LLM > Base URL.");
+                "Azure OpenAI endpoint URL is required. Configure it in Settings > LLM > Endpoint URL.");
 
-        if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+        var apiKey = _settings.AzureApiKey ?? _settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException(
                 "Azure OpenAI API key is required. Configure it in Settings > LLM > API Key.");
 
@@ -37,8 +39,8 @@ public class AzureOpenAiLlmProvider : ILlmProvider
             ? _settings.AzureDeploymentName
             : _settings.Model;
 
-        var credential = new ApiKeyCredential(_settings.ApiKey);
-        var azureClient = new AzureOpenAIClient(new Uri(_settings.BaseUrl), credential);
+        var credential = new ApiKeyCredential(apiKey);
+        var azureClient = new AzureOpenAIClient(new Uri(endpoint), credential);
         _client = azureClient.GetChatClient(deploymentName);
     }
 

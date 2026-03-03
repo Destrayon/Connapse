@@ -2,10 +2,10 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Tests.Utilities;
 using Connapse.Storage.Llm;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Llm;
@@ -21,7 +21,7 @@ public class OllamaLlmProviderTests
         {
             BaseAddress = new Uri("http://localhost:11434")
         };
-        var opts = Options.Create(settings ?? new LlmSettings
+        var opts = new TestOptionsSnapshot<LlmSettings>(settings ?? new LlmSettings
         {
             Provider = "Ollama",
             Model = "llama3.2",

@@ -125,14 +125,13 @@
             else
             {
                 <div class="results-list">
+                    @{ var rank = 0; }
                     @foreach (var hit in searchResult.Hits)
                     {
+                        rank++;
                         <div class="result-card">
                             <div class="result-header">
-                                <div class="result-score-badge">
-                                    <span class="score-label">Score:</span>
-                                    <span class="score-value">@hit.Score.ToString("F3")</span>
-                                </div>
+                                <span class="result-rank">#@rank</span>
                                 @{
                                     var fileName = hit.Metadata.GetValueOrDefault("fileName")
                                                 ?? hit.Metadata.GetValueOrDefault("FileName")

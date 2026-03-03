@@ -20,7 +20,7 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
 
     public OllamaEmbeddingProvider(
         HttpClient httpClient,
-        IOptions<EmbeddingSettings> settings,
+        IOptionsSnapshot<EmbeddingSettings> settings,
         ILogger<OllamaEmbeddingProvider> logger)
     {
         _httpClient = httpClient;

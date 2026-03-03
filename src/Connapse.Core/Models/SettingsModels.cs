@@ -21,14 +21,35 @@ public record EmbeddingSettings
     public int Dimensions { get; set; } = 768;
 
     /// <summary>
-    /// Base URL for the embedding service (Ollama or custom endpoint).
+    /// Base URL for Ollama embedding service.
     /// </summary>
     public string? BaseUrl { get; set; } = "http://localhost:11434";
 
     /// <summary>
-    /// API key for cloud providers (OpenAI, Azure, Anthropic).
+    /// API key — legacy shared field, kept for backward compatibility.
+    /// Prefer the provider-specific key properties below.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// OpenAI API key.
+    /// </summary>
+    public string? OpenAiApiKey { get; set; }
+
+    /// <summary>
+    /// OpenAI base URL override (for proxies / compatible endpoints).
+    /// </summary>
+    public string? OpenAiBaseUrl { get; set; }
+
+    /// <summary>
+    /// Azure OpenAI resource endpoint (e.g., https://your-resource.openai.azure.com).
+    /// </summary>
+    public string? AzureEndpoint { get; set; }
+
+    /// <summary>
+    /// Azure OpenAI API key.
+    /// </summary>
+    public string? AzureApiKey { get; set; }
 
     /// <summary>
     /// Azure-specific deployment name (for AzureOpenAI).
@@ -110,11 +131,11 @@ public record SearchSettings
     public int RrfK { get; set; } = 60;
 
     /// <summary>
-    /// Minimum similarity score threshold (0.0-1.0, default: 0.5).
-    /// Scores below this are filtered out. Lower values return more results.
-    /// For nomic-embed-text, relevant results typically score 0.55-0.75.
+    /// Minimum similarity score safety-net floor (0.0-1.0, default: 0.05).
+    /// Only filters truly irrelevant results. TopK is the primary result limiter.
+    /// Kept low because different embedding models produce vastly different score ranges.
     /// </summary>
-    public double MinimumScore { get; set; } = 0.5;
+    public double MinimumScore { get; set; } = 0.05;
 
     /// <summary>
     /// Cross-encoder reranking provider: TEI | Cohere | Jina | AzureAIFoundry
@@ -170,19 +191,50 @@ public record LlmSettings
     public string Model { get; set; } = "llama3.2";
 
     /// <summary>
-    /// Base URL for the LLM service (Ollama or custom endpoint).
+    /// Base URL for Ollama LLM service.
     /// </summary>
     public string? BaseUrl { get; set; } = "http://localhost:11434";
 
     /// <summary>
-    /// API key for cloud providers.
+    /// API key — legacy shared field, kept for backward compatibility.
+    /// Prefer the provider-specific key properties below.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// OpenAI API key.
+    /// </summary>
+    public string? OpenAiApiKey { get; set; }
+
+    /// <summary>
+    /// OpenAI base URL override (for proxies / compatible endpoints).
+    /// </summary>
+    public string? OpenAiBaseUrl { get; set; }
+
+    /// <summary>
+    /// Azure OpenAI resource endpoint (e.g., https://your-resource.openai.azure.com).
+    /// </summary>
+    public string? AzureEndpoint { get; set; }
+
+    /// <summary>
+    /// Azure OpenAI API key.
+    /// </summary>
+    public string? AzureApiKey { get; set; }
 
     /// <summary>
     /// Azure-specific deployment name (for AzureOpenAI).
     /// </summary>
     public string? AzureDeploymentName { get; set; }
+
+    /// <summary>
+    /// Anthropic API key.
+    /// </summary>
+    public string? AnthropicApiKey { get; set; }
+
+    /// <summary>
+    /// Anthropic base URL override (for proxies).
+    /// </summary>
+    public string? AnthropicBaseUrl { get; set; }
 
     /// <summary>
     /// Temperature for response generation (0.0-2.0, default: 0.7).

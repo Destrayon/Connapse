@@ -33,7 +33,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" placeholder="sk-..." />
+                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="sk-..." />
             </div>
 
             <div class="col-md-6">
@@ -44,7 +44,7 @@
 
             <div class="col-md-6">
                 <label class="form-label">Base URL</label>
-                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
+                <InputText @bind-Value="localSettings.OpenAiBaseUrl" class="form-control" placeholder="https://api.openai.com/v1" />
                 <small class="form-text text-muted">Override for OpenAI-compatible proxies</small>
             </div>
         }
@@ -52,12 +52,12 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.ApiKey" type="password" class="form-control" />
+                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" />
             </div>
 
             <div class="col-md-6">
                 <label class="form-label">Endpoint URL</label>
-                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="https://your-resource.openai.azure.com" />
+                <InputText @bind-Value="localSettings.AzureEndpoint" class="form-control" placeholder="https://your-resource.openai.azure.com" />
             </div>
 
             <div class="col-md-6">
@@ -215,8 +215,6 @@
                     localSettings.Model = "text-embedding-3-small";
                 if (localSettings.Dimensions == 768)
                     localSettings.Dimensions = 1536;
-                if (localSettings.BaseUrl == "http://localhost:11434")
-                    localSettings.BaseUrl = null;
                 if (localSettings.BatchSize == 16)
                     localSettings.BatchSize = 64;
                 break;
@@ -226,8 +224,6 @@
                     localSettings.Model = "text-embedding-3-small";
                 if (localSettings.Dimensions == 768)
                     localSettings.Dimensions = 1536;
-                if (localSettings.BaseUrl == "http://localhost:11434")
-                    localSettings.BaseUrl = null;
                 if (localSettings.BatchSize == 16)
                     localSettings.BatchSize = 64;
                 break;
