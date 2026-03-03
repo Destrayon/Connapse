@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -137,13 +138,13 @@ public class ConnectorWatcherService : BackgroundService
         {
             _logger.LogError(ex,
                 "Failed to create Filesystem connector for container {ContainerName} ({ContainerId}). Watcher not started.",
-                container.Name, containerId);
+                LogSanitizer.Sanitize(container.Name), containerId);
             return;
         }
 
         _logger.LogInformation(
             "Starting filesystem watcher for container '{ContainerName}' at '{RootPath}'",
-            container.Name, connector.RootPath);
+            LogSanitizer.Sanitize(container.Name), LogSanitizer.Sanitize(connector.RootPath));
 
         _rootPaths[containerId] = connector.RootPath;
 
@@ -163,7 +164,7 @@ public class ConnectorWatcherService : BackgroundService
             {
                 _logger.LogError(ex,
                     "Filesystem watcher for container '{ContainerName}' encountered an error.",
-                    container.Name);
+                    LogSanitizer.Sanitize(container.Name));
             }
         }, ct);
 
@@ -292,7 +293,7 @@ public class ConnectorWatcherService : BackgroundService
 
         _logger.LogInformation(
             "Enqueued filesystem ingestion for '{FilePath}' (virtual: '{VirtualPath}') in container '{ContainerName}'",
-            filePath, virtualPath, container.Name);
+            LogSanitizer.Sanitize(filePath), LogSanitizer.Sanitize(virtualPath), LogSanitizer.Sanitize(container.Name));
 
         // Notify the file browser so it can show the file immediately with "Queued" status.
         _fileChangeNotifier.NotifyAdded(container.Id, virtualPath, fileName, documentId);
@@ -314,7 +315,7 @@ public class ConnectorWatcherService : BackgroundService
 
             _logger.LogInformation(
                 "Deleted document for removed file '{VirtualPath}' in container {ContainerId}",
-                virtualPath, containerId);
+                LogSanitizer.Sanitize(virtualPath), containerId);
 
             // Notify the file browser so it can remove the entry immediately.
             _fileChangeNotifier.NotifyDeleted(containerId.ToString(), virtualPath, Path.GetFileName(virtualPath));
@@ -323,7 +324,7 @@ public class ConnectorWatcherService : BackgroundService
         {
             _logger.LogError(ex,
                 "Error deleting document for path '{VirtualPath}' in container {ContainerId}",
-                virtualPath, containerId);
+                LogSanitizer.Sanitize(virtualPath), containerId);
         }
     }
 
@@ -332,7 +333,7 @@ public class ConnectorWatcherService : BackgroundService
         var containerId = Guid.Parse(container.Id);
         _logger.LogInformation(
             "Starting initial sync for Filesystem container '{ContainerName}'",
-            container.Name);
+            LogSanitizer.Sanitize(container.Name));
 
         try
         {
@@ -345,7 +346,7 @@ public class ConnectorWatcherService : BackgroundService
             {
                 _logger.LogError(ex,
                     "Cannot perform initial sync: Filesystem connector config invalid for container '{ContainerName}'.",
-                    container.Name);
+                    LogSanitizer.Sanitize(container.Name));
                 return;
             }
 
@@ -384,13 +385,13 @@ public class ConnectorWatcherService : BackgroundService
 
             _logger.LogInformation(
                 "Initial sync for container '{ContainerName}': {Enqueued}/{Total} files enqueued.",
-                container.Name, enqueued, files.Count);
+                LogSanitizer.Sanitize(container.Name), enqueued, files.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Initial sync failed for container '{ContainerName}'",
-                container.Name);
+                LogSanitizer.Sanitize(container.Name));
         }
     }
 
@@ -399,7 +400,7 @@ public class ConnectorWatcherService : BackgroundService
         var containerId = Guid.Parse(container.Id);
         _logger.LogInformation(
             "Starting cloud polling for {ConnectorType} container '{ContainerName}'",
-            container.ConnectorType, container.Name);
+            container.ConnectorType, LogSanitizer.Sanitize(container.Name));
 
         // Initial sync: detect creates and deletes against DB (no change detection without a snapshot)
         await CloudSyncAsync(container, ct);
@@ -417,7 +418,7 @@ public class ConnectorWatcherService : BackgroundService
             {
                 _logger.LogError(ex,
                     "Error polling cloud container '{ContainerName}'. Will retry next cycle.",
-                    container.Name);
+                    LogSanitizer.Sanitize(container.Name));
             }
         }
     }
@@ -435,7 +436,7 @@ public class ConnectorWatcherService : BackgroundService
         {
             _logger.LogError(ex,
                 "Failed to create connector for cloud container '{ContainerName}' ({ContainerId}). Skipping poll.",
-                container.Name, containerId);
+                LogSanitizer.Sanitize(container.Name), containerId);
             return;
         }
 
@@ -488,7 +489,7 @@ public class ConnectorWatcherService : BackgroundService
             {
                 _logger.LogInformation(
                     "Cloud sync for '{ContainerName}': found {Created} new, {Changed} changed, {Deleted} deleted — processing",
-                    container.Name, toCreate.Count, toUpdate.Count, toDelete.Count);
+                    LogSanitizer.Sanitize(container.Name), toCreate.Count, toUpdate.Count, toDelete.Count);
 
                 // Phase 2: Notify the file browser for ALL new/changed files at once before ingestion starts.
                 // This lets the UI show every detected file immediately (with "Queued" status).
@@ -575,7 +576,7 @@ public class ConnectorWatcherService : BackgroundService
 
         _logger.LogInformation(
             "Enqueued cloud ingestion for '{VirtualPath}' in container '{ContainerName}'",
-            virtualPath, container.Name);
+            LogSanitizer.Sanitize(virtualPath), LogSanitizer.Sanitize(container.Name));
 
         // NotifyAdded is called in bulk by CloudSyncAsync Phase 2 (before enqueue),
         // so we don't duplicate it here.
@@ -600,7 +601,7 @@ public class ConnectorWatcherService : BackgroundService
             {
                 _logger.LogWarning(
                     "Cloud container '{ContainerName}' has no active polling task. Restarting.",
-                    container.Name);
+                    LogSanitizer.Sanitize(container.Name));
                 StartWatchingContainer(container);
             }
         }
