@@ -15,6 +15,15 @@ jobs:
       - uses: pascalgn/size-label-action@v0.5.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILES_TO_IGNORE: >
+            .claude/**
+            .github/**
+            docs/**
+            *.md
+            *.yml
+            *.yaml
+            *.json
+            *.lock
         with:
           sizes: >
             {
@@ -28,23 +37,35 @@ jobs:
   warn-large:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check PR size
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ADDITIONS=$(gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json additions -q '.additions')
-          DELETIONS=$(gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json deletions -q '.deletions')
-          TOTAL=$((ADDITIONS + DELETIONS))
+          # Count only code changes — exclude docs, config, and generated files
+          TOTAL=$(git diff --numstat origin/${{ github.event.pull_request.base.ref }}...origin/${{ github.event.pull_request.head.ref }} \
+            -- . \
+            ':!*.md' \
+            ':!*.yml' \
+            ':!*.yaml' \
+            ':!*.json' \
+            ':!*.lock' \
+            ':!.claude/**' \
+            ':!.github/**' \
+            ':!docs/**' \
+            | awk '{ adds += $1; dels += $2 } END { print adds + dels }')
+          TOTAL=${TOTAL:-0}
+
           if [ "$TOTAL" -gt 500 ]; then
-            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "## Large PR Warning
+            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "## ⚠️ Large PR Warning
 
-          This PR has **$TOTAL lines** changed (${ADDITIONS}+ / ${DELETIONS}-).
+          This PR has **$TOTAL lines of code** changed (excluding docs, config, and generated files).
 
-          Our target is **under 200 lines** per PR (hard limit: 300). Please consider splitting this into smaller, focused PRs:
+          Our target is **under 300 lines** per PR. Please consider splitting this into smaller, focused PRs:
 
           - Separate refactoring from feature work
           - Split data layer / service layer / UI into separate PRs
-          - Extract test additions into their own PR if needed
-
-          See the [PR sizing guidelines](https://github.com/Destrayon/Connapse/projects) for details."
+          - Extract test additions into their own PR if needed"
           fi
