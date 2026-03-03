@@ -1,0 +1,50 @@
+name: PR Size
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label-size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: pascalgn/size-label-action@v0.5.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          sizes: >
+            {
+              "0": "size/XS",
+              "50": "size/S",
+              "150": "size/M",
+              "300": "size/L",
+              "500": "size/XL"
+            }
+
+  warn-large:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR size
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ADDITIONS=$(gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json additions -q '.additions')
+          DELETIONS=$(gh pr view ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --json deletions -q '.deletions')
+          TOTAL=$((ADDITIONS + DELETIONS))
+          if [ "$TOTAL" -gt 500 ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --body "## Large PR Warning
+
+          This PR has **$TOTAL lines** changed (${ADDITIONS}+ / ${DELETIONS}-).
+
+          Our target is **under 200 lines** per PR (hard limit: 300). Please consider splitting this into smaller, focused PRs:
+
+          - Separate refactoring from feature work
+          - Split data layer / service layer / UI into separate PRs
+          - Extract test additions into their own PR if needed
+
+          See the [PR sizing guidelines](https://github.com/Destrayon/Connapse/projects) for details."
+          fi

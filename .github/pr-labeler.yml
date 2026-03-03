@@ -1,0 +1,5 @@
+"type: feature": "feature/*"
+"type: bug": "fix/*"
+"type: refactor": "refactor/*"
+"type: docs": "docs/*"
+"type: infrastructure": "chore/*"

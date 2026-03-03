@@ -1,0 +1,73 @@
+name: Task
+description: Internal development task (use for planned work from brainstorming/roadmap)
+title: ""
+labels: ["needs-triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done and why
+      placeholder: Clear description of the task
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this is done?
+      placeholder: |
+        - [ ] Criteria 1
+        - [ ] Criteria 2
+        - [ ] Tests pass
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the codebase does this touch?
+      options:
+        - Core
+        - Web UI
+        - Storage
+        - Identity
+        - Ingestion
+        - Search
+        - Agents
+        - CLI
+        - Infrastructure / CI
+    validations:
+      required: true
+
+  - type: dropdown
+    id: size
+    attributes:
+      label: Estimated Size
+      description: "How big is this? Target: S or M. L/XL must be decomposed into sub-issues."
+      options:
+        - "XS (< 50 lines, 1-2 files)"
+        - "S (50-150 lines, 2-4 files)"
+        - "M (150-300 lines, 3-6 files)"
+        - "L (300+ lines — should be split into sub-issues)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation Notes
+      description: Key files, interfaces, or patterns to follow
+      placeholder: |
+        - Key file: src/Connapse.Storage/...
+        - Interface: IConnector
+        - Follow existing pattern in ...
+
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues
+      description: Parent issue, blocking issues, or related work
+      placeholder: "Parent: #123, Blocked by: #456"
