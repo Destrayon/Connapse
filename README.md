@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
-[![Tests](https://img.shields.io/badge/tests-256%20passing-success)](https://github.com/Destrayon/Connapse/actions)
+[![Tests](https://img.shields.io/badge/tests-457%20passing-success)](https://github.com/Destrayon/Connapse/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)
@@ -23,13 +23,15 @@ https://github.com/user-attachments/assets/db93c576-3a51-4b17-a56e-5b67ea8b847c
 
 ## ⚠️ Security Notice
 
-**This project is in active development (v0.2.0) and approaching production-readiness.**
+**This project is in active development (v0.3.0) and approaching production-readiness.**
 
-v0.2.0 ships a complete three-tier authentication system (Cookie + PAT + JWT), role-based access control, invite-only user registration, agent identity management, and audit logging.
+v0.3.0 adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, and cloud identity linking (AWS SSO + Azure AD).
 
 - ✅ **Authentication and authorization** (v0.2.0)
 - ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
 - ✅ **Audit logging**
+- ✅ **Cloud identity linking** — AWS IAM Identity Center + Azure AD OAuth2+PKCE (v0.3.0)
+- ✅ **IAM-derived scope enforcement** — cloud permissions are source of truth (v0.3.0)
 - ⚠️ **Rate limiting** — not yet implemented (not planned for self-hosted deployments)
 - ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
 
@@ -40,11 +42,14 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 ## 🚀 Features
 
 - **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
-- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with RRF fusion
+- **🔌 5 Connector Types**: MinIO (default), Filesystem (live watch), InMemory (ephemeral), S3, Azure Blob
+- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with RRF fusion + cross-model search
 - **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
 - **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
 - **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
+- **🧠 Multi-Provider AI**: Embeddings (Ollama, OpenAI, Azure OpenAI) + LLM (Ollama, OpenAI, Azure OpenAI, Anthropic)
 - **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control
+- **☁️ Cloud Identity**: AWS IAM Identity Center (device auth) + Azure AD (OAuth2+PKCE) — IAM-derived scopes
 - **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
 - **🤖 Agent Management**: Dedicated agent entities with API key lifecycle management
 - **📋 Audit Logging**: Structured audit trail for uploads, deletes, and container operations
@@ -55,7 +60,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
   - MCP server (for Claude Desktop integration — agent API key auth)
 - **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
 - **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
-- **🧪 Tested**: 256 passing tests (unit + integration)
+- **🧪 Tested**: 457 passing tests (unit + integration)
 
 ---
 
@@ -161,6 +166,11 @@ The MCP server exposes 7 tools: `container_create`, `container_list`, `container
 └────────────┬────────────────────────────────────────────────┘
              │
 ┌────────────▼────────────────────────────────────────────────┐
+│                    Connectors Layer                           │
+│  MinIO  │  Filesystem  │  InMemory  │  S3  │  Azure Blob   │
+└────────────┬────────────────────────────────────────────────┘
+             │
+┌────────────▼────────────────────────────────────────────────┐
 │                    Infrastructure                            │
 │  PostgreSQL+pgvector  │  MinIO (S3)  │  Ollama (optional)  │
 └─────────────────────────────────────────────────────────────┘
@@ -184,7 +194,9 @@ The MCP server exposes 7 tools: `container_create`, `container_list`, `container
 - **Backend**: ASP.NET Core 10 Minimal APIs
 - **Frontend**: Blazor Server (interactive mode)
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
+- **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
 - **Search**: Hybrid vector + keyword with Reciprocal Rank Fusion
+- **Connectors**: MinIO, Filesystem, InMemory, S3, Azure Blob
 
 ---
 
@@ -192,6 +204,9 @@ The MCP server exposes 7 tools: `container_create`, `container_list`, `container
 
 - [Architecture Guide](docs/architecture.md) - System design and component overview
 - [API Reference](docs/api.md) - REST API endpoints and examples
+- [Connectors Guide](docs/connectors.md) - Connector types, configuration, and background sync
+- [AWS SSO Setup](docs/aws-sso-setup.md) - AWS IAM Identity Center integration
+- [Azure Identity Setup](docs/azure-identity-setup.md) - Azure AD OAuth2+PKCE integration
 - [Development Guide](CLAUDE.md) - Code conventions and patterns
 - [Security Policy](SECURITY.md) - Security limitations and roadmap
 - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
@@ -219,10 +234,18 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ GitHub Actions release pipeline (native binaries + NuGet tool)
 - ✅ 256 passing tests (unit + integration)
 
-### v0.3.0 — Connector Architecture
-- Pluggable connector system for multi-source search — [Design Discussion](https://github.com/Destrayon/Connapse/discussions/8)
-- Scope-based filtering (folders, channels, repos per connector)
-- Local filesystem and S3 connectors
+### v0.3.0 — Connector Architecture (Complete)
+- ✅ 5 connector types: MinIO, Filesystem (FileSystemWatcher), InMemory (ephemeral), S3 (IAM-only), Azure Blob (managed identity)
+- ✅ Per-container settings overrides (chunking, embedding, search, upload)
+- ✅ Cloud identity linking: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE)
+- ✅ IAM-derived scope enforcement — cloud permissions are the source of truth
+- ✅ Multi-provider embeddings: Ollama, OpenAI, Azure OpenAI
+- ✅ Multi-provider LLM: Ollama, OpenAI, Azure OpenAI, Anthropic
+- ✅ Multi-dimension vector support with partial IVFFlat indexes per model
+- ✅ Cross-model search: automatic Semantic→Hybrid fallback for legacy vectors
+- ✅ Background sync: FileSystemWatcher for local, 5-min polling for cloud containers
+- ✅ Connection testing for all providers (S3, Azure Blob, MinIO, LLM, embeddings, AWS SSO, Azure AD)
+- ✅ 457 passing tests (unit + integration)
 
 ### Future
 - **v0.4.0**: Communication connectors (Slack, Discord)

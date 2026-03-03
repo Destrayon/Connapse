@@ -120,6 +120,32 @@ public class AgentService(
         return rows > 0;
     }
 
+    public async Task<IReadOnlyList<AgentKeyListItem>> ListKeysAsync(
+        Guid agentId,
+        CancellationToken cancellationToken = default)
+    {
+        var agent = await dbContext.Agents
+            .Include(a => a.ApiKeys)
+            .Where(a => a.Id == agentId && a.DeletedAt == null)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (agent is null)
+            return [];
+
+        return agent.ApiKeys
+            .Select(k => new AgentKeyListItem(
+                k.Id,
+                k.Name,
+                k.TokenPrefix,
+                SplitScopes(k.Scopes),
+                k.CreatedAt,
+                k.ExpiresAt,
+                k.LastUsedAt,
+                k.RevokedAt != null))
+            .ToList();
+    }
+
     public async Task<bool> SetActiveAsync(
         Guid agentId,
         bool isActive,

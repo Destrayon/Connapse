@@ -341,18 +341,36 @@ All container endpoints require authentication. RBAC rules:
 
 **Request Body**:
 ```json
-{ "name": "my-project", "description": "Project knowledge base" }
+{
+  "name": "my-project",
+  "description": "Project knowledge base",
+  "connectorType": "MinIO",
+  "connectorConfig": null
+}
 ```
 
-**Validation**:
-- Name: lowercase alphanumeric + hyphens, 2-128 chars, globally unique
+**Fields**:
+- `name` (required): lowercase alphanumeric + hyphens, 2-128 chars, globally unique
+- `description` (optional): Container description
+- `connectorType` (optional, default: `MinIO`): `MinIO` | `Filesystem` | `InMemory` | `S3` | `AzureBlob`
+- `connectorConfig` (conditional): JSON string with connector-specific config
 
-**Response** (200 OK):
+**Connector Config Requirements**:
+| Connector | Required Fields | Example |
+|-----------|----------------|---------|
+| MinIO | None (global config) | — |
+| InMemory | None | — |
+| Filesystem | `rootPath` | `{"rootPath":"C:\\docs"}` |
+| S3 | `bucketName`, `region` | `{"bucketName":"docs","region":"us-east-1"}` |
+| AzureBlob | `storageAccountName`, `containerName` | `{"storageAccountName":"acct","containerName":"docs"}` |
+
+**Response** (201 Created):
 ```json
 {
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "name": "my-project",
   "description": "Project knowledge base",
+  "connectorType": "MinIO",
   "documentCount": 0,
   "createdAt": "2026-02-26T10:00:00Z",
   "updatedAt": "2026-02-26T10:00:00Z"
@@ -588,7 +606,7 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `GET /api/settings/{category}`
 
-**Categories**: `embedding` | `chunking` | `search` | `llm` | `storage` | `upload` | `websearch`
+**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `awssso` | `azuread`
 
 **Response** (200 OK) — Example for `embedding`:
 ```json
@@ -624,6 +642,8 @@ All settings endpoints require **Admin** role.
 ### Test Connection
 
 **Endpoint**: `POST /api/settings/test-connection`
+
+**Categories**: `Embedding` | `Llm` | `AwsSso` | `AzureAd` | `CrossEncoder`
 
 **Request Body**:
 ```json
@@ -818,11 +838,253 @@ All API errors follow RFC 7807 Problem Details format.
 
 ---
 
+## Container Connector Endpoints (v0.3.0)
+
+### Test Connector Connection
+
+Test a cloud connector configuration before creating a container.
+
+**Endpoint**: `POST /api/containers/test-connection`
+
+**Request Body**:
+```json
+{
+  "connectorType": "S3",
+  "connectorConfig": "{\"bucketName\":\"docs\",\"region\":\"us-east-1\"}",
+  "timeoutSeconds": 15
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "success": true,
+  "message": "Connected successfully",
+  "details": { "bucketName": "docs", "region": "us-east-1", "objectsFound": 3 },
+  "elapsed": "00:00:01.234"
+}
+```
+
+**Supported connectors**: S3, AzureBlob, MinIO.
+
+---
+
+### Sync Container
+
+Trigger an on-demand sync for cloud containers.
+
+**Endpoint**: `POST /api/containers/{id}/sync`
+
+**Notes**:
+- Returns 400 for Filesystem ("live watch is enough") and InMemory ("no remote source")
+- Returns 404 for non-existent containers
+- Cloud scope enforcement: user must have a linked identity for the container's cloud provider
+
+**Response** (200 OK):
+```json
+{
+  "batchId": "abc123",
+  "totalFiles": 42,
+  "enqueuedCount": 5,
+  "skippedCount": 37
+}
+```
+
+---
+
+## Container Settings Endpoints (v0.3.0)
+
+### Get Container Settings
+
+**Endpoint**: `GET /api/containers/{id}/settings`
+
+Returns per-container settings overrides. Null values mean "use global setting".
+
+**Response** (200 OK):
+```json
+{
+  "chunking": null,
+  "embedding": { "provider": "OpenAI", "model": "text-embedding-3-small", "dimensions": 1536 },
+  "search": null,
+  "upload": null
+}
+```
+
+---
+
+### Save Container Settings
+
+**Endpoint**: `PUT /api/containers/{id}/settings`
+
+**Request Body**:
+```json
+{
+  "embedding": { "provider": "OpenAI", "model": "text-embedding-3-small", "dimensions": 1536 }
+}
+```
+
+Null or omitted categories are cleared (reset to global).
+
+**Response** (200 OK)
+
+---
+
+## Embedding Model Endpoints (v0.3.0)
+
+### Get Embedding Models
+
+Discover which embedding models have vectors in the database.
+
+**Endpoint**: `GET /api/settings/embedding-models`
+
+**Response** (200 OK):
+```json
+{
+  "currentModel": "nomic-embed-text",
+  "models": [
+    { "modelId": "nomic-embed-text", "dimensions": 768, "vectorCount": 1200 },
+    { "modelId": "text-embedding-3-small", "dimensions": 1536, "vectorCount": 50 }
+  ]
+}
+```
+
+---
+
+### Get Container Embedding Models
+
+**Endpoint**: `GET /api/containers/{id}/search/models`
+
+Same response as above, but scoped to a specific container.
+
+---
+
+### Trigger Reindex
+
+**Endpoint**: `POST /api/settings/reindex`
+
+Fire-and-forget reindex with settings change detection.
+
+**Response** (202 Accepted)
+
+---
+
+### Get Reindex Status
+
+**Endpoint**: `GET /api/settings/reindex/status`
+
+**Response** (200 OK):
+```json
+{
+  "queueDepth": 12,
+  "isActive": true
+}
+```
+
+---
+
+## Cloud Identity Endpoints (v0.3.0)
+
+Base path: `/api/v1/auth/cloud`
+
+All endpoints require authentication.
+
+### Start AWS Device Authorization
+
+**Endpoint**: `POST /api/v1/auth/cloud/aws/device-auth`
+
+Returns a user code and verification URL for the IAM Identity Center device auth flow.
+
+**Response** (200 OK):
+```json
+{
+  "userCode": "ABCD-EFGH",
+  "verificationUri": "https://device.sso.us-east-1.amazonaws.com/",
+  "verificationUriComplete": "https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH",
+  "deviceCode": "...",
+  "expiresInSeconds": 600,
+  "intervalSeconds": 5
+}
+```
+
+**Error** (400): `aws_sso_not_configured` if admin hasn't set Issuer URL + Region.
+
+---
+
+### Poll AWS Device Authorization
+
+**Endpoint**: `POST /api/v1/auth/cloud/aws/device-auth/poll`
+
+**Request Body**:
+```json
+{ "deviceCode": "..." }
+```
+
+**Response** (200 OK — pending):
+```json
+{ "status": "pending" }
+```
+
+**Response** (200 OK — complete):
+```json
+{
+  "status": "complete",
+  "identity": {
+    "id": "...",
+    "provider": "AWS",
+    "data": { "principalArn": "123456789012", "accountId": "123456789012", "displayName": "My Account" },
+    "createdAt": "...",
+    "lastUsedAt": null
+  }
+}
+```
+
+---
+
+### Get Azure Connect URL
+
+**Endpoint**: `GET /api/v1/auth/cloud/azure/connect`
+
+Redirects to Azure AD authorize endpoint with PKCE challenge. Sets `__connapse_az_state` and `__connapse_az_pkce` cookies (10-min TTL).
+
+**Response**: 302 Redirect to Azure AD.
+
+---
+
+### Azure Callback
+
+**Endpoint**: `GET /api/v1/auth/cloud/azure/callback`
+
+Handles the OAuth2 callback from Azure AD. Validates state, exchanges code for ID token, stores identity.
+
+**Response**: 302 Redirect to `/profile`.
+
+---
+
+### List Cloud Identities
+
+**Endpoint**: `GET /api/v1/auth/cloud`
+
+**Response** (200 OK): Array of linked cloud identities.
+
+---
+
+### Disconnect Cloud Identity
+
+**Endpoint**: `DELETE /api/v1/auth/cloud/{provider}`
+
+**Path Parameters**: `provider` = `AWS` | `Azure`
+
+Removes the linked identity and evicts cached scope entries.
+
+**Response** (204 No Content | 404 Not Found)
+
+---
+
 ## Versioning
 
-**Current Version**: `v0.2.0`
+**Current Version**: `v0.3.0`
 
-Auth endpoints are under `/api/v1/auth/` and `/api/v1/agents/`. Container endpoints remain under `/api/containers/`.
+Auth endpoints are under `/api/v1/auth/` and `/api/v1/agents/`. Container endpoints remain under `/api/containers/`. Cloud identity endpoints are under `/api/v1/auth/cloud/`.
 
 ---
 

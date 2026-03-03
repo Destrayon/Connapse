@@ -567,6 +567,16 @@ Also quoted column aliases in the SQL (`"ChunkId"`, `"Distance"`, etc.) for prop
 
 ---
 
+## Intentionally Removed Features
+
+### Agentic Search (Sessions I/I2)
+
+**Description**: `SearchMode.Agentic`, `AgenticSearchService`, `HydeQueryEnricher`, and related UI/settings were implemented in Sessions I and I2 but intentionally removed by the user before Session K. The `SearchMode` enum now only has `{ Semantic, Keyword, Hybrid }`.
+
+**Reason**: User decision — not a bug. The agentic search code may return in a future version.
+
+---
+
 ## Open Issues
 
 ### Settings Live Reload in WebApplicationFactory Tests

@@ -4,7 +4,7 @@ Current status and recent work. Update at end of each session.
 
 ---
 
-## Current Status (2026-03-02) — v0.3.0 Cross-Embedding Reranking
+## Current Status (2026-03-02) — v0.3.0 Complete
 
 **Branch:** `feature/0.3.0` | **Last shipped:** v0.2.2
 
@@ -29,7 +29,7 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 | I | ILlmProvider + Agentic search | **COMPLETE** |
 | I2 | Agentic search quality improvements (HyDE, relevance filtering, corrective RAG) | **COMPLETE** |
 | J | Cross-embedding reranking + model discovery + re-embedding | **COMPLETE** |
-| K | Testing + docs | Pending |
+| K | Testing + docs | **COMPLETE** |
 
 ---
 
@@ -53,6 +53,37 @@ Full plan at [docs/v0.3.0-plan.md](../../docs/v0.3.0-plan.md). Key decisions in 
 **After Session I:** 405 tests pass (204 Core + 46 Identity + 52 Ingestion + 103 Integration). Build: 0 errors.
 **After Session J:** 415+ tests pass (214+ Core). Build: 0 errors.
 **After Settings Cleanup:** 253 unit tests pass (156 Core + 46 Identity + 51 Ingestion). Removed dead settings: WebSearchSettings (entire record + IWebSearchProvider), StorageSettings (entire record + tab), and 11 unimplemented properties from SearchSettings/UploadSettings/LlmSettings/ChunkingSettings.
+**After Session K:** 457 tests pass (233 Core + 46 Identity + 52 Ingestion + 126 Integration). Build: 0 errors.
+
+---
+
+## Session K (2026-03-02) — Testing + Documentation
+
+**Feature**: Final v0.3.0 session — adds test coverage for new features and creates user-facing documentation.
+
+**Note**: Agentic search (SearchMode.Agentic, AgenticSearchService, HydeQueryEnricher) was intentionally removed before this session. SearchMode only has { Semantic, Keyword, Hybrid }.
+
+**Unit tests created (16 new → 233 Core total)**:
+1. `tests/Connapse.Core.Tests/Llm/OllamaLlmProviderTests.cs` — 5 tests: Provider property, CompleteAsync (valid/empty/error), StreamAsync multi-chunk
+2. `tests/Connapse.Core.Tests/Search/HybridSearchServiceTests.cs` — 6 tests: empty query guard, duration check, cross-model predicate (Theory), constructor
+3. `tests/Connapse.Core.Tests/Settings/ContainerSettingsOverridesTests.cs` — 5 tests: default null, JSON roundtrip, partial override, with expression, null fallback
+
+**Integration tests created (23 new → 126 Integration total)**:
+1. `tests/Connapse.Integration.Tests/ConnectorContainerIntegrationTests.cs` — 8 tests: connector-specific container creation validation
+2. `tests/Connapse.Integration.Tests/SyncEndpointIntegrationTests.cs` — 4 tests: sync for each connector type + 404
+3. `tests/Connapse.Integration.Tests/ContainerSettingsIntegrationTests.cs` — 5 tests: GET/PUT per-container settings overrides
+4. `tests/Connapse.Integration.Tests/NewSettingsCategoriesIntegrationTests.cs` — 4 tests: GET/PUT for llm, awssso, azuread categories
+5. `tests/Connapse.Integration.Tests/EmbeddingModelEndpointTests.cs` — 2 tests: embedding models + reindex status
+
+**Documentation created**:
+1. `docs/connectors.md` — Connector setup guide (5 types, config, background sync, per-container settings, connection testing)
+2. `docs/aws-sso-setup.md` — AWS IAM Identity Center device auth setup guide
+3. `docs/azure-identity-setup.md` — Azure AD OAuth2+PKCE setup guide
+
+**Documentation updated**:
+1. `README.md` — version v0.3.0, 457 tests, new features, roadmap, doc links, architecture diagram
+2. `docs/architecture.md` — connector architecture, cloud identity, multi-provider, vector dimensions, updated schema
+3. `docs/api.md` — new endpoints: connector test/sync, container settings, embedding models, reindex, cloud identity
 
 ---
 
