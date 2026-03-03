@@ -88,6 +88,13 @@ jobs:
           -p:Version=${{ steps.version.outputs.VERSION }}
           --output nupkgs
 
+      - name: Upload nupkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: connapse-nupkg
+          path: nupkgs/*.nupkg
+          retention-days: 1
+
       - name: Push to NuGet.org
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
@@ -101,7 +108,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: build-cli
+    needs: [build-cli, publish-nuget]
 
     steps:
       - name: Download all CLI artifacts

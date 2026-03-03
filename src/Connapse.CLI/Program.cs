@@ -55,8 +55,8 @@ try
 {
     exitCode = command switch
     {
-        "version" => HandleVersion(),
-        "update"  => await HandleUpdate(args),
+        "version" or "--version" => HandleVersion(),
+        "update" or "--update"  => await HandleUpdate(args),
         "auth"    => await HandleAuth(args, httpClient, jsonOptions, apiBaseUrl),
         "container" => await HandleContainer(args, httpClient, jsonOptions),
         "upload"  => await HandleUpload(args, httpClient, jsonOptions),
@@ -1313,20 +1313,84 @@ static async Task<int> HandleUpdate(string[] args)
         return 1;
     }
 
-    // Detect global tool install — the shim lives in ~/.dotnet/tools/ and cannot
-    // be replaced with a self-contained native binary.
+    // Global tool install — update via nupkg from GitHub release
     if (IsGlobalToolInstall())
     {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine("Installed via .NET global tool. Run:");
-        Console.WriteLine("  dotnet tool update -g Connapse.CLI");
-        Console.ResetColor();
+        var nupkgAsset = release.Assets.FirstOrDefault(a =>
+            a.Name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
+
+        if (nupkgAsset is null)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("No NuGet package in this release. Download the binary manually:");
+            Console.WriteLine($"  https://github.com/Destrayon/Connapse/releases/tag/{release.TagName}");
+            Console.ResetColor();
+            return 1;
+        }
+
+        Console.Write($"Download and install v{latestVersion}? [y/N] ");
+        var confirm = Console.ReadLine()?.Trim().ToLower();
+        if (confirm is not ("y" or "yes")) return 0;
+
+        var tmpDir = Path.Combine(Path.GetTempPath(), "connapse-update");
+        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+        Directory.CreateDirectory(tmpDir);
+
+        try
+        {
+            Console.Write($"Downloading {nupkgAsset.Name}... ");
+            using var dlResponse = await ghClient.GetAsync(
+                nupkgAsset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            dlResponse.EnsureSuccessStatusCode();
+            var nupkgPath = Path.Combine(tmpDir, nupkgAsset.Name);
+            await using (var fs = new FileStream(nupkgPath, FileMode.Create, FileAccess.Write))
+                await dlResponse.Content.CopyToAsync(fs);
+            Console.WriteLine("done.");
+
+            Console.Write("Installing... ");
+            using var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"tool update -g Connapse.CLI --add-source \"{tmpDir}\" --version {latestVersion}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            })!;
+
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+            var stderr = await stderrTask;
+
+            if (proc.ExitCode == 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"done. Updated to v{latestVersion}.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.WriteLine();
+                return Error($"dotnet tool update failed:\n{stderr.Trim()}");
+            }
+        }
+        catch (Exception ex)
+        {
+            return Error($"\nUpdate failed: {ex.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(tmpDir, true); } catch { }
+        }
+
         return 0;
     }
 
+    // Standalone binary install — download and replace executable
     Console.Write($"Download and install v{latestVersion}? [y/N] ");
-    var confirm = Console.ReadLine()?.Trim().ToLower();
-    if (confirm is not ("y" or "yes")) return 0;
+    var standaloneConfirm = Console.ReadLine()?.Trim().ToLower();
+    if (standaloneConfirm is not ("y" or "yes")) return 0;
 
     var exePath = Environment.ProcessPath;
     if (string.IsNullOrEmpty(exePath))
