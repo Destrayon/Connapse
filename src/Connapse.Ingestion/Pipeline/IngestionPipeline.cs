@@ -289,14 +289,6 @@ public class IngestionPipeline : IKnowledgeIngester
         }
     }
 
-    public Task<IngestionResult> IngestFromPathAsync(
-        string path,
-        IngestionOptions options,
-        CancellationToken ct = default)
-    {
-        throw new NotImplementedException("IngestFromPathAsync will be implemented in Phase 6");
-    }
-
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(
         Stream content,
         IngestionOptions options,
