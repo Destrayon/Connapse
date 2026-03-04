@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
@@ -266,15 +267,23 @@ public class McpTools
 
         await documentStore.DeleteAsync(fileId, ct);
 
+        var storageDeleteFailed = false;
         try
         {
             var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
             if (!string.IsNullOrEmpty(document.Path))
                 await fileSystem.DeleteAsync(document.Path, ct);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            var logger = services.GetRequiredService<ILogger<McpTools>>();
+            logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
+            storageDeleteFailed = true;
+        }
 
-        return $"File '{document.FileName}' (ID: {fileId}) deleted.";
+        return storageDeleteFailed
+            ? $"File '{document.FileName}' (ID: {fileId}) deleted from database, but the backing storage file could not be removed and may need manual cleanup."
+            : $"File '{document.FileName}' (ID: {fileId}) deleted.";
     }
 
     // Helpers
