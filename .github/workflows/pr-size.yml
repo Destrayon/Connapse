@@ -12,7 +12,7 @@ jobs:
   label-size:
     runs-on: ubuntu-latest
     steps:
-      - uses: pascalgn/size-label-action@v0.5.4
+      - uses: pascalgn/size-label-action@v0.5.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FILES_TO_IGNORE: >
@@ -27,11 +27,11 @@ jobs:
         with:
           sizes: >
             {
-              "0": "size/XS",
-              "50": "size/S",
-              "150": "size/M",
-              "300": "size/L",
-              "500": "size/XL"
+              "0": "XS",
+              "50": "S",
+              "150": "M",
+              "300": "L",
+              "500": "XL"
             }
 
   warn-large:
