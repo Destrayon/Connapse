@@ -16,6 +16,23 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
+    /// <summary>
+    /// MCP protocol initialize request — used to verify auth on the MCP endpoint.
+    /// The SDK speaks MCP Streamable HTTP, so we send a standard initialize message.
+    /// </summary>
+    private static readonly object McpInitializeRequest = new
+    {
+        jsonrpc = "2.0",
+        method = "initialize",
+        @params = new
+        {
+            protocolVersion = "2025-11-05",
+            capabilities = new { },
+            clientInfo = new { name = "integration-test", version = "1.0.0" }
+        },
+        id = "1"
+    };
+
     // ── POST /api/v1/agents ──────────────────────────────────────────────
 
     [Fact]
@@ -154,12 +171,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", new
-        {
-            jsonrpc = "2.0",
-            method = "ping",
-            id = "1"
-        });
+        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -182,12 +194,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", new
-        {
-            jsonrpc = "2.0",
-            method = "ping",
-            id = "1"
-        });
+        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -208,12 +215,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", new
-        {
-            jsonrpc = "2.0",
-            method = "ping",
-            id = "1"
-        });
+        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -232,12 +234,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", new
-        {
-            jsonrpc = "2.0",
-            method = "ping",
-            id = "1"
-        });
+        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -277,12 +274,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         // Key no longer works
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
-        var mcpResponse = await agentClient.PostAsJsonAsync("/mcp", new
-        {
-            jsonrpc = "2.0",
-            method = "ping",
-            id = "1"
-        });
+        var mcpResponse = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
         mcpResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -309,8 +301,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var disabled = await agentClient.PostAsJsonAsync("/mcp", new
-            { jsonrpc = "2.0", method = "ping", id = "1" });
+        var disabled = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
         disabled.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // Re-enable
@@ -318,8 +309,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
             $"/api/v1/agents/{agent.Id}/active",
             new SetAgentActiveRequest(true));
 
-        var enabled = await agentClient.PostAsJsonAsync("/mcp", new
-            { jsonrpc = "2.0", method = "ping", id = "1" });
+        var enabled = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
         enabled.StatusCode.Should().Be(HttpStatusCode.OK);
 
         await fixture.AdminClient.DeleteAsync($"/api/v1/agents/{agent.Id}");

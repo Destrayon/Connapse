@@ -1,6 +1,10 @@
 # MCP (Model Context Protocol) Server
 
-This directory contains the MCP server implementation that exposes the Connapse Platform as tools for AI agents like Claude.
+This directory contains the MCP server implementation that exposes the Connapse Platform as tools for AI agents. Built on the [official C# MCP SDK](https://github.com/modelcontextprotocol/csharp-sdk) (`ModelContextProtocol` NuGet package).
+
+## Transport
+
+The server supports **Streamable HTTP** (current MCP standard) and **SSE** (legacy, for backward compatibility). Both are available at the `/mcp` endpoint.
 
 ## Authentication
 
@@ -9,21 +13,11 @@ All MCP endpoints require authentication. Use one of:
 - **Agent API Key** (recommended): `X-Api-Key: cnp_<token>`
 - **JWT Bearer Token**: `Authorization: Bearer <jwt>`
 
-Agent API keys are created in the admin panel under **Agents**. The key must belong to an agent with `Agent`, `Admin`, or `Owner` role.
-
-## Endpoints
-
-### JSON-RPC 2.0 Endpoint
-`POST /mcp`
-
-Standard MCP endpoint following JSON-RPC 2.0 specification. Supports `tools/list`, `tools/call`, and `ping` methods.
-
-### Convenience Endpoint
-`GET /mcp/tools`
-
-Returns a list of all available tools in JSON format.
+Agent API keys are created in the admin panel under **Agents**.
 
 ## Available Tools (7)
+
+Tools are defined in `McpTools.cs` using `[McpServerTool]` attributes and are auto-discovered by the SDK.
 
 ### 1. container_create
 
@@ -44,7 +38,7 @@ List all containers with their document counts.
 Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers stop being indexed — underlying data is not deleted.
 
 **Parameters:**
-- `name` (string, required): Container name to delete
+- `name` (string, required): Container name or ID to delete
 
 ### 4. upload_file
 
@@ -81,84 +75,22 @@ Search within a container using semantic, keyword, or hybrid search. Returns rel
 - `query` (string, required): The search query text
 - `containerId` (string, required): Container ID or name to search within
 - `mode` (string, optional): Search mode: `Semantic` (vector), `Keyword` (full-text), or `Hybrid` (both). Default: `Hybrid`
-- `topK` (number, optional): Number of results to return. Default: `10`
+- `topK` (integer, optional): Number of results to return. Default: `10`
 - `path` (string, optional): Filter results to a folder subtree (e.g., `/docs/`)
-- `minScore` (number, optional): Minimum similarity score threshold (0.0-1.0). Defaults to server setting (typically 0.5)
-
-## Testing
-
-You can test the MCP server using curl. All requests require authentication:
-
-```bash
-# List tools
-curl https://localhost:5001/mcp/tools \
-  -H "X-Api-Key: cnp_your_agent_key_here"
-
-# List containers
-curl -X POST https://localhost:5001/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Api-Key: cnp_your_agent_key_here" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "container_list",
-      "arguments": {}
-    },
-    "id": "1"
-  }'
-
-# Search knowledge base
-curl -X POST https://localhost:5001/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Api-Key: cnp_your_agent_key_here" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "search_knowledge",
-      "arguments": {
-        "query": "machine learning best practices",
-        "containerId": "my-container",
-        "mode": "Hybrid",
-        "topK": 5
-      }
-    },
-    "id": "2"
-  }'
-
-# Upload a file
-curl -X POST https://localhost:5001/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Api-Key: cnp_your_agent_key_here" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "upload_file",
-      "arguments": {
-        "containerId": "my-container",
-        "fileName": "notes.txt",
-        "content": "SGVsbG8gV29ybGQh",
-        "path": "/documents/"
-      }
-    },
-    "id": "3"
-  }'
-```
+- `minScore` (number, optional): Minimum similarity score threshold (0.0-1.0). Defaults to server setting.
 
 ## Using with Claude Desktop
 
-Add the following to your Claude Desktop MCP configuration:
+Add the following to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "connapse": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://localhost:5001/mcp"],
-      "env": {
-        "API_KEY": "cnp_your_agent_key_here"
+      "type": "streamableHttp",
+      "url": "https://localhost:5001/mcp",
+      "headers": {
+        "X-Api-Key": "cnp_your_agent_key_here"
       }
     }
   }
@@ -167,4 +99,12 @@ Add the following to your Claude Desktop MCP configuration:
 
 Replace `https://localhost:5001` with your server address and `cnp_your_agent_key_here` with a valid Agent API key.
 
-The AI assistant can then use the exposed tools to create containers, search documents, upload files, and manage your knowledge base.
+## Testing with MCP Inspector
+
+You can test the server using [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+```bash
+npx @modelcontextprotocol/inspector --url https://localhost:5001/mcp --header "X-Api-Key: cnp_your_agent_key_here"
+```
+
+The inspector provides an interactive UI to list and call tools, inspect schemas, and debug responses.

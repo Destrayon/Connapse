@@ -15,7 +15,6 @@ using Connapse.Storage.Vectors;
 using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
-using Connapse.Web.Mcp;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
@@ -84,8 +83,13 @@ builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 builder.Services.AddSingleton<ConnectorWatcherService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherService>());
 
-// Add MCP server
-builder.Services.AddSingleton<McpServer>();
+// Add MCP server (official SDK)
+builder.Services.AddMcpServer(options =>
+{
+    options.ServerInfo = new() { Name = "Connapse", Version = "0.3.2" };
+})
+.WithHttpTransport()
+.WithToolsFromAssembly();
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
@@ -209,7 +213,7 @@ app.Use(async (ctx, next) =>
         if (feature is not null)
             feature.Enabled = false;
     }
-    await next(ctx);
+        await next(ctx);
 });
 
 app.UseForwardedHeaders();
@@ -241,11 +245,13 @@ api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
-api.MapMcpEndpoints();
 
 // Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
 api.MapGroup("/api/v1/identity")
     .MapIdentityApi<ConnapseUser>();
+
+// Map MCP server (Streamable HTTP + legacy SSE transport)
+app.MapMcp("/mcp").RequireAuthorization("RequireAgent");
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");
