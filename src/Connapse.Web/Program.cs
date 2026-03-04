@@ -83,6 +83,9 @@ builder.Services.AddHostedService<IngestionProgressBroadcaster>();
 builder.Services.AddSingleton<ConnectorWatcherService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherService>());
 
+// Tracks background reindex state so admins can see success/failure via the status endpoint.
+builder.Services.AddSingleton<ReindexStateService>();
+
 // Add MCP server (official SDK)
 builder.Services.AddMcpServer(options =>
 {
