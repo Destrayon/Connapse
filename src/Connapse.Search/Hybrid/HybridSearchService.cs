@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Keyword;
@@ -187,26 +186,4 @@ public class HybridSearchService : IKnowledgeSearch
         return combinedHits;
     }
 
-    /// <summary>
-    /// Streams search results as they become available.
-    /// </summary>
-    public async IAsyncEnumerable<SearchHit> SearchStreamAsync(
-        string query,
-        SearchOptions options,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        // For now, stream results from the batch search
-        // In a future enhancement, this could stream results as they're found
-        var result = await SearchAsync(query, options, ct);
-
-        foreach (var hit in result.Hits)
-        {
-            if (ct.IsCancellationRequested)
-            {
-                yield break;
-            }
-
-            yield return hit;
-        }
-    }
 }
