@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using FluentAssertions;
@@ -171,7 +173,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var response = await PostMcpAsync(agentClient, McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -194,7 +196,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var response = await PostMcpAsync(agentClient, McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -215,7 +217,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var response = await PostMcpAsync(agentClient, McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
@@ -234,7 +236,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var response = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var response = await PostMcpAsync(agentClient, McpInitializeRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -274,7 +276,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         // Key no longer works
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
-        var mcpResponse = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var mcpResponse = await PostMcpAsync(agentClient, McpInitializeRequest);
         mcpResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -301,7 +303,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);
 
-        var disabled = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var disabled = await PostMcpAsync(agentClient, McpInitializeRequest);
         disabled.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // Re-enable
@@ -309,7 +311,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
             $"/api/v1/agents/{agent.Id}/active",
             new SetAgentActiveRequest(true));
 
-        var enabled = await agentClient.PostAsJsonAsync("/mcp", McpInitializeRequest);
+        var enabled = await PostMcpAsync(agentClient, McpInitializeRequest);
         enabled.StatusCode.Should().Be(HttpStatusCode.OK);
 
         await fixture.AdminClient.DeleteAsync($"/api/v1/agents/{agent.Id}");
@@ -360,5 +362,20 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         response.StatusCode.Should().Be(HttpStatusCode.Created,
             because: $"creating key '{name}' for agent {agentId} should succeed");
         return (await response.Content.ReadFromJsonAsync<CreateAgentKeyResponse>(JsonOptions))!;
+    }
+
+    /// <summary>
+    /// Sends a POST to /mcp with the Accept header required by Streamable HTTP transport.
+    /// </summary>
+    private static async Task<HttpResponseMessage> PostMcpAsync(HttpClient client, object body)
+    {
+        var json = JsonSerializer.Serialize(body);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        return await client.SendAsync(request);
     }
 }
