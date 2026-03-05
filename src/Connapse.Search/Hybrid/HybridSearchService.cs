@@ -146,12 +146,7 @@ public class HybridSearchService : IKnowledgeSearch
             await using var scope = _scopeFactory.CreateAsyncScope();
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
             var results = await vectorSearch.SearchAsync(query, options, ct);
-
-            // Tag results with source
-            return results.Select(h => h with
-            {
-                Metadata = new Dictionary<string, string>(h.Metadata) { ["source"] = "vector" }
-            }).ToList();
+            return results;
         }, ct);
 
         var keywordTask = Task.Run(async () =>
@@ -159,12 +154,7 @@ public class HybridSearchService : IKnowledgeSearch
             await using var scope = _scopeFactory.CreateAsyncScope();
             var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
             var results = await keywordSearch.SearchAsync(query, options, ct);
-
-            // Tag results with source
-            return results.Select(h => h with
-            {
-                Metadata = new Dictionary<string, string>(h.Metadata) { ["source"] = "keyword" }
-            }).ToList();
+            return results;
         }, ct);
 
         await Task.WhenAll(vectorTask, keywordTask);
@@ -189,13 +179,68 @@ public class HybridSearchService : IKnowledgeSearch
         List<SearchHit> keywordResults,
         int rrfK)
     {
-        // Current naive implementation: just concatenate
-        // TODO: Implement proper RRF fusion with deduplication and score normalization
-        var combinedHits = new List<SearchHit>();
-        combinedHits.AddRange(vectorResults);
-        combinedHits.AddRange(keywordResults);
+        if (vectorResults.Count == 0 && keywordResults.Count == 0)
+            return [];
 
-        return combinedHits;
+        // Build lookup: ChunkId -> (SearchHit, rrfScore, source)
+        var fused = new Dictionary<string, (SearchHit Hit, double RrfScore, bool InVector, bool InKeyword)>();
+
+        // Process vector results (already sorted by score descending)
+        for (var rank = 0; rank < vectorResults.Count; rank++)
+        {
+            var hit = vectorResults[rank];
+            var score = 1.0 / (rrfK + rank + 1); // rank is 1-indexed in formula
+            fused[hit.ChunkId] = (hit, score, true, false);
+        }
+
+        // Process keyword results (already sorted by score descending)
+        for (var rank = 0; rank < keywordResults.Count; rank++)
+        {
+            var hit = keywordResults[rank];
+            var score = 1.0 / (rrfK + rank + 1);
+
+            if (fused.TryGetValue(hit.ChunkId, out var existing))
+            {
+                // Chunk appears in both lists — accumulate RRF score
+                fused[hit.ChunkId] = (existing.Hit, existing.RrfScore + score, true, true);
+            }
+            else
+            {
+                fused[hit.ChunkId] = (hit, score, false, true);
+            }
+        }
+
+        // Sort by RRF score descending
+        var sorted = fused.Values
+            .OrderByDescending(x => x.RrfScore)
+            .ToList();
+
+        // Min-max normalization to [0, 1]
+        var maxScore = sorted[0].RrfScore;
+        var minScore = sorted[^1].RrfScore;
+        var range = maxScore - minScore;
+
+        return sorted.Select(entry =>
+        {
+            var normalizedScore = range > 0
+                ? (float)((entry.RrfScore - minScore) / range)
+                : 1.0f; // single item or all same score
+
+            var source = (entry.InVector, entry.InKeyword) switch
+            {
+                (true, true) => "both",
+                (true, false) => "vector",
+                _ => "keyword"
+            };
+
+            var metadata = new Dictionary<string, string>(entry.Hit.Metadata)
+            {
+                ["source"] = source,
+                ["rrfScore"] = entry.RrfScore.ToString("F6")
+            };
+
+            return entry.Hit with { Score = normalizedScore, Metadata = metadata };
+        }).ToList();
     }
 
 }
