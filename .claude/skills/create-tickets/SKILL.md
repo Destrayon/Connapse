@@ -54,13 +54,18 @@ For each issue, determine all metadata:
 - Good: "Add multi-prefix OR-clause to cloud scope search"
 - Bad: "Cloud scope search improvements"
 
-### Labels (always include `needs-triage` plus one type and one or more area labels)
+### Labels (one type, one or more area labels, and a size label)
 
 **Type labels** (exactly one):
 `type: feature`, `type: bug`, `type: enhancement`, `type: refactor`, `type: docs`, `type: test`, `type: infrastructure`
 
 **Area labels** (one or more):
 `area: core`, `area: web-ui`, `area: api`, `area: cli`, `area: mcp`, `area: ingestion`, `area: search`, `area: database`, `area: storage`, `area: identity`, `area: agents`
+
+**Size labels** (exactly one):
+`size/XS`, `size/S`, `size/M`, `size/L`, `size/XL`
+
+**Do NOT add `needs-triage`** — issues created by this skill are fully triaged at creation time.
 
 ### Priority
 - `P0-Critical`: Blocking users or breaking core functionality
@@ -137,9 +142,9 @@ gh issue create \
 BODY_CONTENT
 ISSUE_EOF
 )" \
-  --label "needs-triage" \
   --label "type: feature" \
   --label "area: storage" \
+  --label "size/S" \
   --milestone "v0.4.0"
 ```
 
