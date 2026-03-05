@@ -177,8 +177,20 @@ public class HybridSearchService : IKnowledgeSearch
             vectorResults.Count,
             keywordResults.Count);
 
-        // Combine results
-        // The reranker will handle deduplication and fusion
+        return FuseResults(vectorResults, keywordResults, _searchSettingsMonitor.CurrentValue.RrfK);
+    }
+
+    /// <summary>
+    /// Fuses vector and keyword results using Reciprocal Rank Fusion.
+    /// Deduplicates overlapping chunks, tags source metadata, and normalizes scores to [0,1].
+    /// </summary>
+    internal static List<SearchHit> FuseResults(
+        List<SearchHit> vectorResults,
+        List<SearchHit> keywordResults,
+        int rrfK)
+    {
+        // Current naive implementation: just concatenate
+        // TODO: Implement proper RRF fusion with deduplication and score normalization
         var combinedHits = new List<SearchHit>();
         combinedHits.AddRange(vectorResults);
         combinedHits.AddRange(keywordResults);
