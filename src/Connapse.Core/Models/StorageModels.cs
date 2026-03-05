@@ -1,6 +1,6 @@
 namespace Connapse.Core;
 
-public enum ConnectorType { MinIO = 0, Filesystem = 1, InMemory = 2, S3 = 3, AzureBlob = 4 }
+public enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
 
 public record ContainerSettingsOverrides
 {
@@ -19,7 +19,6 @@ public record Container(
     string Name,
     string? Description,
     ConnectorType ConnectorType,
-    bool IsEphemeral,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,

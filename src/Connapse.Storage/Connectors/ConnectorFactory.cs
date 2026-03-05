@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Amazon.S3;
 using Connapse.Core;
@@ -10,13 +9,11 @@ namespace Connapse.Storage.Connectors;
 
 /// <summary>
 /// Creates IConnector instances from ContainerEntity configuration.
-/// Registered as a Singleton so InMemoryConnector instances persist for the lifetime of the process.
 /// </summary>
 public class ConnectorFactory : IConnectorFactory
 {
     private readonly IAmazonS3 _s3;
     private readonly IOptions<MinioOptions> _minioOptions;
-    private readonly ConcurrentDictionary<Guid, InMemoryConnector> _inMemoryConnectors = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,24 +28,15 @@ public class ConnectorFactory : IConnectorFactory
 
     public IConnector Create(Container container)
     {
-        var containerId = Guid.Parse(container.Id);
-
         return container.ConnectorType switch
         {
             ConnectorType.MinIO => new MinioConnector(_s3, _minioOptions),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
-            ConnectorType.InMemory => _inMemoryConnectors.GetOrAdd(containerId, _ => new InMemoryConnector()),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
     }
-
-    /// <summary>
-    /// Removes the InMemoryConnector instance for a container (used during ephemeral cleanup).
-    /// </summary>
-    public void EvictInMemoryConnector(Guid containerId)
-        => _inMemoryConnectors.TryRemove(containerId, out _);
 
     private static S3Connector CreateS3Connector(Container container)
     {

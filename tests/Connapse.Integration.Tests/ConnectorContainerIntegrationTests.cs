@@ -30,18 +30,6 @@ public class ConnectorContainerIntegrationTests(SharedWebAppFixture fixture)
         await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
-    [Fact]
-    public async Task CreateContainer_InMemory_Returns201()
-    {
-        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
-            new { Name = "connector-inmemory-test", ConnectorType = ConnectorType.InMemory });
-
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
-        container.Should().NotBeNull();
-
-        await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
-    }
 
     [Fact]
     public async Task CreateContainer_Filesystem_MissingConfig_Returns400()

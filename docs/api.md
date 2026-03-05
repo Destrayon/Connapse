@@ -352,14 +352,13 @@ All container endpoints require authentication. RBAC rules:
 **Fields**:
 - `name` (required): lowercase alphanumeric + hyphens, 2-128 chars, globally unique
 - `description` (optional): Container description
-- `connectorType` (optional, default: `MinIO`): `MinIO` | `Filesystem` | `InMemory` | `S3` | `AzureBlob`
+- `connectorType` (optional, default: `MinIO`): `MinIO` | `Filesystem` | `S3` | `AzureBlob`
 - `connectorConfig` (conditional): JSON string with connector-specific config
 
 **Connector Config Requirements**:
 | Connector | Required Fields | Example |
 |-----------|----------------|---------|
 | MinIO | None (global config) | — |
-| InMemory | None | — |
 | Filesystem | `rootPath` | `{"rootPath":"C:\\docs"}` |
 | S3 | `bucketName`, `region` | `{"bucketName":"docs","region":"us-east-1"}` |
 | AzureBlob | `storageAccountName`, `containerName` | `{"storageAccountName":"acct","containerName":"docs"}` |
@@ -876,7 +875,7 @@ Trigger an on-demand sync for cloud containers.
 **Endpoint**: `POST /api/containers/{id}/sync`
 
 **Notes**:
-- Returns 400 for Filesystem ("live watch is enough") and InMemory ("no remote source")
+- Returns 400 for Filesystem ("live watch is enough")
 - Returns 404 for non-existent containers
 - Cloud scope enforcement: user must have a linked identity for the container's cloud provider
 

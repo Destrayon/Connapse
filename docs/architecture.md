@@ -130,7 +130,7 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `ISearchReranker` | Result fusion + reranking | `RrfReranker`, `CrossEncoderReranker` |
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
 | `ILlmProvider` | LLM completion + streaming | `OllamaLlmProvider`, `OpenAiLlmProvider`, `AzureOpenAiLlmProvider`, `AnthropicLlmProvider` |
-| `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `InMemoryConnector`, `S3Connector`, `AzureBlobConnector` |
+| `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `S3Connector`, `AzureBlobConnector` |
 | `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
 | `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
 | `ICloudScopeService` | IAM-derived access control | `CloudScopeService` |
@@ -154,7 +154,7 @@ All domain types live in the `Connapse.Core` namespace (files in `Models/` folde
 
 ```csharp
 // Containers & Storage
-enum ConnectorType { MinIO = 0, Filesystem = 1, InMemory = 2, S3 = 3, AzureBlob = 4 }
+enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
 record Container(string Id, string Name, string? Description, ConnectorType ConnectorType,
     string? ConnectorConfig, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
 record ContainerSettingsOverrides { ChunkingSettings? Chunking, EmbeddingSettings? Embedding,
@@ -716,7 +716,6 @@ A **Container** is a logical knowledge base; a **Connector** is the storage tech
 |------|---------------------|-----------------|-----------------|
 | **MinIO** | No | 5-min polling | No (global) |
 | **Filesystem** | Yes (`FileSystemWatcher`) | Live + 5-min rescan | `rootPath` |
-| **InMemory** | No | None | No |
 | **S3** | No | 5-min polling | `bucketName`, `region` |
 | **AzureBlob** | No | 5-min polling | `storageAccountName`, `containerName` |
 

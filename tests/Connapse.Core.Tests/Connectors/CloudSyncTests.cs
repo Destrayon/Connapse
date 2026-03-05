@@ -38,7 +38,7 @@ public class CloudSyncTests
         Name: "s3-test",
         Description: null,
         ConnectorType: ConnectorType.S3,
-        IsEphemeral: false,
+
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow,
         ConnectorConfig: """{"bucketName":"test","region":"us-east-1"}""");
@@ -48,7 +48,7 @@ public class CloudSyncTests
         Name: "azure-test",
         Description: null,
         ConnectorType: ConnectorType.AzureBlob,
-        IsEphemeral: false,
+
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow,
         ConnectorConfig: """{"storageAccountName":"test","containerName":"data"}""");

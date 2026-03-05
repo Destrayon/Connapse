@@ -24,14 +24,13 @@ public record Container(
     string Name,
     string? Description,
     ConnectorType ConnectorType,
-    bool IsEphemeral,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
     ContainerSettingsOverrides? SettingsOverrides = null,
     string? ConnectorConfig = null);
 
-public enum ConnectorType { MinIO = 0, Filesystem = 1, InMemory = 2, S3 = 3, AzureBlob = 4 }
+public enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
 
 public record CreateContainerRequest(
     string Name,
@@ -429,7 +428,7 @@ public interface IConnector
     Task<bool> ExistsAsync(string path, CancellationToken ct = default);
     IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default);
 }
-// Implementations: MinioConnector, FilesystemConnector, InMemoryConnector, S3Connector, AzureBlobConnector
+// Implementations: MinioConnector, FilesystemConnector, S3Connector, AzureBlobConnector
 ```
 
 ### IConnectorFactory
@@ -651,7 +650,7 @@ All endpoints (except `POST /api/v1/auth/token` and `POST /api/v1/auth/token/ref
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/containers/test-connection` | Test S3/AzureBlob connector config before creating. Body: `TestConnectorConfigRequest`. |
-| `POST` | `/api/containers/{id}/sync` | Sync files from remote connector (S3/AzureBlob/MinIO). Returns 400 for Filesystem/InMemory. |
+| `POST` | `/api/containers/{id}/sync` | Sync files from remote connector (S3/AzureBlob/MinIO). Returns 400 for Filesystem. |
 | `GET` | `/api/containers/{id}/settings` | Get per-container settings overrides. |
 | `PUT` | `/api/containers/{id}/settings` | Save per-container settings overrides. |
 

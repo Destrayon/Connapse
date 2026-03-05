@@ -64,7 +64,6 @@ public static class ContainersEndpoints
                 new { container.Name, container.ConnectorType }, ct);
 
             // Start watching (Filesystem) or polling (S3/AzureBlob/MinIO).
-            // InMemory containers are skipped internally by the watcher service.
             watcherService.StartWatchingContainer(container);
 
             return Results.Created($"/api/containers/{container.Id}", container);
@@ -132,7 +131,7 @@ public static class ContainersEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteContainer")
-        .WithDescription("Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — the underlying data is not deleted.")
+        .WithDescription("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — the underlying data is not deleted.")
         .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides
@@ -275,9 +274,6 @@ public static class ContainersEndpoints
 
             if (container.ConnectorType == ConnectorType.Filesystem)
                 return Results.BadRequest(new { error = "Filesystem containers use live watch. Sync is not needed." });
-
-            if (container.ConnectorType == ConnectorType.InMemory)
-                return Results.BadRequest(new { error = "InMemory containers have no remote source to sync from." });
 
             var connector = connectorFactory.Create(container);
             var remoteFiles = await connector.ListFilesAsync(ct: ct);

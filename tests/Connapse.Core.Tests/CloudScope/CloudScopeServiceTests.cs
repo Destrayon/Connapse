@@ -37,7 +37,6 @@ public class CloudScopeServiceTests
         Name: "test",
         Description: null,
         ConnectorType: type,
-        IsEphemeral: false,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow,
         ConnectorConfig: config);
@@ -45,7 +44,6 @@ public class CloudScopeServiceTests
     [Theory]
     [InlineData(ConnectorType.MinIO)]
     [InlineData(ConnectorType.Filesystem)]
-    [InlineData(ConnectorType.InMemory)]
     public async Task GetScopesAsync_NonCloudContainer_ReturnsNull(ConnectorType type)
     {
         var svc = CreateService();

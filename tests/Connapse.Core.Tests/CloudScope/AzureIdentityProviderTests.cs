@@ -15,7 +15,6 @@ public class AzureIdentityProviderTests
         Name: "azure-test",
         Description: null,
         ConnectorType: ConnectorType.AzureBlob,
-        IsEphemeral: false,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow,
         ConnectorConfig: config ?? """{"storageAccountName":"test","containerName":"docs"}""");
@@ -57,7 +56,7 @@ public class AzureIdentityProviderTests
         // null config container — passes non-null to factory, but let's test with explicit null
         var container = new Container(
             Id: Guid.NewGuid().ToString(), Name: "test", Description: null,
-            ConnectorType: ConnectorType.AzureBlob, IsEphemeral: false,
+            ConnectorType: ConnectorType.AzureBlob,
             CreatedAt: DateTime.UtcNow, UpdatedAt: DateTime.UtcNow, ConnectorConfig: null);
 
         result = await _provider.DiscoverScopesAsync(data, container);

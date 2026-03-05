@@ -59,7 +59,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_delete"),
-     Description("Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.")]
+     Description("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
         [Description("Container name or ID to delete")] string name,

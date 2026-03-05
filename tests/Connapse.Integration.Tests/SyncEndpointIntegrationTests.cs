@@ -33,22 +33,6 @@ public class SyncEndpointIntegrationTests(SharedWebAppFixture fixture)
         await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
 
-    [Fact]
-    public async Task Sync_InMemoryContainer_Returns400()
-    {
-        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
-            new { Name = "sync-inmem-test", ConnectorType = ConnectorType.InMemory });
-        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
-
-        var syncResponse = await fixture.AdminClient.PostAsync(
-            $"/api/containers/{container!.Id}/sync", null);
-
-        syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await syncResponse.Content.ReadFromJsonAsync<ErrorResponse>(JsonOptions);
-        body!.Error.Should().Contain("no remote source");
-
-        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
-    }
 
     [Fact]
     public async Task Sync_NonExistentContainer_Returns404()

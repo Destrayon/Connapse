@@ -174,26 +174,6 @@ using (var scope = app.Services.CreateScope())
     var vectorColumnManager = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
     await vectorColumnManager.EnsureIndexesAsync();
 
-    // Sweep ephemeral (InMemory) containers: delete all DB records left from the previous run.
-    // The in-process InMemoryConnector dictionary is always empty on startup, so DB is the only
-    // artifact that needs cleaning.
-    var ephemeralContainerIds = await db.Containers
-        .Where(c => c.IsEphemeral)
-        .Select(c => c.Id)
-        .ToListAsync();
-
-    if (ephemeralContainerIds.Count > 0)
-    {
-        // Delete documents (cascade removes chunks, vectors, folders via FK constraints)
-        foreach (var ephemeralId in ephemeralContainerIds)
-        {
-            var docs = db.Documents.Where(d => d.ContainerId == ephemeralId);
-            db.Documents.RemoveRange(docs);
-            var folders = db.Folders.Where(f => f.ContainerId == ephemeralId);
-            db.Folders.RemoveRange(folders);
-        }
-        await db.SaveChangesAsync();
-    }
 }
 
 // Configure the HTTP request pipeline.
