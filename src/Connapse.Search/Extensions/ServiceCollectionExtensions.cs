@@ -23,7 +23,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<KeywordSearchService>();
 
         // Register rerankers
-        services.AddScoped<ISearchReranker, RrfReranker>();
         services.AddScoped<ISearchReranker, CrossEncoderReranker>();
 
         // Named HttpClient for cross-encoder providers (TEI, Cohere, Jina)

@@ -9,8 +9,8 @@ namespace Connapse.Core.Tests.Search;
 /// These test HybridSearchService.FuseResults directly — the internal static method
 /// that merges vector and keyword hits with deduplication, source tagging, and score normalization.
 ///
-/// All tests set Reranker = "None" conceptually (the external RrfReranker is not involved here;
-/// we are testing the fusion that happens BEFORE any reranker runs).
+/// All tests set Reranker = "None" conceptually (RRF fusion is built into HybridSearchService;
+/// we are testing that internal fusion logic directly).
 /// </summary>
 [Trait("Category", "Unit")]
 public class HybridSearchFusionTests
