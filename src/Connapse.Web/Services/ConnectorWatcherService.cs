@@ -452,8 +452,13 @@ public class ConnectorWatcherService : BackgroundService
 
             await using var scope = _scopeFactory.CreateAsyncScope();
             var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+            var folderStore = scope.ServiceProvider.GetRequiredService<IFolderStore>();
             var existingDocs = await documentStore.ListAsync(containerId, ct: ct);
             var existingByPath = existingDocs.ToDictionary(d => d.Path);
+
+            // Ensure folder records exist for all ancestor paths of remote files.
+            // Without these records the FileBrowser cannot navigate into subfolders.
+            await EnsureFolderRecordsAsync(folderStore, containerId, remoteByPath.Keys, ct);
 
             _cloudSnapshots.TryGetValue(containerId, out var previousSnapshot);
 
@@ -580,6 +585,43 @@ public class ConnectorWatcherService : BackgroundService
 
         // NotifyAdded is called in bulk by CloudSyncAsync Phase 2 (before enqueue),
         // so we don't duplicate it here.
+    }
+
+    /// <summary>
+    /// Ensures folder records exist in the database for every ancestor directory
+    /// of the given virtual paths. This is required so the FileBrowser can navigate
+    /// into subfolders for non-filesystem containers (MinIO, S3, AzureBlob).
+    /// </summary>
+    private static async Task EnsureFolderRecordsAsync(
+        IFolderStore folderStore, Guid containerId, IEnumerable<string> virtualPaths, CancellationToken ct)
+    {
+        var folderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var virtualPath in virtualPaths)
+        {
+            var parent = PathUtilities.GetParentPath(virtualPath);
+            while (!string.IsNullOrEmpty(parent) && parent != "/")
+            {
+                if (!folderPaths.Add(parent))
+                    break; // already collected this path and all its ancestors
+                parent = PathUtilities.GetParentPath(parent);
+            }
+        }
+
+        foreach (var folderPath in folderPaths)
+        {
+            if (!await folderStore.ExistsAsync(containerId, folderPath, ct))
+            {
+                try
+                {
+                    await folderStore.CreateAsync(containerId, folderPath, ct);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Race condition: another sync created it between Exists and Create — safe to ignore.
+                }
+            }
+        }
     }
 
     private async Task RescanAllAsync(CancellationToken ct)

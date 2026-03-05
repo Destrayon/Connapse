@@ -30,12 +30,12 @@
             @if (container is not null)
             {
                 <span class="breadcrumb-sep">/</span>
-                <a href="/containers/@ContainerId" class="breadcrumb-link" @onclick="NavigateToRoot" @onclick:preventDefault>@container.Name</a>
+                <button class="breadcrumb-link" @onclick="NavigateToRoot">@container.Name</button>
             }
             @foreach (var crumb in GetBreadcrumbs())
             {
                 <span class="breadcrumb-sep">/</span>
-                <a href="#" class="breadcrumb-link" @onclick="() => NavigateToPath(crumb.Path)" @onclick:preventDefault>@crumb.Name</a>
+                <button class="breadcrumb-link" @onclick="() => NavigateToPath(crumb.Path)">@crumb.Name</button>
             }
         </nav>
     </div>
