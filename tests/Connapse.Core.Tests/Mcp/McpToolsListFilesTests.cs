@@ -135,7 +135,6 @@ public class McpToolsListFilesTests
         Name: "test",
         Description: null,
         ConnectorType: ConnectorType.MinIO,
-        IsEphemeral: false,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 

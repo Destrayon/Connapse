@@ -133,7 +133,7 @@ public static class ServiceCollectionExtensions
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 
-        // Connector factory (singleton — InMemoryConnector instances must outlive requests)
+        // Connector factory (singleton — shared S3 client and config must outlive requests)
         services.AddSingleton<ConnectorFactory>();
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
 

@@ -42,7 +42,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 ## 🚀 Features
 
 - **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
-- **🔌 5 Connector Types**: MinIO (default), Filesystem (live watch), InMemory (ephemeral), S3, Azure Blob
+- **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
 - **🔍 Hybrid Search**: Vector similarity + keyword full-text search with RRF fusion + cross-model search
 - **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
 - **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
@@ -167,7 +167,7 @@ The MCP server exposes 7 tools: `container_create`, `container_list`, `container
              │
 ┌────────────▼────────────────────────────────────────────────┐
 │                    Connectors Layer                           │
-│  MinIO  │  Filesystem  │  InMemory  │  S3  │  Azure Blob   │
+│  MinIO  │  Filesystem  │  S3  │  Azure Blob               │
 └────────────┬────────────────────────────────────────────────┘
              │
 ┌────────────▼────────────────────────────────────────────────┐
@@ -196,7 +196,7 @@ The MCP server exposes 7 tools: `container_create`, `container_list`, `container
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
 - **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
 - **Search**: Hybrid vector + keyword with Reciprocal Rank Fusion
-- **Connectors**: MinIO, Filesystem, InMemory, S3, Azure Blob
+- **Connectors**: MinIO, Filesystem, S3, Azure Blob
 
 ---
 
@@ -235,7 +235,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ 256 passing tests (unit + integration)
 
 ### v0.3.0 — Connector Architecture (Complete)
-- ✅ 5 connector types: MinIO, Filesystem (FileSystemWatcher), InMemory (ephemeral), S3 (IAM-only), Azure Blob (managed identity)
+- ✅ 4 connector types: MinIO, Filesystem (FileSystemWatcher), S3 (IAM-only), Azure Blob (managed identity)
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
 - ✅ Cloud identity linking: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE)
 - ✅ IAM-derived scope enforcement — cloud permissions are the source of truth

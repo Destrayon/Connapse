@@ -69,14 +69,6 @@ public static class DocumentsEndpoints
                         await fsConnector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
                         jobPath = Path.Combine(fsConnector.RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
                     }
-                    else if (container.ConnectorType == ConnectorType.InMemory)
-                    {
-                        var memConnector = connectorFactory.Create(container);
-                        var relativePath = virtualFilePath.TrimStart('/');
-                        using var stream = file.OpenReadStream();
-                        await memConnector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
-                        jobPath = relativePath;
-                    }
                     else
                     {
                         using var stream = file.OpenReadStream();

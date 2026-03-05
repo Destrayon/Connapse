@@ -8,7 +8,6 @@ Connapse uses **Connectors** to interface with different storage backends. A **C
 |------|----------------|------------|------|----------|
 | **MinIO** | No (global) | Polling (5 min) | Yes | Default — self-hosted S3-compatible storage |
 | **Filesystem** | `rootPath` | FileSystemWatcher | No (auto) | Local directories, shared drives |
-| **InMemory** | No | No | No | Ephemeral agent working memory |
 | **S3** | `bucketName`, `region` | Polling (5 min) | Yes | AWS S3 buckets (IAM-only) |
 | **AzureBlob** | `storageAccountName`, `containerName` | Polling (5 min) | Yes | Azure Blob Storage (managed identity) |
 
@@ -83,33 +82,6 @@ POST /api/containers
 ```
 
 > **Note:** Filesystem containers do not support manual sync — the live watcher handles everything automatically.
-
----
-
-## InMemory
-
-The InMemory connector stores files in process memory. All data is lost when the application restarts.
-
-**How it works:**
-- Files stored in a `ConcurrentDictionary` keyed by path
-- Same connector instance reused for the lifetime of the container (singleton per container ID)
-- Ephemeral containers are swept on startup (all documents/folders deleted)
-
-**Use cases:**
-- Agent working memory — temporary RAG context for an active session
-- Testing and development
-- Short-lived data that doesn't need persistence
-
-**API:**
-```http
-POST /api/containers
-{
-  "name": "agent-scratch",
-  "connectorType": "InMemory"
-}
-```
-
-> **Note:** InMemory containers do not support sync (no remote source to sync from).
 
 ---
 
@@ -281,7 +253,7 @@ POST /api/containers/test-connection
 }
 ```
 
-**Supported connectors:** S3, AzureBlob, MinIO. Filesystem and InMemory don't need connection tests.
+**Supported connectors:** S3, AzureBlob, MinIO. Filesystem doesn't need connection tests.
 
 **What gets tested:**
 - **S3:** `ListObjectsV2` with MaxKeys=5 — verifies bucket exists and credentials have read access
@@ -317,4 +289,3 @@ The `ConnectorWatcherService` manages file change detection for all containers.
 **Startup behavior:**
 - Existing Filesystem containers start watching automatically
 - Existing cloud containers start polling automatically
-- InMemory ephemeral containers are swept (all documents deleted)

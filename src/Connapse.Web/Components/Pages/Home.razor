@@ -125,7 +125,6 @@ else
                     <select class="form-select" @bind="newConnectorType">
                         <option value="@ConnectorType.MinIO">MinIO (S3-compatible object storage)</option>
                         <option value="@ConnectorType.Filesystem">Filesystem (local folder, live watch)</option>
-                        <option value="@ConnectorType.InMemory">In-Memory (ephemeral, session-only)</option>
                         <option value="@ConnectorType.S3">AWS S3 (IAM / DefaultAWSCredentials)</option>
                         <option value="@ConnectorType.AzureBlob">Azure Blob (managed identity)</option>
                     </select>
@@ -677,7 +676,6 @@ else
     {
         ConnectorType.MinIO      => "MinIO",
         ConnectorType.Filesystem => "Filesystem",
-        ConnectorType.InMemory   => "In-Memory",
         ConnectorType.S3         => "AWS S3",
         ConnectorType.AzureBlob  => "Azure Blob",
         _                        => type.ToString()

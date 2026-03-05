@@ -57,10 +57,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("connector_config")
                 .HasColumnType("jsonb");
 
-            entity.Property(e => e.IsEphemeral)
-                .HasColumnName("is_ephemeral")
-                .HasDefaultValue(false);
-
             entity.Property(e => e.SettingsOverridesJson)
                 .HasColumnName("settings_overrides")
                 .HasColumnType("jsonb");

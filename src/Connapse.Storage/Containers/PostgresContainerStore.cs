@@ -38,7 +38,6 @@ public class PostgresContainerStore(
             Description = request.Description?.Trim(),
             ConnectorType = (int)request.ConnectorType,
             ConnectorConfig = string.IsNullOrEmpty(request.ConnectorConfig) ? null : JsonDocument.Parse(request.ConnectorConfig),
-            IsEphemeral = request.ConnectorType == ConnectorType.InMemory,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -187,7 +186,6 @@ public class PostgresContainerStore(
             entity.Name,
             entity.Description,
             (ConnectorType)entity.ConnectorType,
-            entity.IsEphemeral,
             entity.CreatedAt,
             entity.UpdatedAt,
             documentCount,

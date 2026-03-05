@@ -32,15 +32,6 @@ public class ConnectorFactoryTests
     }
 
     [Fact]
-    public void Create_InMemory_ReturnsInMemoryConnector()
-    {
-        var container = MakeContainer(ConnectorType.InMemory);
-        var connector = _factory.Create(container);
-        connector.Type.Should().Be(ConnectorType.InMemory);
-        connector.SupportsLiveWatch.Should().BeFalse();
-    }
-
-    [Fact]
     public void Create_Filesystem_ValidConfig_ReturnsFilesystemConnector()
     {
         var config = JsonSerializer.Serialize(new { rootPath = "C:\\temp\\test" });
@@ -157,7 +148,6 @@ public class ConnectorFactoryTests
             Name: "test",
             Description: null,
             ConnectorType: type,
-            IsEphemeral: type == ConnectorType.InMemory,
             CreatedAt: DateTime.UtcNow,
             UpdatedAt: DateTime.UtcNow,
             ConnectorConfig: connectorConfig);

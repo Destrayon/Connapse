@@ -35,7 +35,7 @@ List all containers with their document counts.
 
 ### 3. container_delete
 
-Delete a container. MinIO and InMemory containers must be empty first. Filesystem, S3, and AzureBlob containers stop being indexed — underlying data is not deleted.
+Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers stop being indexed — underlying data is not deleted.
 
 **Parameters:**
 - `name` (string, required): Container name or ID to delete
