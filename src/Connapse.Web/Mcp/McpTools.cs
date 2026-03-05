@@ -109,22 +109,39 @@ public class McpTools
             effectiveMinScore = (float)searchSettings.CurrentValue.MinimumScore;
         }
 
+        Dictionary<string, string>? filters = null;
+        if (!string.IsNullOrWhiteSpace(path))
+            filters = new Dictionary<string, string> { ["pathPrefix"] = path };
+
         var options = new SearchOptions(
             Mode: parsedMode,
             TopK: effectiveTopK,
             MinScore: effectiveMinScore,
-            ContainerId: resolvedId.Value.ToString());
+            ContainerId: resolvedId.Value.ToString(),
+            Filters: filters);
 
         var searchService = services.GetRequiredService<IKnowledgeSearch>();
         var result = await searchService.SearchAsync(query, options, ct);
 
-        var resultText = $"Found {result.TotalMatches} results in {result.Duration.TotalMilliseconds:F0}ms:\n\n";
-        foreach (var hit in result.Hits)
+        if (result.Hits.Count == 0)
+            return "No results found.";
+
+        var resultText = $"Found {result.TotalMatches} result(s) in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):\n\n";
+        for (var i = 0; i < result.Hits.Count; i++)
         {
-            resultText += $"Content: {hit.Content}\n";
-            if (hit.Metadata.TryGetValue("FileName", out var fileName))
-                resultText += $"File: {fileName}\n";
-            resultText += "\n";
+            var hit = result.Hits[i];
+            var meta = hit.Metadata;
+            meta.TryGetValue("fileName", out var fileName);
+            meta.TryGetValue("path", out var docPath);
+            meta.TryGetValue("chunkIndex", out var chunkIndex);
+
+            resultText += $"--- Result {i + 1} ---\n";
+            resultText += $"Score: {hit.Score:F3}\n";
+            resultText += $"File: {fileName ?? "unknown"}\n";
+            resultText += $"Path: {docPath ?? "/"}\n";
+            resultText += $"Chunk: {chunkIndex ?? "0"}\n";
+            resultText += $"DocumentId: {hit.DocumentId}\n";
+            resultText += $"Content:\n{hit.Content}\n\n";
         }
 
         return resultText.TrimEnd();

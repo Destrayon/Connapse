@@ -80,7 +80,8 @@ public class KeywordSearchService
                     32) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
-                d.container_id as ContainerId
+                d.container_id as ContainerId,
+                d.path as Path
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
@@ -105,7 +106,8 @@ public class KeywordSearchService
                     { "contentType", r.ContentType ?? "" },
                     { "containerId", r.ContainerId.ToString() },
                     { "chunkIndex", r.ChunkIndex.ToString() },
-                    { "rawRank", r.Rank.ToString("F6") }
+                    { "rawRank", r.Rank.ToString("F6") },
+                    { "path", r.Path }
                 }))
             .ToList();
 
@@ -126,5 +128,6 @@ public class KeywordSearchService
         float Rank,
         string FileName,
         string? ContentType,
-        Guid ContainerId);
+        Guid ContainerId,
+        string Path);
 }
