@@ -36,8 +36,16 @@ public class KeywordSearchService
             return [];
         }
 
-        // Sanitize query for tsquery (replace special characters, handle phrases)
-        var tsQuery = SanitizeQuery(query);
+        // Build an OR-joined tsquery so any matching term produces results.
+        // plainto_tsquery uses AND (all terms required), which misses chunks
+        // that contain only some of the query terms.
+        var tsQuery = BuildOrQuery(query);
+
+        if (string.IsNullOrEmpty(tsQuery))
+        {
+            _logger.LogWarning("Query '{Query}' produced no searchable terms", query);
+            return [];
+        }
 
         // Build WHERE clause for filters
         // Use {N} format consistently for EF Core's SqlQueryRaw parameterization
@@ -76,23 +84,24 @@ public class KeywordSearchService
 
         var whereClause = string.Join(" AND ", whereClauses);
 
-        // Use ts_rank for relevance scoring
-        // ts_rank returns a float4 score based on TF-IDF-like ranking
-        // Note: all parameters use {N} format for SqlQueryRaw
+        // Use ts_rank for relevance scoring with to_tsquery (OR-joined terms).
+        // Chunks matching more terms rank higher naturally via ts_rank.
+        // The tsQuery string is already a valid tsquery expression (e.g. 'term1' | 'term2'),
+        // so we use to_tsquery which accepts pre-formatted tsquery syntax.
         var sql = @$"
             SELECT
                 c.id as ChunkId,
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                ts_rank(c.search_vector, plainto_tsquery('english', {{{0}}})) as Rank,
+                ts_rank(c.search_vector, to_tsquery('english', {{{0}}})) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.container_id as ContainerId
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
-              AND c.search_vector @@ plainto_tsquery('english', {{{0}}})
+              AND c.search_vector @@ to_tsquery('english', {{{0}}})
             ORDER BY Rank DESC
             LIMIT {{{topKIdx}}}";
 
@@ -142,19 +151,53 @@ public class KeywordSearchService
     }
 
     /// <summary>
-    /// Sanitizes user query for safe use with tsquery.
-    /// Removes special characters that could break the query.
+    /// Builds an OR-joined tsquery expression from user input.
+    /// Each term is sanitized and joined with '|' (OR) so that chunks
+    /// containing any of the query terms are returned. Chunks matching
+    /// more terms will rank higher via ts_rank.
     /// </summary>
-    private static string SanitizeQuery(string query)
+    internal static string BuildOrQuery(string query)
     {
-        // Remove characters that have special meaning in tsquery
-        // Keep alphanumeric, spaces, and common punctuation
-        var sanitized = new string(query
-            .Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c) || c == '-' || c == '_')
+        // Split on whitespace, sanitize each term, filter empties
+        var terms = query
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(SanitizeTerm)
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (terms.Count == 0)
+            return string.Empty;
+
+        // Join with OR operator for to_tsquery syntax
+        return string.Join(" | ", terms);
+    }
+
+    /// <summary>
+    /// Sanitizes a single term for safe use in a tsquery expression.
+    /// Strips characters that are not valid in tsquery lexemes.
+    /// </summary>
+    internal static string SanitizeTerm(string term)
+    {
+        // Strip leading/trailing dots and other punctuation that PostgreSQL
+        // FTS would discard (e.g. ".NET" -> "NET", "C#" -> "C", "node.js" -> "node.js")
+        // Keep internal dots/hyphens as they can form compound lexemes
+        var sanitized = new string(term
+            .Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.')
             .ToArray());
 
-        // Collapse multiple spaces
-        return string.Join(" ", sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        // Trim leading/trailing dots and hyphens (not valid at boundaries in tsquery)
+        sanitized = sanitized.Trim('.', '-', '_');
+
+        // Reject if empty or only special chars remain
+        if (string.IsNullOrEmpty(sanitized))
+            return string.Empty;
+
+        // Escape any single quotes (defense in depth — to_tsquery is parameterized,
+        // but the term flows through the 'english' dictionary as a lexeme)
+        sanitized = sanitized.Replace("'", "");
+
+        return sanitized;
     }
 
     // DTO for raw SQL query result
