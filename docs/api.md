@@ -728,7 +728,7 @@ Connapse exposes an MCP server for AI agent integration.
 |------|---------------------|----------|-------------|
 | `container_create` | `name` | `description` | Create a new container |
 | `container_list` | — | — | List all containers with document counts |
-| `container_delete` | `name` | — | Delete an empty container |
+| `container_delete` | `containerId` | — | Delete an empty container |
 | `upload_file` | `containerId`, `fileName`, `content` (base64) | `path`, `strategy` | Upload file to container |
 | `list_files` | `containerId` | `path` | List files/folders in container |
 | `delete_file` | `containerId`, `fileId` | — | Delete file from container |

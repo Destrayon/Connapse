@@ -62,20 +62,20 @@ public class McpTools
      Description("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
-        [Description("Container name or ID to delete")] string name,
+        [Description("Container ID or name")] string containerId,
         CancellationToken ct = default)
     {
         var containerStore = services.GetRequiredService<IContainerStore>();
 
-        var containerId = await ResolveContainerIdAsync(name, containerStore, ct);
-        if (containerId is null)
-            return $"Error: Container '{name}' not found.";
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
 
-        var deleted = await containerStore.DeleteAsync(containerId.Value, ct);
+        var deleted = await containerStore.DeleteAsync(resolvedId.Value, ct);
         if (!deleted)
-            return $"Error: Container '{name}' is not empty. Delete all files first.";
+            return $"Error: Container '{containerId}' is not empty. Delete all files first.";
 
-        return $"Container '{name}' deleted.";
+        return $"Container '{containerId}' deleted.";
     }
 
     [McpServerTool(Name = "search_knowledge", Destructive = false),

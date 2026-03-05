@@ -752,7 +752,7 @@ connapse reindex --container <name> [--force] [--no-detect-changes]
 |------|-----------|-------------|
 | `container_create` | `name` (required), `description?` | Create a new container |
 | `container_list` | (none) | List all containers with document counts |
-| `container_delete` | `name` (required) | Delete an empty container |
+| `container_delete` | `containerId` (required) | Delete an empty container |
 | `upload_file` | `containerId` (required), `fileName` (required), `content` (required, base64), `path?`, `strategy?` | Upload file to container |
 | `list_files` | `containerId` (required), `path?` | List files/folders in container |
 | `delete_file` | `containerId` (required), `fileId` (required) | Delete file from container |
