@@ -153,12 +153,35 @@ public class McpTools
         var folders = await folderStore.ListAsync(resolvedId.Value, parentPath: normalizedPath, ct);
         var documents = await documentStore.ListAsync(resolvedId.Value, pathPrefix: normalizedPath, ct: ct);
 
+        // Collect explicit folder names
+        var folderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in folders)
+        {
+            folderNames.Add(PathUtilities.GetFileName(folder.Path.TrimEnd('/')));
+        }
+
+        // Derive implicit folder names from document paths (for existing uploads
+        // that were created before folder entries were tracked)
+        foreach (var doc in documents)
+        {
+            var docParent = PathUtilities.GetParentPath(doc.Path);
+            if (string.Equals(docParent, normalizedPath, StringComparison.OrdinalIgnoreCase))
+                continue; // Direct child file, not a subfolder indicator
+
+            // Extract the immediate child directory name relative to normalizedPath
+            var relative = doc.Path[normalizedPath.Length..];
+            var slashIndex = relative.IndexOf('/');
+            if (slashIndex > 0)
+            {
+                folderNames.Add(relative[..slashIndex]);
+            }
+        }
+
         var text = $"Contents of {normalizedPath}:\n\n";
         var hasEntries = false;
 
-        foreach (var folder in folders)
+        foreach (var folderName in folderNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
         {
-            var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
             text += $"[DIR]  {folderName}/\n";
             hasEntries = true;
         }
@@ -215,6 +238,10 @@ public class McpTools
         var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
         using var stream = new MemoryStream(fileBytes);
         await fileSystem.SaveFileAsync(filePath, stream, ct);
+
+        // Create intermediate folder entries so list_files can discover them
+        var folderStore = services.GetRequiredService<IFolderStore>();
+        await EnsureIntermediateFoldersAsync(folderStore, resolvedId.Value, normalizedDest, ct);
 
         var documentId = Guid.NewGuid().ToString();
         var jobId = Guid.NewGuid().ToString();
@@ -297,5 +324,31 @@ public class McpTools
 
         var byName = await store.GetByNameAsync(nameOrId.ToLowerInvariant(), ct);
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
+    }
+
+    /// <summary>
+    /// Creates all intermediate folder entries for a given destination path.
+    /// For example, "/a/b/c/" creates "/a/", "/a/b/", and "/a/b/c/" if they don't exist.
+    /// Skips the root path "/".
+    /// </summary>
+    internal static async Task EnsureIntermediateFoldersAsync(
+        IFolderStore folderStore, Guid containerId, string normalizedFolderPath, CancellationToken ct)
+    {
+        if (normalizedFolderPath == "/")
+            return;
+
+        // Split into segments and build up each intermediate path
+        var segments = normalizedFolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var currentPath = "/";
+
+        foreach (var segment in segments)
+        {
+            currentPath += segment + "/";
+
+            if (!await folderStore.ExistsAsync(containerId, currentPath, ct))
+            {
+                await folderStore.CreateAsync(containerId, currentPath, ct);
+            }
+        }
     }
 }

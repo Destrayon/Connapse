@@ -288,6 +288,7 @@ public class CloudSyncTests
         var serviceProvider = Substitute.For<IServiceProvider>();
         serviceProvider.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         serviceProvider.GetService(typeof(IContainerStore)).Returns(Substitute.For<IContainerStore>());
+        serviceProvider.GetService(typeof(IFolderStore)).Returns(Substitute.For<IFolderStore>());
 
         // AsyncServiceScope (used by CreateAsyncScope extension) wraps IServiceScope internally.
         var scope = Substitute.For<IServiceScope>();
