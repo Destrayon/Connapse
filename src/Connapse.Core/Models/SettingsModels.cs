@@ -121,9 +121,9 @@ public record SearchSettings
     public int TopK { get; set; } = 10;
 
     /// <summary>
-    /// Reranking strategy: None | RRF | CrossEncoder
+    /// Reranking strategy: None | CrossEncoder
     /// </summary>
-    public string Reranker { get; set; } = "RRF";
+    public string Reranker { get; set; } = "None";
 
     /// <summary>
     /// RRF k-value for rank fusion (default: 60).

@@ -24,15 +24,14 @@
             <label class="form-label">Reranker</label>
             <InputSelect @bind-Value="localSettings.Reranker" class="form-select">
                 <option value="None">None</option>
-                <option value="RRF">RRF (Reciprocal Rank Fusion)</option>
                 <option value="CrossEncoder">Cross-Encoder</option>
             </InputSelect>
         </div>
 
         <div class="col-md-6">
-            <label class="form-label">RRF K-value</label>
+            <label class="form-label">Hybrid Fusion K-value</label>
             <InputNumber @bind-Value="localSettings.RrfK" class="form-control" />
-            <small class="form-text text-muted">For RRF fusion (typically 60)</small>
+            <small class="form-text text-muted">Controls RRF rank fusion in hybrid search (typically 60)</small>
         </div>
 
         @if (localSettings.Reranker == "CrossEncoder")
