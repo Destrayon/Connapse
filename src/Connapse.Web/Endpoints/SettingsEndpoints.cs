@@ -3,6 +3,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Vectors;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -104,6 +105,8 @@ public static class SettingsEndpoints
                 if (embeddingSettings != null)
                 {
                     var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
+                    var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+                    var indexLogger = loggerFactory.CreateLogger("SettingsEndpoints.IndexReconciliation");
                     _ = Task.Run(async () =>
                     {
                         try
@@ -112,7 +115,12 @@ public static class SettingsEndpoints
                             var mgr = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
                             await mgr.EnsureIndexesAsync();
                         }
-                        catch { /* Index reconciliation is best-effort; retried on next startup */ }
+                        catch (Exception ex)
+                        {
+                            // Index reconciliation is best-effort; retried on next startup.
+                            indexLogger.LogError(ex,
+                                "Background index reconciliation failed after embedding settings change");
+                        }
                     });
 
                     // Detect legacy vectors for the new model
@@ -246,6 +254,11 @@ public static class SettingsEndpoints
             CancellationToken ct) =>
         {
             var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
+            var reindexState = serviceProvider.GetRequiredService<ReindexStateService>();
+            var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+            var reindexLogger = loggerFactory.CreateLogger("SettingsEndpoints.Reindex");
+
+            reindexState.MarkStarted();
 
             // Run reindex asynchronously — don't block the HTTP request
             _ = Task.Run(async () =>
@@ -270,8 +283,14 @@ public static class SettingsEndpoints
                         ContainerId = request?.ContainerId,
                         DetectSettingsChanges = true
                     }, CancellationToken.None);
+
+                    reindexState.MarkCompleted();
                 }
-                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
+                catch (Exception ex)
+                {
+                    reindexLogger.LogError(ex, "Background reindex operation failed");
+                    reindexState.MarkFailed(ex.Message);
+                }
             });
 
             return Results.Ok(new { success = true, message = "Re-embedding started in background" });
@@ -281,12 +300,19 @@ public static class SettingsEndpoints
 
         // GET /api/settings/reindex/status - Get queue depth as a proxy for re-embedding progress
         group.MapGet("/reindex/status", (
-            [FromServices] IIngestionQueue queue) =>
+            [FromServices] IIngestionQueue queue,
+            [FromServices] ReindexStateService reindexState) =>
         {
+            var state = reindexState.Current;
             return Results.Ok(new
             {
                 queueDepth = queue.QueueDepth,
-                isActive = queue.QueueDepth > 0
+                isActive = queue.QueueDepth > 0,
+                status = state.Status.ToString(),
+                isFailed = state.Status == ReindexStatus.Failed,
+                lastError = state.LastError,
+                startedAt = state.StartedAt,
+                completedAt = state.CompletedAt
             });
         })
         .WithName("GetReindexStatus")
