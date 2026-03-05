@@ -198,7 +198,8 @@ public class PgVectorStore : IVectorStore
                 c.content as ""Content"",
                 c.chunk_index as ""ChunkIndex"",
                 d.file_name as ""FileName"",
-                d.content_type as ""ContentType""
+                d.content_type as ""ContentType"",
+                d.path as ""Path""
             FROM chunk_vectors cv
             INNER JOIN chunks c ON cv.chunk_id = c.id
             INNER JOIN documents d ON cv.document_id = d.id
@@ -222,7 +223,8 @@ public class PgVectorStore : IVectorStore
                 { "fileName", r.FileName },
                 { "contentType", r.ContentType ?? "" },
                 { "content", r.Content },
-                { "chunkIndex", r.ChunkIndex.ToString() }
+                { "chunkIndex", r.ChunkIndex.ToString() },
+                { "path", r.Path }
             }
         )).ToList();
 
@@ -243,7 +245,8 @@ public class PgVectorStore : IVectorStore
         string Content,
         int ChunkIndex,
         string FileName,
-        string? ContentType);
+        string? ContentType,
+        string Path);
 
     public async Task DeleteAsync(string id, CancellationToken ct = default)
     {
