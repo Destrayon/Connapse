@@ -15,20 +15,17 @@ public class IngestionWorker : BackgroundService
 {
     private readonly IIngestionQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IKnowledgeFileSystem _fileSystem;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionWorker> _logger;
 
     public IngestionWorker(
         IIngestionQueue queue,
         IServiceScopeFactory scopeFactory,
-        IKnowledgeFileSystem fileSystem,
         IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionWorker> logger)
     {
         _queue = queue;
         _scopeFactory = scopeFactory;
-        _fileSystem = fileSystem;
         _uploadSettings = uploadSettings;
         _logger = logger;
     }
@@ -184,8 +181,11 @@ public class IngestionWorker : BackgroundService
             }
             else
             {
-                // Legacy fallback: no container context — use global file system
-                fileStream = await _fileSystem.OpenFileAsync(job.Path, ct);
+                _logger.LogError(
+                    "Job {JobId} has no ContainerId. All ingestion jobs require container context since v0.3.0.",
+                    job.JobId);
+                return new IngestionResult(job.DocumentId, 0, TimeSpan.Zero,
+                    ["Job has no ContainerId. All ingestion requires container context."]);
             }
 
             using var disposableStream = fileStream;
