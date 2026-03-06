@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Identity;
@@ -163,25 +164,33 @@ public static class AuthEndpoints
 
         // GET /api/v1/auth/users — list all users (Admin only)
         group.MapGet("/users", async (
-            [FromServices] UserManager<ConnapseUser> userManager,
+            [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
-            var users = await userManager.Users
+            var users = await dbContext.Users
                 .OrderBy(u => u.CreatedAt)
                 .ToListAsync(ct);
 
-            var result = new List<UserListItem>(users.Count);
-            foreach (var user in users)
-            {
-                var roles = await userManager.GetRolesAsync(user);
-                result.Add(new UserListItem(
-                    user.Id,
-                    user.Email ?? "",
-                    user.DisplayName,
-                    [.. roles],
-                    user.CreatedAt,
-                    user.LastLoginAt));
-            }
+            // Batch-load all user→role mappings in one query (avoids N+1)
+            var rolesByUserId = await dbContext.UserRoles
+                .Join(
+                    dbContext.Roles,
+                    ur => ur.RoleId,
+                    r => r.Id,
+                    (ur, r) => new { ur.UserId, RoleName = r.Name! })
+                .ToListAsync(ct);
+
+            var roleLookup = rolesByUserId
+                .GroupBy(x => x.UserId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.RoleName).ToList());
+
+            var result = users.Select(u => new UserListItem(
+                u.Id,
+                u.Email ?? "",
+                u.DisplayName,
+                roleLookup.GetValueOrDefault(u.Id, []),
+                u.CreatedAt,
+                u.LastLoginAt)).ToList();
 
             return Results.Ok(result);
         })
