@@ -64,6 +64,11 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                 builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
                 builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
                 builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
+
+                // Disable rate limiting for integration tests — all requests share one IP
+                builder.UseSetting("RateLimiting:AuthPermitLimit", "100000");
+                builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
+                builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
             });
 
         AdminClient = Factory.CreateClient();
