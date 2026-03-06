@@ -15,7 +15,7 @@ All MCP endpoints require authentication. Use one of:
 
 Agent API keys are created in the admin panel under **Agents**.
 
-## Available Tools (7)
+## Available Tools (8)
 
 Tools are defined in `McpTools.cs` using `[McpServerTool]` attributes and are auto-discovered by the SDK.
 
@@ -67,7 +67,15 @@ Delete a file from a container. This also deletes all associated chunks and vect
 - `containerId` (string, required): Container ID or name
 - `fileId` (string, required): File (document) ID to delete
 
-### 7. search_knowledge
+### 7. get_document
+
+Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.
+
+**Parameters:**
+- `containerId` (string, required): Container ID or name
+- `fileId` (string, required): Document ID (UUID) or virtual path (e.g., `/docs/readme.md`)
+
+### 8. search_knowledge
 
 Search within a container using semantic, keyword, or hybrid search. Returns relevant document chunks with scores.
 
