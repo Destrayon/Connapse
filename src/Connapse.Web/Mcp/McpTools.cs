@@ -382,24 +382,47 @@ public class McpTools
         string content;
         try
         {
-            using var stream = await connector.ReadFileAsync(document.Path, ct);
+            using var rawStream = await connector.ReadFileAsync(document.Path, ct);
 
-            var extension = Path.GetExtension(document.FileName).ToLowerInvariant();
-            if (IsTextNative(extension))
+            // Connector streams (MinIO, S3, AzureBlob) are non-seekable network streams.
+            // Parsers like PdfPig require seekable streams, so buffer into memory first.
+            MemoryStream? buffered = null;
+            Stream stream;
+            if (!rawStream.CanSeek)
             {
-                using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-                content = await reader.ReadToEndAsync(ct);
+                buffered = new MemoryStream();
+                await rawStream.CopyToAsync(buffered, ct);
+                buffered.Position = 0;
+                stream = buffered;
             }
             else
             {
-                // Binary format — use a parser to extract text
-                var parsers = services.GetRequiredService<IEnumerable<IDocumentParser>>();
-                var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
-                if (parser is null)
-                    return $"Error: No parser available for '{extension}' files.";
+                stream = rawStream;
+            }
 
-                var parsed = await parser.ParseAsync(stream, document.FileName, ct);
-                content = parsed.Content;
+            try
+            {
+                var extension = Path.GetExtension(document.FileName).ToLowerInvariant();
+                if (IsTextNative(extension))
+                {
+                    using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                    content = await reader.ReadToEndAsync(ct);
+                }
+                else
+                {
+                    // Binary format — use a parser to extract text
+                    var parsers = services.GetRequiredService<IEnumerable<IDocumentParser>>();
+                    var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+                    if (parser is null)
+                        return $"Error: No parser available for '{extension}' files.";
+
+                    var parsed = await parser.ParseAsync(stream, document.FileName, ct);
+                    content = parsed.Content;
+                }
+            }
+            finally
+            {
+                buffered?.Dispose();
             }
         }
         catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException)
