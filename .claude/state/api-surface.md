@@ -586,6 +586,22 @@ public record UploadSettings    { MaxFileSizeMb, AllowedExtensions, DefaultPath,
 
 All endpoints (except `POST /api/v1/auth/token` and `POST /api/v1/auth/token/refresh`) require authentication.
 
+### Rate Limiting (v0.3.2)
+
+All API endpoints are rate-limited via ASP.NET Core's built-in `Microsoft.AspNetCore.RateLimiting` middleware. Three named policies:
+
+| Policy | Scope | Default Limit | Partition Key |
+|--------|-------|---------------|---------------|
+| `api` | All `/api/` endpoints | 200 req/min (authenticated), 10 req/min (anonymous) | User ID or IP |
+| `auth` | Login, register, CLI exchange, Identity API | 10 req/min | IP address |
+| `mcp` | MCP tool calls (`/mcp`) | 600 req/min | Agent key ID |
+
+**Excluded**: `/health` (liveness probe), `/hubs/ingestion` (SignalR WebSocket), Blazor SSR pages.
+
+Limits configurable via `appsettings.json` section `RateLimiting` or environment variables (`RateLimiting__ApiPermitLimit`).
+
+Rejection response: `429 Too Many Requests` with `Retry-After` header and JSON body `{ "error": "Rate limit exceeded. Try again later." }`.
+
 ### Auth Endpoints (`/api/v1/auth`)
 
 | Method | Path | Auth Required | Role | Description |

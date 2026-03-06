@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
+using Connapse.Web;
 
 namespace Connapse.Web.Endpoints;
 
@@ -53,7 +54,8 @@ public static class AuthEndpoints
         })
         .WithName("GetToken")
         .WithDescription("Exchange email/password for a JWT access token and refresh token")
-        .AllowAnonymous();
+        .AllowAnonymous()
+        .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
         // POST /api/v1/auth/token/refresh — rotate refresh token → new token pair
         group.MapPost("/token/refresh", async (
@@ -160,7 +162,8 @@ public static class AuthEndpoints
         })
         .WithName("ExchangeCliAuthCode")
         .WithDescription("Exchange a CLI PKCE authorization code for a personal access token")
-        .AllowAnonymous();
+        .AllowAnonymous()
+        .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
         // GET /api/v1/auth/users — list all users (Admin only)
         group.MapGet("/users", async (

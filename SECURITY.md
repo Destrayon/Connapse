@@ -41,7 +41,7 @@ v0.3.0 added cloud connector architecture with identity-based access control:
 
 These are known gaps to address before v1.0.0:
 
-- **No rate limiting**: APIs have no request throttling. Do not expose publicly without an upstream reverse proxy (nginx, Caddy) that enforces rate limits
+- **Rate limiting is basic**: Built-in ASP.NET Core rate limiting is configured with per-user and per-IP fixed-window policies. For high-traffic public deployments, consider an upstream reverse proxy (nginx, Caddy) or API gateway for more advanced throttling
 - **No encryption at rest**: Database and object storage data is stored unencrypted. Rely on OS/disk-level encryption (e.g., LUKS, BitLocker, encrypted EBS volumes) for sensitive deployments
 - **No MFA**: Multi-factor authentication is not yet implemented
 - **No traditional OIDC / SSO login**: OAuth/OIDC login via GitHub, Google, or Microsoft is not yet implemented. v0.3.0 added cloud identity linking (AWS IAM Identity Center + Azure AD) for cloud container access control, but user login is still password-based.
@@ -74,7 +74,7 @@ If you are self-hosting Connapse:
 - [ ] Change all default credentials in `docker-compose.yml` (Postgres password, MinIO secret key)
 - [ ] Use strong passwords (20+ characters, randomly generated)
 - [ ] Set `Cors:AllowedOrigins` to your actual domain — do not leave it as wildcard
-- [ ] Place a reverse proxy (nginx, Caddy, Traefik) in front that enforces rate limiting and TLS
+- [ ] Place a reverse proxy (nginx, Caddy, Traefik) in front for TLS termination (built-in rate limiting is active by default; tune limits via `RateLimiting` config section)
 - [ ] Keep `.env` and secret files out of version control
 - [ ] Enable OS-level encryption at rest for database and storage volumes
 - [ ] Restrict network access — expose only ports 80/443 to the internet
@@ -113,7 +113,8 @@ If you are self-hosting Connapse:
 | v0.1.0-alpha | Released | None | No |
 | v0.2.0 | Released (Beta) | Password + PATs + JWT + CLI PKCE | Self-hosted (trusted networks) |
 | v0.3.0 | Current (Beta) | + Cloud identity (AWS SSO + Azure AD) + IAM scope enforcement | Self-hosted (trusted networks) |
-| v1.0.0 | Future | + MFA + OIDC/SSO login + rate limiting + encryption at rest | Yes |
+| v0.3.2 | Current (Beta) | + Rate limiting (per-user, per-IP, per-agent) | Self-hosted (trusted networks) |
+| v1.0.0 | Future | + MFA + OIDC/SSO login + encryption at rest | Yes |
 
 ---
 

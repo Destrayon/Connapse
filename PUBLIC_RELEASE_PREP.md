@@ -62,7 +62,7 @@ Add prominent warning at top:
 **This project is in pre-alpha development and NOT production-ready.**
 
 - ❌ No authentication or authorization
-- ❌ No rate limiting
+- ❌ No rate limiting (added in v0.3.2)
 - ❌ Default development credentials included
 - ✅ Suitable for local development and testing only
 
@@ -166,7 +166,7 @@ dotnet test
   - Password-based auth
   - API key support
   - Role-based access control
-- 🔒 Rate limiting
+- ✅ Rate limiting (v0.3.2)
 - 📊 Usage analytics
 - 🌐 CORS configuration
 

@@ -16,6 +16,7 @@ using Connapse.Web.Components;
 using Connapse.Web.Endpoints;
 using Connapse.Web.Hubs;
 using Connapse.Core.Interfaces;
+using Connapse.Web;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
@@ -125,6 +126,9 @@ builder.Services.Configure<LlmSettings>(
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
 
+// Add rate limiting
+builder.Services.AddConnapseRateLimiting(builder.Configuration);
+
 // Add CORS policy — restrict to same-origin by default
 builder.Services.AddCors(options =>
 {
@@ -204,6 +208,7 @@ app.UseHttpsRedirection();
 app.UseCors();
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.UseAntiforgery();
@@ -218,7 +223,8 @@ app.MapGet("/health", () => Results.Ok());
 
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
-var api = app.MapGroup("").DisableAntiforgery();
+var api = app.MapGroup("").DisableAntiforgery()
+    .RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
 api.MapAuthEndpoints();
 api.MapCloudIdentityEndpoints();
 api.MapAgentEndpoints();
@@ -230,11 +236,16 @@ api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 
 // Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
+// Auth rate limit protects anonymous endpoints (login, register) from brute force.
+// Note: both the parent API policy and this auth policy apply (ASP.NET Core stacks them).
+// The auth policy (10/min per IP) is the binding constraint for anonymous callers.
 api.MapGroup("/api/v1/identity")
+    .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
     .MapIdentityApi<ConnapseUser>();
 
 // Map MCP server (Streamable HTTP + legacy SSE transport)
-app.MapMcp("/mcp").RequireAuthorization("RequireAgent");
+app.MapMcp("/mcp").RequireAuthorization("RequireAgent")
+    .RequireRateLimiting(RateLimitingExtensions.McpPolicy);
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");

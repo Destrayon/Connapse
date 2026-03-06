@@ -32,7 +32,7 @@ v0.3.0 adds cloud connector architecture with IAM-based access control, multi-pr
 - ✅ **Audit logging**
 - ✅ **Cloud identity linking** — AWS IAM Identity Center + Azure AD OAuth2+PKCE (v0.3.0)
 - ✅ **IAM-derived scope enforcement** — cloud permissions are source of truth (v0.3.0)
-- ⚠️ **Rate limiting** — not yet implemented (not planned for self-hosted deployments)
+- ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
 - ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
 
 See [SECURITY.md](SECURITY.md) for the full security policy.
