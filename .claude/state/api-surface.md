@@ -756,6 +756,7 @@ connapse reindex --container <name> [--force] [--no-detect-changes]
 | `upload_file` | `containerId` (required), `fileName` (required), `content` (required, base64), `path?`, `strategy?` | Upload file to container |
 | `list_files` | `containerId` (required), `path?` | List files/folders in container |
 | `delete_file` | `containerId` (required), `fileId` (required) | Delete file from container |
+| `get_document` | `containerId` (required), `fileId` (required, UUID or path) | Retrieve full document text content |
 | `search_knowledge` | `query` (required), `containerId` (required), `path?`, `mode?`, `topK?`, `minScore?` | Search within container |
 
 All tools accept container name or ID for `containerId` (resolved via name lookup).

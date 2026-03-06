@@ -1008,7 +1008,18 @@
                     Status: "Queued",
                     Id: doc.DocumentId);
 
-                if (!entries.Any(e => e.Id == doc.DocumentId))
+                // Deduplicate by ID or path — a cloud sync poll or filesystem watcher may have
+                // already inserted an entry for the same file with a different document ID.
+                var existingIdx = entries.FindIndex(e =>
+                    e.Id == doc.DocumentId ||
+                    (!e.IsFolder && string.Equals(e.Path, doc.Path, StringComparison.OrdinalIgnoreCase)));
+
+                if (existingIdx >= 0)
+                {
+                    // Update the existing entry to use the canonical upload document ID
+                    entries[existingIdx] = newEntry;
+                }
+                else
                 {
                     var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, doc.FileName, StringComparison.OrdinalIgnoreCase) > 0);
                     if (insertIdx < 0) insertIdx = entries.Count;

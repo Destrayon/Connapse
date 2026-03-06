@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using System.Text;
 
 namespace Connapse.Web.Mcp;
 
@@ -329,6 +330,130 @@ public class McpTools
             ? $"File '{document.FileName}' (ID: {fileId}) deleted from database, but the backing storage file could not be removed and may need manual cleanup."
             : $"File '{document.FileName}' (ID: {fileId}) deleted.";
     }
+
+    [McpServerTool(Name = "get_document", Destructive = false),
+     Description("Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.")]
+    public static async Task<string> GetDocument(
+        IServiceProvider services,
+        [Description("Container ID or name")] string containerId,
+        [Description("Document ID (UUID) or virtual path (e.g., '/docs/readme.md')")] string fileId,
+        CancellationToken ct = default)
+    {
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+
+        // Support lookup by path or by document ID
+        Document? document;
+        if (Guid.TryParse(fileId, out _))
+        {
+            document = await documentStore.GetAsync(fileId, ct);
+        }
+        else
+        {
+            var normalizedPath = PathUtilities.NormalizePath(fileId);
+            document = await documentStore.GetByPathAsync(resolvedId.Value, normalizedPath, ct);
+        }
+
+        if (document is null || document.ContainerId != resolvedId.Value.ToString())
+            return $"Error: Document '{fileId}' not found in this container.";
+
+        document.Metadata.TryGetValue("Status", out var status);
+        if (status is "Pending" or "Processing" or "Queued")
+            return $"Error: Document '{document.FileName}' is still being ingested (status: {status}). Try again later.";
+
+        if (status == "Failed")
+        {
+            document.Metadata.TryGetValue("ErrorMessage", out var errorMsg);
+            return $"Error: Document '{document.FileName}' failed ingestion: {errorMsg ?? "unknown error"}";
+        }
+
+        // Read the original file from storage and parse if needed
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        if (container is null)
+            return $"Error: Container '{containerId}' could not be loaded.";
+
+        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
+        var connector = connectorFactory.Create(container);
+
+        string content;
+        try
+        {
+            using var rawStream = await connector.ReadFileAsync(document.Path, ct);
+
+            // Connector streams (MinIO, S3, AzureBlob) are non-seekable network streams.
+            // Parsers like PdfPig require seekable streams, so buffer into memory first.
+            MemoryStream? buffered = null;
+            Stream stream;
+            if (!rawStream.CanSeek)
+            {
+                buffered = new MemoryStream();
+                await rawStream.CopyToAsync(buffered, ct);
+                buffered.Position = 0;
+                stream = buffered;
+            }
+            else
+            {
+                stream = rawStream;
+            }
+
+            try
+            {
+                var extension = Path.GetExtension(document.FileName).ToLowerInvariant();
+                if (IsTextNative(extension))
+                {
+                    using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                    content = await reader.ReadToEndAsync(ct);
+                }
+                else
+                {
+                    // Binary format — use a parser to extract text
+                    var parsers = services.GetRequiredService<IEnumerable<IDocumentParser>>();
+                    var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+                    if (parser is null)
+                        return $"Error: No parser available for '{extension}' files.";
+
+                    var parsed = await parser.ParseAsync(stream, document.FileName, ct);
+                    content = parsed.Content;
+                }
+            }
+            finally
+            {
+                buffered?.Dispose();
+            }
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException)
+        {
+            return $"Error: The backing file for '{document.FileName}' could not be read from storage.";
+        }
+        finally
+        {
+            (connector as IDisposable)?.Dispose();
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+            return $"Document '{document.FileName}' exists but contains no readable text content.";
+
+        var header = $"Document: {document.FileName}\n" +
+                     $"Path: {document.Path}\n" +
+                     $"ID: {document.Id}\n" +
+                     $"Size: {document.SizeBytes:N0} bytes\n" +
+                     $"Created: {document.CreatedAt:u}\n" +
+                     $"---\n";
+
+        return header + content;
+    }
+
+    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".markdown", ".csv", ".log",
+        ".json", ".xml", ".yaml", ".yml"
+    };
+
+    private static bool IsTextNative(string extension) => TextExtensions.Contains(extension);
 
     // Helpers
     private static async Task<Guid?> ResolveContainerIdAsync(string nameOrId, IContainerStore store, CancellationToken ct)
