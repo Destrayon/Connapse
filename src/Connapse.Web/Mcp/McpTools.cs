@@ -127,7 +127,10 @@ public class McpTools
         if (result.Hits.Count == 0)
             return "No results found.";
 
-        var resultText = $"Found {result.TotalMatches} result(s) in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):\n\n";
+        var countSummary = result.Hits.Count < result.TotalMatches
+            ? $"Showing {result.Hits.Count} of {result.TotalMatches} matching chunk(s)"
+            : $"Found {result.TotalMatches} result(s)";
+        var resultText = $"{countSummary} in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):\n\n";
         for (var i = 0; i < result.Hits.Count; i++)
         {
             var hit = result.Hits[i];

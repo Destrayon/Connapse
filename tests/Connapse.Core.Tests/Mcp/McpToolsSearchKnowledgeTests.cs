@@ -150,6 +150,44 @@ public class McpToolsSearchKnowledgeTests
         result.Should().Contain("Chunk: 0");
     }
 
+    [Fact]
+    public async Task SearchKnowledge_TruncatedResults_ShowsTotalMatchCount()
+    {
+        var hits = new List<SearchHit>
+        {
+            new("c1", "d1", "First", 0.9f, new Dictionary<string, string>
+            {
+                { "fileName", "a.txt" }, { "path", "/a.txt" }, { "chunkIndex", "0" }
+            })
+        };
+        _searchService.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new SearchResult(hits, 15, TimeSpan.FromMilliseconds(5)));
+
+        var result = await McpTools.SearchKnowledge(
+            _services, "query", ContainerId.ToString());
+
+        result.Should().Contain("Showing 1 of 15 matching chunk(s)");
+    }
+
+    [Fact]
+    public async Task SearchKnowledge_AllResultsReturned_ShowsFoundCount()
+    {
+        var hits = new List<SearchHit>
+        {
+            new("c1", "d1", "First", 0.9f, new Dictionary<string, string>
+            {
+                { "fileName", "a.txt" }, { "path", "/a.txt" }, { "chunkIndex", "0" }
+            })
+        };
+        _searchService.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new SearchResult(hits, 1, TimeSpan.FromMilliseconds(5)));
+
+        var result = await McpTools.SearchKnowledge(
+            _services, "query", ContainerId.ToString());
+
+        result.Should().Contain("Found 1 result(s)");
+    }
+
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),
         Name: "test",
