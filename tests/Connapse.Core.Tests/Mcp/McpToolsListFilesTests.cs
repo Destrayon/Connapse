@@ -130,6 +130,23 @@ public class McpToolsListFilesTests
         count.Should().Be(1);
     }
 
+    [Fact]
+    public async Task ListFiles_IncludesDocumentIdInFileEntries()
+    {
+        var docId = Guid.NewGuid();
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document>
+            {
+                MakeDocument("/notes.md", "notes.md", docId)
+            });
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+
+        result.Should().Contain($"ID: {docId}");
+        result.Should().Contain($"[FILE] notes.md (1,024 bytes) ID: {docId}");
+    }
+
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),
         Name: "test",
@@ -138,8 +155,8 @@ public class McpToolsListFilesTests
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 
-    private static Document MakeDocument(string path, string fileName) => new(
-        Id: Guid.NewGuid().ToString(),
+    private static Document MakeDocument(string path, string fileName, Guid? id = null) => new(
+        Id: (id ?? Guid.NewGuid()).ToString(),
         ContainerId: ContainerId.ToString(),
         FileName: fileName,
         ContentType: "application/octet-stream",

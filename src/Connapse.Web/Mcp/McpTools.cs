@@ -210,7 +210,7 @@ public class McpTools
             if (!string.Equals(docParent, normalizedPath, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            text += $"[FILE] {doc.FileName} ({doc.SizeBytes:N0} bytes)\n";
+            text += $"[FILE] {doc.FileName} ({doc.SizeBytes:N0} bytes) ID: {doc.Id}\n";
             hasEntries = true;
         }
 
