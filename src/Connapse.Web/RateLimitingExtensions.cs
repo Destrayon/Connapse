@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using Connapse.Core.Utilities;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Connapse.Web;
@@ -49,7 +50,7 @@ public static class RateLimitingExtensions
                 logger.LogWarning(
                     "Rate limit exceeded for {RemoteIp} on {Path}",
                     context.HttpContext.Connection.RemoteIpAddress,
-                    context.HttpContext.Request.Path);
+                    LogSanitizer.Sanitize(context.HttpContext.Request.Path.Value));
 
                 await context.HttpContext.Response.WriteAsJsonAsync(
                     new { error = "Rate limit exceeded. Try again later." },
