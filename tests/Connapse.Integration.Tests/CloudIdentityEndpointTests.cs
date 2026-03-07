@@ -76,7 +76,7 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
     {
         // Act: Try to disconnect AWS identity that doesn't exist
         var response = await fixture.AdminClient.DeleteAsync(
-            "/api/v1/auth/cloud/disconnect/AWS");
+            "/api/v1/auth/cloud/AWS");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
