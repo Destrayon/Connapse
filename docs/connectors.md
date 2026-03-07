@@ -282,7 +282,8 @@ The `ConnectorWatcherService` manages file change detection for all containers.
   "batchId": "abc123",
   "totalFiles": 42,
   "enqueuedCount": 5,
-  "skippedCount": 37
+  "skippedCount": 37,
+  "message": "Sync complete: 5 enqueued, 37 skipped"
 }
 ```
 
