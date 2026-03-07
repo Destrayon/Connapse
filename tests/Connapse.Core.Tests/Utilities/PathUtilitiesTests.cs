@@ -3,6 +3,7 @@ using FluentAssertions;
 
 namespace Connapse.Core.Tests.Utilities;
 
+[Trait("Category", "Unit")]
 public class PathUtilitiesTests
 {
     // ── IsValidContainerName ──────────────────────────────────────────
