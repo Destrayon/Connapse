@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
-[![Tests](https://img.shields.io/badge/tests-457%20passing-success)](https://github.com/Destrayon/Connapse/actions)
+[![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Destrayon/Connapse/badges/tests.json)](https://github.com/Destrayon/Connapse/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)

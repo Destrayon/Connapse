@@ -12,6 +12,8 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # GitHub runners have Docker pre-installed - Testcontainers will use it automatically
     # Ollama is installed directly on the runner for embedding generation
 
@@ -78,6 +80,42 @@ jobs:
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Generate test badge
+      if: always() && github.ref == 'refs/heads/main'
+      run: |
+        # Parse pass/fail counts from TRX files
+        PASSED=0
+        FAILED=0
+        for trx in $(find . -name '*.trx' -type f); do
+          P=$(grep -oP 'passed="\K[0-9]+' "$trx" | head -1)
+          F=$(grep -oP 'failed="\K[0-9]+' "$trx" | head -1)
+          PASSED=$((PASSED + ${P:-0}))
+          FAILED=$((FAILED + ${F:-0}))
+        done
+        TOTAL=$((PASSED + FAILED))
+
+        if [ "$FAILED" -gt 0 ]; then
+          MESSAGE="${PASSED}/${TOTAL} passing"
+          COLOR="red"
+        else
+          MESSAGE="${PASSED} passing"
+          COLOR="brightgreen"
+        fi
+
+        mkdir -p .badges
+        echo "{\"schemaVersion\":1,\"label\":\"tests\",\"message\":\"${MESSAGE}\",\"color\":\"${COLOR}\"}" > .badges/tests.json
+
+    - name: Publish test badge
+      if: always() && github.ref == 'refs/heads/main'
+      run: |
+        cd .badges
+        git init --initial-branch badges
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add tests.json
+        git commit -m "Update test badge"
+        git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
   code-quality:
     runs-on: ubuntu-latest
