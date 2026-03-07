@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Storage.Vectors;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -457,6 +458,66 @@ public class McpTools
     };
 
     private static bool IsTextNative(string extension) => TextExtensions.Contains(extension);
+
+    [McpServerTool(Name = "container_stats", Destructive = false),
+     Description("Get statistics for a container: document counts by status, chunk count, storage size, embedding model, and last indexed time.")]
+    public static async Task<string> ContainerStats(
+        IServiceProvider services,
+        [Description("Container ID or name")] string containerId,
+        CancellationToken ct = default)
+    {
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        if (container is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+        var stats = await documentStore.GetContainerStatsAsync(resolvedId.Value, ct);
+
+        var modelDiscovery = services.GetRequiredService<VectorModelDiscovery>();
+        var models = await modelDiscovery.GetModelsAsync(resolvedId.Value, ct);
+
+        var text = $"Container: {container.Name}\n";
+        text += $"Type: {container.ConnectorType}\n";
+
+        // Status breakdown only when there are non-ready documents
+        if (stats.ProcessingCount > 0 || stats.FailedCount > 0)
+            text += $"Documents: {stats.DocumentCount} ({stats.ReadyCount} ready, {stats.ProcessingCount} processing, {stats.FailedCount} failed)\n";
+        else
+            text += $"Documents: {stats.DocumentCount}\n";
+
+        text += $"Chunks: {stats.TotalChunks:N0}\n";
+        text += $"Storage: {FormatBytes(stats.TotalSizeBytes)}\n";
+
+        if (models.Count > 0)
+        {
+            var primary = models[0];
+            text += $"Embedding model: {primary.ModelId} ({primary.Dimensions} dims, {primary.VectorCount:N0} vectors)\n";
+        }
+        else
+        {
+            text += "Embedding model: none\n";
+        }
+
+        text += stats.LastIndexedAt.HasValue
+            ? $"Last indexed: {stats.LastIndexedAt.Value:u}\n"
+            : "Last indexed: never\n";
+        text += $"Created: {container.CreatedAt:u}";
+
+        return text;
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):F1} GB"
+    };
 
     // Helpers
     private static async Task<Guid?> ResolveContainerIdAsync(string nameOrId, IContainerStore store, CancellationToken ct)

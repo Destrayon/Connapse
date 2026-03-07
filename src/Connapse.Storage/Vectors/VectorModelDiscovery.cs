@@ -18,7 +18,7 @@ public class VectorModelDiscovery(
     /// Returns information about each distinct embedding model in the store,
     /// optionally filtered by container.
     /// </summary>
-    public async Task<IReadOnlyList<EmbeddingModelInfo>> GetModelsAsync(
+    public virtual async Task<IReadOnlyList<EmbeddingModelInfo>> GetModelsAsync(
         Guid? containerId = null, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);

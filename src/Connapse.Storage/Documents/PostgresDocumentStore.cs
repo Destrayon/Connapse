@@ -147,6 +147,39 @@ public class PostgresDocumentStore : IDocumentStore
         return entity is null ? null : MapToModel(entity);
     }
 
+    public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var stats = await context.Documents
+            .AsNoTracking()
+            .Where(d => d.ContainerId == containerId)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                DocumentCount = g.Count(),
+                ReadyCount = g.Count(d => d.Status == "Ready"),
+                ProcessingCount = g.Count(d => d.Status == "Processing" || d.Status == "Pending" || d.Status == "Queued"),
+                FailedCount = g.Count(d => d.Status == "Failed"),
+                TotalChunks = g.Sum(d => (long)d.ChunkCount),
+                TotalSizeBytes = g.Sum(d => d.SizeBytes),
+                LastIndexedAt = g.Max(d => d.LastIndexedAt)
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (stats is null)
+            return new ContainerStats(0, 0, 0, 0, 0, 0, null);
+
+        return new ContainerStats(
+            stats.DocumentCount,
+            stats.ReadyCount,
+            stats.ProcessingCount,
+            stats.FailedCount,
+            stats.TotalChunks,
+            stats.TotalSizeBytes,
+            stats.LastIndexedAt);
+    }
+
     private static Document MapToModel(DocumentEntity entity)
     {
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
