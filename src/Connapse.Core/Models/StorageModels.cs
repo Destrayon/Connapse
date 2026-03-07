@@ -43,6 +43,15 @@ public record Document(
     DateTime CreatedAt,
     Dictionary<string, string> Metadata);
 
+public record ContainerStats(
+    int DocumentCount,
+    int ReadyCount,
+    int ProcessingCount,
+    int FailedCount,
+    long TotalChunks,
+    long TotalSizeBytes,
+    DateTime? LastIndexedAt);
+
 public record VectorSearchResult(
     string Id,
     float Score,

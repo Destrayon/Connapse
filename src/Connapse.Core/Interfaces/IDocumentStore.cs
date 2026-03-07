@@ -8,4 +8,5 @@ public interface IDocumentStore
     Task DeleteAsync(string documentId, CancellationToken ct = default);
     Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
+    Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default);
 }
