@@ -132,17 +132,22 @@ public static class DocumentsEndpoints
         .WithDescription("Upload one or more files to a container")
         .RequireAuthorization("RequireEditor");
 
-        // GET /api/containers/{containerId}/files - List files and folders at path
+        // GET /api/containers/{containerId}/files - List files and folders at path (paginated)
         group.MapGet("/", async (
             HttpContext httpContext,
             Guid containerId,
             [FromQuery] string? path,
+            [FromQuery] int skip,
+            [FromQuery] int take,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IFolderStore folderStore,
             [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
+            if (skip < 0) skip = 0;
+            if (take <= 0 || take > 200) take = 50;
+
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
@@ -165,8 +170,8 @@ public static class DocumentsEndpoints
 
             var entries = new List<BrowseEntry>();
 
-            // Get explicit folders at this level
-            var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, ct);
+            // Get explicit folders at this level (load all — scope filtering is in-memory)
+            var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, take: int.MaxValue, ct: ct);
             foreach (var folder in folders)
             {
                 // Filter out folders outside allowed prefixes
@@ -184,8 +189,8 @@ public static class DocumentsEndpoints
                     Id: folder.Id));
             }
 
-            // Get documents at this path level
-            var documents = await documentStore.ListAsync(containerId, pathPrefix: browsePath, ct);
+            // Get documents at this path level (load all — parent-path and scope filtering is in-memory)
+            var documents = await documentStore.ListAsync(containerId, pathPrefix: browsePath, take: int.MaxValue, ct: ct);
             foreach (var doc in documents)
             {
                 // Only include documents directly at this level (not in subfolders)
@@ -215,10 +220,15 @@ public static class DocumentsEndpoints
                 return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
             });
 
-            return Results.Ok(entries);
+            // Paginate the combined, sorted result
+            var totalCount = entries.Count;
+            var paged = entries.Skip(skip).Take(take).ToList();
+            var hasMore = skip + take < totalCount;
+
+            return Results.Ok(new PagedResponse<BrowseEntry>(paged, totalCount, hasMore));
         })
         .WithName("ListFiles")
-        .WithDescription("List files and folders at a path within a container")
+        .WithDescription("List files and folders at a path within a container (?skip=0&take=50)")
         .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/files/{fileId} - Get file details

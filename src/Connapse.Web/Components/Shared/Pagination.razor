@@ -1,0 +1,55 @@
+@if (TotalCount > PageSize || PageSize != 50)
+{
+    <div class="pagination-bar">
+        <div class="pagination-info">
+            @{
+                var from = TotalCount == 0 ? 0 : CurrentPage * PageSize + 1;
+                var to = Math.Min((CurrentPage + 1) * PageSize, TotalCount);
+            }
+            <span class="text-muted small">@from–@to of @TotalCount</span>
+        </div>
+        <div class="pagination-controls">
+            <button class="btn btn-sm btn-outline-secondary" disabled="@(CurrentPage == 0)" @onclick="PreviousPage">
+                <span class="bi-chevron-left"></span> Prev
+            </button>
+            <span class="pagination-page small mx-2">Page @(CurrentPage + 1)</span>
+            <button class="btn btn-sm btn-outline-secondary" disabled="@(!HasMore)" @onclick="NextPage">
+                Next <span class="bi-chevron-right"></span>
+            </button>
+        </div>
+        <div class="pagination-size">
+            <select class="form-select form-select-sm" value="@PageSize" @onchange="OnPageSizeChanged">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public int CurrentPage { get; set; }
+    [Parameter] public int PageSize { get; set; } = 50;
+    [Parameter] public bool HasMore { get; set; }
+    [Parameter] public EventCallback<(int Page, int PageSize)> OnPageChanged { get; set; }
+
+    private async Task PreviousPage()
+    {
+        if (CurrentPage > 0)
+            await OnPageChanged.InvokeAsync((CurrentPage - 1, PageSize));
+    }
+
+    private async Task NextPage()
+    {
+        if (HasMore)
+            await OnPageChanged.InvokeAsync((CurrentPage + 1, PageSize));
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var newSize) && newSize > 0)
+            await OnPageChanged.InvokeAsync((0, newSize));
+    }
+}

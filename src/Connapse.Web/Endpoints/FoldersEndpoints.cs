@@ -109,7 +109,7 @@ public static class FoldersEndpoints
                 return Results.NotFound(new { error = $"Folder '{normalizedPath}' not found" });
 
             // Get documents before deletion so we can cancel jobs and clean up storage
-            var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, ct);
+            var documents = await documentStore.ListAsync(containerId, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
             var filePaths = documents.Select(d => d.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
 
             // Cancel any in-flight ingestion jobs for documents in this folder

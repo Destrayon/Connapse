@@ -68,7 +68,7 @@ public class ConnectorWatcherService : BackgroundService
         // Load all watchable containers on startup and start watchers/pollers
         await using var scope = _scopeFactory.CreateAsyncScope();
         var containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-        var containers = await containerStore.ListAsync(stoppingToken);
+        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: stoppingToken);
 
         foreach (var container in containers.Where(c => IsWatchableConnector(c.ConnectorType)))
         {
@@ -356,7 +356,7 @@ public class ConnectorWatcherService : BackgroundService
             var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
             // Load all existing documents in one query instead of 2 per-file round-trips.
-            var existingDocs = await documentStore.ListAsync(containerId, ct: ct);
+            var existingDocs = await documentStore.ListAsync(containerId, take: int.MaxValue, ct: ct);
             var existingByPath = existingDocs.ToDictionary(d => d.Path);
 
             int enqueued = 0;
@@ -453,7 +453,7 @@ public class ConnectorWatcherService : BackgroundService
             await using var scope = _scopeFactory.CreateAsyncScope();
             var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
             var folderStore = scope.ServiceProvider.GetRequiredService<IFolderStore>();
-            var existingDocs = await documentStore.ListAsync(containerId, ct: ct);
+            var existingDocs = await documentStore.ListAsync(containerId, take: int.MaxValue, ct: ct);
             var existingByPath = existingDocs.ToDictionary(d => d.Path);
 
             // Ensure folder records exist for all ancestor paths of remote files.
@@ -628,7 +628,7 @@ public class ConnectorWatcherService : BackgroundService
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-        var containers = await containerStore.ListAsync(ct);
+        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
 
         foreach (var container in containers.Where(c => c.ConnectorType == ConnectorType.Filesystem))
         {

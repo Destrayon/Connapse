@@ -72,16 +72,24 @@ public static class ContainersEndpoints
         .WithDescription("Create a new container for organizing files")
         .RequireAuthorization("RequireEditor");
 
-        // GET /api/containers - List all containers
+        // GET /api/containers - List containers (paginated)
         group.MapGet("/", async (
+            [FromQuery] int skip,
+            [FromQuery] int take,
             [FromServices] IContainerStore containerStore,
             CancellationToken ct) =>
         {
-            var containers = await containerStore.ListAsync(ct);
-            return Results.Ok(containers);
+            if (skip < 0) skip = 0;
+            if (take <= 0 || take > 200) take = 50;
+
+            var containers = await containerStore.ListAsync(skip, take + 1, ct);
+            var hasMore = containers.Count > take;
+            var items = hasMore ? containers.Take(take).ToList() : containers;
+
+            return Results.Ok(new PagedResponse<Container>(items, items.Count, hasMore));
         })
         .WithName("ListContainers")
-        .WithDescription("List all containers")
+        .WithDescription("List containers with pagination (?skip=0&take=50)")
         .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId} - Get container details
@@ -278,7 +286,7 @@ public static class ContainersEndpoints
             var connector = connectorFactory.Create(container);
             var remoteFiles = await connector.ListFilesAsync(ct: ct);
 
-            var existingDocs = await documentStore.ListAsync(containerId, ct: ct);
+            var existingDocs = await documentStore.ListAsync(containerId, take: int.MaxValue, ct: ct);
             var existingByPath = existingDocs.ToDictionary(d => d.Path);
 
             var batchId = Guid.NewGuid().ToString();

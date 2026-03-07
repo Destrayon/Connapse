@@ -80,6 +80,8 @@ public class PostgresDocumentStore : IDocumentStore
     public async Task<IReadOnlyList<Document>> ListAsync(
         Guid containerId,
         string? pathPrefix = null,
+        int skip = 0,
+        int take = 50,
         CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
@@ -95,6 +97,8 @@ public class PostgresDocumentStore : IDocumentStore
 
         var entities = await query
             .OrderByDescending(d => d.CreatedAt)
+            .Skip(skip)
+            .Take(take)
             .ToListAsync(ct);
 
         return entities.Select(MapToModel).ToList();

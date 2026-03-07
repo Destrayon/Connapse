@@ -165,17 +165,29 @@ public static class AuthEndpoints
         .AllowAnonymous()
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
-        // GET /api/v1/auth/users — list all users (Admin only)
+        // GET /api/v1/auth/users — list users (Admin only, paginated)
         group.MapGet("/users", async (
+            [FromQuery] int skip,
+            [FromQuery] int take,
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            if (skip < 0) skip = 0;
+            if (take <= 0 || take > 200) take = 50;
+
+            var totalCount = await dbContext.Users.CountAsync(ct);
+
             var users = await dbContext.Users
                 .OrderBy(u => u.CreatedAt)
+                .Skip(skip)
+                .Take(take)
                 .ToListAsync(ct);
 
-            // Batch-load all user→role mappings in one query (avoids N+1)
+            var userIds = users.Select(u => u.Id).ToList();
+
+            // Batch-load role mappings only for this page of users
             var rolesByUserId = await dbContext.UserRoles
+                .Where(ur => userIds.Contains(ur.UserId))
                 .Join(
                     dbContext.Roles,
                     ur => ur.RoleId,
@@ -187,7 +199,7 @@ public static class AuthEndpoints
                 .GroupBy(x => x.UserId)
                 .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.RoleName).ToList());
 
-            var result = users.Select(u => new UserListItem(
+            var items = users.Select(u => new UserListItem(
                 u.Id,
                 u.Email ?? "",
                 u.DisplayName,
@@ -195,10 +207,10 @@ public static class AuthEndpoints
                 u.CreatedAt,
                 u.LastLoginAt)).ToList();
 
-            return Results.Ok(result);
+            return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, skip + take < totalCount));
         })
         .WithName("ListUsers")
-        .WithDescription("List all users (Admin only)")
+        .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
         .RequireAuthorization("RequireAdmin");
 
         // PUT /api/v1/auth/users/{id}/roles — assign roles to a user (Admin only)
