@@ -1,19 +1,21 @@
 <p align="center">
-  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="500" />
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="450" />
 </p>
 
 <p align="center">
   <em>Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.</em>
 </p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
-[![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
-[![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Destrayon/Connapse/badges/tests.json)](https://github.com/Destrayon/Connapse/actions)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![GitHub Issues](https://img.shields.io/github/issues/Destrayon/Connapse)](https://github.com/Destrayon/Connapse/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/Destrayon/Connapse?style=social)](https://github.com/Destrayon/Connapse/stargazers)
-[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://github.com/Destrayon/Connapse#-quick-start)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4" alt=".NET"></a>
+  <a href="https://github.com/Destrayon/Connapse/actions"><img src="https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build" alt="Build"></a>
+  <a href="https://github.com/Destrayon/Connapse/actions"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Destrayon/Connapse/badges/tests.json" alt="Tests"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+  <a href="https://github.com/Destrayon/Connapse/issues"><img src="https://img.shields.io/github/issues/Destrayon/Connapse" alt="GitHub Issues"></a>
+  <a href="https://github.com/Destrayon/Connapse/stargazers"><img src="https://img.shields.io/github/stars/Destrayon/Connapse?style=social" alt="GitHub Stars"></a>
+  <a href="https://github.com/Destrayon/Connapse#-quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker"></a>
+</p>
 
 ---
 
