@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json.Serialization;
 using Connapse.Core;
 using Connapse.Identity;
@@ -90,7 +91,10 @@ builder.Services.AddSingleton<ReindexStateService>();
 // Add MCP server (official SDK)
 builder.Services.AddMcpServer(options =>
 {
-    options.ServerInfo = new() { Name = "Connapse", Version = "0.3.2" };
+    var assemblyVersion = typeof(Program).Assembly
+        .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? "0.0.0";
+    options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
 })
 .WithHttpTransport()
 .WithToolsFromAssembly();
