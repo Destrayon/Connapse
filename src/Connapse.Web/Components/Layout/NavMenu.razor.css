@@ -21,9 +21,14 @@
 }
 
 .navbar-brand {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--accent) !important;
+    display: flex;
+    align-items: center;
+    padding: 0;
+}
+
+.navbar-logo {
+    height: 36px;
+    width: auto;
 }
 
 .nav-icon {

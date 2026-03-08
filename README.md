@@ -1,6 +1,10 @@
-# Connapse
+<p align="left">
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="500" />
+</p>
 
-> Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.
+<p align="center">
+  <em>Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.</em>
+</p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
