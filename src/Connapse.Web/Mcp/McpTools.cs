@@ -225,29 +225,46 @@ public class McpTools
     }
 
     [McpServerTool(Name = "upload_file"),
-     Description("Upload a file to a container. The file will be parsed, chunked, embedded, and made searchable.")]
+     Description("Upload a file to a container. The file will be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
     public static async Task<string> UploadFile(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
-        [Description("Base64-encoded file content")] string content,
-        [Description("Original file name with extension")] string fileName,
+        [Description("Base64-encoded file content. For binary files (PDF, DOCX, images). Mutually exclusive with textContent.")] string? content = null,
+        [Description("Raw text content for text-based files (Markdown, TXT, CSV, JSON, etc.). Mutually exclusive with content.")] string? textContent = null,
+        [Description("Original file name with extension")] string fileName = "",
         [Description("Destination folder path (e.g., '/docs/2026/')")] string? path = null,
         [Description("Chunking strategy: Semantic, FixedSize, or Recursive. Default: Semantic")] string? strategy = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrEmpty(fileName))
+            return "Error: 'fileName' is required.";
+
+        if (content is not null && textContent is not null)
+            return "Error: Provide either 'content' or 'textContent', not both.";
+
+        if (content is null && textContent is null)
+            return "Error: Provide either 'content' (base64) or 'textContent' (raw text).";
+
         var containerStore = services.GetRequiredService<IContainerStore>();
         var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
 
         byte[] fileBytes;
-        try
+        if (textContent is not null)
         {
-            fileBytes = Convert.FromBase64String(content);
+            fileBytes = System.Text.Encoding.UTF8.GetBytes(textContent);
         }
-        catch
+        else
         {
-            return "Error: 'content' must be valid base64-encoded data.";
+            try
+            {
+                fileBytes = Convert.FromBase64String(content!);
+            }
+            catch
+            {
+                return "Error: 'content' must be valid base64-encoded data.";
+            }
         }
 
         var parsedStrategy = Enum.TryParse<ChunkingStrategy>(strategy, ignoreCase: true, out var s)
