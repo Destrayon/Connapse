@@ -69,7 +69,7 @@ public class CloudSyncTests
             .Returns([MakeRemoteFile("/docs/report.pdf")]);
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Document>());
 
         await _service.CloudSyncAsync(container, CancellationToken.None);
@@ -90,7 +90,7 @@ public class CloudSyncTests
             .Returns(Array.Empty<ConnectorFile>()); // remote is empty
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new[] { doc });
         _documentStore.GetByPathAsync(Guid.Parse(container.Id), "/docs/old-file.txt", Arg.Any<CancellationToken>())
             .Returns(doc);
@@ -113,7 +113,7 @@ public class CloudSyncTests
             .Returns(new[] { remoteFile });
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new[] { doc });
 
         // First poll — builds the snapshot, but file already in DB so no enqueue
@@ -135,7 +135,7 @@ public class CloudSyncTests
 
         var connector = Substitute.For<IConnector>();
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new[] { doc });
 
         // First poll — builds snapshot with originalTime
@@ -163,7 +163,7 @@ public class CloudSyncTests
 
         var connector = Substitute.For<IConnector>();
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new[] { doc });
 
         // First poll — builds snapshot
@@ -192,7 +192,7 @@ public class CloudSyncTests
             .Returns(new[] { MakeRemoteFile("/docs/existing.txt") });
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new[] { doc });
 
         await _service.CloudSyncAsync(container, CancellationToken.None);
@@ -237,7 +237,7 @@ public class CloudSyncTests
             .Returns(new[] { MakeRemoteFile("/data/image.png", null, 2048) });
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Document>());
 
         await _service.CloudSyncAsync(container, CancellationToken.None);
@@ -256,7 +256,7 @@ public class CloudSyncTests
             .Returns(new[] { MakeRemoteFile("/new-file.md") });
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Document>());
 
         await _service.CloudSyncAsync(container, CancellationToken.None);
@@ -275,7 +275,7 @@ public class CloudSyncTests
             .Returns(Array.Empty<ConnectorFile>());
 
         _connectorFactory.Create(container).Returns(connector);
-        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _documentStore.ListAsync(Guid.Parse(container.Id), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<Document>());
 
         await _service.CloudSyncAsync(container, CancellationToken.None);

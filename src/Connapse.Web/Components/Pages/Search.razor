@@ -190,7 +190,7 @@
     {
         try
         {
-            containers = (await ContainerStore.ListAsync()).ToList();
+            containers = (await ContainerStore.ListAsync(take: int.MaxValue)).ToList();
 
             // Auto-select the first container if there's only one
             if (containers.Count == 1)

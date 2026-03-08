@@ -43,7 +43,7 @@ public class McpTools
         CancellationToken ct = default)
     {
         var containerStore = services.GetRequiredService<IContainerStore>();
-        var containers = await containerStore.ListAsync(ct);
+        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
 
         if (containers.Count == 0)
             return "No containers found.";
@@ -172,8 +172,8 @@ public class McpTools
 
         var normalizedPath = PathUtilities.NormalizeFolderPath(folderPath);
 
-        var folders = await folderStore.ListAsync(resolvedId.Value, parentPath: normalizedPath, ct);
-        var documents = await documentStore.ListAsync(resolvedId.Value, pathPrefix: normalizedPath, ct: ct);
+        var folders = await folderStore.ListAsync(resolvedId.Value, parentPath: normalizedPath, take: int.MaxValue, ct: ct);
+        var documents = await documentStore.ListAsync(resolvedId.Value, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
 
         // Collect explicit folder names
         var folderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -176,7 +176,7 @@ public static class CloudIdentityEndpoints
 
                 try
                 {
-                    var containers = await containerStore.ListAsync(ct);
+                    var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
                     foreach (var c in containers.Where(c => c.ConnectorType == targetConnectorType))
                         scopeCache.Invalidate(userId.Value, Guid.Parse(c.Id));
                 }

@@ -97,7 +97,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetContainers_NoAuth_Returns401()
     {
-        var response = await _anonClient.GetAsync("/api/containers");
+        var response = await _anonClient.GetAsync("/api/containers?skip=0&take=50");
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -119,7 +119,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetUsers_NoAuth_Returns401()
     {
-        var response = await _anonClient.GetAsync("/api/v1/auth/users");
+        var response = await _anonClient.GetAsync("/api/v1/auth/users?skip=0&take=50");
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -131,7 +131,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
         var token = await GetTokenAsync(ViewerEmail, ViewerPassword);
         using var client = CreateClientWithToken(token);
 
-        var response = await client.GetAsync("/api/containers");
+        var response = await client.GetAsync("/api/containers?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -165,7 +165,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
         var token = await GetTokenAsync(ViewerEmail, ViewerPassword);
         using var client = CreateClientWithToken(token);
 
-        var response = await client.GetAsync("/api/v1/auth/users");
+        var response = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -203,7 +203,7 @@ public class AuthorizationIntegrationTests : IAsyncLifetime
         var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateClientWithToken(token);
 
-        var response = await client.GetAsync("/api/v1/auth/users");
+        var response = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

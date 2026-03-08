@@ -43,6 +43,8 @@ public class PostgresFolderStore(
     public async Task<IReadOnlyList<Folder>> ListAsync(
         Guid containerId,
         string? parentPath = null,
+        int skip = 0,
+        int take = 50,
         CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
@@ -60,7 +62,7 @@ public class PostgresFolderStore(
         {
             var relative = e.Path[normalizedParent.Length..].TrimEnd('/');
             return relative.Length > 0 && !relative.Contains('/');
-        }).ToList();
+        }).Skip(skip).Take(take).ToList();
 
         return immediateChildren.Select(e =>
             new Folder(e.Id.ToString(), e.ContainerId.ToString(), e.Path, e.CreatedAt)).ToList();

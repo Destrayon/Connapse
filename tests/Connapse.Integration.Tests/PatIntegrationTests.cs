@@ -196,7 +196,7 @@ public class PatIntegrationTests : IAsyncLifetime
 
         // Attempt to use the now-revoked token
         using var patClient = CreatePatClient(created.Token);
-        var response = await patClient.GetAsync("/api/containers");
+        var response = await patClient.GetAsync("/api/containers?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -212,7 +212,7 @@ public class PatIntegrationTests : IAsyncLifetime
         var created = await createResponse.Content.ReadFromJsonAsync<PatCreateResponse>(JsonOptions);
 
         using var patClient = CreatePatClient(created!.Token);
-        var response = await patClient.GetAsync("/api/containers");
+        var response = await patClient.GetAsync("/api/containers?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }

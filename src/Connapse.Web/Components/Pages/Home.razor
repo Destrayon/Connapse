@@ -96,6 +96,13 @@ else
             </div>
         }
     </div>
+
+    <Connapse.Web.Components.Shared.Pagination
+        TotalCount="totalContainers"
+        CurrentPage="currentPage"
+        PageSize="pageSize"
+        HasMore="hasMoreContainers"
+        OnPageChanged="HandlePageChanged" />
 }
 
 @* Create Container Modal *@
@@ -358,6 +365,12 @@ else
     private bool isLoading = true;
     private string? errorMessage;
 
+    // Pagination state
+    private int currentPage;
+    private int pageSize = 50;
+    private int totalContainers;
+    private bool hasMoreContainers;
+
     // Create modal state
     private bool showCreateModal;
     private string newContainerName = "";
@@ -405,6 +418,13 @@ else
         await LoadContainers();
     }
 
+    private async Task HandlePageChanged((int Page, int PageSize) args)
+    {
+        currentPage = args.Page;
+        pageSize = args.PageSize;
+        await LoadContainers();
+    }
+
     private async Task LoadContainers()
     {
         isLoading = true;
@@ -412,7 +432,11 @@ else
 
         try
         {
-            containers = (await ContainerStore.ListAsync()).ToList();
+            var skip = currentPage * pageSize;
+            var result = await ContainerStore.ListAsync(skip, pageSize + 1);
+            hasMoreContainers = result.Count > pageSize;
+            containers = (hasMoreContainers ? result.Take(pageSize).ToList() : result.ToList());
+            totalContainers = hasMoreContainers ? skip + containers.Count + 1 : skip + containers.Count;
         }
         catch (Exception ex)
         {

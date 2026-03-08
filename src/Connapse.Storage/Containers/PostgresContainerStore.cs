@@ -78,13 +78,15 @@ public class PostgresContainerStore(
         return result is null ? null : MapToModel(result.Container, result.DocumentCount);
     }
 
-    public async Task<IReadOnlyList<Container>> ListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
         var results = await context.Containers
             .AsNoTracking()
             .OrderBy(c => c.Name)
+            .Skip(skip)
+            .Take(take)
             .Select(c => new { Container = c, DocumentCount = c.Documents.Count })
             .ToListAsync(ct);
 

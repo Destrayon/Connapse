@@ -33,11 +33,11 @@ public class McpToolsListFilesTests
 
         // Default: no explicit folders, no documents
         _folderStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Folder>());
 
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>());
 
         var services = Substitute.For<IServiceProvider>();
@@ -53,7 +53,7 @@ public class McpToolsListFilesTests
         // Documents exist at /research/competitive-landscape/report.pdf
         // but no folder entries exist
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
             {
                 MakeDocument("/research/competitive-landscape/report.pdf", "report.pdf")
@@ -69,7 +69,7 @@ public class McpToolsListFilesTests
     public async Task ListFiles_ShowsFilesAtCorrectLevel()
     {
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
             {
                 MakeDocument("/docs/readme.txt", "readme.txt")
@@ -85,7 +85,7 @@ public class McpToolsListFilesTests
     {
         // Explicit folder /alpha/ exists
         _folderStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Folder>
             {
                 new(Guid.NewGuid().ToString(), ContainerId.ToString(), "/alpha/", DateTime.UtcNow)
@@ -93,7 +93,7 @@ public class McpToolsListFilesTests
 
         // Document exists under /beta/ (no explicit folder entry)
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
             {
                 MakeDocument("/beta/file.txt", "file.txt")
@@ -110,14 +110,14 @@ public class McpToolsListFilesTests
     {
         // Explicit folder /research/ exists AND documents under /research/ exist
         _folderStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Folder>
             {
                 new(Guid.NewGuid().ToString(), ContainerId.ToString(), "/research/", DateTime.UtcNow)
             });
 
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
             {
                 MakeDocument("/research/doc.pdf", "doc.pdf")
@@ -135,7 +135,7 @@ public class McpToolsListFilesTests
     {
         var docId = Guid.NewGuid();
         _documentStore
-            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
             {
                 MakeDocument("/notes.md", "notes.md", docId)

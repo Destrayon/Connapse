@@ -84,13 +84,13 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
         var c2 = await CreateContainer("list-test-2");
 
         // Act
-        var response = await fixture.AdminClient.GetAsync("/api/containers");
+        var response = await fixture.AdminClient.GetAsync("/api/containers?skip=0&take=50");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var containers = await response.Content.ReadFromJsonAsync<List<ContainerDto>>(JsonOptions);
-        containers.Should().NotBeNull();
-        containers!.Should().Contain(c => c.Name == "list-test-1");
-        containers.Should().Contain(c => c.Name == "list-test-2");
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<ContainerDto>>(JsonOptions);
+        paged.Should().NotBeNull();
+        paged!.Items.Should().Contain(c => c.Name == "list-test-1");
+        paged.Items.Should().Contain(c => c.Name == "list-test-2");
 
         // Cleanup
         await fixture.AdminClient.DeleteAsync($"/api/containers/{c1.Id}");
@@ -264,12 +264,12 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
     {
         var container = await CreateContainer("browse-empty-test");
 
-        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files?skip=0&take=200");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var entries = await response.Content.ReadFromJsonAsync<List<BrowseEntryDto>>(JsonOptions);
-        entries.Should().NotBeNull();
-        entries!.Should().BeEmpty();
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<BrowseEntryDto>>(JsonOptions);
+        paged.Should().NotBeNull();
+        paged!.Items.Should().BeEmpty();
 
         await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
     }
@@ -289,12 +289,13 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
         await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
 
         // Act
-        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files");
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{container.Id}/files?skip=0&take=200");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var entries = await response.Content.ReadFromJsonAsync<List<BrowseEntryDto>>(JsonOptions);
-        entries.Should().NotBeNull();
-        entries!.Should().HaveCountGreaterThanOrEqualTo(2);
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<BrowseEntryDto>>(JsonOptions);
+        paged.Should().NotBeNull();
+        var entries = paged!.Items;
+        entries.Should().HaveCountGreaterThanOrEqualTo(2);
 
         // Folders should come first
         var folderEntries = entries.Where(e => e.IsFolder).ToList();

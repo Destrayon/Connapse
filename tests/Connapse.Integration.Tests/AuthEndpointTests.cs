@@ -359,7 +359,7 @@ public class AuthEndpointTests : IAsyncLifetime
     [Fact]
     public async Task ListUsers_Unauthenticated_Returns401()
     {
-        var response = await _anonClient.GetAsync("/api/v1/auth/users");
+        var response = await _anonClient.GetAsync("/api/v1/auth/users?skip=0&take=50");
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -369,7 +369,7 @@ public class AuthEndpointTests : IAsyncLifetime
         var token = await GetTokenAsync(ViewerEmail, ViewerPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
-        var response = await client.GetAsync("/api/v1/auth/users");
+        var response = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
@@ -380,12 +380,12 @@ public class AuthEndpointTests : IAsyncLifetime
         var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
-        var response = await client.GetAsync("/api/v1/auth/users");
+        var response = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var users = await response.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
-        users.Should().NotBeNull();
-        users.Should().Contain(u => u.Email == SharedWebAppFixture.AdminEmail);
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
+        paged.Should().NotBeNull();
+        paged!.Items.Should().Contain(u => u.Email == SharedWebAppFixture.AdminEmail);
     }
 
     [Fact]
@@ -394,10 +394,10 @@ public class AuthEndpointTests : IAsyncLifetime
         var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
-        var response = await client.GetAsync("/api/v1/auth/users");
-        var users = await response.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
+        var response = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
 
-        var admin = users!.First(u => u.Email == SharedWebAppFixture.AdminEmail);
+        var admin = paged!.Items.First(u => u.Email == SharedWebAppFixture.AdminEmail);
         admin.Roles.Should().Contain("Owner");
         admin.Roles.Should().Contain("Admin");
     }
@@ -501,9 +501,9 @@ public class AuthEndpointTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Verify Owner role is still present
-        var usersResponse = await client.GetAsync("/api/v1/auth/users");
-        var users = await usersResponse.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
-        var adminUser = users!.First(u => u.Email == SharedWebAppFixture.AdminEmail);
+        var usersResponse = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
+        var usersPaged = await usersResponse.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
+        var adminUser = usersPaged!.Items.First(u => u.Email == SharedWebAppFixture.AdminEmail);
         adminUser.Roles.Should().Contain("Owner");
     }
 
@@ -511,9 +511,9 @@ public class AuthEndpointTests : IAsyncLifetime
 
     private static async Task<Guid> GetUserIdAsync(HttpClient adminClient, string email)
     {
-        var response = await adminClient.GetAsync("/api/v1/auth/users");
+        var response = await adminClient.GetAsync("/api/v1/auth/users?skip=0&take=50");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var users = await response.Content.ReadFromJsonAsync<List<UserListItem>>(JsonOptions);
-        return users!.First(u => u.Email == email).Id;
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
+        return paged!.Items.First(u => u.Email == email).Id;
     }
 }
