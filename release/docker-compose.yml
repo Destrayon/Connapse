@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: connapse
+      POSTGRES_USER: connapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U connapse -d connapse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollamadata:/root/.ollama
+    profiles:
+      - with-ollama
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  web:
+    image: ghcr.io/destrayon/connapse:${CONNAPSE_VERSION:-latest}
+    ports:
+      - "5001:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse;Password=${POSTGRES_PASSWORD}"
+      Knowledge__Storage__MinIO__Endpoint: "minio:9000"
+      Knowledge__Storage__MinIO__AccessKey: "${MINIO_ROOT_USER}"
+      Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD}"
+      Knowledge__Storage__MinIO__UseSSL: "false"
+      Knowledge__Embedding__BaseUrl: "${Knowledge__Embedding__BaseUrl:-http://ollama:11434}"
+      CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL}
+      CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD}
+      CONNAPSE_JWT_SECRET: ${CONNAPSE_JWT_SECRET}
+    volumes:
+      - appdata:/app/appdata
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+
+volumes:
+  pgdata:
+  miniodata:
+  ollamadata:
+  appdata:
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
