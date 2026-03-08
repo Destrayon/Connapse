@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="450" />
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="375" />
 </p>
 
 <p align="center">
