@@ -1,1 +1,0 @@
-[Repository](https://github.com/Destrayon/Connapse) | [Issues](https://github.com/Destrayon/Connapse/issues) | [Discussions](https://github.com/Destrayon/Connapse/discussions) | [Project Board](https://github.com/users/Destrayon/projects/3) | [License (MIT)](https://github.com/Destrayon/Connapse/blob/main/LICENSE)
