@@ -12,6 +12,8 @@
     <PackageReference Include="FluentAssertions" Version="8.8.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Testcontainers.Azurite" Version="4.3.0" />
+    <PackageReference Include="Testcontainers.LocalStack" Version="4.3.0" />
     <PackageReference Include="Testcontainers.Minio" Version="4.3.0" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
