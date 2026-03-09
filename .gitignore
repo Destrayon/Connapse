@@ -45,3 +45,10 @@ Thumbs.db
 .claude/settings.local.json
 .claude/memory/
 .claude/worktrees/
+.claude/state/
+.claude/README.md
+
+# Dev planning docs
+docs/plans/
+docs/v0.2.0-plan.md
+docs/v0.3.0-plan.md
