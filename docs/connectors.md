@@ -188,6 +188,61 @@ POST /api/containers/test-connection
 
 ---
 
+## Write Guards
+
+Write operations (upload, delete, create folder) are subject to **container write guards** enforced by `ContainerWriteGuard`. This applies consistently across both the REST API and MCP tools.
+
+### Permissions by Connector Type
+
+| Connector Type | Upload | Delete | Create Folder | Notes |
+|---------------|--------|--------|---------------|-------|
+| **MinIO** | Allowed | Allowed | Allowed | Default connector; full read/write |
+| **InMemory** | Allowed | Allowed | Allowed | Ephemeral storage |
+| **Filesystem** | Configurable | Configurable | Configurable | Per-container flags (default: allowed) |
+| **S3** | Blocked | Blocked | Blocked | Read-only; files are synced from the source bucket |
+| **AzureBlob** | Blocked | Blocked | Blocked | Read-only; files are synced from the source container |
+
+### Filesystem Permission Flags
+
+Filesystem containers support three per-container permission flags in their connector config:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `allowUpload` | `true` | Allow uploading files through the API/UI |
+| `allowDelete` | `true` | Allow deleting files through the API/UI |
+| `allowCreateFolder` | `true` | Allow creating folders through the API/UI |
+
+Set these to `false` to make a Filesystem container partially or fully read-only:
+
+```json
+{
+  "rootPath": "C:\\Documents\\Knowledge",
+  "allowUpload": false,
+  "allowDelete": false,
+  "allowCreateFolder": false
+}
+```
+
+### Error Responses
+
+When a write operation is blocked:
+
+- **REST API**: Returns `400 Bad Request` with `{ "error": "write_denied", "message": "..." }`
+- **MCP**: Returns an error message as plain text (e.g., `"Error: S3 containers are read-only. Files are synced from the source."`)
+
+### Affected Endpoints
+
+| Endpoint | Operation |
+|----------|-----------|
+| `POST /api/containers/{id}/files` | Upload |
+| `DELETE /api/containers/{id}/files/{fileId}` | Delete |
+| `POST /api/containers/{id}/folders` | CreateFolder |
+| `DELETE /api/containers/{id}/folders` | Delete |
+| MCP `upload_file` / `bulk_upload` | Upload |
+| MCP `delete_file` / `bulk_delete` | Delete |
+
+---
+
 ## Per-Container Settings
 
 Each container can override global settings for chunking, embedding, search, and upload.

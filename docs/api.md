@@ -471,6 +471,7 @@ Upload one or more files into a container.
 - Files stream directly to MinIO (not buffered in memory)
 - Ingestion is asynchronous — track progress via SignalR or poll the file endpoint
 - Duplicate filenames in the same folder auto-increment: `file (1).pdf`, `file (2).pdf`
+- **Write guard**: S3 and AzureBlob containers block uploads (read-only). Filesystem containers respect the `allowUpload` flag. Returns `400` with `{ "error": "write_denied" }` when blocked. See [connectors.md — Write Guards](connectors.md#write-guards).
 
 ---
 
@@ -540,6 +541,8 @@ Returns whether the file needs reindexing and the reason.
 
 Cascade deletes chunks, vectors, and removes the file from MinIO.
 
+**Write guard**: S3 and AzureBlob containers block deletes. Filesystem containers respect the `allowDelete` flag. Returns `400` with `{ "error": "write_denied" }` when blocked. See [connectors.md — Write Guards](connectors.md#write-guards).
+
 **Response** (204 No Content)
 
 ---
@@ -555,6 +558,8 @@ Cascade deletes chunks, vectors, and removes the file from MinIO.
 { "path": "/docs/2026/" }
 ```
 
+**Write guard**: S3 and AzureBlob containers block folder creation. Filesystem containers respect the `allowCreateFolder` flag. Returns `400` with `{ "error": "write_denied" }` when blocked.
+
 **Response** (200 OK): Returns `Folder` object.
 
 ---
@@ -564,6 +569,8 @@ Cascade deletes chunks, vectors, and removes the file from MinIO.
 **Endpoint**: `DELETE /api/containers/{id}/folders?path=/docs/2026/`
 
 Cascade deletes all nested files, subfolders, chunks, vectors, and MinIO objects.
+
+**Write guard**: S3 and AzureBlob containers block folder deletion. Filesystem containers respect the `allowDelete` flag. Returns `400` with `{ "error": "write_denied" }` when blocked.
 
 **Response** (204 No Content)
 
