@@ -274,9 +274,11 @@ public class McpTools
         var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
         var filePath = PathUtilities.NormalizePath($"{normalizedDest}{fileName}");
 
-        var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
+        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        var connector = connectorFactory.Create(container!);
         using var stream = new MemoryStream(fileBytes);
-        await fileSystem.SaveFileAsync(filePath, stream, ct);
+        await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
 
         // Create intermediate folder entries so list_files can discover them
         var folderStore = services.GetRequiredService<IFolderStore>();
