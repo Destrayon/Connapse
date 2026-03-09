@@ -161,6 +161,16 @@ public class McpToolsBulkUploadTests
     }
 
     [Fact]
+    public async Task BulkUpload_MissingContent_ReportsPerItemError()
+    {
+        var json = """[{"filename":"no-content.txt"}]""";
+        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+
+        result.Should().Contain("Uploaded 0 of 1");
+        result.Should().Contain("content");
+    }
+
+    [Fact]
     public async Task BulkUpload_InvalidJson_ReturnsError()
     {
         var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), "not json");

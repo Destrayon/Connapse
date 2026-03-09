@@ -389,6 +389,7 @@ public class McpTools
 
         var succeeded = 0;
         var failures = new List<string>();
+        var warnings = new List<string>();
 
         foreach (var fileId in ids)
         {
@@ -410,11 +411,13 @@ public class McpTools
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
-                failures.Add($"{fileId} ({document.FileName}): deleted but storage warning");
+                warnings.Add($"{fileId} ({document.FileName}): storage cleanup failed");
             }
         }
 
         var summary = $"Deleted {succeeded} of {ids.Count} file(s).";
+        if (warnings.Count > 0)
+            summary += $"\n\nWarnings ({warnings.Count}):\n{string.Join("\n", warnings.Select(w => $"- {w}"))}";
         if (failures.Count > 0)
             summary += $"\n\nFailures:\n{string.Join("\n", failures.Select(f => $"- {f}"))}";
 

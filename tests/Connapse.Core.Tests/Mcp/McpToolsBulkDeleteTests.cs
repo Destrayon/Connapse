@@ -83,7 +83,8 @@ public class McpToolsBulkDeleteTests
         var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
 
         result.Should().Contain("Deleted 1 of 1");
-        result.Should().Contain("storage warning");
+        result.Should().Contain("Warnings");
+        result.Should().Contain("storage cleanup failed");
     }
 
     [Fact]
