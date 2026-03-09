@@ -5,6 +5,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
+using Connapse.Storage.Vectors;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -141,6 +142,49 @@ public static class ContainersEndpoints
         .WithName("DeleteContainer")
         .WithDescription("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — the underlying data is not deleted.")
         .RequireAuthorization("RequireEditor");
+
+        // GET /api/containers/{containerId}/stats - Get container statistics
+        group.MapGet("/{containerId:guid}/stats", async (
+            Guid containerId,
+            [FromServices] IContainerStore containerStore,
+            [FromServices] IDocumentStore documentStore,
+            [FromServices] VectorModelDiscovery modelDiscovery,
+            CancellationToken ct) =>
+        {
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var stats = await documentStore.GetContainerStatsAsync(containerId, ct);
+            var models = await modelDiscovery.GetModelsAsync(containerId, ct);
+
+            return Results.Ok(new
+            {
+                containerId = container.Id,
+                containerName = container.Name,
+                connectorType = container.ConnectorType.ToString(),
+                documents = new
+                {
+                    total = stats.DocumentCount,
+                    ready = stats.ReadyCount,
+                    processing = stats.ProcessingCount,
+                    failed = stats.FailedCount
+                },
+                totalChunks = stats.TotalChunks,
+                totalSizeBytes = stats.TotalSizeBytes,
+                embeddingModels = models.Select(m => new
+                {
+                    modelId = m.ModelId,
+                    dimensions = m.Dimensions,
+                    vectorCount = m.VectorCount
+                }),
+                lastIndexedAt = stats.LastIndexedAt,
+                createdAt = container.CreatedAt
+            });
+        })
+        .WithName("GetContainerStats")
+        .WithDescription("Get statistics for a container: document counts by status, chunk count, storage size, embedding models, last indexed time")
+        .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides
         group.MapGet("/{containerId:guid}/settings", async (
