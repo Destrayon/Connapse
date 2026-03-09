@@ -338,9 +338,13 @@ public class McpTools
         var storageDeleteFailed = false;
         try
         {
-            var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
             if (!string.IsNullOrEmpty(document.Path))
-                await fileSystem.DeleteAsync(document.Path, ct);
+            {
+                var container = await containerStore.GetAsync(resolvedId.Value, ct);
+                var connectorFactory = services.GetRequiredService<IConnectorFactory>();
+                var connector = connectorFactory.Create(container!);
+                await connector.DeleteFileAsync(document.Path.TrimStart('/'), ct);
+            }
         }
         catch (Exception ex)
         {

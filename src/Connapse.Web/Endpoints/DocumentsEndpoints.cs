@@ -21,7 +21,6 @@ public static class DocumentsEndpoints
             [FromForm] string? path,
             [FromForm] ChunkingStrategy? strategy,
             [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IConnectorFactory connectorFactory,
             [FromServices] IIngestionQueue queue,
             [FromServices] IAuditLogger auditLogger,
@@ -266,7 +265,7 @@ public static class DocumentsEndpoints
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IConnectorFactory connectorFactory,
             [FromServices] IIngestionQueue ingestionQueue,
             [FromServices] IAuditLogger auditLogger,
             [FromServices] ICloudScopeService cloudScopeService,
@@ -293,11 +292,15 @@ public static class DocumentsEndpoints
             // Delete from database (cascades to chunks and vectors)
             await documentStore.DeleteAsync(fileId, ct);
 
-            // Delete file from storage (best effort)
+            // Delete file from storage (best effort) — use the connector so
+            // the correct prefix / root path is applied.
             try
             {
                 if (!string.IsNullOrEmpty(document.Path))
-                    await fileSystem.DeleteAsync(document.Path, ct);
+                {
+                    var connector = connectorFactory.Create(container);
+                    await connector.DeleteFileAsync(document.Path.TrimStart('/'), ct);
+                }
             }
             catch { /* File already deleted or not found */ }
 

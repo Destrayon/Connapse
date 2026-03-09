@@ -74,7 +74,7 @@ public static class FoldersEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IFolderStore folderStore,
             [FromServices] IDocumentStore documentStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
+            [FromServices] IConnectorFactory connectorFactory,
             [FromServices] IIngestionQueue ingestionQueue,
             [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
@@ -120,10 +120,12 @@ public static class FoldersEndpoints
             if (!deleted)
                 return Results.BadRequest(new { error = "Folder is not empty. Use cascade=true to delete contents." });
 
-            // Clean up file storage (best effort)
+            // Clean up file storage (best effort) — use the connector so
+            // the correct prefix / root path is applied.
+            var connector = connectorFactory.Create(container);
             foreach (var filePath in filePaths)
             {
-                try { await fileSystem.DeleteAsync(filePath, ct); }
+                try { await connector.DeleteFileAsync(filePath.TrimStart('/'), ct); }
                 catch { /* File already deleted or not found */ }
             }
 

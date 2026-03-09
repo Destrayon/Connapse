@@ -8,7 +8,6 @@
 @inject IContainerStore ContainerStore
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
-@inject IKnowledgeFileSystem FileSystem
 @inject IConnectorFactory ConnectorFactory
 @inject IIngestionQueue IngestionQueue
 @inject IContainerSettingsResolver SettingsResolver
@@ -1228,15 +1227,10 @@
         {
             if (!string.IsNullOrEmpty(entry.Path))
             {
-                if (container?.ConnectorType == ConnectorType.Filesystem)
+                if (container is not null)
                 {
-                    // entry.Path is a virtual path (/subfolder/file.pdf); connector resolves it to absolute
-                    var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
-                    await fsConnector.DeleteFileAsync(entry.Path.TrimStart('/'));
-                }
-                else
-                {
-                    await FileSystem.DeleteAsync(entry.Path);
+                    var connector = ConnectorFactory.Create(container);
+                    await connector.DeleteFileAsync(entry.Path.TrimStart('/'));
                 }
             }
         }
@@ -1284,14 +1278,18 @@
 
             await FolderStore.DeleteAsync(containerId, normalizedPath);
 
-            foreach (var doc in docs)
+            if (container is not null)
             {
-                try
+                var connector = ConnectorFactory.Create(container);
+                foreach (var doc in docs)
                 {
-                    if (!string.IsNullOrEmpty(doc.Path))
-                        await FileSystem.DeleteAsync(doc.Path);
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(doc.Path))
+                            await connector.DeleteFileAsync(doc.Path.TrimStart('/'));
+                    }
+                    catch { /* File already deleted or not found */ }
                 }
-                catch { /* File already deleted or not found */ }
             }
         }
     }
