@@ -404,6 +404,36 @@ All container endpoints require authentication. RBAC rules:
 
 ---
 
+### Get Container Stats
+
+**Endpoint**: `GET /api/containers/{id}/stats`
+
+**Auth**: Viewer minimum
+
+**Response** (200 OK):
+```json
+{
+  "containerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "containerName": "my-project",
+  "connectorType": "MinIO",
+  "documents": {
+    "total": 42,
+    "ready": 40,
+    "processing": 1,
+    "failed": 1
+  },
+  "totalChunks": 1200,
+  "totalSizeBytes": 52428800,
+  "embeddingModels": [
+    { "modelId": "nomic-embed-text", "dimensions": 768, "vectorCount": 1200 }
+  ],
+  "lastIndexedAt": "2026-03-09T10:00:00Z",
+  "createdAt": "2026-02-26T10:00:00Z"
+}
+```
+
+---
+
 ## Container Files API
 
 ### Upload Files
