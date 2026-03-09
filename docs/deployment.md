@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying ConnapsePlatform in various environments.
+This guide covers deploying Connapse in various environments.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This guide covers deploying ConnapsePlatform in various environments.
 
 ## Quick Start (Docker Compose)
 
-The fastest way to run ConnapsePlatform with all dependencies.
+The fastest way to run Connapse with all dependencies.
 
 ### Prerequisites
 
@@ -28,8 +28,8 @@ The fastest way to run ConnapsePlatform with all dependencies.
 
 1. **Clone the repository**:
 ```bash
-git clone https://github.com/yourorg/ConnapsePlatform.git
-cd ConnapsePlatform
+git clone https://github.com/Destrayon/Connapse.git
+cd Connapse
 ```
 
 2. **Create environment file**:

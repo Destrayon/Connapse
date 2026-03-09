@@ -1,6 +1,6 @@
 # Architecture
 
-ConnapsePlatform is a .NET 10 Blazor WebApp that transforms uploaded documents into searchable knowledge for AI agents. This document describes the system architecture, design patterns, and data flow.
+Connapse is a .NET 10 Blazor WebApp that transforms uploaded documents into searchable knowledge for AI agents. This document describes the system architecture, design patterns, and data flow.
 
 ## System Overview
 
