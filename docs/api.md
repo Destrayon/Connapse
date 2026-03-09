@@ -493,6 +493,39 @@ Returns file metadata including current indexing status (`Pending`, `Processing`
 
 ---
 
+### Get File Content
+
+**Endpoint**: `GET /api/containers/{id}/files/{fileId}/content`
+
+**Auth**: Viewer minimum
+
+Returns the full text content of a file. For text files, the original content is returned. For binary formats (PDF, DOCX, PPTX), the extracted text is returned.
+
+**Content Negotiation**:
+- `Accept: text/plain` — returns raw text content only
+- `Accept: application/json` (default) — returns structured response with metadata
+
+**Response** (200 OK, JSON):
+```json
+{
+  "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "fileName": "report.pdf",
+  "path": "/docs/report.pdf",
+  "contentType": "application/pdf",
+  "sizeBytes": 245678,
+  "createdAt": "2026-02-26T10:00:00Z",
+  "content": "Machine learning is a subset of artificial intelligence..."
+}
+```
+
+**Errors**:
+- 400 `document_not_ready` — file is still being ingested
+- 400 `document_failed` — file failed ingestion
+- 400 `no_parser` — no parser available for the file type
+- 404 — file or container not found
+
+---
+
 ### Check Reindex Status
 
 **Endpoint**: `GET /api/containers/{id}/files/{fileId}/reindex-check`

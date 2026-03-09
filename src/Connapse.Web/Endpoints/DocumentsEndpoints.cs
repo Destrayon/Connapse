@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -317,6 +318,115 @@ public static class DocumentsEndpoints
         .WithDescription("Delete a file and all associated chunks and vectors")
         .RequireAuthorization("RequireEditor");
 
+        // GET /api/containers/{containerId}/files/{fileId}/content - Get file text content
+        group.MapGet("/{fileId}/content", async (
+            HttpContext httpContext,
+            Guid containerId,
+            string fileId,
+            [FromServices] IContainerStore containerStore,
+            [FromServices] IDocumentStore documentStore,
+            [FromServices] IConnectorFactory connectorFactory,
+            [FromServices] IEnumerable<IDocumentParser> parsers,
+            [FromServices] ICloudScopeService cloudScopeService,
+            CancellationToken ct) =>
+        {
+            var container = await containerStore.GetAsync(containerId, ct);
+            if (container is null)
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Cloud scope enforcement
+            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
+            if (scopeDenied is not null) return scopeDenied;
+
+            var document = await documentStore.GetAsync(fileId, ct);
+            if (document is null || document.ContainerId != containerId.ToString())
+                return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
+
+            document.Metadata.TryGetValue("Status", out var status);
+            if (status is "Pending" or "Processing" or "Queued")
+                return Results.BadRequest(new { error = "document_not_ready", message = $"Document is still being ingested (status: {status})" });
+            if (status == "Failed")
+            {
+                document.Metadata.TryGetValue("ErrorMessage", out var errorMsg);
+                return Results.BadRequest(new { error = "document_failed", message = $"Document failed ingestion: {errorMsg ?? "unknown error"}" });
+            }
+
+            // Read file content from storage
+            var connector = connectorFactory.Create(container);
+            string content;
+            try
+            {
+                using var rawStream = await connector.ReadFileAsync(document.Path, ct);
+
+                // Buffer non-seekable streams (MinIO, S3, AzureBlob) for parsers
+                MemoryStream? buffered = null;
+                Stream stream;
+                if (!rawStream.CanSeek)
+                {
+                    buffered = new MemoryStream();
+                    await rawStream.CopyToAsync(buffered, ct);
+                    buffered.Position = 0;
+                    stream = buffered;
+                }
+                else
+                {
+                    stream = rawStream;
+                }
+
+                try
+                {
+                    var extension = Path.GetExtension(document.FileName).ToLowerInvariant();
+                    if (IsTextExtension(extension))
+                    {
+                        using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                        content = await reader.ReadToEndAsync(ct);
+                    }
+                    else
+                    {
+                        var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+                        if (parser is null)
+                            return Results.BadRequest(new { error = "no_parser", message = $"No parser available for '{extension}' files" });
+
+                        var parsed = await parser.ParseAsync(stream, document.FileName, ct);
+                        content = parsed.Content;
+                    }
+                }
+                finally
+                {
+                    buffered?.Dispose();
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException)
+            {
+                return Results.NotFound(new { error = "file_not_readable", message = "The backing file could not be read from storage" });
+            }
+            finally
+            {
+                (connector as IDisposable)?.Dispose();
+            }
+
+            // Content negotiation
+            var acceptHeader = httpContext.Request.Headers.Accept.ToString();
+            if (acceptHeader.Contains("text/plain"))
+            {
+                return Results.Text(content, "text/plain");
+            }
+
+            return Results.Ok(new
+            {
+                documentId = document.Id,
+                fileName = document.FileName,
+                path = document.Path,
+                contentType = document.ContentType,
+                sizeBytes = document.SizeBytes,
+                createdAt = document.CreatedAt,
+                content
+            });
+        })
+        .WithName("GetFileContent")
+        .WithDescription("Get the full text content of a file. Supports Accept: text/plain for raw text or application/json for structured response.")
+        .RequireAuthorization("RequireViewer");
+
         // GET /api/containers/{containerId}/files/{fileId}/reindex-check - Check if file needs reindexing
         group.MapGet("/{fileId}/reindex-check", async (
             Guid containerId,
@@ -381,6 +491,15 @@ public static class DocumentsEndpoints
             message = scopeResult.Error ?? "Access denied.",
             containerId = containerId.ToString()
         }, statusCode: 403);
+
+    private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".markdown", ".csv", ".log",
+        ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx",
+        ".json", ".xml", ".yaml", ".yml"
+    };
+
+    private static bool IsTextExtension(string extension) => TextExtensions.Contains(extension);
 
     private static Guid? GetUserId(HttpContext httpContext)
     {
