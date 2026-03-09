@@ -722,19 +722,42 @@ Connapse exposes an MCP server for AI agent integration.
 
 **Tool list**: `GET /mcp/tools`
 
-### Available Tools
+### Available Tools (11)
 
-| Tool | Required Parameters | Optional | Description |
-|------|---------------------|----------|-------------|
-| `container_create` | `name` | `description` | Create a new container |
+| Tool | Required Parameters | Optional Parameters | Description |
+|------|---------------------|---------------------|-------------|
+| `container_create` | `name` | `description` | Create a new container for organizing files |
 | `container_list` | — | — | List all containers with document counts |
-| `container_delete` | `containerId` | — | Delete an empty container |
-| `upload_file` | `containerId`, `fileName`, `content` (base64) | `path`, `strategy` | Upload file to container |
-| `list_files` | `containerId` | `path` | List files/folders in container |
-| `delete_file` | `containerId`, `fileId` | — | Delete file from container |
-| `search_knowledge` | `query`, `containerId` | `path`, `mode`, `topK`, `minScore` | Search within container |
+| `container_delete` | `containerId` | — | Delete a container (must be empty for MinIO) |
+| `container_stats` | `containerId` | — | Get statistics: document counts by status, chunk count, storage size, embedding model, last indexed time |
+| `upload_file` | `containerId`, `fileName`, + `content` or `textContent` | `path`, `strategy` | Upload a single file (base64 or raw text) |
+| `bulk_upload` | `containerId`, `files` (JSON array) | — | Upload up to 100 files in one operation |
+| `list_files` | `containerId` | `path` | List files and folders at a given path |
+| `get_document` | `containerId`, `fileId` | — | Retrieve full parsed text content by document ID or path |
+| `delete_file` | `containerId`, `fileId` | — | Delete a file and its associated chunks and vectors |
+| `bulk_delete` | `containerId`, `fileIds` (JSON array) | — | Delete up to 100 files in one operation |
+| `search_knowledge` | `query`, `containerId` | `mode`, `topK`, `path`, `minScore` | Semantic, keyword, or hybrid search within a container |
 
-**Note**: `containerId` accepts either a container GUID or container name (resolved automatically).
+**Notes**:
+- `containerId` accepts either a container GUID or container name (resolved automatically).
+- `upload_file` accepts either `content` (base64) for binary files or `textContent` (raw text) for text files — provide one, not both.
+- `bulk_upload` `files` is a JSON array of objects: `{"filename":"name.txt", "content":"...", "encoding":"text|base64", "folderPath":"/optional/"}`.
+- `bulk_delete` `fileIds` is a JSON array of document ID strings: `["id1","id2"]`.
+- `get_document` `fileId` accepts either a document UUID or a virtual path (e.g., `/docs/readme.md`).
+
+### Write Guards
+
+Write operations (`upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) are subject to container write guards:
+
+| Connector Type | Upload | Delete | Notes |
+|---------------|--------|--------|-------|
+| **MinIO** | Allowed | Allowed | Default connector; full read/write |
+| **InMemory** | Allowed | Allowed | Ephemeral storage |
+| **Filesystem** | Configurable | Configurable | Per-container `allowUpload`/`allowDelete` flags (default: allowed) |
+| **S3** | Blocked | Blocked | Read-only; files are synced from the source bucket |
+| **AzureBlob** | Blocked | Blocked | Read-only; files are synced from the source container |
+
+When a write is blocked, the tool returns an error message explaining why (e.g., "S3 containers are read-only. Files are synced from the source.").
 
 ---
 
