@@ -25,10 +25,14 @@ var credentials = LoadCredentials();
 if (credentials?.ApiBaseUrl is not null)
     apiBaseUrl = credentials.ApiBaseUrl;
 
-// Create HttpClient with SSL bypass for localhost
+// Create HttpClient with SSL bypass scoped to localhost only
+var serverUri = new Uri(apiBaseUrl);
+var isLocalhost = serverUri.Host is "localhost" or "127.0.0.1" or "::1";
 var handler = new HttpClientHandler
 {
-    ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
+    ServerCertificateCustomValidationCallback = isLocalhost
+        ? (message, cert, chain, errors) => true
+        : null
 };
 var httpClient = new HttpClient(handler)
 {
