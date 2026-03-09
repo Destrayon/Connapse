@@ -154,7 +154,23 @@ Connapse includes a Model Context Protocol (MCP) server for integration with Cla
 1. Create an Agent in the Connapse UI (`/admin/agents`) and generate an API key
 2. Configure Claude Desktop to send requests to your Connapse instance with the agent's `X-Api-Key`
 
-The MCP server exposes 7 tools: `container_create`, `container_list`, `container_delete`, `upload_file`, `list_files`, `delete_file`, `search_knowledge`.
+The MCP server exposes **11 tools**:
+
+| Tool | Description |
+|------|-------------|
+| `container_create` | Create a new container for organizing files |
+| `container_list` | List all containers with document counts |
+| `container_delete` | Delete a container |
+| `container_stats` | Get container statistics (documents, chunks, storage, embeddings) |
+| `upload_file` | Upload a single file to a container |
+| `bulk_upload` | Upload up to 100 files in one operation |
+| `list_files` | List files and folders at a path |
+| `get_document` | Retrieve full parsed text content of a document |
+| `delete_file` | Delete a single file from a container |
+| `bulk_delete` | Delete up to 100 files in one operation |
+| `search_knowledge` | Semantic, keyword, or hybrid search within a container |
+
+> **Write guards**: S3 and AzureBlob containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
 
 ---
 
