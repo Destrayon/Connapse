@@ -266,6 +266,7 @@ public static class DocumentsEndpoints
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
+            [FromServices] IFolderStore folderStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
             [FromServices] IAuditLogger auditLogger,
@@ -292,6 +293,10 @@ public static class DocumentsEndpoints
 
             // Delete from database (cascades to chunks and vectors)
             await documentStore.DeleteAsync(fileId, ct);
+
+            // Clean up empty parent folders
+            if (!string.IsNullOrEmpty(document.Path))
+                await folderStore.DeleteEmptyAncestorsAsync(containerId, document.Path, ct);
 
             // Delete file from storage (best effort)
             try

@@ -335,6 +335,11 @@ public class McpTools
 
         await documentStore.DeleteAsync(fileId, ct);
 
+        // Clean up empty parent folders
+        var folderStore = services.GetRequiredService<IFolderStore>();
+        if (!string.IsNullOrEmpty(document.Path))
+            await folderStore.DeleteEmptyAncestorsAsync(resolvedId.Value, document.Path, ct);
+
         var storageDeleteFailed = false;
         try
         {

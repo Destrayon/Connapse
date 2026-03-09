@@ -24,6 +24,7 @@ public class McpToolsDeleteFileTests
 
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
+    private readonly IFolderStore _folderStore;
     private readonly IKnowledgeFileSystem _fileSystem;
     private readonly ILogger<McpTools> _logger;
     private readonly IServiceProvider _services;
@@ -32,6 +33,7 @@ public class McpToolsDeleteFileTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
+        _folderStore = Substitute.For<IFolderStore>();
         _fileSystem = Substitute.For<IKnowledgeFileSystem>();
         _logger = Substitute.For<ILogger<McpTools>>();
 
@@ -46,6 +48,7 @@ public class McpToolsDeleteFileTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
+        services.GetService(typeof(IFolderStore)).Returns(_folderStore);
         services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
         services.GetService(typeof(ILogger<McpTools>)).Returns(_logger);
         _services = services;
