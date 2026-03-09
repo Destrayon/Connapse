@@ -111,4 +111,43 @@ public class PostgresFolderStore(
         return await context.Folders
             .AnyAsync(f => f.ContainerId == containerId && f.Path == normalizedPath, ct);
     }
+
+    public async Task DeleteEmptyAncestorsAsync(Guid containerId, string filePath, CancellationToken ct = default)
+    {
+        var folderPath = PathUtilities.GetParentPath(filePath);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        while (folderPath != "/")
+        {
+            var hasDocuments = await context.Documents
+                .AnyAsync(d => d.ContainerId == containerId && d.Path.StartsWith(folderPath), ct);
+
+            if (hasDocuments)
+                break;
+
+            var hasSubFolders = await context.Folders
+                .AnyAsync(f => f.ContainerId == containerId && f.Path != folderPath && f.Path.StartsWith(folderPath), ct);
+
+            if (hasSubFolders)
+                break;
+
+            var folder = await context.Folders
+                .FirstOrDefaultAsync(f => f.ContainerId == containerId && f.Path == folderPath, ct);
+
+            if (folder is null)
+                break;
+
+            context.Folders.Remove(folder);
+            await context.SaveChangesAsync(ct);
+
+            logger.LogInformation("Cleaned up empty folder {Path} in container {ContainerId}", folderPath, containerId);
+
+            // Move up to parent
+            var parentPath = PathUtilities.GetParentPath(folderPath.TrimEnd('/'));
+            if (parentPath == folderPath)
+                break;
+            folderPath = parentPath;
+        }
+    }
 }

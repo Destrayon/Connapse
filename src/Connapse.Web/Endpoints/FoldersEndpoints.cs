@@ -32,8 +32,9 @@ public static class FoldersEndpoints
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
 
-            if (IsReadOnlyConnector(container.ConnectorType))
-                return ReadOnlyResult(container);
+            var createFolderError = ContainerWriteGuard.CheckWrite(container, WriteOperation.CreateFolder);
+            if (createFolderError is not null)
+                return Results.BadRequest(new { error = "write_denied", message = createFolderError });
 
             if (string.IsNullOrWhiteSpace(request.Path))
                 return Results.BadRequest(new { error = "Folder path is required" });
@@ -88,8 +89,9 @@ public static class FoldersEndpoints
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
 
-            if (IsReadOnlyConnector(container.ConnectorType))
-                return ReadOnlyResult(container);
+            var deleteFolderError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Delete);
+            if (deleteFolderError is not null)
+                return Results.BadRequest(new { error = "write_denied", message = deleteFolderError });
 
             if (string.IsNullOrWhiteSpace(path))
                 return Results.BadRequest(new { error = "Folder path is required" });
@@ -151,16 +153,6 @@ public static class FoldersEndpoints
             message = scopeResult.Error ?? "Access denied.",
             containerId = containerId.ToString()
         }, statusCode: 403);
-
-    private static bool IsReadOnlyConnector(ConnectorType type) =>
-        type is ConnectorType.S3 or ConnectorType.AzureBlob;
-
-    private static IResult ReadOnlyResult(Container container) =>
-        Results.BadRequest(new
-        {
-            error = "read_only_container",
-            message = $"{container.ConnectorType} containers are read-only. Files are synced from the source."
-        });
 
     private static Guid? GetUserId(HttpContext httpContext)
     {

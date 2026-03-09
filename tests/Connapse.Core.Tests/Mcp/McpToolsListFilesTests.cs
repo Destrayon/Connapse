@@ -68,6 +68,10 @@ public class McpToolsListFilesTests
     [Fact]
     public async Task ListFiles_ShowsFilesAtCorrectLevel()
     {
+        _folderStore
+            .ExistsAsync(ContainerId, "/docs/", Arg.Any<CancellationToken>())
+            .Returns(true);
+
         _documentStore
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>

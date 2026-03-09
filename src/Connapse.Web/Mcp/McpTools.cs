@@ -172,6 +172,10 @@ public class McpTools
 
         var normalizedPath = PathUtilities.NormalizeFolderPath(folderPath);
 
+        // Validate non-root paths exist as folder records
+        if (normalizedPath != "/" && !await folderStore.ExistsAsync(resolvedId.Value, normalizedPath, ct))
+            return $"Error: Folder '{normalizedPath}' not found in this container.";
+
         var folders = await folderStore.ListAsync(resolvedId.Value, parentPath: normalizedPath, take: int.MaxValue, ct: ct);
         var documents = await documentStore.ListAsync(resolvedId.Value, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
 
@@ -274,8 +278,13 @@ public class McpTools
         var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
         var filePath = PathUtilities.NormalizePath($"{normalizedDest}{fileName}");
 
-        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
         var container = await containerStore.GetAsync(resolvedId.Value, ct);
+
+        var writeError = ContainerWriteGuard.CheckWrite(container!, WriteOperation.Upload);
+        if (writeError is not null)
+            return $"Error: {writeError}";
+
+        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
         var connector = connectorFactory.Create(container!);
         using var stream = new MemoryStream(fileBytes);
         await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
@@ -327,6 +336,12 @@ public class McpTools
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
 
+        var containerForDelete = await containerStore.GetAsync(resolvedId.Value, ct);
+
+        var deleteError = ContainerWriteGuard.CheckWrite(containerForDelete!, WriteOperation.Delete);
+        if (deleteError is not null)
+            return $"Error: {deleteError}";
+
         var documentStore = services.GetRequiredService<IDocumentStore>();
         var document = await documentStore.GetAsync(fileId, ct);
 
@@ -334,6 +349,11 @@ public class McpTools
             return $"Error: File '{fileId}' not found in this container.";
 
         await documentStore.DeleteAsync(fileId, ct);
+
+        // Clean up empty parent folders
+        var folderStore = services.GetRequiredService<IFolderStore>();
+        if (!string.IsNullOrEmpty(document.Path))
+            await folderStore.DeleteEmptyAncestorsAsync(resolvedId.Value, document.Path, ct);
 
         var storageDeleteFailed = false;
         try
