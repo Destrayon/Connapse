@@ -63,6 +63,7 @@ try
         "update" or "--update"  => await HandleUpdate(args),
         "auth"    => await HandleAuth(args, httpClient, jsonOptions, apiBaseUrl),
         "container" => await HandleContainer(args, httpClient, jsonOptions),
+        "files"   => await HandleFiles(args, httpClient, jsonOptions),
         "upload"  => await HandleUpload(args, httpClient, jsonOptions),
         "search"  => await HandleSearch(args, httpClient, jsonOptions),
         "reindex" => await HandleReindex(args, httpClient, jsonOptions),
@@ -123,6 +124,15 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("  container delete <name>");
     Console.WriteLine("      Delete an empty container");
+    Console.WriteLine();
+    Console.WriteLine("  files list --container <name> [--path <folder>]");
+    Console.WriteLine("      List files and folders in a container");
+    Console.WriteLine();
+    Console.WriteLine("  files delete --container <name> --file <id>");
+    Console.WriteLine("      Delete a file by ID");
+    Console.WriteLine();
+    Console.WriteLine("  files get --container <name> --file <id-or-path>");
+    Console.WriteLine("      Print the full text content of a file");
     Console.WriteLine();
     Console.WriteLine("  upload <path> --container <name> [--strategy <name>] [--destination <path>]");
     Console.WriteLine("      Upload file(s) to a container");
@@ -843,6 +853,222 @@ static async Task<int> ContainerDelete(string[] args, HttpClient httpClient, Jso
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("Deleted");
     Console.ResetColor();
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Files commands
+// ---------------------------------------------------------------------------
+
+static async Task<int> HandleFiles(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    if (args.Length < 2)
+    {
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  connapse files list --container <name> [--path <folder>]");
+        Console.WriteLine("  connapse files delete --container <name> --file <id>");
+        Console.WriteLine("  connapse files get --container <name> --file <id-or-path>");
+        return 1;
+    }
+
+    var subCommand = args[1].ToLower();
+
+    return subCommand switch
+    {
+        "list" => await FilesList(args, httpClient, jsonOptions),
+        "delete" => await FilesDelete(args, httpClient, jsonOptions),
+        "get" => await FilesGet(args, httpClient, jsonOptions),
+        _ => Error($"Unknown files subcommand '{subCommand}'")
+    };
+}
+
+static async Task<int> FilesList(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    EnsureAuthenticated();
+
+    var containerName = GetOption(args, "--container");
+    var path = GetOption(args, "--path") ?? "/";
+
+    if (string.IsNullOrWhiteSpace(containerName))
+        return Error("--container is required. Specify the container name.");
+
+    var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
+    if (containerId is null)
+        return Error($"Container '{containerName}' not found.");
+
+    var url = $"/api/containers/{containerId}/files?path={Uri.EscapeDataString(path)}";
+    var response = await httpClient.GetAsync(url);
+
+    if (!response.IsSuccessStatusCode)
+    {
+        var errorBody = await response.Content.ReadAsStringAsync();
+        var error = TryParseError(errorBody, jsonOptions);
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"Failed: {error}");
+        Console.ResetColor();
+        return 1;
+    }
+
+    var result = await response.Content.ReadFromJsonAsync<JsonDocument>(jsonOptions);
+    if (result is null)
+        return Error("Unexpected response from server.");
+
+    var root = result.RootElement;
+
+    // Display folders
+    if (root.TryGetProperty("folders", out var folders) && folders.GetArrayLength() > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("Folders:");
+        Console.ResetColor();
+        foreach (var folder in folders.EnumerateArray())
+        {
+            var name = folder.TryGetProperty("name", out var n) ? n.GetString() : "?";
+            var count = folder.TryGetProperty("documentCount", out var dc) ? dc.GetInt32().ToString() : "?";
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"  {name}/");
+            Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  ({count} files)");
+            Console.ResetColor();
+        }
+        Console.WriteLine();
+    }
+
+    // Display files
+    if (root.TryGetProperty("files", out var files) && files.GetArrayLength() > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("Files:");
+        Console.ResetColor();
+        foreach (var file in files.EnumerateArray())
+        {
+            var name = file.TryGetProperty("fileName", out var fn) ? fn.GetString() : "?";
+            var id = file.TryGetProperty("id", out var fid) ? fid.GetString() : "?";
+            var status = file.TryGetProperty("status", out var s) ? s.GetString() : "?";
+
+            var statusColor = status switch
+            {
+                "Ready" => ConsoleColor.Green,
+                "Processing" or "Pending" => ConsoleColor.Yellow,
+                "Failed" => ConsoleColor.Red,
+                _ => ConsoleColor.DarkGray
+            };
+
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"  {name}");
+            Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  [{id}]");
+            Console.ResetColor();
+            Console.Write("  ");
+            Console.ForegroundColor = statusColor;
+            Console.WriteLine(status);
+            Console.ResetColor();
+        }
+    }
+
+    if ((!root.TryGetProperty("folders", out var f2) || f2.GetArrayLength() == 0) &&
+        (!root.TryGetProperty("files", out var f3) || f3.GetArrayLength() == 0))
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("No files or folders found at this path.");
+        Console.ResetColor();
+    }
+
+    return 0;
+}
+
+static async Task<int> FilesDelete(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    EnsureAuthenticated();
+
+    var containerName = GetOption(args, "--container");
+    var fileId = GetOption(args, "--file");
+
+    if (string.IsNullOrWhiteSpace(containerName))
+        return Error("--container is required. Specify the container name.");
+    if (string.IsNullOrWhiteSpace(fileId))
+        return Error("--file is required. Specify the file ID.");
+    if (!Guid.TryParse(fileId, out _))
+        return Error($"'{fileId}' is not a valid file ID (expected GUID format).");
+
+    var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
+    if (containerId is null)
+        return Error($"Container '{containerName}' not found.");
+
+    Console.Write($"Deleting file {fileId}... ");
+
+    var response = await httpClient.DeleteAsync($"/api/containers/{containerId}/files/{fileId}");
+
+    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine("Not found.");
+        Console.ResetColor();
+        return 1;
+    }
+
+    if (!response.IsSuccessStatusCode)
+    {
+        var errorBody = await response.Content.ReadAsStringAsync();
+        var error = TryParseError(errorBody, jsonOptions);
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"Failed: {error}");
+        Console.ResetColor();
+        return 1;
+    }
+
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine("Deleted");
+    Console.ResetColor();
+    return 0;
+}
+
+static async Task<int> FilesGet(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    EnsureAuthenticated();
+
+    var containerName = GetOption(args, "--container");
+    var fileRef = GetOption(args, "--file");
+
+    if (string.IsNullOrWhiteSpace(containerName))
+        return Error("--container is required. Specify the container name.");
+    if (string.IsNullOrWhiteSpace(fileRef))
+        return Error("--file is required. Specify the file ID or path.");
+
+    var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
+    if (containerId is null)
+        return Error($"Container '{containerName}' not found.");
+
+    // Try as GUID first (direct file ID), then as path
+    string url;
+    if (Guid.TryParse(fileRef, out _))
+    {
+        url = $"/api/containers/{containerId}/files/{fileRef}/content";
+    }
+    else
+    {
+        // Use the search/lookup by path - get file list at that path first
+        url = $"/api/containers/{containerId}/files/{Uri.EscapeDataString(fileRef)}/content";
+    }
+
+    var request = new HttpRequestMessage(HttpMethod.Get, url);
+    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain"));
+    var response = await httpClient.SendAsync(request);
+
+    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        return Error($"File '{fileRef}' not found in container '{containerName}'.");
+
+    if (!response.IsSuccessStatusCode)
+    {
+        var errorBody = await response.Content.ReadAsStringAsync();
+        var error = TryParseError(errorBody, jsonOptions);
+        return Error($"Failed: {error}");
+    }
+
+    var content = await response.Content.ReadAsStringAsync();
+    Console.WriteLine(content);
     return 0;
 }
 
