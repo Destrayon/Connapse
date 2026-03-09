@@ -354,6 +354,73 @@ public class McpTools
             : $"File '{document.FileName}' (ID: {fileId}) deleted.";
     }
 
+    [McpServerTool(Name = "bulk_delete"),
+     Description("Delete multiple files from a container in one operation. Returns per-file results.")]
+    public static async Task<string> BulkDelete(
+        IServiceProvider services,
+        [Description("Container ID or name")] string containerId,
+        [Description("JSON array of file (document) IDs to delete, e.g. [\"id1\",\"id2\"]. Max 100.")] string fileIds,
+        CancellationToken ct = default)
+    {
+        List<string> ids;
+        try
+        {
+            ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(fileIds) ?? [];
+        }
+        catch
+        {
+            return "Error: 'fileIds' must be a valid JSON array of strings.";
+        }
+
+        if (ids.Count == 0)
+            return "Error: 'fileIds' array must not be empty.";
+
+        if (ids.Count > 100)
+            return "Error: Maximum 100 files per bulk_delete call.";
+
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+        var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
+        var logger = services.GetRequiredService<ILogger<McpTools>>();
+
+        var succeeded = 0;
+        var failures = new List<string>();
+
+        foreach (var fileId in ids)
+        {
+            var document = await documentStore.GetAsync(fileId, ct);
+            if (document is null || document.ContainerId != resolvedId.Value.ToString())
+            {
+                failures.Add($"{fileId}: not found");
+                continue;
+            }
+
+            await documentStore.DeleteAsync(fileId, ct);
+            succeeded++;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(document.Path))
+                    await fileSystem.DeleteAsync(document.Path, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
+                failures.Add($"{fileId} ({document.FileName}): deleted but storage warning");
+            }
+        }
+
+        var summary = $"Deleted {succeeded} of {ids.Count} file(s).";
+        if (failures.Count > 0)
+            summary += $"\n\nFailures:\n{string.Join("\n", failures.Select(f => $"- {f}"))}";
+
+        return summary;
+    }
+
     [McpServerTool(Name = "get_document", Destructive = false),
      Description("Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.")]
     public static async Task<string> GetDocument(
