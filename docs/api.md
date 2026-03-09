@@ -822,6 +822,108 @@ Write operations (`upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) ar
 
 When a write is blocked, the tool returns an error message explaining why (e.g., "S3 containers are read-only. Files are synced from the source.").
 
+### bulk_upload
+
+Upload up to 100 files in a single operation. Each file is written to storage and queued for ingestion (parsing, chunking, embedding).
+
+**Parameters**:
+- `containerId` (required): Container ID (UUID) or name
+- `files` (required): JSON array of file objects (max 100)
+
+**File object schema**:
+```json
+{
+  "filename": "report.pdf",
+  "content": "base64-encoded-content-here",
+  "encoding": "base64",
+  "folderPath": "/docs/"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `filename` | Yes | Target filename |
+| `content` | Yes | File content (raw text or base64-encoded) |
+| `encoding` | No | `"text"` (default) or `"base64"` for binary files |
+| `folderPath` | No | Destination folder path (default: `"/"`) |
+
+**Success response**:
+```
+Uploaded 3 of 3 file(s) to container 'my-project'.
+
+All files queued for ingestion (parsing, chunking, embedding).
+```
+
+**Partial failure response**:
+```
+Uploaded 2 of 3 file(s) to container 'my-project'.
+
+Failures:
+- report.pdf: invalid base64 content
+```
+
+**Errors**:
+| Error | Cause |
+|-------|-------|
+| `'files' must be a valid JSON array` | Malformed JSON |
+| `'files' array must not be empty` | Empty array |
+| `Maximum 100 files per bulk_upload call` | Too many files |
+| `Container '{id}' not found` | Invalid container ID/name |
+| `missing 'filename'` | File object missing filename |
+| `missing 'content'` | File object missing content |
+| `invalid base64 content` | Bad base64 when encoding is `"base64"` |
+
+**Notes**:
+- All files share a single batch ID for tracking
+- Uses `Semantic` chunking strategy
+- Intermediate folders are created automatically
+- Subject to [write guards](#write-guards)
+
+---
+
+### bulk_delete
+
+Delete up to 100 files from a container in a single operation. Removes database records and backing storage files.
+
+**Parameters**:
+- `containerId` (required): Container ID (UUID) or name
+- `fileIds` (required): JSON array of document ID strings (max 100)
+
+**Example input**:
+```json
+["3fa85f64-5717-4562-b3fc-2c963f66afa6", "7f8e9d1c-2b3a-4c5d-8e9f-1a2b3c4d5e6f"]
+```
+
+**Success response**:
+```
+Deleted 2 of 2 file(s).
+```
+
+**Partial failure response**:
+```
+Deleted 1 of 2 file(s).
+
+Warnings (1):
+- 7f8e9d1c (...): storage cleanup failed
+
+Failures:
+- abc123: not found
+```
+
+**Errors**:
+| Error | Cause |
+|-------|-------|
+| `'fileIds' must be a valid JSON array of strings` | Malformed JSON |
+| `'fileIds' array must not be empty` | Empty array |
+| `Maximum 100 files per bulk_delete call` | Too many files |
+| `Container '{id}' not found` | Invalid container ID/name |
+
+**Notes**:
+- Files not found or belonging to a different container are reported as failures
+- Storage deletion failures are non-fatal warnings (DB record is still removed)
+- Does not clean up empty parent folders
+- Subject to [write guards](#write-guards)
+
 ---
 
 ## CLI
