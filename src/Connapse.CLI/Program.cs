@@ -125,6 +125,9 @@ static void PrintUsage()
     Console.WriteLine("  container delete <name>");
     Console.WriteLine("      Delete an empty container");
     Console.WriteLine();
+    Console.WriteLine("  container stats <name>");
+    Console.WriteLine("      Show document counts, chunk count, storage size, and embedding info");
+    Console.WriteLine();
     Console.WriteLine("  files list --container <name> [--path <folder>]");
     Console.WriteLine("      List files and folders in a container");
     Console.WriteLine();
@@ -734,6 +737,7 @@ static async Task<int> HandleContainer(string[] args, HttpClient httpClient, Jso
         Console.WriteLine("  connapse container create <name> [--description \"...\"]");
         Console.WriteLine("  connapse container list");
         Console.WriteLine("  connapse container delete <name>");
+        Console.WriteLine("  connapse container stats <name>");
         return 1;
     }
 
@@ -744,6 +748,7 @@ static async Task<int> HandleContainer(string[] args, HttpClient httpClient, Jso
         "create" => await ContainerCreate(args, httpClient, jsonOptions),
         "list" => await ContainerList(httpClient, jsonOptions),
         "delete" => await ContainerDelete(args, httpClient, jsonOptions),
+        "stats" => await ContainerStats(args, httpClient, jsonOptions),
         _ => Error($"Unknown container subcommand '{subCommand}'")
     };
 }
@@ -860,6 +865,122 @@ static async Task<int> ContainerDelete(string[] args, HttpClient httpClient, Jso
     Console.WriteLine("Deleted");
     Console.ResetColor();
     return 0;
+}
+
+static async Task<int> ContainerStats(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    if (args.Length < 3)
+    {
+        Console.WriteLine("Usage: connapse container stats <name>");
+        return 1;
+    }
+
+    EnsureAuthenticated();
+
+    var name = args[2];
+    var containerId = await ResolveContainerId(name, httpClient, jsonOptions);
+    if (containerId is null)
+        return Error($"Container '{name}' not found.");
+
+    Console.Write($"Fetching stats for '{name}'... ");
+
+    var response = await httpClient.GetAsync($"/api/containers/{containerId}/stats");
+
+    if (!response.IsSuccessStatusCode)
+    {
+        var errorBody = await response.Content.ReadAsStringAsync();
+        var error = TryParseError(errorBody, jsonOptions);
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"Failed: {error}");
+        Console.ResetColor();
+        return 1;
+    }
+
+    var stats = await response.Content.ReadFromJsonAsync<JsonDocument>(jsonOptions);
+    if (stats is null)
+        return Error("Unexpected response from server.");
+
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine("OK");
+    Console.ResetColor();
+    Console.WriteLine();
+
+    var root = stats.RootElement;
+
+    // Documents section
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("Documents:");
+    Console.ResetColor();
+    if (root.TryGetProperty("documents", out var docs))
+    {
+        if (docs.TryGetProperty("total", out var total))
+            Console.WriteLine($"  Total:      {total.GetInt32()}");
+        if (docs.TryGetProperty("ready", out var ready))
+            Console.WriteLine($"  Ready:      {ready.GetInt32()}");
+        if (docs.TryGetProperty("processing", out var processing))
+            Console.WriteLine($"  Processing: {processing.GetInt32()}");
+        if (docs.TryGetProperty("failed", out var failed))
+            Console.WriteLine($"  Failed:     {failed.GetInt32()}");
+    }
+    Console.WriteLine();
+
+    // Chunks
+    if (root.TryGetProperty("totalChunks", out var chunks))
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("Total Chunks: ");
+        Console.ResetColor();
+        Console.WriteLine(chunks.GetInt32());
+    }
+
+    // Storage size
+    if (root.TryGetProperty("totalSizeBytes", out var sizeBytes))
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("Storage Size: ");
+        Console.ResetColor();
+        var bytes = sizeBytes.GetInt64();
+        Console.WriteLine(FormatBytes(bytes));
+    }
+
+    // Embedding info
+    if (root.TryGetProperty("embedding", out var embedding))
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("Embedding:");
+        Console.ResetColor();
+        if (embedding.TryGetProperty("modelId", out var modelId) && modelId.ValueKind != JsonValueKind.Null)
+            Console.WriteLine($"  Model: {modelId.GetString()}");
+        if (embedding.TryGetProperty("dimensions", out var dims) && dims.ValueKind != JsonValueKind.Null)
+            Console.WriteLine($"  Dimensions: {dims.GetInt32()}");
+    }
+
+    // Last indexed
+    if (root.TryGetProperty("lastIndexedAt", out var lastIndexed) && lastIndexed.ValueKind != JsonValueKind.Null)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("Last Indexed: ");
+        Console.ResetColor();
+        if (DateTime.TryParse(lastIndexed.GetString(), out var dt))
+            Console.WriteLine(dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        else
+            Console.WriteLine(lastIndexed.GetString());
+    }
+
+    return 0;
+}
+
+static string FormatBytes(long bytes)
+{
+    string[] sizes = ["B", "KB", "MB", "GB", "TB"];
+    double len = bytes;
+    int order = 0;
+    while (len >= 1024 && order < sizes.Length - 1)
+    {
+        order++;
+        len /= 1024;
+    }
+    return $"{len:0.##} {sizes[order]}";
 }
 
 // ---------------------------------------------------------------------------
