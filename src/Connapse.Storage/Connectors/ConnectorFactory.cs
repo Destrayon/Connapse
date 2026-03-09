@@ -30,12 +30,18 @@ public class ConnectorFactory : IConnectorFactory
     {
         return container.ConnectorType switch
         {
-            ConnectorType.MinIO => new MinioConnector(_s3, _minioOptions),
+            ConnectorType.MinIO => CreateMinioConnector(container),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
+    }
+
+    private MinioConnector CreateMinioConnector(Container container)
+    {
+        var config = new MinioConnectorConfig { ContainerId = container.Id };
+        return new MinioConnector(_s3, _minioOptions, config);
     }
 
     private static S3Connector CreateS3Connector(Container container)

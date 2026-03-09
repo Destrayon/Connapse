@@ -58,21 +58,21 @@ public static class DocumentsEndpoints
 
                 try
                 {
-                    // For Filesystem containers, save to the connector's rootPath so the watcher
-                    // monitors the correct location. The ingestion job uses the absolute path.
+                    // Write files through the connector so each container's storage is
+                    // properly scoped (e.g. MinIO prefix, Filesystem rootPath).
                     string jobPath;
+                    var connector = connectorFactory.Create(container);
+                    var relativePath = virtualFilePath.TrimStart('/');
+                    using var stream = file.OpenReadStream();
+                    await connector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
+
                     if (container.ConnectorType == ConnectorType.Filesystem)
                     {
-                        var fsConnector = (FilesystemConnector)connectorFactory.Create(container);
-                        var relativePath = virtualFilePath.TrimStart('/');
-                        using var stream = file.OpenReadStream();
-                        await fsConnector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
+                        var fsConnector = (FilesystemConnector)connector;
                         jobPath = Path.Combine(fsConnector.RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
                     }
                     else
                     {
-                        using var stream = file.OpenReadStream();
-                        await fileSystem.SaveFileAsync(virtualFilePath, stream, ct);
                         jobPath = virtualFilePath;
                     }
 
