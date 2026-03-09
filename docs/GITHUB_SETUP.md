@@ -190,7 +190,7 @@ main
 
 **After pushing to GitHub**, update the badge URLs in [README.md](../README.md):
 
-Replace `yourusername` with your actual GitHub username/organization:
+The badge URLs in README.md already use the correct repository path (`Destrayon/Connapse`):
 ```markdown
 [![Build](https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build)](https://github.com/Destrayon/Connapse/actions)
 [![Tests](https://img.shields.io/badge/tests-171%20passing-success)](https://github.com/Destrayon/Connapse/actions)
@@ -268,25 +268,9 @@ After completing the manual configuration:
 
 ## 📝 Notes
 
-### About "yourusername" Placeholders
+### Repository URLs
 
-The following files contain `yourusername` placeholders that need to be replaced with your actual GitHub username or organization name:
-
-1. **README.md** - Badge URLs, repository links
-2. **.github/ISSUE_TEMPLATE/config.yml** - Contact links
-3. **docs/GITHUB_SETUP.md** (this file) - Example URLs
-
-You can use find-and-replace to update all occurrences:
-
-```bash
-# Linux/macOS
-find . -type f -name "*.md" -o -name "*.yml" | xargs sed -i 's/yourusername/ACTUAL_USERNAME/g'
-
-# Windows (PowerShell)
-Get-ChildItem -Recurse -Include *.md,*.yml | ForEach-Object {
-    (Get-Content $_.FullName) -replace 'yourusername', 'ACTUAL_USERNAME' | Set-Content $_.FullName
-}
-```
+All repository URLs and badge paths use `Destrayon/Connapse`. If you fork this repository, update these references to match your fork's path.
 
 ### Why These Settings Matter
 

@@ -96,7 +96,7 @@ MINIO_ROOT_PASSWORD=change_me_strong_password
 Current README is 13 lines. Expand to include:
 
 ```markdown
-# AIKnowledgePlatform
+# Connapse
 
 > Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.
 
@@ -121,8 +121,8 @@ Current README is 13 lines. Expand to include:
 ### Run with Docker
 \`\`\`bash
 # Clone and start
-git clone https://github.com/yourusername/AIKnowledgePlatform.git
-cd AIKnowledgePlatform
+git clone https://github.com/Destrayon/Connapse.git
+cd Connapse
 docker-compose up -d
 
 # Access UI
@@ -135,7 +135,7 @@ open http://localhost:5001
 docker-compose up -d postgres minio
 
 # Run web app
-dotnet run --project src/AIKnowledge.Web
+dotnet run --project src/Connapse.Web
 
 # Run tests
 dotnet test
@@ -178,7 +178,7 @@ dotnet test
 
 ## Commercial Hosting
 
-While AIKnowledgePlatform is open source and free to self-host, we will offer a **managed cloud service** for teams who want:
+While Connapse is open source and free to self-host, we will offer a **managed cloud service** for teams who want:
 - Zero-ops deployment
 - Automatic backups & scaling
 - Enterprise support
@@ -197,8 +197,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Support
 
 - 📖 [Documentation](docs/)
-- 🐛 [Issue Tracker](https://github.com/yourusername/AIKnowledgePlatform/issues)
-- 💬 [Discussions](https://github.com/yourusername/AIKnowledgePlatform/discussions)
+- 🐛 [Issue Tracker](https://github.com/Destrayon/Connapse/issues)
+- 💬 [Discussions](https://github.com/Destrayon/Connapse/discussions)
 \`\`\`
 ```
 
