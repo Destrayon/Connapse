@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet run:*)"
+      "Bash(dotnet run:*)",
+      "Bash(GIT_EDITOR=true git rebase --continue)"
     ]
   },
   "enabledPlugins": {
