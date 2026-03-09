@@ -278,8 +278,13 @@ public class McpTools
         var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
         var filePath = PathUtilities.NormalizePath($"{normalizedDest}{fileName}");
 
-        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
         var container = await containerStore.GetAsync(resolvedId.Value, ct);
+
+        var writeError = ContainerWriteGuard.CheckWrite(container!, WriteOperation.Upload);
+        if (writeError is not null)
+            return $"Error: {writeError}";
+
+        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
         var connector = connectorFactory.Create(container!);
         using var stream = new MemoryStream(fileBytes);
         await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
@@ -330,6 +335,12 @@ public class McpTools
         var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
+
+        var containerForDelete = await containerStore.GetAsync(resolvedId.Value, ct);
+
+        var deleteError = ContainerWriteGuard.CheckWrite(containerForDelete!, WriteOperation.Delete);
+        if (deleteError is not null)
+            return $"Error: {deleteError}";
 
         var documentStore = services.GetRequiredService<IDocumentStore>();
         var document = await documentStore.GetAsync(fileId, ct);
