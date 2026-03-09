@@ -374,6 +374,213 @@ public class McpTools
             : $"File '{document.FileName}' (ID: {fileId}) deleted.";
     }
 
+    [McpServerTool(Name = "bulk_delete"),
+     Description("Delete multiple files from a container in one operation. Returns per-file results.")]
+    public static async Task<string> BulkDelete(
+        IServiceProvider services,
+        [Description("Container ID or name")] string containerId,
+        [Description("JSON array of file (document) IDs to delete, e.g. [\"id1\",\"id2\"]. Max 100.")] string fileIds,
+        CancellationToken ct = default)
+    {
+        List<string> ids;
+        try
+        {
+            ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(fileIds) ?? [];
+        }
+        catch
+        {
+            return "Error: 'fileIds' must be a valid JSON array of strings.";
+        }
+
+        if (ids.Count == 0)
+            return "Error: 'fileIds' array must not be empty.";
+
+        if (ids.Count > 100)
+            return "Error: Maximum 100 files per bulk_delete call.";
+
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+        var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
+        var logger = services.GetRequiredService<ILogger<McpTools>>();
+
+        var succeeded = 0;
+        var failures = new List<string>();
+        var warnings = new List<string>();
+
+        foreach (var fileId in ids)
+        {
+            var document = await documentStore.GetAsync(fileId, ct);
+            if (document is null || document.ContainerId != resolvedId.Value.ToString())
+            {
+                failures.Add($"{fileId}: not found");
+                continue;
+            }
+
+            await documentStore.DeleteAsync(fileId, ct);
+            succeeded++;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(document.Path))
+                    await fileSystem.DeleteAsync(document.Path, ct);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
+                warnings.Add($"{fileId} ({document.FileName}): storage cleanup failed");
+            }
+        }
+
+        var summary = $"Deleted {succeeded} of {ids.Count} file(s).";
+        if (warnings.Count > 0)
+            summary += $"\n\nWarnings ({warnings.Count}):\n{string.Join("\n", warnings.Select(w => $"- {w}"))}";
+        if (failures.Count > 0)
+            summary += $"\n\nFailures:\n{string.Join("\n", failures.Select(f => $"- {f}"))}";
+
+        return summary;
+    }
+
+    [McpServerTool(Name = "bulk_upload"),
+     Description("Upload multiple files to a container in one operation. Each file is parsed, chunked, embedded, and made searchable. Returns per-file results.")]
+    public static async Task<string> BulkUpload(
+        IServiceProvider services,
+        [Description("Container ID or name")] string containerId,
+        [Description("JSON array of file objects. Each object: {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}. Max 100.")] string files,
+        CancellationToken ct = default)
+    {
+        List<BulkUploadFileItem> items;
+        try
+        {
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+            items = System.Text.Json.JsonSerializer.Deserialize<List<BulkUploadFileItem>>(files, jsonOptions) ?? [];
+        }
+        catch
+        {
+            return "Error: 'files' must be a valid JSON array of file objects.";
+        }
+
+        if (items.Count == 0)
+            return "Error: 'files' array must not be empty.";
+
+        if (items.Count > 100)
+            return "Error: Maximum 100 files per bulk_upload call.";
+
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{containerId}' not found.";
+
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
+        var connector = connectorFactory.Create(container!);
+        var folderStore = services.GetRequiredService<IFolderStore>();
+        var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
+
+        var batchId = Guid.NewGuid().ToString();
+        var succeeded = 0;
+        var failures = new List<string>();
+
+        try
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                var itemLabel = item.Filename ?? $"item[{i}]";
+
+                if (string.IsNullOrWhiteSpace(item.Filename))
+                {
+                    failures.Add($"{itemLabel}: missing 'filename'");
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(item.Content))
+                {
+                    failures.Add($"{itemLabel}: missing 'content'");
+                    continue;
+                }
+
+                byte[] fileBytes;
+                var isBase64 = string.Equals(item.Encoding, "base64", StringComparison.OrdinalIgnoreCase);
+                if (isBase64)
+                {
+                    try
+                    {
+                        fileBytes = Convert.FromBase64String(item.Content);
+                    }
+                    catch
+                    {
+                        failures.Add($"{itemLabel}: invalid base64 content");
+                        continue;
+                    }
+                }
+                else
+                {
+                    fileBytes = System.Text.Encoding.UTF8.GetBytes(item.Content);
+                }
+
+                var destinationPath = item.FolderPath ?? "/";
+                var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
+                var filePath = PathUtilities.NormalizePath($"{normalizedDest}{item.Filename}");
+
+                try
+                {
+                    using var stream = new MemoryStream(fileBytes);
+                    await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
+
+                    await EnsureIntermediateFoldersAsync(folderStore, resolvedId.Value, normalizedDest, ct);
+
+                    var documentId = Guid.NewGuid().ToString();
+                    var jobId = Guid.NewGuid().ToString();
+
+                    var job = new IngestionJob(
+                        JobId: jobId,
+                        DocumentId: documentId,
+                        Path: filePath,
+                        Options: new IngestionOptions(
+                            DocumentId: documentId,
+                            FileName: item.Filename,
+                            ContentType: null,
+                            ContainerId: resolvedId.Value.ToString(),
+                            Path: filePath,
+                            Strategy: ChunkingStrategy.Semantic,
+                            Metadata: new Dictionary<string, string>
+                            {
+                                ["OriginalFileName"] = item.Filename,
+                                ["IngestedVia"] = "MCP",
+                                ["IngestedAt"] = DateTime.UtcNow.ToString("O")
+                            }),
+                        BatchId: batchId);
+
+                    await ingestionQueue.EnqueueAsync(job, ct);
+                    succeeded++;
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{itemLabel}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            (connector as IDisposable)?.Dispose();
+        }
+
+        var summary = $"Uploaded {succeeded} of {items.Count} file(s) to container '{container!.Name}'.";
+        if (failures.Count > 0)
+            summary += $"\n\nFailures:\n{string.Join("\n", failures.Select(f => $"- {f}"))}";
+        else
+            summary += "\n\nAll files queued for ingestion (parsing, chunking, embedding).";
+
+        return summary;
+    }
+
     [McpServerTool(Name = "get_document", Destructive = false),
      Description("Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.")]
     public static async Task<string> GetDocument(
@@ -596,4 +803,12 @@ public class McpTools
             }
         }
     }
+}
+
+internal record BulkUploadFileItem
+{
+    public string? Filename { get; init; }
+    public string? Content { get; init; }
+    public string? Encoding { get; init; }
+    public string? FolderPath { get; init; }
 }
