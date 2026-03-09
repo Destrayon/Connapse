@@ -746,6 +746,8 @@ static async Task<int> ContainerCreate(string[] args, HttpClient httpClient, Jso
         return 1;
     }
 
+    EnsureAuthenticated();
+
     var name = args[2];
     var description = GetOption(args, "--description");
 
@@ -779,6 +781,8 @@ static async Task<int> ContainerCreate(string[] args, HttpClient httpClient, Jso
 
 static async Task<int> ContainerList(HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
+    EnsureAuthenticated();
+
     var response = await httpClient.GetAsync("/api/containers");
     response.EnsureSuccessStatusCode();
 
@@ -820,6 +824,8 @@ static async Task<int> ContainerDelete(string[] args, HttpClient httpClient, Jso
         Console.WriteLine("Usage: connapse container delete <name>");
         return 1;
     }
+
+    EnsureAuthenticated();
 
     var name = args[2];
     var containerId = await ResolveContainerId(name, httpClient, jsonOptions);
@@ -865,6 +871,8 @@ static async Task<int> HandleUpload(string[] args, HttpClient httpClient, JsonSe
 
     if (string.IsNullOrWhiteSpace(containerName))
         return Error("--container is required. Specify the container name.");
+
+    EnsureAuthenticated();
 
     var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
     if (containerId is null)
@@ -941,6 +949,8 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSe
 
     if (string.IsNullOrWhiteSpace(containerName))
         return Error("--container is required. Specify the container name.");
+
+    EnsureAuthenticated();
 
     var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
     if (containerId is null)
@@ -1019,6 +1029,8 @@ static async Task<int> HandleReindex(string[] args, HttpClient httpClient, JsonS
 
     if (string.IsNullOrWhiteSpace(containerName))
         return Error("--container is required. Specify the container name.");
+
+    EnsureAuthenticated();
 
     var containerId = await ResolveContainerId(containerName, httpClient, jsonOptions);
     if (containerId is null)
