@@ -411,17 +411,25 @@ public class HybridSearchFusionTests
     }
 
     [Fact]
-    public void AutoCut_TwoOrFewerItems_ReturnsAll()
+    public void AutoCut_ThreeOrFewerItems_ReturnsAll()
     {
-        var hits = new List<SearchHit>
+        var twoHits = new List<SearchHit>
         {
             Hit("c1", "doc1", 0.9f, "both"),
             Hit("c2", "doc2", 0.1f, "both")
         };
 
-        var result = HybridSearchService.ApplyAutoCut(hits);
+        HybridSearchService.ApplyAutoCut(twoHits).Should().HaveCount(2);
 
-        result.Should().HaveCount(2);
+        // 3 items with a large gap — still returned as-is (guard prevents aggressive cuts on small sets)
+        var threeHits = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.9f, "both"),
+            Hit("c2", "doc2", 0.85f, "both"),
+            Hit("c3", "doc3", 0.2f, "both")
+        };
+
+        HybridSearchService.ApplyAutoCut(threeHits).Should().HaveCount(3);
     }
 
     [Fact]

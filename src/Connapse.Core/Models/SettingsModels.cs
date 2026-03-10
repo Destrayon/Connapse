@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Connapse.Core;
 
 /// <summary>
@@ -131,12 +133,8 @@ public record SearchSettings
     /// At extremes (0 or 1), hits from the zero-weighted source score 0 and may be
     /// filtered by MinimumScore. Clamped to [0,1] at fusion time.
     /// </summary>
+    [Range(0f, 1f)]
     public float FusionAlpha { get; set; } = 0.5f;
-
-    /// <summary>
-    /// RRF k-value for rank fusion (default: 60). Legacy — kept for backward compatibility.
-    /// </summary>
-    public int RrfK { get; set; } = 60;
 
     /// <summary>
     /// Fusion method: ConvexCombination | DBSF (default: ConvexCombination).

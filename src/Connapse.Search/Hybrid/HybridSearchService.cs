@@ -344,7 +344,7 @@ public class HybridSearchService : IKnowledgeSearch
     /// </summary>
     internal static List<SearchHit> ApplyAutoCut(List<SearchHit> hits)
     {
-        if (hits.Count <= 2)
+        if (hits.Count <= 3)
             return hits;
 
         // Find the two largest gaps between consecutive scores
