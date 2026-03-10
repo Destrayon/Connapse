@@ -83,9 +83,8 @@ public static class IdentityServiceExtensions
             ?? new JwtSettings();
 
         var jwtSecret = jwtSettings.Secret
-            ?? configuration["CONNAPSE_JWT_SECRET"]
             ?? throw new InvalidOperationException(
-                "JWT secret not configured. Set CONNAPSE_JWT_SECRET environment variable.");
+                "JWT secret not configured. Set Identity__Jwt__Secret environment variable.");
 
         services.AddAuthentication(options =>
             {
@@ -223,7 +222,7 @@ public static class IdentityServiceExtensions
 
     private static void EnsureJwtSecret(IConfiguration configuration)
     {
-        var secret = configuration["Identity:Jwt:Secret"] ?? configuration["CONNAPSE_JWT_SECRET"];
+        var secret = configuration["Identity:Jwt:Secret"];
 
         if (!string.IsNullOrWhiteSpace(secret))
             return;
@@ -251,6 +250,6 @@ public static class IdentityServiceExtensions
         configuration["Identity:Jwt:Secret"] = newSecret;
 
         // We can't use ILogger here since we're in a static method during startup
-        Console.WriteLine($"WARNING: Auto-generated JWT secret. Set CONNAPSE_JWT_SECRET for production use. Secret stored at: {secretPath}");
+        Console.WriteLine($"WARNING: Auto-generated JWT secret. Set Identity__Jwt__Secret for production use. Secret stored at: {secretPath}");
     }
 }
