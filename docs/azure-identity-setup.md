@@ -1,5 +1,7 @@
 # Azure Identity Setup
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 Connapse integrates with Azure AD (Microsoft Entra ID) using **OAuth2 authorization code + PKCE**. Users authenticate via a browser redirect to Microsoft's login page — Connapse acts as a confidential client with defense-in-depth PKCE.
 
 ## Prerequisites

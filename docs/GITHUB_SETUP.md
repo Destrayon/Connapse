@@ -1,5 +1,7 @@
 # GitHub Repository Setup Guide
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 This guide walks through the manual GitHub repository configuration needed to complete Phase 2 of the public release preparation.
 
 ---

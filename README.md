@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="375" />
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse logo" width="375" />
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c
 
-> *Upload documents, search your knowledge base, and chat with your data — all in under 30 seconds.*
+> *Upload documents, search your knowledge base with hybrid vector + keyword search, and chat with your data — all in under 30 seconds.*
 
 ---
 
