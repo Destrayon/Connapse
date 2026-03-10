@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="375" />
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse — open-source AI knowledge management platform for RAG, semantic search, and AI agents" width="375" />
 </p>
 
 <p align="center">
-  <em>Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.</em>
+  <em>Open-source, self-hosted knowledge management platform. Upload documents, generate vector embeddings, and search with hybrid RAG — ready for AI agents via REST API and <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a>.</em>
 </p>
 
 <p align="center">
@@ -14,20 +14,24 @@
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
   <a href="https://github.com/Destrayon/Connapse/issues"><img src="https://img.shields.io/github/issues/Destrayon/Connapse" alt="GitHub Issues"></a>
   <a href="https://github.com/Destrayon/Connapse/stargazers"><img src="https://img.shields.io/github/stars/Destrayon/Connapse?style=social" alt="GitHub Stars"></a>
-  <a href="https://github.com/Destrayon/Connapse#-quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker"></a>
+  <a href="https://github.com/Destrayon/Connapse#quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker-ready: deploy with docker-compose"></a>
 </p>
 
 ---
 
-## 🎬 Demo
+<h2 id="demo">🎬 Demo</h2>
+
+<a href="https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c" title="Connapse demo: upload documents, semantic search, and AI chat in 30 seconds">
 
 https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c
+
+</a>
 
 > *Upload documents, search your knowledge base, and chat with your data — all in under 30 seconds.*
 
 ---
 
-## ⚠️ Security Notice
+<h2 id="security">⚠️ Security Notice</h2>
 
 **This project is in active development (v0.3.0) and approaching production-readiness.**
 
@@ -45,15 +49,15 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 
 ---
 
-## 🚀 Features
+<h2 id="features">🚀 Features</h2>
 
 - **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
-- **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
-- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with RRF fusion + cross-model search
+- **🔌 4 Storage Connectors**: MinIO (default), Filesystem (live watch), AWS S3, Azure Blob Storage
+- **🔍 Hybrid RAG Search**: Vector similarity + keyword full-text search with Reciprocal Rank Fusion + cross-model search
 - **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
 - **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
 - **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
-- **🧠 Multi-Provider AI**: Embeddings (Ollama, OpenAI, Azure OpenAI) + LLM (Ollama, OpenAI, Azure OpenAI, Anthropic)
+- **🧠 Multi-Provider Embeddings & LLM**: Ollama, OpenAI, Azure OpenAI for embeddings + Ollama, OpenAI, Azure OpenAI, Anthropic for LLM
 - **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control
 - **☁️ Cloud Identity**: AWS IAM Identity Center (device auth) + Azure AD (OAuth2+PKCE) — IAM-derived scopes
 - **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
@@ -63,22 +67,22 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
   - Web UI (Blazor Server)
   - REST API (`/api/v1/auth/`, `/api/v1/agents/`, `/api/containers/`)
   - Command-line interface (`connapse auth login`, `connapse upload`, `connapse search`)
-  - MCP server (for Claude Desktop integration — agent API key auth)
-- **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
+  - [MCP server](#mcp-server) (for Claude Desktop integration — agent API key auth)
+- **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3-compatible), optional Ollama — single `docker-compose up`
 - **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
 - **🧪 Tested**: 457 passing tests (unit + integration)
 
 ---
 
-## 📦 Quick Start
+<h2 id="quick-start">📦 Quick Start</h2>
 
-### Prerequisites
+<h3 id="prerequisites">Prerequisites</h3>
 
 - [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/install/)
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) (for development)
 - (Optional) [Ollama](https://ollama.ai/) for local embeddings
 
-### Run with Docker Compose
+<h3 id="docker-compose">Run with Docker Compose</h3>
 
 ```bash
 # Clone the repository
@@ -102,7 +106,7 @@ The first run will:
 3. Create MinIO buckets
 4. Seed the admin account (from env vars) and start the web application
 
-### Development Setup
+<h3 id="development-setup">Development Setup</h3>
 
 ```bash
 # Start infrastructure only (database + object storage)
@@ -118,7 +122,7 @@ dotnet test
 dotnet test --filter "Category=Unit"
 ```
 
-### Using the CLI
+<h3 id="cli">Using the CLI</h3>
 
 Install the CLI (choose one option):
 
@@ -146,9 +150,9 @@ connapse upload ./documents --container my-project
 connapse search "your query" --container my-project
 ```
 
-### Using with Claude Desktop (MCP)
+<h3 id="mcp-server">Using with Claude Desktop (MCP Server)</h3>
 
-Connapse includes a Model Context Protocol (MCP) server for integration with Claude Desktop.
+Connapse includes a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for integration with Claude Desktop and other MCP-compatible AI agents.
 
 **Setup**:
 1. Create an Agent in the Connapse UI (`/admin/agents`) and generate an API key
@@ -174,7 +178,7 @@ The MCP server exposes **11 tools**:
 
 ---
 
-## 🏗️ Architecture
+<h2 id="architecture">🏗️ Architecture</h2>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -198,7 +202,7 @@ The MCP server exposes **11 tools**:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow: Upload → Search
+<h3 id="data-flow">Data Flow: Upload → Search</h3>
 
 ```
 [Upload] → [Parse] → [Chunk] → [Embed] → [Store] → [Searchable]
@@ -222,7 +226,7 @@ The MCP server exposes **11 tools**:
 
 ---
 
-## 📚 Documentation
+<h2 id="documentation">📚 Documentation</h2>
 
 - [Architecture Guide](docs/architecture.md) - System design and component overview
 - [API Reference](docs/api.md) - REST API endpoints and examples
@@ -235,7 +239,7 @@ The MCP server exposes **11 tools**:
 
 ---
 
-## 🗺️ Roadmap
+<h2 id="roadmap">🗺️ Roadmap</h2>
 
 Connapse is pre-1.0. Major design work is tracked in [Discussions](https://github.com/Destrayon/Connapse/discussions).
 
@@ -276,7 +280,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 
 ---
 
-## 🤝 Contributing
+<h2 id="contributing">🤝 Contributing</h2>
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -292,7 +296,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ---
 
-## 📄 License
+<h2 id="license">📄 License</h2>
 
 This project is licensed under the **MIT License** - see [LICENSE](LICENSE) for details.
 
@@ -307,7 +311,7 @@ The only requirement is to include the copyright notice and license in any subst
 
 ---
 
-## 💬 Support & Community
+<h2 id="support">💬 Support & Community</h2>
 
 - 📖 **Documentation**: [docs/](docs/)
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Destrayon/Connapse/issues)
@@ -316,7 +320,7 @@ The only requirement is to include the copyright notice and license in any subst
 
 ---
 
-## 🙏 Acknowledgments
+<h2 id="acknowledgments">🙏 Acknowledgments</h2>
 
 Built with:
 - [.NET](https://dotnet.microsoft.com/) - Application framework
