@@ -79,7 +79,7 @@ If you are self-hosting Connapse:
 - [ ] Enable OS-level encryption at rest for database and storage volumes
 - [ ] Restrict network access — expose only ports 80/443 to the internet
 - [ ] Regularly update dependencies (`dotnet outdated`)
-- [ ] Review the CHANGELOG for security fixes before upgrading
+- [ ] Review the [CHANGELOG](CHANGELOG.md) for security fixes before upgrading
 - [ ] Monitor audit logs for suspicious authentication activity
 - [ ] Rotate Personal Access Tokens periodically; revoke any tokens that may have been exposed
 - [ ] Set a strong `Identity__Jwt__Secret` (min 32 characters) — see [deployment guide](docs/deployment.md)
