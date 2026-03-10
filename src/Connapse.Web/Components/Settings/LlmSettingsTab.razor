@@ -25,7 +25,7 @@
 
             <div class="col-md-6">
                 <label class="form-label">Base URL</label>
-                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="http://localhost:11434" />
+                <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="e.g. http://ollama:11434 (Docker) or http://localhost:11434 (local)" />
             </div>
         }
         else if (IsOpenAi)
@@ -183,8 +183,7 @@
             default:
                 if (localSettings.Model is "gpt-4o" or "claude-sonnet-4-20250514")
                     localSettings.Model = "llama3.2";
-                if (string.IsNullOrWhiteSpace(localSettings.BaseUrl))
-                    localSettings.BaseUrl = "http://localhost:11434";
+                // BaseUrl comes from config (appsettings / env var) — don't hardcode a default
                 if (localSettings.MaxTokens == 4096)
                     localSettings.MaxTokens = 2000;
                 break;
