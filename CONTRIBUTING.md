@@ -16,7 +16,7 @@ Thank you for considering contributing to Connapse! This document provides guide
 
 1. **Check existing issues and PRs** to avoid duplicate work
 2. **Read the [Code of Conduct](CODE_OF_CONDUCT.md)** - we expect all contributors to be respectful
-3. **Review [CLAUDE.md](CLAUDE.md)** - our development guide with architecture and conventions
+3. **Review the [Architecture Guide](docs/architecture.md)** - system design and component overview
 4. **Read [SECURITY.md](SECURITY.md)** - understand current security limitations
 
 ## 🐛 Reporting Bugs
@@ -398,7 +398,7 @@ New to the project? Look for issues labeled [`good-first-issue`](https://github.
 
 ## 💬 Getting Help
 
-- 📖 Read [CLAUDE.md](CLAUDE.md) for detailed architecture and conventions
+- 📖 Read the [Architecture Guide](docs/architecture.md) for system design and conventions
 - 💡 Start a [GitHub Discussion](https://github.com/Destrayon/Connapse/discussions)
 - 🐛 Open an [issue](https://github.com/Destrayon/Connapse/issues) if you're stuck
 

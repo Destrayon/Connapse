@@ -149,7 +149,7 @@ dotnet test
 
 - [Architecture Guide](docs/architecture.md)
 - [API Reference](docs/api.md)
-- [Development Guide](CLAUDE.md)
+- [Architecture Guide](docs/architecture.md)
 - [Security Notice](SECURITY.md)
 
 ## Roadmap
@@ -322,7 +322,7 @@ When ready to make repository public:
 
 ### Note on `.claude/` Directory
 
-The `.claude/state/` documentation is **intentionally public** as it provides valuable architectural context for contributors. See [.claude/README.md](../.claude/README.md) for details. No sensitive information is included.
+The `.claude/state/` directory contains internal development notes and is not committed to the repository. Architectural context for contributors is available in [docs/architecture.md](docs/architecture.md).
 
 ---
 

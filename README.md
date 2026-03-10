@@ -229,7 +229,7 @@ The MCP server exposes **11 tools**:
 - [Connectors Guide](docs/connectors.md) - Connector types, configuration, and background sync
 - [AWS SSO Setup](docs/aws-sso-setup.md) - AWS IAM Identity Center integration
 - [Azure Identity Setup](docs/azure-identity-setup.md) - Azure AD OAuth2+PKCE integration
-- [Development Guide](CLAUDE.md) - Code conventions and patterns
+- [Deployment Guide](docs/deployment.md) - Docker and production setup
 - [Security Policy](SECURITY.md) - Security limitations and roadmap
 - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
 
@@ -282,7 +282,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 **Quick contribution checklist**:
 - Fork the repo and create a feature branch
-- Follow code conventions in [CLAUDE.md](CLAUDE.md)
+- Follow code conventions in [CONTRIBUTING.md](CONTRIBUTING.md)
 - Write tests for new features (xUnit + FluentAssertions)
 - Ensure all tests pass: `dotnet test`
 - Update documentation if needed
