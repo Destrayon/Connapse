@@ -21,11 +21,11 @@ As the community grows, governance will evolve to distribute decision-making mor
 
 Anyone who has had a pull request merged into the project.
 
-**How to become one:** Submit a PR that gets accepted. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+**How to become one:** Submit a PR that gets accepted. See the [Contributing Guide](https://github.com/Destrayon/Connapse/blob/main/CONTRIBUTING.md) for guidelines.
 
 **Responsibilities:**
-- Follow the [Code of Conduct](CODE_OF_CONDUCT.md)
-- Follow project conventions described in [CONTRIBUTING.md](CONTRIBUTING.md)
+- Follow the [Code of Conduct](https://github.com/Destrayon/Connapse/blob/main/CODE_OF_CONDUCT.md)
+- Follow project conventions described in the [Contributing Guide](https://github.com/Destrayon/Connapse/blob/main/CONTRIBUTING.md)
 
 ### Collaborator
 
@@ -58,7 +58,7 @@ A collaborator trusted with release authority and architectural input.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution process, including development setup, code conventions, and pull request guidelines.
+See the [Contributing Guide](https://github.com/Destrayon/Connapse/blob/main/CONTRIBUTING.md) for the full contribution process, including development setup, code conventions, and pull request guidelines.
 
 ## Changes to Governance
 
