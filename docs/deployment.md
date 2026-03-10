@@ -579,7 +579,10 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Chunking__Overlap` | Overlap tokens between chunks | `50` |
 | `Knowledge__Search__Mode` | Default search mode | `Hybrid` |
 | `Knowledge__Search__TopK` | Default result count | `10` |
-| `Knowledge__Search__MinimumScore` | Minimum similarity score | `0.5` |
+| `Knowledge__Search__FusionMethod` | Fusion method: ConvexCombination or DBSF | `ConvexCombination` |
+| `Knowledge__Search__FusionAlpha` | Semantic weight (0.0-1.0) | `0.5` |
+| `Knowledge__Search__AutoCut` | Auto-trim after largest score gap | `false` |
+| `Knowledge__Search__MinimumScore` | Minimum similarity score floor | `0` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
 
@@ -660,9 +663,9 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     "Search": {
       "Mode": "Hybrid",
       "TopK": 10,
-      "MinimumScore": 0.5,
-      "RerankerStrategy": "RRF",
-      "RrfK": 60
+      "FusionMethod": "ConvexCombination",
+      "FusionAlpha": 0.5,
+      "AutoCut": false
     },
     "Llm": {
       "Provider": "Ollama",

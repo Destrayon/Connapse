@@ -76,17 +76,13 @@ public class CrossEncoderReranker : ISearchReranker
                 return hits;
             }
 
-            // Normalize scores to 0-1 range
-            var maxScore = scoredHits.Max(s => s.score);
-            var minScore = scoredHits.Min(s => s.score);
-            var scoreRange = maxScore - minScore;
-
+            // Use provider scores directly. TEI sigmoid (raw_scores=false enforced
+            // in TeiCrossEncoderProvider), Cohere, Jina, and AzureAIFoundry all
+            // return [0,1] relevance scores.
             var rerankedHits = scoredHits
                 .Select(s => s.hit with
                 {
-                    Score = scoreRange > 0
-                        ? (s.score - minScore) / scoreRange
-                        : 1.0f,
+                    Score = s.score,
                     Metadata = new Dictionary<string, string>(s.hit.Metadata)
                     {
                         ["crossEncoderScore"] = s.score.ToString("F4"),
@@ -101,8 +97,8 @@ public class CrossEncoderReranker : ISearchReranker
                 "Cross-encoder reranking complete: {InputCount} -> {OutputCount} hits, score range [{Min:F4}, {Max:F4}]",
                 hits.Count,
                 rerankedHits.Count,
-                minScore,
-                maxScore);
+                scoredHits.Min(s => s.score),
+                scoredHits.Max(s => s.score));
 
             return rerankedHits;
         }

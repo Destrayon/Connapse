@@ -39,7 +39,7 @@ Connapse is a .NET 10 Blazor WebApp that transforms uploaded documents into sear
 │  └──────┬───────┘  └──────┬───────┘  └─────┬─────┘ │
 │         │                 │                 │       │
 │    Parse → Chunk    Vector + Keyword    Postgres   │
-│         → Embed          → RRF Fusion    + MinIO   │
+│         → Embed          → CC Fusion     + MinIO   │
 │         → Store                                     │
 └─────────────────────────────────────────────────────┘
                    │
@@ -74,7 +74,7 @@ src/
 └── Connapse.CLI/          # Command-line interface (auth, container mgmt, upload, search)
 
 tests/
-├── Connapse.Core.Tests/           # Unit tests (parsers, chunkers, RRF)
+├── Connapse.Core.Tests/           # Unit tests (parsers, chunkers, fusion, search)
 ├── Connapse.Ingestion.Tests/      # Unit tests for ingestion logic
 ├── Connapse.Identity.Tests/       # Unit tests (PatService, JwtTokenService, ScopeHandler, AdminSeed)
 └── Connapse.Integration.Tests/    # Integration tests with Testcontainers
@@ -129,7 +129,7 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IReindexService` | Content-hash dedup reindexing | `ReindexService` |
 | `IDocumentParser` | File → ParsedDocument | `TextParser`, `PdfParser`, `OfficeParser` |
 | `IChunkingStrategy` | ParsedDocument → Chunks | `SemanticChunker`, `FixedSizeChunker`, `RecursiveChunker` |
-| `ISearchReranker` | Result fusion + reranking | `RrfReranker`, `CrossEncoderReranker` |
+| `ISearchReranker` | Result reranking | `CrossEncoderReranker` |
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
 | `ILlmProvider` | LLM completion + streaming | `OllamaLlmProvider`, `OpenAiLlmProvider`, `AzureOpenAiLlmProvider`, `AnthropicLlmProvider` |
 | `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `S3Connector`, `AzureBlobConnector` |
@@ -184,8 +184,8 @@ record SearchHit(string ChunkId, string DocumentId, string Content, float Score,
 // Settings (5 app categories + 2 identity categories)
 record EmbeddingSettings(string Provider, string BaseUrl, string Model, int Dimensions, ...);
 record ChunkingSettings(string Strategy, int MaxTokens, int Overlap, ...);
-record SearchSettings(string Mode, int TopK, float MinimumScore, string RerankerStrategy,
-    bool EnableCrossModelSearch, ...);
+record SearchSettings(string Mode, int TopK, float FusionAlpha, string FusionMethod,
+    bool AutoCut, bool EnableCrossModelSearch, ...);
 record LlmSettings(string Provider, string BaseUrl, string Model, string? ApiKey, ...);
 record UploadSettings(long MaxFileSizeBytes, List<string> AllowedExtensions, ...);
 // Identity settings (separate config sections)
@@ -221,12 +221,13 @@ class AzureAdSettings { ClientId, TenantId, ClientSecret }
    ↓
 4. Search becomes available immediately
    - User queries via UI, API, CLI, or MCP
-   - GET /api/containers/{containerId}/search?q=query&mode=Hybrid&topK=10&minScore=0.5
+   - GET /api/containers/{containerId}/search?q=query&mode=Hybrid&topK=10
      ↓
      4a. HybridSearchService runs Vector + Keyword in parallel (separate DbContext scopes)
-     4b. RrfReranker fuses results (Reciprocal Rank Fusion)
+     4b. Convex Combination fuses results (min-max normalize inputs, alpha-weighted sum)
      4c. Optional: CrossEncoderReranker rescores top results
-     4d. Filter by minScore threshold (default 0.5 from SearchSettings.MinimumScore)
+     4d. Optional: AutoCut trims results after largest score gap
+     4e. Apply TopK limit
    - Returns ranked SearchHits with chunk content + metadata
 ```
 
@@ -391,7 +392,7 @@ LIMIT @top_k;
 |------|-------------|------------|
 | **Semantic** | Vector similarity only | Conceptual queries ("machine learning basics") |
 | **Keyword** | Full-text search (FTS) only | Exact terms ("API key configuration") |
-| **Hybrid** | Vector + Keyword + RRF fusion | Most queries (default) |
+| **Hybrid** | Vector + Keyword + Convex Combination fusion | Most queries (default) |
 
 **Cross-Model Search**: When `SearchSettings.EnableCrossModelSearch` is true and legacy vectors exist (vectors from a different embedding model), Semantic mode is automatically overridden to Hybrid. This ensures keyword search covers documents whose vectors are incompatible with the current model's query vector.
 
@@ -410,25 +411,37 @@ User Query: "How to configure embeddings?" (container: my-project)
 │  └─ Query chunks.search_vector WHERE container_id = @id (GIN index)
 │  └─ Returns 20 results ranked by ts_rank
 │
-└─ RrfReranker (Reciprocal Rank Fusion)
-   └─ Combine both result sets
-   └─ Score = Σ(1 / (k + rank)) for k=60
+└─ Convex Combination Fusion (default) or DBSF
+   └─ Min-max normalize each input list independently to [0,1]
+   └─ score = alpha × norm_vector + (1 - alpha) × norm_keyword
    └─ Deduplicate by chunk_id
-   └─ Filter by MinimumScore threshold (default 0.5)
-   └─ Return top 10 fused results
+   └─ Return fused results with meaningful [0,1] scores
 
 (Optional) CrossEncoderReranker
-   └─ Rescore top 10 with (query, chunk) similarity model
-   └─ Return reranked top 10
+   └─ Rescore top results with (query, chunk) similarity model
+   └─ Provider scores ([0,1]) used directly — no post-normalization
+
+(Optional) AutoCut
+   └─ Detect largest score gap in results
+   └─ Trim tail after gap (keeps top relevance cluster)
+
+└─ Apply TopK limit → return final results
 ```
 
-**RRF Formula**:
+**Fusion Methods**:
+
+| Method | Normalization | When to Use |
+|--------|--------------|-------------|
+| **Convex Combination** (default) | Min-max on inputs | General purpose — clear [0,1] scores |
+| **DBSF** | Mean ± 3σ on inputs | Outlier-heavy data — one retriever returns extreme scores |
+
+**Convex Combination Formula**:
 ```
-score(chunk) = Σ (1 / (k + rank_i))
-where k=60, rank_i is the rank in result set i
+score(chunk) = alpha × norm_vector(chunk) + (1 - alpha) × norm_keyword(chunk)
+where alpha ∈ [0,1] (default 0.5), norm = min-max normalized input score
 ```
 
-**Why RRF?**: No model required, mathematically sound, proven in production RAG systems.
+**Why CC over RRF?**: RRF discards score magnitude (rank-only), producing tiny ~0.016 scores that require misleading post-normalization. CC preserves score information, produces genuine [0,1] output, and outperforms RRF by 1-5 nDCG@10 points (Bruch et al., ACM TOIS 2023). Industry standard: Elasticsearch linear retriever, Weaviate relativeScoreFusion, OpenSearch normalization processor.
 
 ## Reindexing
 
@@ -653,7 +666,7 @@ On a fresh install, `AdminSeedService` runs on startup:
 
 - **Vector search**: < 50ms for 10k chunks (pgvector HNSW index)
 - **Keyword search**: < 20ms (GIN index on tsvector)
-- **Hybrid (RRF)**: < 100ms (both searches + fusion)
+- **Hybrid (CC fusion)**: < 100ms (both searches + fusion)
 - **Cross-encoder reranking**: +200-500ms (depends on model)
 
 ### Concurrency

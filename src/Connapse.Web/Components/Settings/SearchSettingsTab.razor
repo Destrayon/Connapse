@@ -29,9 +29,31 @@
         </div>
 
         <div class="col-md-6">
-            <label class="form-label">Hybrid Fusion K-value</label>
-            <InputNumber @bind-Value="localSettings.RrfK" class="form-control" />
-            <small class="form-text text-muted">Controls RRF rank fusion in hybrid search (typically 60)</small>
+            <label class="form-label">Fusion Method</label>
+            <InputSelect @bind-Value="localSettings.FusionMethod" class="form-select">
+                <option value="ConvexCombination">Convex Combination (min-max)</option>
+                <option value="DBSF">DBSF (distribution-based, outlier-robust)</option>
+            </InputSelect>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Fusion Alpha (Semantic Weight)</label>
+            <InputNumber @bind-Value="localSettings.FusionAlpha" class="form-control" step="0.05" min="0" max="1" />
+            <small class="form-text text-muted">
+                Semantic vs keyword balance (0.0 = keyword only, 1.0 = semantic only, 0.5 = equal)
+            </small>
+        </div>
+
+        <div class="col-md-6">
+            <div class="form-check mt-4">
+                <InputCheckbox @bind-Value="localSettings.AutoCut" class="form-check-input" id="autoCut" />
+                <label class="form-check-label" for="autoCut">
+                    Enable AutoCut
+                </label>
+            </div>
+            <small class="form-text text-muted d-block mt-1">
+                Automatically trim results after the largest score gap, keeping only the top relevance cluster.
+            </small>
         </div>
 
         @if (localSettings.Reranker == "CrossEncoder")

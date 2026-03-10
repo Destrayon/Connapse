@@ -49,7 +49,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 
 - **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
 - **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
-- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with RRF fusion + cross-model search
+- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with convex combination fusion, DBSF, AutoCut + cross-model search
 - **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
 - **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
 - **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
@@ -241,7 +241,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 
 ### v0.1.0 — Foundation (Complete)
 - ✅ Document ingestion pipeline (PDF, Office, Markdown, text)
-- ✅ Hybrid search (vector + keyword with RRF fusion)
+- ✅ Hybrid search (vector + keyword with convex combination fusion)
 - ✅ Container-based file browser with folders
 - ✅ Web UI, REST API, CLI, MCP server
 

@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Connapse.Core;
 
 /// <summary>
@@ -128,16 +130,34 @@ public record SearchSettings
     public string Reranker { get; set; } = "None";
 
     /// <summary>
-    /// RRF k-value for rank fusion (default: 60).
+    /// Semantic weight for Convex Combination fusion (0.0-1.0, default: 0.5).
+    /// Higher values favor vector/semantic results, lower values favor keyword results.
+    /// At extremes (0 or 1), hits from the zero-weighted source score 0 and may be
+    /// filtered by MinimumScore. Clamped to [0,1] at fusion time.
     /// </summary>
-    public int RrfK { get; set; } = 60;
+    [Range(0f, 1f)]
+    public float FusionAlpha { get; set; } = 0.5f;
 
     /// <summary>
-    /// Minimum similarity score safety-net floor (0.0-1.0, default: 0.05).
-    /// Only filters truly irrelevant results. TopK is the primary result limiter.
-    /// Kept low because different embedding models produce vastly different score ranges.
+    /// Fusion method: ConvexCombination | DBSF (default: ConvexCombination).
+    /// ConvexCombination: min-max normalizes inputs, then alpha-weighted sum.
+    /// DBSF: Distribution-Based Score Fusion — normalizes using mean ± 3σ, more robust to outliers.
     /// </summary>
-    public double MinimumScore { get; set; } = 0.05;
+    public string FusionMethod { get; set; } = "ConvexCombination";
+
+    /// <summary>
+    /// Minimum similarity score floor (0.0-1.0, default: 0).
+    /// Set to 0 by default — TopK is the primary result limiter.
+    /// Raise to filter low-relevance results (e.g., 0.2 to drop noise).
+    /// </summary>
+    public double MinimumScore { get; set; } = 0;
+
+    /// <summary>
+    /// When enabled, automatically trims results after the largest score gap.
+    /// Keeps the top cluster of closely-scored results, discarding the long tail.
+    /// Applied after MinimumScore filter, before TopK limit.
+    /// </summary>
+    public bool AutoCut { get; set; } = false;
 
     /// <summary>
     /// Cross-encoder reranking provider: TEI | Cohere | Jina | AzureAIFoundry

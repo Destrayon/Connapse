@@ -153,13 +153,13 @@ public class CrossEncoderRerankerTests
     }
 
     [Fact]
-    public async Task RerankAsync_NormalizesScoresToZeroOneRange()
+    public async Task RerankAsync_PassesThroughProviderScoresDirectly()
     {
         var response = JsonSerializer.Serialize(new[]
         {
-            new { index = 0, score = -2.0 },
-            new { index = 1, score = 5.0 },
-            new { index = 2, score = 1.5 }
+            new { index = 0, score = 0.2 },
+            new { index = 1, score = 0.9 },
+            new { index = 2, score = 0.5 }
         });
 
         var reranker = CreateReranker(
@@ -180,13 +180,10 @@ public class CrossEncoderRerankerTests
 
         var result = await reranker.RerankAsync("test query", hits);
 
-        // Scores normalized: -2→0.0, 5→1.0, 1.5→0.5
-        result.Should().AllSatisfy(h =>
-        {
-            h.Score.Should().BeInRange(0f, 1f);
-        });
-        result[0].Score.Should().Be(1.0f); // highest (5.0)
-        result[^1].Score.Should().Be(0.0f); // lowest (-2.0)
+        // Provider scores passed through directly, no min-max normalization
+        result[0].Score.Should().Be(0.9f);  // chunk2
+        result[1].Score.Should().Be(0.5f);  // chunk3
+        result[2].Score.Should().Be(0.2f);  // chunk1
     }
 
     [Fact]
@@ -282,7 +279,7 @@ public class CrossEncoderRerankerTests
     }
 
     [Fact]
-    public async Task RerankAsync_SingleHit_NormalizesToOne()
+    public async Task RerankAsync_SingleHit_RetainsProviderScore()
     {
         var response = JsonSerializer.Serialize(new[]
         {
@@ -302,8 +299,8 @@ public class CrossEncoderRerankerTests
 
         var result = await reranker.RerankAsync("test query", hits);
 
-        // Single hit → scoreRange = 0, normalized to 1.0
-        result[0].Score.Should().Be(1.0f);
+        // Single hit — provider score passed through directly
+        result[0].Score.Should().Be(0.75f);
     }
 
     // --- Helpers ---

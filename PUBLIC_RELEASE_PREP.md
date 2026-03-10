@@ -105,7 +105,7 @@ Current README is 13 lines. Expand to include:
 ## Features
 
 - 🗂️ **Container-Based Organization**: Isolated projects with folder hierarchies
-- 🔍 **Hybrid Search**: Vector similarity + keyword FTS with RRF fusion
+- 🔍 **Hybrid Search**: Vector similarity + keyword FTS with convex combination fusion, DBSF, and AutoCut
 - 📄 **Multi-Format Support**: PDF, Office docs, Markdown, plain text
 - 🚀 **Real-Time Ingestion**: Background processing with SignalR progress
 - 🎛️ **Runtime Settings**: Configure chunking, embeddings, search without restart
