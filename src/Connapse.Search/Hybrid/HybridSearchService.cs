@@ -112,11 +112,16 @@ public class HybridSearchService : IKnowledgeSearch
             }
         }
 
-        // Apply final score threshold and limit
-        var finalHits = hits
+        // Apply final score threshold, auto-cut, and limit
+        var filtered = hits
             .Where(h => h.Score >= options.MinScore)
-            .Take(options.TopK)
+            .OrderByDescending(h => h.Score)
             .ToList();
+
+        if (searchSettings.AutoCut)
+            filtered = ApplyAutoCut(filtered);
+
+        var finalHits = filtered.Take(options.TopK).ToList();
 
         stopwatch.Stop();
 
@@ -167,80 +172,207 @@ public class HybridSearchService : IKnowledgeSearch
             vectorResults.Count,
             keywordResults.Count);
 
-        return FuseResults(vectorResults, keywordResults, _searchSettingsMonitor.CurrentValue.RrfK);
+        var settings = _searchSettingsMonitor.CurrentValue;
+
+        if (string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase))
+            return FuseResultsDbsf(vectorResults, keywordResults, settings.FusionAlpha);
+
+        if (!string.Equals(settings.FusionMethod, "ConvexCombination", StringComparison.OrdinalIgnoreCase))
+            _logger.LogWarning("Unknown FusionMethod '{Method}', defaulting to ConvexCombination", settings.FusionMethod);
+
+        return FuseResults(vectorResults, keywordResults, settings.FusionAlpha);
     }
 
     /// <summary>
-    /// Fuses vector and keyword results using Reciprocal Rank Fusion.
-    /// Deduplicates overlapping chunks, tags source metadata, and normalizes scores to [0,1].
+    /// Fuses vector and keyword results using Convex Combination.
+    /// Min-max normalizes each input list independently, then combines:
+    /// score = alpha * normalizedVector + (1 - alpha) * normalizedKeyword.
+    /// Produces meaningful [0,1] scores without post-fusion normalization.
     /// </summary>
     internal static List<SearchHit> FuseResults(
         List<SearchHit> vectorResults,
         List<SearchHit> keywordResults,
-        int rrfK)
+        float alpha)
     {
         if (vectorResults.Count == 0 && keywordResults.Count == 0)
             return [];
 
-        // Build lookup: ChunkId -> (SearchHit, rrfScore, source)
-        var fused = new Dictionary<string, (SearchHit Hit, double RrfScore, bool InVector, bool InKeyword)>();
+        // Min-max normalize INPUT scores independently (puts both on [0,1] scale)
+        var normVector = MinMaxNormalize(vectorResults);
+        var normKeyword = MinMaxNormalize(keywordResults);
 
-        // Process vector results (already sorted by score descending)
-        for (var rank = 0; rank < vectorResults.Count; rank++)
+        // Build lookup: ChunkId -> (Hit, vectorScore, keywordScore, source flags)
+        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword)>();
+
+        foreach (var (hit, score) in normVector)
+            fused[hit.ChunkId] = (hit, score, 0f, true, false);
+
+        foreach (var (hit, score) in normKeyword)
         {
-            var hit = vectorResults[rank];
-            var score = 1.0 / (rrfK + rank + 1); // rank is 1-indexed in formula
-            fused[hit.ChunkId] = (hit, score, true, false);
-        }
-
-        // Process keyword results (already sorted by score descending)
-        for (var rank = 0; rank < keywordResults.Count; rank++)
-        {
-            var hit = keywordResults[rank];
-            var score = 1.0 / (rrfK + rank + 1);
-
             if (fused.TryGetValue(hit.ChunkId, out var existing))
-            {
-                // Chunk appears in both lists — accumulate RRF score
-                fused[hit.ChunkId] = (existing.Hit, existing.RrfScore + score, true, true);
-            }
+                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true);
             else
+                fused[hit.ChunkId] = (hit, 0f, score, false, true);
+        }
+
+        // Convex combination: alpha * vector + (1 - alpha) * keyword
+        var clampedAlpha = Math.Clamp(alpha, 0f, 1f);
+        return fused.Values
+            .Select(entry =>
             {
-                fused[hit.ChunkId] = (hit, score, false, true);
+                var fusedScore = clampedAlpha * entry.VectorScore + (1f - clampedAlpha) * entry.KeywordScore;
+
+                var source = (entry.InVector, entry.InKeyword) switch
+                {
+                    (true, true) => "both",
+                    (true, false) => "vector",
+                    _ => "keyword"
+                };
+
+                var metadata = new Dictionary<string, string>(entry.Hit.Metadata)
+                {
+                    ["source"] = source,
+                    ["vectorScore"] = entry.VectorScore.ToString("F4"),
+                    ["keywordScore"] = entry.KeywordScore.ToString("F4")
+                };
+
+                return entry.Hit with { Score = fusedScore, Metadata = metadata };
+            })
+            .OrderByDescending(h => h.Score)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Fuses vector and keyword results using Distribution-Based Score Fusion (DBSF).
+    /// Normalizes each input list using mean ± 3σ, then combines with alpha weighting.
+    /// More robust to outliers than min-max normalization.
+    /// </summary>
+    internal static List<SearchHit> FuseResultsDbsf(
+        List<SearchHit> vectorResults,
+        List<SearchHit> keywordResults,
+        float alpha)
+    {
+        if (vectorResults.Count == 0 && keywordResults.Count == 0)
+            return [];
+
+        var normVector = DbsfNormalize(vectorResults);
+        var normKeyword = DbsfNormalize(keywordResults);
+
+        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword)>();
+
+        foreach (var (hit, score) in normVector)
+            fused[hit.ChunkId] = (hit, score, 0f, true, false);
+
+        foreach (var (hit, score) in normKeyword)
+        {
+            if (fused.TryGetValue(hit.ChunkId, out var existing))
+                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true);
+            else
+                fused[hit.ChunkId] = (hit, 0f, score, false, true);
+        }
+
+        var clampedAlpha = Math.Clamp(alpha, 0f, 1f);
+        return fused.Values
+            .Select(entry =>
+            {
+                var fusedScore = clampedAlpha * entry.VectorScore + (1f - clampedAlpha) * entry.KeywordScore;
+
+                var source = (entry.InVector, entry.InKeyword) switch
+                {
+                    (true, true) => "both",
+                    (true, false) => "vector",
+                    _ => "keyword"
+                };
+
+                var metadata = new Dictionary<string, string>(entry.Hit.Metadata)
+                {
+                    ["source"] = source,
+                    ["vectorScore"] = entry.VectorScore.ToString("F4"),
+                    ["keywordScore"] = entry.KeywordScore.ToString("F4")
+                };
+
+                return entry.Hit with { Score = fusedScore, Metadata = metadata };
+            })
+            .OrderByDescending(h => h.Score)
+            .ToList();
+    }
+
+    /// <summary>
+    /// DBSF normalization: maps scores to [0,1] using (score - (mean - 3σ)) / (6σ).
+    /// More robust to outliers than min-max — a single extreme score doesn't compress the rest.
+    /// Scores outside [mean-3σ, mean+3σ] are clamped to [0,1].
+    /// </summary>
+    private static List<(SearchHit Hit, float NormalizedScore)> DbsfNormalize(List<SearchHit> hits)
+    {
+        if (hits.Count == 0) return [];
+        if (hits.Count == 1) return [(hits[0], 1f)];
+
+        var scores = hits.Select(h => (double)h.Score).ToArray();
+        var mean = scores.Average();
+        var stdDev = Math.Sqrt(scores.Average(s => (s - mean) * (s - mean)));
+
+        if (stdDev < 1e-9)
+            return hits.Select(h => (h, 1f)).ToList();
+
+        var lower = mean - 3 * stdDev;
+        var range = 6 * stdDev;
+
+        return hits.Select(h =>
+        {
+            var normalized = (float)Math.Clamp((h.Score - lower) / range, 0, 1);
+            return (h, normalized);
+        }).ToList();
+    }
+
+    private static List<(SearchHit Hit, float NormalizedScore)> MinMaxNormalize(List<SearchHit> hits)
+    {
+        if (hits.Count == 0) return [];
+
+        var max = hits.Max(h => h.Score);
+        var min = hits.Min(h => h.Score);
+        var range = max - min;
+
+        return hits.Select(h => (h, range > 0 ? (h.Score - min) / range : 1f)).ToList();
+    }
+
+    /// <summary>
+    /// Trims results after the largest relative score gap.
+    /// Expects hits sorted by score descending. Keeps the top cluster.
+    /// Only cuts if the largest gap is both meaningful (> 10% of range)
+    /// and dominant (> 2x the second-largest gap), preventing false cuts
+    /// on evenly-spaced score distributions.
+    /// </summary>
+    internal static List<SearchHit> ApplyAutoCut(List<SearchHit> hits)
+    {
+        if (hits.Count <= 2)
+            return hits;
+
+        // Find the two largest gaps between consecutive scores
+        var maxGap = 0f;
+        var secondGap = 0f;
+        var cutIndex = hits.Count;
+
+        for (var i = 1; i < hits.Count; i++)
+        {
+            var gap = hits[i - 1].Score - hits[i].Score;
+            if (gap > maxGap)
+            {
+                secondGap = maxGap;
+                maxGap = gap;
+                cutIndex = i;
+            }
+            else if (gap > secondGap)
+            {
+                secondGap = gap;
             }
         }
 
-        // Sort by RRF score descending
-        var sorted = fused.Values
-            .OrderByDescending(x => x.RrfScore)
-            .ToList();
+        // Only cut if the gap is meaningful (> 10% of range) AND dominant (> 2x second-largest gap)
+        var scoreRange = hits[0].Score - hits[^1].Score;
+        if (scoreRange > 0 && maxGap / scoreRange > 0.1f && maxGap > secondGap * 2)
+            return hits.Take(cutIndex).ToList();
 
-        // Min-max normalization to [0, 1]
-        var maxScore = sorted[0].RrfScore;
-        var minScore = sorted[^1].RrfScore;
-        var range = maxScore - minScore;
-
-        return sorted.Select(entry =>
-        {
-            var normalizedScore = range > 0
-                ? (float)((entry.RrfScore - minScore) / range)
-                : 1.0f; // single item or all same score
-
-            var source = (entry.InVector, entry.InKeyword) switch
-            {
-                (true, true) => "both",
-                (true, false) => "vector",
-                _ => "keyword"
-            };
-
-            var metadata = new Dictionary<string, string>(entry.Hit.Metadata)
-            {
-                ["source"] = source,
-                ["rrfScore"] = entry.RrfScore.ToString("F6")
-            };
-
-            return entry.Hit with { Score = normalizedScore, Metadata = metadata };
-        }).ToList();
+        return hits;
     }
 
 }

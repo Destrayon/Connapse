@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dynamic tests badge from CI results (#105)
 - Connapse branding logos and favicon (#120)
 - GitHub Wiki pages (#115)
-- RRF fusion as built-in hybrid search step (#92)
+- Convex Combination fusion for hybrid search with configurable alpha (#92)
+- DBSF (Distribution-Based Score Fusion) as alternative outlier-robust fusion method
+- AutoCut: automatic result trimming via score gap detection
 - Connector type support in MCP `container_create` (#145, planned)
 
 ### Fixed
