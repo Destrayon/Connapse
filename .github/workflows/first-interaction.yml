@@ -1,0 +1,27 @@
+name: First Interaction
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            Thanks for opening your first issue! We appreciate you taking the time to report this.
+
+            A maintainer will review it shortly. In the meantime, please check our [Contributing Guide](CONTRIBUTING.md) for project conventions. If you have questions, feel free to start a thread in [GitHub Discussions](https://github.com/Destrayon/Connapse/discussions).
+          pr-message: |
+            Thanks for your first pull request! We're excited to have you contribute.
+
+            Please make sure your PR follows the guidelines in our [Contributing Guide](CONTRIBUTING.md). A maintainer will review it soon.
