@@ -1,5 +1,7 @@
 # Deployment Guide
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 This guide covers deploying Connapse in various environments.
 
 ## Table of Contents

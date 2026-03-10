@@ -1,5 +1,7 @@
 # API Reference
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 Connapse exposes multiple API surfaces for programmatic access:
 
 1. **REST API** — HTTP endpoints for containers, files, search, auth, and settings
