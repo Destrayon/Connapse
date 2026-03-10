@@ -69,7 +69,7 @@ services:
       Knowledge__Embedding__BaseUrl: "http://ollama:11434"
       CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL:-}
       CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD:-}
-      CONNAPSE_JWT_SECRET: ${CONNAPSE_JWT_SECRET:-}
+      Identity__Jwt__Secret: ${Identity__Jwt__Secret:-}
     volumes:
       - appdata:/app/appdata
     depends_on:

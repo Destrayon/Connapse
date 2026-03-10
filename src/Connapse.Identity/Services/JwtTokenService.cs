@@ -178,7 +178,7 @@ public class JwtTokenService(
     {
         var secret = settings.Secret
             ?? throw new InvalidOperationException(
-                "JWT secret is not configured. Set CONNAPSE_JWT_SECRET environment variable or Identity:Jwt:Secret in configuration.");
+                "JWT secret is not configured. Set Identity__Jwt__Secret environment variable.");
 
         return new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
     }
