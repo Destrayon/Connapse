@@ -807,8 +807,6 @@ The `chunk_vectors.embedding` column is unconstrained `vector` (no fixed dimensi
 
 ## References
 
-- [.claude/state/decisions.md](../.claude/state/decisions.md) — Architectural decisions with rationale
-- [.claude/state/conventions.md](../.claude/state/conventions.md) — Code patterns and conventions
-- [.claude/state/api-surface.md](../.claude/state/api-surface.md) — All public interfaces
 - [api.md](api.md) — REST API + MCP reference
+- [connectors.md](connectors.md) — Connector types and configuration
 - [deployment.md](deployment.md) — Deployment guides
