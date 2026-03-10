@@ -22,8 +22,10 @@ public record EmbeddingSettings
 
     /// <summary>
     /// Base URL for Ollama embedding service.
+    /// Defaults come from appsettings.json or environment variables — no hardcoded default
+    /// so that Docker deployments can override via Knowledge__Embedding__BaseUrl.
     /// </summary>
-    public string? BaseUrl { get; set; } = "http://localhost:11434";
+    public string? BaseUrl { get; set; }
 
     /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
@@ -192,8 +194,10 @@ public record LlmSettings
 
     /// <summary>
     /// Base URL for Ollama LLM service.
+    /// Defaults come from appsettings.json or environment variables — no hardcoded default
+    /// so that Docker deployments can override via Knowledge__Llm__BaseUrl.
     /// </summary>
-    public string? BaseUrl { get; set; } = "http://localhost:11434";
+    public string? BaseUrl { get; set; }
 
     /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
