@@ -1,5 +1,7 @@
 # Connectors
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 Connapse uses **Connectors** to interface with different storage backends. A **Container** is a logical knowledge base; a **Connector** is the technology that backs it.
 
 ## Connector Types

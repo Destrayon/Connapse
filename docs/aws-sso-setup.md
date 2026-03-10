@@ -1,5 +1,7 @@
 # AWS SSO Setup
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 Connapse integrates with AWS IAM Identity Center (formerly AWS SSO) using the **device authorization flow**. Users authenticate by entering a code on the AWS sign-in page — no stored access keys, no redirect URIs.
 
 ## Prerequisites

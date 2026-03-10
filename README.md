@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="connapse-logo-v27-teal.svg" alt="Connapse" width="375" />
+  <img src="connapse-logo-v27-teal.svg" alt="Connapse — Open-source AI knowledge management platform for RAG and AI agents" width="375" />
 </p>
 
 <p align="center">
@@ -19,11 +19,11 @@
 
 ---
 
-## 🎬 Demo
+## 🎬 Demo — Document Upload, Search & AI Chat
 
 https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c
 
-> *Upload documents, search your knowledge base, and chat with your data — all in under 30 seconds.*
+> *Upload documents, search your knowledge base with hybrid vector + keyword search, and chat with your data — all in under 30 seconds.*
 
 ---
 
@@ -45,7 +45,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 
 ---
 
-## 🚀 Features
+## 🚀 Features — Self-Hosted RAG Knowledge Management
 
 - **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
 - **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
@@ -70,7 +70,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 
 ---
 
-## 📦 Quick Start
+## 📦 Quick Start — Docker Compose Setup
 
 ### Prerequisites
 
@@ -174,7 +174,7 @@ The MCP server exposes **11 tools**:
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture — How Connapse Works
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

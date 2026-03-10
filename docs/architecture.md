@@ -1,5 +1,7 @@
 # Architecture
 
+> Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
+
 Connapse is a .NET 10 Blazor WebApp that transforms uploaded documents into searchable knowledge for AI agents. This document describes the system architecture, design patterns, and data flow.
 
 ## System Overview
