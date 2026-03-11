@@ -23,10 +23,10 @@
 
 > *Upload documents and search your knowledge base with hybrid AI search — in seconds.*
 
-Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude Desktop via MCP, query the REST API from your agents, or use the built-in web UI and CLI. Built on .NET 10 — not another Python monolith.
+Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude Desktop via MCP — agents can both query your knowledge base and build their own research corpus by uploading and organizing documents. Use the REST API, web UI, or CLI. Built on .NET 10 — not another Python monolith.
 
 <details>
-<summary><strong>🤖 AI Agent Integration</strong> — Claude queries your knowledge base via MCP</summary>
+<summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
 <br>
 
 <p align="center">
@@ -189,7 +189,7 @@ The MCP server exposes **11 tools**:
 
 ## 🎯 Who Is Connapse For?
 
-- **AI agent developers** who need a knowledge backend their agents can query via MCP or REST API
+- **AI agent developers** who need a knowledge backend their agents can both query and build — upload research, curate a corpus, and search it via MCP or REST API
 - **.NET / Azure teams** who want a RAG platform that fits their existing stack and cloud identity
 - **Enterprise teams** who need project-isolated knowledge bases with proper RBAC and audit trails
 - **Anyone tired of re-uploading files** — point Connapse at your existing S3/Azure/filesystem storage
