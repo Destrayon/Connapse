@@ -17,56 +17,35 @@
   <a href="https://github.com/Destrayon/Connapse#-quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker"></a>
 </p>
 
----
+<p align="center">
+  <img src="docs/demos/hero-upload-search.gif" alt="Connapse demo — upload a PDF, search with hybrid vector and keyword search, get results with source citations in seconds" width="720" />
+</p>
 
-## 🎬 Demo
+> *Upload documents and search your knowledge base with hybrid AI search — in seconds.*
 
-https://github.com/user-attachments/assets/bf0e250b-d1ae-4904-8550-5fd325f9b06c
+<details>
+<summary><strong>🤖 AI Agent Integration</strong> — Claude queries your knowledge base via MCP</summary>
+<br>
 
-> *Upload documents, search your knowledge base with hybrid vector + keyword search, and chat with your data — all in under 30 seconds.*
+<p align="center">
+  <img src="docs/demos/mcp-agent-integration.gif" alt="Claude Desktop querying Connapse knowledge base via MCP server — asks about preventing cascading failures in microservices, gets structured answer with circuit breaker pattern details cited from distributed-systems-notes.md" width="720" />
+</p>
 
----
+> *AI agents query your knowledge base through the MCP server, receiving structured answers with source citations from your documents.*
 
-## ⚠️ Security Notice
+</details>
 
-**This project is in active development (v0.3.0) and approaching production-readiness.**
+<details>
+<summary><strong>🎛️ Your Knowledge, Your Rules</strong> — Runtime configuration per container</summary>
+<br>
 
-v0.3.0 adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, and cloud identity linking (AWS SSO + Azure AD).
+<p align="center">
+  <img src="docs/demos/settings-providers.gif" alt="Connapse settings panel showing container configuration — switching embedding providers, adjusting chunking parameters, and configuring search settings at runtime without restart" width="720" />
+</p>
 
-- ✅ **Authentication and authorization** (v0.2.0)
-- ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
-- ✅ **Audit logging**
-- ✅ **Cloud identity linking** — AWS IAM Identity Center + Azure AD OAuth2+PKCE (v0.3.0)
-- ✅ **IAM-derived scope enforcement** — cloud permissions are source of truth (v0.3.0)
-- ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
-- ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
+> *Switch embedding providers, tune chunking parameters, and configure search — all at runtime, per container, without restarting.*
 
-See [SECURITY.md](SECURITY.md) for the full security policy.
-
----
-
-## 🚀 Features
-
-- **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
-- **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
-- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with convex combination fusion, DBSF, AutoCut + cross-model search
-- **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
-- **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
-- **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
-- **🧠 Multi-Provider AI**: Embeddings (Ollama, OpenAI, Azure OpenAI) + LLM (Ollama, OpenAI, Azure OpenAI, Anthropic)
-- **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control
-- **☁️ Cloud Identity**: AWS IAM Identity Center (device auth) + Azure AD (OAuth2+PKCE) — IAM-derived scopes
-- **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
-- **🤖 Agent Management**: Dedicated agent entities with API key lifecycle management
-- **📋 Audit Logging**: Structured audit trail for uploads, deletes, and container operations
-- **🌐 Multiple Interfaces**:
-  - Web UI (Blazor Server)
-  - REST API (`/api/v1/auth/`, `/api/v1/agents/`, `/api/containers/`)
-  - Command-line interface (`connapse auth login`, `connapse upload`, `connapse search`)
-  - MCP server (for Claude Desktop integration — agent API key auth)
-- **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
-- **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
-- **🧪 Tested**: 457 passing tests (unit + integration)
+</details>
 
 ---
 
@@ -171,6 +150,57 @@ The MCP server exposes **11 tools**:
 | `search_knowledge` | Semantic, keyword, or hybrid search within a container |
 
 > **Write guards**: S3 and AzureBlob containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
+
+---
+
+## 🚀 Features
+
+- **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
+- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with convex combination fusion, DBSF, AutoCut + cross-model search
+- **🧠 Multi-Provider AI**: Embeddings (Ollama, OpenAI, Azure OpenAI) + LLM (Ollama, OpenAI, Azure OpenAI, Anthropic)
+- **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
+- **🤖 MCP Server**: Claude Desktop integration with 11 tools — agent API key auth
+- **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control (Admin / Editor / Viewer / Agent)
+- **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
+
+<details>
+<summary><strong>See all features</strong></summary>
+
+- **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
+- **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
+- **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
+- **☁️ Cloud Identity**: AWS IAM Identity Center (device auth) + Azure AD (OAuth2+PKCE) — IAM-derived scopes
+- **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
+- **🤖 Agent Management**: Dedicated agent entities with API key lifecycle management
+- **📋 Audit Logging**: Structured audit trail for uploads, deletes, and container operations
+- **🌐 Multiple Interfaces**:
+  - Web UI (Blazor Server)
+  - REST API (`/api/v1/auth/`, `/api/v1/agents/`, `/api/containers/`)
+  - Command-line interface (`connapse auth login`, `connapse upload`, `connapse search`)
+  - MCP server (for Claude Desktop integration — agent API key auth)
+- **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
+- **🧪 Tested**: 457 passing tests (unit + integration)
+
+</details>
+
+<details>
+<summary><strong>⚠️ Security Status (v0.3.x)</strong></summary>
+
+**This project is in active development (v0.3.0) and approaching production-readiness.**
+
+v0.3.0 adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, and cloud identity linking (AWS SSO + Azure AD).
+
+- ✅ **Authentication and authorization** (v0.2.0)
+- ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
+- ✅ **Audit logging**
+- ✅ **Cloud identity linking** — AWS IAM Identity Center + Azure AD OAuth2+PKCE (v0.3.0)
+- ✅ **IAM-derived scope enforcement** — cloud permissions are source of truth (v0.3.0)
+- ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
+- ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
+
+See [SECURITY.md](SECURITY.md) for the full security policy.
+
+</details>
 
 ---
 
