@@ -1,0 +1,77 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using FluentAssertions;
+
+namespace Connapse.Integration.Tests;
+
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
+{
+    // ── HTTP upload ────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("../../../etc/passwd")]
+    [InlineData("folder/file.txt")]
+    [InlineData(@"..\secret.txt")]
+    public async Task UploadFile_TraversalFilename_Returns400(string maliciousFilename)
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"sanitize-test-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            content.Add(fileContent, "files", maliciousFilename);
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
+    [Fact]
+    public async Task UploadFile_CleanFilename_Returns200()
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"sanitize-ok-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("valid content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            content.Add(fileContent, "files", "valid-file.txt");
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    private record ContainerDto(string Id, string Name, string? Description, int DocumentCount = 0);
+}

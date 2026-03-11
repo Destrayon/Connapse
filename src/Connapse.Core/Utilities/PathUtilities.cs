@@ -71,6 +71,21 @@ public static partial class PathUtilities
     }
 
     /// <summary>
+    /// Returns true if the filename contains no directory separators or traversal sequences.
+    /// Normalizes backslashes so the check works on Linux where '\' is not a path separator.
+    /// </summary>
+    public static bool IsValidFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) return false;
+        var normalized = fileName.Replace('\\', '/');
+        var sanitized = Path.GetFileName(normalized);
+        return !string.IsNullOrEmpty(sanitized)
+               && sanitized == normalized
+               && sanitized != ".."
+               && sanitized != ".";
+    }
+
+    /// <summary>
     /// Resolves "." and ".." segments in a path, clamping at root so traversal
     /// can never escape above "/".
     /// </summary>

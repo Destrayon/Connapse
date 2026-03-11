@@ -54,6 +54,9 @@ public static class DocumentsEndpoints
 
             foreach (var file in files)
             {
+                if (!PathUtilities.IsValidFileName(file.FileName))
+                    return Results.BadRequest(new { error = $"Invalid filename: '{file.FileName}'" });
+
                 var documentId = Guid.NewGuid().ToString();
                 // Virtual path used for display and returned in response
                 var virtualFilePath = PathUtilities.NormalizePath($"{destinationPath}{file.FileName}");
