@@ -243,6 +243,9 @@ public class McpTools
         if (string.IsNullOrEmpty(fileName))
             return "Error: 'fileName' is required.";
 
+        if (!PathUtilities.IsValidFileName(fileName))
+            return $"Error: invalid filename '{fileName}' — must not contain path separators or '..' segments.";
+
         if (content is not null && textContent is not null)
             return "Error: Provide either 'content' or 'textContent', not both.";
 
@@ -497,6 +500,12 @@ public class McpTools
                 if (string.IsNullOrWhiteSpace(item.Filename))
                 {
                     failures.Add($"{itemLabel}: missing 'filename'");
+                    continue;
+                }
+
+                if (!PathUtilities.IsValidFileName(item.Filename))
+                {
+                    failures.Add($"{itemLabel}: invalid filename — must not contain path separators or '..' segments");
                     continue;
                 }
 
