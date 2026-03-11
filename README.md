@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <em>Open-source AI-powered knowledge management platform. Transform documents into searchable knowledge for AI agents.</em>
+  <em>The knowledge backend for AI agents. Open-source, container-isolated, hybrid search.</em>
 </p>
 
 <p align="center">
@@ -23,6 +23,8 @@
 
 > *Upload documents and search your knowledge base with hybrid AI search — in seconds.*
 
+Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude Desktop via MCP, query the REST API from your agents, or use the built-in web UI and CLI. Built on .NET 10 — not another Python monolith.
+
 <details>
 <summary><strong>🤖 AI Agent Integration</strong> — Claude queries your knowledge base via MCP</summary>
 <br>
@@ -36,20 +38,25 @@
 </details>
 
 <details>
-<summary><strong>🎛️ Your Knowledge, Your Rules</strong> — Runtime configuration per container</summary>
+<summary><strong>🎛️ Your Knowledge, Your Rules</strong> — Runtime configuration without restarting</summary>
 <br>
 
 <p align="center">
-  <img src="docs/demos/settings-providers.gif" alt="Connapse settings panel showing container configuration — switching embedding providers, adjusting chunking parameters, and configuring search settings at runtime without restart" width="720" />
+  <img src="docs/demos/settings-providers.gif" alt="Connapse settings panel — switching embedding providers, adjusting chunking parameters, and configuring search settings at runtime without restart" width="720" />
 </p>
 
-> *Switch embedding providers, tune chunking parameters, and configure search — all at runtime, per container, without restarting.*
+> *Switch embedding providers, tune chunking parameters, and configure search — all at runtime, without restarting.*
 
 </details>
 
 ---
 
 ## 📦 Quick Start
+
+```bash
+git clone https://github.com/Destrayon/Connapse.git && cd Connapse && docker-compose up -d
+# Open http://localhost:5001
+```
 
 ### Prerequisites
 
@@ -155,33 +162,37 @@ The MCP server exposes **11 tools**:
 
 ## 🚀 Features
 
-- **🗂️ Container-Based Organization**: Isolated projects with S3-like folder hierarchies
-- **🔍 Hybrid Search**: Vector similarity + keyword full-text search with convex combination fusion, DBSF, AutoCut + cross-model search
-- **🧠 Multi-Provider AI**: Embeddings (Ollama, OpenAI, Azure OpenAI) + LLM (Ollama, OpenAI, Azure OpenAI, Anthropic)
-- **🔌 4 Connector Types**: MinIO (default), Filesystem (live watch), S3, Azure Blob
-- **🤖 MCP Server**: Claude Desktop integration with 11 tools — agent API key auth
-- **🔐 Three-Tier Auth**: Cookie sessions + Personal Access Tokens + JWT — role-based access control (Admin / Editor / Viewer / Agent)
-- **🐳 Fully Dockerized**: PostgreSQL + pgvector, MinIO (S3), optional Ollama
+- **🗂️ Container-Isolated Knowledge** — Each project gets its own vector index, storage connector, and search configuration. No cross-contamination between projects, teams, or clients.
+- **🔍 Hybrid Search** — Vector similarity + keyword full-text with configurable fusion (convex combination, DBSF, AutoCut). Get results that pure vector search misses.
+- **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
+- **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), S3 (IAM auth), or Azure Blob (managed identity). Your files stay where they are.
+- **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server (11 tools for Claude Desktop). Built for humans, scripts, and AI agents equally.
+- **🔐 Enterprise Auth** — Three-tier RBAC (Cookie + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
+- **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
 <details>
 <summary><strong>See all features</strong></summary>
 
-- **📄 Multi-Format Support**: PDF, Office documents, Markdown, plain text
-- **⚡ Real-Time Ingestion**: Background processing with live progress updates (SignalR)
-- **🎛️ Runtime Configuration**: Change chunking, embeddings, search settings without restart
-- **☁️ Cloud Identity**: AWS IAM Identity Center (device auth) + Azure AD (OAuth2+PKCE) — IAM-derived scopes
-- **👥 Invite-Only Users**: Admin controls access; agent identities managed separately
-- **🤖 Agent Management**: Dedicated agent entities with API key lifecycle management
-- **📋 Audit Logging**: Structured audit trail for uploads, deletes, and container operations
-- **🌐 Multiple Interfaces**:
-  - Web UI (Blazor Server)
-  - REST API (`/api/v1/auth/`, `/api/v1/agents/`, `/api/containers/`)
-  - Command-line interface (`connapse auth login`, `connapse upload`, `connapse search`)
-  - MCP server (for Claude Desktop integration — agent API key auth)
-- **📦 CLI Distribution**: Native self-contained binaries (win/linux/osx) + .NET global tool
-- **🧪 Tested**: 457 passing tests (unit + integration)
+- **📄 Multi-Format Ingestion**: PDF, Office documents, Markdown, plain text — parsed, chunked, and embedded automatically
+- **⚡ Real-Time Processing**: Background ingestion with live progress updates via SignalR
+- **🎛️ Runtime Configuration**: Change chunking strategy, embedding model, and search settings per container without restart
+- **☁️ Cloud Identity Linking**: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE) with IAM-derived scope enforcement
+- **👥 Invite-Only Access**: Admin-controlled user registration with four roles (Admin / Editor / Viewer / Agent)
+- **🤖 Agent Management**: Dedicated agent entities with API key lifecycle, scoped permissions, and audit trails
+- **📋 Audit Logging**: Structured audit trail for uploads, deletes, container operations, and auth events
+- **📦 CLI Distribution**: Native self-contained binaries (Windows/Linux/macOS) and .NET global tool via NuGet
+- **🔄 Cross-Model Search**: Switch embedding models mid-project — automatic Semantic→Hybrid fallback for legacy vectors
 
 </details>
+
+---
+
+## 🎯 Who Is Connapse For?
+
+- **AI agent developers** who need a knowledge backend their agents can query via MCP or REST API
+- **.NET / Azure teams** who want a RAG platform that fits their existing stack and cloud identity
+- **Enterprise teams** who need project-isolated knowledge bases with proper RBAC and audit trails
+- **Anyone tired of re-uploading files** — point Connapse at your existing S3/Azure/filesystem storage
 
 <details>
 <summary><strong>⚠️ Security Status (v0.3.x)</strong></summary>
@@ -247,7 +258,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - **Frontend**: Blazor Server (interactive mode)
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
 - **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
-- **Search**: Hybrid vector + keyword with Reciprocal Rank Fusion
+- **Search**: Hybrid vector + keyword with convex combination fusion
 - **Connectors**: MinIO, Filesystem, S3, Azure Blob
 
 ---
