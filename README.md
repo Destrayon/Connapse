@@ -23,14 +23,14 @@
 
 > *Upload documents and search your knowledge base with hybrid AI search — in seconds.*
 
-Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude Desktop via MCP — agents can both query your knowledge base and build their own research corpus by uploading and organizing documents. Use the REST API, web UI, or CLI. Built on .NET 10 — not another Python monolith.
+Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude Code via MCP — agents can both query your knowledge base and build their own research corpus by uploading and organizing documents. Use the REST API, web UI, or CLI. Built on .NET 10 — not another Python monolith.
 
 <details>
-<summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
+<summary><strong>🤖 AI Agent Integration</strong> — Claude Code queries and builds your knowledge base via MCP</summary>
 <br>
 
 <p align="center">
-  <img src="docs/demos/mcp-agent-integration.gif" alt="Claude Desktop querying Connapse knowledge base via MCP server — asks about preventing cascading failures in microservices, gets structured answer with circuit breaker pattern details cited from distributed-systems-notes.md" width="720" />
+  <img src="docs/demos/mcp-agent-integration.gif" alt="Claude Code querying Connapse knowledge base via MCP server — asks about preventing cascading failures in microservices, gets structured answer with circuit breaker pattern details cited from distributed-systems-notes.md" width="720" />
 </p>
 
 > *AI agents query your knowledge base through the MCP server, receiving structured answers with source citations from your documents.*
@@ -132,13 +132,13 @@ connapse upload ./documents --container my-project
 connapse search "your query" --container my-project
 ```
 
-### Using with Claude Desktop (MCP)
+### Using with Claude Code (MCP)
 
-Connapse includes a Model Context Protocol (MCP) server for integration with Claude Desktop.
+Connapse includes a Model Context Protocol (MCP) server for integration with Claude Code (or any MCP client).
 
 **Setup**:
 1. Create an Agent in the Connapse UI (`/admin/agents`) and generate an API key
-2. Configure Claude Desktop to send requests to your Connapse instance with the agent's `X-Api-Key`
+2. Configure Claude Code to send requests to your Connapse instance with the agent's `X-Api-Key`
 
 The MCP server exposes **11 tools**:
 
@@ -166,7 +166,7 @@ The MCP server exposes **11 tools**:
 - **🔍 Hybrid Search** — Vector similarity + keyword full-text with configurable fusion (convex combination, DBSF, AutoCut). Get results that pure vector search misses.
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
 - **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), S3 (IAM auth), or Azure Blob (managed identity). Your files stay where they are.
-- **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server (11 tools for Claude Desktop). Built for humans, scripts, and AI agents equally.
+- **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server (11 tools for Claude Code). Built for humans, scripts, and AI agents equally.
 - **🔐 Enterprise Auth** — Three-tier RBAC (Cookie + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
