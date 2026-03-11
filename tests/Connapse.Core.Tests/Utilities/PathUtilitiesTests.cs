@@ -165,4 +165,50 @@ public class PathUtilitiesTests
     {
         PathUtilities.GetFileName(input).Should().Be(expected);
     }
+
+    // ── IsValidFileName ────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("report.pdf")]
+    [InlineData("my file.txt")]
+    [InlineData("résumé.docx")]
+    [InlineData("file-name_v2.tar.gz")]
+    public void IsValidFileName_CleanFilename_ReturnsTrue(string fileName)
+    {
+        PathUtilities.IsValidFileName(fileName).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("../etc/passwd")]
+    [InlineData("../../secret.txt")]
+    [InlineData("folder/file.txt")]
+    [InlineData("a/b/c.txt")]
+    public void IsValidFileName_ForwardSlashTraversal_ReturnsFalse(string fileName)
+    {
+        PathUtilities.IsValidFileName(fileName).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(@"..\etc\passwd")]
+    [InlineData(@"..\..\secret.txt")]
+    [InlineData(@"folder\file.txt")]
+    public void IsValidFileName_BackslashTraversal_ReturnsFalse(string fileName)
+    {
+        PathUtilities.IsValidFileName(fileName).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsValidFileName_BareDotDot_ReturnsFalse()
+    {
+        PathUtilities.IsValidFileName("..").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void IsValidFileName_EmptyOrWhitespace_ReturnsFalse(string? fileName)
+    {
+        PathUtilities.IsValidFileName(fileName!).Should().BeFalse();
+    }
 }
