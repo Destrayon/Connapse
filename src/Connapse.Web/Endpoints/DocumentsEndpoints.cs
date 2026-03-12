@@ -150,8 +150,8 @@ public static class DocumentsEndpoints
             [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            if (skip < 0) skip = 0;
-            if (take <= 0 || take > 200) take = 50;
+            var validationError = PaginationValidator.Validate(skip, take);
+            if (validationError is not null) return validationError;
 
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
