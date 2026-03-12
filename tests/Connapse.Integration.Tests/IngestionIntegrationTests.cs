@@ -159,6 +159,27 @@ public class IngestionIntegrationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Upload_ZeroByteFile_Returns400()
+    {
+        // Arrange: create a 0-byte file upload
+        using var multipart = new MultipartFormDataContent();
+        var emptyContent = new ByteArrayContent(Array.Empty<byte>());
+        emptyContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("text/plain");
+        multipart.Add(emptyContent, "files", "empty.txt");
+
+        // Act
+        var response = await _fixture.AdminClient.PostAsync(
+            $"/api/containers/{_containerId}/files", multipart);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<ErrorResponse>(JsonOptions);
+        body!.Error.Should().Be("File must not be empty");
+    }
+
+    private record ErrorResponse(string Error);
+
     private async Task<string> UploadDocument(string fileName, string content)
     {
         using var multipart = new MultipartFormDataContent();

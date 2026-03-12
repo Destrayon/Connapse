@@ -44,6 +44,9 @@ public static class DocumentsEndpoints
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
+            if (files.Any(f => f.Length == 0))
+                return Results.BadRequest(new { error = "File must not be empty" });
+
             // Reject path traversal attempts before normalization
             if (path is not null && PathUtilities.ContainsPathTraversal(path))
                 return Results.BadRequest(new { error = "Path must not contain '..' segments" });
