@@ -44,7 +44,11 @@ var httpClient = new HttpClient(handler)
 if (credentials?.ApiKey is not null)
     httpClient.DefaultRequestHeaders.Add("X-Api-Key", credentials.ApiKey);
 
-var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+var jsonOptions = new JsonSerializerOptions
+{
+    PropertyNameCaseInsensitive = true,
+    TypeInfoResolver = CliJsonContext.Default
+};
 
 if (args.Length == 0)
 {
@@ -1637,9 +1641,9 @@ static async Task<int> HandleUpdate(string[] args)
     GitHubRelease? release;
     try
     {
-        release = await ghClient.GetFromJsonAsync<GitHubRelease>(
+        release = await ghClient.GetFromJsonAsync(
             "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            CliJsonContext.Default.GitHubRelease);
     }
     catch (Exception ex)
     {
@@ -1832,8 +1836,7 @@ static CliCredentials? LoadCredentials()
     try
     {
         var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<CliCredentials>(json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return JsonSerializer.Deserialize(json, CliJsonContext.Default.CliCredentials);
     }
     catch
     {
@@ -1845,7 +1848,7 @@ static void SaveCredentials(CliCredentials credentials)
 {
     var path = GetCredentialsPath();
     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-    var json = JsonSerializer.Serialize(credentials, new JsonSerializerOptions { WriteIndented = true });
+    var json = JsonSerializer.Serialize(credentials, CliJsonContext.Default.CliCredentials);
     File.WriteAllText(path, json);
 }
 
@@ -1916,9 +1919,9 @@ static async Task CheckForUpdateNotification()
         ghClient.DefaultRequestHeaders.UserAgent.Add(
             new ProductInfoHeaderValue("connapse-cli", currentVersion));
 
-        var release = await ghClient.GetFromJsonAsync<GitHubRelease>(
+        var release = await ghClient.GetFromJsonAsync(
             "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            CliJsonContext.Default.GitHubRelease);
 
         Directory.CreateDirectory(Path.GetDirectoryName(checkFile)!);
         File.WriteAllText(checkFile, DateTime.UtcNow.ToString("O"));
@@ -2041,3 +2044,21 @@ record GitHubRelease(
 record GitHubAsset(
     [property: JsonPropertyName("name")]                  string Name,
     [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl);
+
+[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(List<PatListItem>))]
+[JsonSerializable(typeof(PatListItem))]
+[JsonSerializable(typeof(PatCreateResponse))]
+[JsonSerializable(typeof(PagedContainerResponse))]
+[JsonSerializable(typeof(ContainerInfo))]
+[JsonSerializable(typeof(List<ContainerInfo>))]
+[JsonSerializable(typeof(SearchResult))]
+[JsonSerializable(typeof(SearchHit))]
+[JsonSerializable(typeof(ReindexResult))]
+[JsonSerializable(typeof(TokenResponse))]
+[JsonSerializable(typeof(CliExchangeResponse))]
+[JsonSerializable(typeof(CliCredentials))]
+[JsonSerializable(typeof(GitHubRelease))]
+[JsonSerializable(typeof(GitHubAsset))]
+[JsonSerializable(typeof(JsonDocument))]
+internal partial class CliJsonContext : JsonSerializerContext { }
