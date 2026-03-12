@@ -39,6 +39,39 @@ Connapse uses a **three-tier authentication** system:
 
 ---
 
+### Pagination
+
+All list endpoints use paginated responses. Pagination parameters are **required** — omitting them returns 400.
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Constraints |
+|-----------|------|---------|-------------|
+| `skip` | int | 0 | min: 0 |
+| `take` | int | 50 | min: 1, max: 200 |
+
+**Response Envelope** (`PagedResponse<T>`):
+
+```json
+{
+  "items": [ ... ],
+  "totalCount": 142,
+  "hasMore": true
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `items` | Array of results for the current page |
+| `totalCount` | Total number of matching records |
+| `hasMore` | `true` if more records exist beyond `skip + take` |
+
+**Paginated endpoints**: `GET /api/containers`, `GET /api/containers/{id}/files`, `GET /api/v1/auth/users`.
+
+**Example**: `GET /api/containers?skip=0&take=20`
+
+---
+
 ## Auth API
 
 Base path: `/api/v1/auth`
@@ -164,22 +197,28 @@ Exchange a valid refresh token for a new access/refresh token pair.
 
 ### List Users (Admin)
 
-**Endpoint**: `GET /api/v1/auth/users`
+**Endpoint**: `GET /api/v1/auth/users?skip=0&take=50`
 
 **Auth**: Admin role required
 
+**Query Parameters**: `skip`, `take` (see [Pagination](#pagination))
+
 **Response** (200 OK):
 ```json
-[
-  {
-    "id": "user-guid",
-    "email": "viewer@example.com",
-    "roles": ["Viewer"],
-    "isSystemAdmin": false,
-    "lastLoginAt": "2026-02-25T14:30:00Z",
-    "createdAt": "2026-02-20T09:00:00Z"
-  }
-]
+{
+  "items": [
+    {
+      "id": "user-guid",
+      "email": "viewer@example.com",
+      "roles": ["Viewer"],
+      "isSystemAdmin": false,
+      "lastLoginAt": "2026-02-25T14:30:00Z",
+      "createdAt": "2026-02-20T09:00:00Z"
+    }
+  ],
+  "totalCount": 1,
+  "hasMore": false
+}
 ```
 
 ---
@@ -382,9 +421,28 @@ All container endpoints require authentication. RBAC rules:
 
 ### List Containers
 
-**Endpoint**: `GET /api/containers`
+**Endpoint**: `GET /api/containers?skip=0&take=50`
 
-**Response** (200 OK): Array of `Container` objects (see above).
+**Query Parameters**: `skip`, `take` (see [Pagination](#pagination))
+
+**Response** (200 OK):
+```json
+{
+  "items": [
+    {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "name": "my-project",
+      "description": "Project knowledge base",
+      "connectorType": "MinIO",
+      "documentCount": 42,
+      "createdAt": "2026-02-26T10:00:00Z",
+      "updatedAt": "2026-02-26T10:00:00Z"
+    }
+  ],
+  "totalCount": 1,
+  "hasMore": false
+}
+```
 
 ---
 
@@ -479,12 +537,31 @@ Upload one or more files into a container.
 
 ### List Files
 
-**Endpoint**: `GET /api/containers/{id}/files`
+**Endpoint**: `GET /api/containers/{id}/files?skip=0&take=50`
 
 **Query Parameters**:
+- `skip`, `take` (required): See [Pagination](#pagination)
 - `path` (optional): Browse a specific folder (e.g., `?path=/docs/`)
 
-**Response** (200 OK): Array of file and folder entries.
+**Response** (200 OK):
+```json
+{
+  "items": [
+    {
+      "type": "file",
+      "documentId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "fileName": "report.pdf",
+      "path": "/docs/report.pdf",
+      "contentType": "application/pdf",
+      "sizeBytes": 245678,
+      "status": "Ready",
+      "createdAt": "2026-02-26T10:00:00Z"
+    }
+  ],
+  "totalCount": 1,
+  "hasMore": false
+}
+```
 
 ---
 
@@ -1028,7 +1105,7 @@ All API errors follow RFC 7807 Problem Details format.
 | 409 | Conflict (duplicate name, already revoked, etc.) |
 | 413 | File exceeds `UploadSettings.MaxFileSizeMb` |
 | 415 | File type not in `UploadSettings.AllowedExtensions` |
-| 429 | Ingestion queue full |
+| 429 | Rate limit exceeded (see rate limiting) |
 | 500 | Unexpected server error |
 | 503 | External service (Ollama, MinIO) unreachable |
 
@@ -1278,7 +1355,7 @@ Removes the linked identity and evicts cached scope entries.
 
 ## Versioning
 
-**Current Version**: `v0.3.0`
+**Current Version**: `v0.3.2`
 
 Auth endpoints are under `/api/v1/auth/` and `/api/v1/agents/`. Container endpoints remain under `/api/containers/`. Cloud identity endpoints are under `/api/v1/auth/cloud/`.
 
