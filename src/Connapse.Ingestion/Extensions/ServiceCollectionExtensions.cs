@@ -3,6 +3,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
+using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Ingestion.Extensions;
@@ -26,6 +27,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, TextParser>();
         services.AddSingleton<IDocumentParser, PdfParser>();
         services.AddSingleton<IDocumentParser, OfficeParser>();
+        services.AddSingleton<IFileTypeValidator, FileTypeValidator>();
 
         // Register chunking strategies
         services.AddSingleton<IChunkingStrategy, FixedSizeChunker>();

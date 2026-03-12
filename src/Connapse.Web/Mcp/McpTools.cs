@@ -246,6 +246,14 @@ public class McpTools
         if (!PathUtilities.IsValidFileName(fileName))
             return $"Error: invalid filename '{fileName}' — must not contain path separators or '..' segments.";
 
+        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
+        if (!fileTypeValidator.IsSupported(fileName))
+        {
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+            return $"Error: file type '{ext}' is not supported. Supported types: {supported}";
+        }
+
         if (content is not null && textContent is not null)
             return "Error: Provide either 'content' or 'textContent', not both.";
 
@@ -486,6 +494,7 @@ public class McpTools
         var folderStore = services.GetRequiredService<IFolderStore>();
         var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
 
+        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
         var batchId = Guid.NewGuid().ToString();
         var succeeded = 0;
         var failures = new List<string>();
@@ -506,6 +515,13 @@ public class McpTools
                 if (!PathUtilities.IsValidFileName(item.Filename))
                 {
                     failures.Add($"{itemLabel}: invalid filename — must not contain path separators or '..' segments");
+                    continue;
+                }
+
+                if (!fileTypeValidator.IsSupported(item.Filename))
+                {
+                    var ext = Path.GetExtension(item.Filename).ToLowerInvariant();
+                    failures.Add($"{itemLabel}: unsupported file type '{ext}'");
                     continue;
                 }
 

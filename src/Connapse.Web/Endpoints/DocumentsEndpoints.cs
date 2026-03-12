@@ -27,6 +27,7 @@ public static class DocumentsEndpoints
             [FromServices] IIngestionQueue queue,
             [FromServices] IAuditLogger auditLogger,
             [FromServices] ICloudScopeService cloudScopeService,
+            [FromServices] IFileTypeValidator fileTypeValidator,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -59,6 +60,13 @@ public static class DocumentsEndpoints
             {
                 if (!PathUtilities.IsValidFileName(file.FileName))
                     return Results.BadRequest(new { error = $"Invalid filename: '{file.FileName}'" });
+
+                if (!fileTypeValidator.IsSupported(file.FileName))
+                {
+                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+                    return Results.BadRequest(new { error = "unsupported_file_type", message = $"File type '{ext}' is not supported. Supported types: {supported}" });
+                }
 
                 var documentId = Guid.NewGuid().ToString();
                 // Virtual path used for display and returned in response

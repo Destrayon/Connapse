@@ -17,6 +17,7 @@ public class McpToolsBulkUploadTests
     private readonly IConnectorFactory _connectorFactory;
     private readonly IConnector _connector;
     private readonly IFolderStore _folderStore;
+    private readonly IFileTypeValidator _fileTypeValidator;
     private readonly IServiceProvider _services;
 
     public McpToolsBulkUploadTests()
@@ -27,6 +28,7 @@ public class McpToolsBulkUploadTests
         _connectorFactory = Substitute.For<IConnectorFactory>();
         _connector = Substitute.For<IConnector>();
         _folderStore = Substitute.For<IFolderStore>();
+        _fileTypeValidator = Substitute.For<IFileTypeValidator>();
 
         var container = MakeContainer();
         _containerStore
@@ -39,12 +41,17 @@ public class McpToolsBulkUploadTests
             .ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(true);
 
+        // Accept all file types by default so existing tests are unaffected
+        _fileTypeValidator.IsSupported(Arg.Any<string>()).Returns(true);
+        _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string>());
+
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
         services.GetService(typeof(IConnectorFactory)).Returns(_connectorFactory);
         services.GetService(typeof(IFolderStore)).Returns(_folderStore);
+        services.GetService(typeof(IFileTypeValidator)).Returns(_fileTypeValidator);
         _services = services;
     }
 
