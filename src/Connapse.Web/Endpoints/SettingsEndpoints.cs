@@ -43,7 +43,7 @@ public static class SettingsEndpoints
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "awssso" => Results.Ok(await GetSettingsAsync<AwsSsoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "azuread" => Results.Ok(await GetSettingsAsync<AzureAdSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                _ => Results.BadRequest(new { error = $"Unknown category: {category}" })
+                _ => Results.NotFound(new { error = $"Unknown settings category: {category}" })
             };
         })
         .WithName("GetSettings")
@@ -97,7 +97,7 @@ public static class SettingsEndpoints
                         if (azureAd != null) await settingsStore.SaveAsync(categoryLower, azureAd, ct);
                         break;
                     default:
-                        return Results.BadRequest(new { error = $"Unknown category: {category}" });
+                        return Results.NotFound(new { error = $"Unknown settings category: {category}" });
                 }
 
                 // When embedding settings change, reconcile partial IVFFlat indexes

@@ -136,4 +136,24 @@ public class SettingsIntegrationTests(SharedWebAppFixture fixture)
         await fixture.AdminClient.PutAsJsonAsync("/api/settings/embedding", originalEmbedding);
         await fixture.AdminClient.PutAsJsonAsync("/api/settings/chunking", originalChunking);
     }
+
+    [Fact]
+    public async Task GetSettings_UnknownCategory_Returns404()
+    {
+        // Act
+        var response = await fixture.AdminClient.GetAsync("/api/settings/nonexistent");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_UnknownCategory_Returns404()
+    {
+        // Act
+        var response = await fixture.AdminClient.PutAsJsonAsync("/api/settings/nonexistent", new { foo = "bar" });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }
