@@ -172,8 +172,8 @@ public static class AuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
-            if (skip < 0) skip = 0;
-            if (take <= 0 || take > 200) take = 50;
+            var validationError = PaginationValidator.Validate(skip, take);
+            if (validationError is not null) return validationError;
 
             var totalCount = await dbContext.Users.CountAsync(ct);
 
