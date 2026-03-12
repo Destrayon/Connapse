@@ -494,6 +494,7 @@ public class McpTools
         var folderStore = services.GetRequiredService<IFolderStore>();
         var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
 
+        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
         var batchId = Guid.NewGuid().ToString();
         var succeeded = 0;
         var failures = new List<string>();
@@ -514,6 +515,13 @@ public class McpTools
                 if (!PathUtilities.IsValidFileName(item.Filename))
                 {
                     failures.Add($"{itemLabel}: invalid filename — must not contain path separators or '..' segments");
+                    continue;
+                }
+
+                if (!fileTypeValidator.IsSupported(item.Filename))
+                {
+                    var ext = Path.GetExtension(item.Filename).ToLowerInvariant();
+                    failures.Add($"{itemLabel}: unsupported file type '{ext}'");
                     continue;
                 }
 
