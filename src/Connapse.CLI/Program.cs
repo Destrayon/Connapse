@@ -798,10 +798,11 @@ static async Task<int> ContainerList(HttpClient httpClient, JsonSerializerOption
 {
     EnsureAuthenticated();
 
-    var response = await httpClient.GetAsync("/api/containers");
+    var response = await httpClient.GetAsync("/api/containers?skip=0&take=100");
     response.EnsureSuccessStatusCode();
 
-    var containers = await response.Content.ReadFromJsonAsync<List<ContainerInfo>>(jsonOptions);
+    var paged = await response.Content.ReadFromJsonAsync<PagedContainerResponse>(jsonOptions);
+    var containers = paged?.Items;
 
     if (containers is null || containers.Count == 0)
     {
@@ -812,7 +813,9 @@ static async Task<int> ContainerList(HttpClient httpClient, JsonSerializerOption
     }
 
     Console.ForegroundColor = ConsoleColor.Cyan;
-    Console.WriteLine($"Found {containers.Count} container(s)");
+    Console.WriteLine(paged!.HasMore
+        ? $"Showing {containers.Count} of {paged.TotalCount} container(s)"
+        : $"Found {containers.Count} container(s)");
     Console.ResetColor();
     Console.WriteLine();
 
@@ -2020,6 +2023,7 @@ record CliExchangeResponse(string Token, Guid PatId, DateTime? ExpiresAt, string
 record TokenResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, string TokenType);
 record PatCreateResponse(Guid Id, string Name, string Token, string[] Scopes, DateTime CreatedAt, DateTime? ExpiresAt);
 record PatListItem(Guid Id, string Name, string TokenPrefix, string[] Scopes, DateTime CreatedAt, DateTime? ExpiresAt, DateTime? LastUsedAt, bool IsRevoked);
+record PagedContainerResponse(List<ContainerInfo> Items, int TotalCount, bool HasMore);
 record ContainerInfo(string Id, string Name, string? Description, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
 record SearchResult(List<SearchHit> Hits, int TotalMatches, TimeSpan Duration);
 record SearchHit(string ChunkId, string DocumentId, string Content, float Score, Dictionary<string, string> Metadata);
