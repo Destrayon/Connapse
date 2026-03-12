@@ -28,7 +28,7 @@ These shapes were verified in live testing and differ from what you might assume
 - **Search hits** have `fileName` inside `metadata` object: `hit.metadata.fileName` (not `hit.fileName`).
 - **Container create** returns HTTP **201** with `{id, name, description, ...}`.
 - **Container delete** returns HTTP **204** (empty). Delete of non-empty container returns **400** with error message.
-- **Nonexistent settings category** returns **400** (not 404).
+- **Nonexistent settings category** returns **404** with descriptive error message.
 
 ## REST API Endpoints
 
