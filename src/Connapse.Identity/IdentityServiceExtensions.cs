@@ -124,7 +124,7 @@ public static class IdentityServiceExtensions
                 options.SlidingExpiration = true;
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SameSite = SameSiteMode.Strict;
-                options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
                 // For API/MCP endpoints, return 401 instead of redirecting to login
                 options.Events.OnRedirectToLogin = context =>

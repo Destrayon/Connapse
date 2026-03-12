@@ -50,7 +50,7 @@ public static class CloudIdentityEndpoints
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
+                Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Lax,
                 MaxAge = TimeSpan.FromMinutes(10),
                 Path = "/api/v1/auth/cloud/azure"
