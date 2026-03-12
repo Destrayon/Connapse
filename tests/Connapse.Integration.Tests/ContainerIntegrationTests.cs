@@ -541,6 +541,54 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
         throw new TimeoutException($"Ingestion did not complete within {timeoutSeconds} seconds");
     }
 
+    // ── Path Filtering (Issue #191) ─────────────────────────────────
+
+    [Fact]
+    public async Task ListFiles_WithPathFilter_ReturnsFilesAtPath()
+    {
+        var container = await CreateContainer("path-filter-test");
+
+        // Create folder, then upload file into it
+        await fixture.AdminClient.PostAsJsonAsync(
+            $"/api/containers/{container.Id}/folders",
+            new { Path = "/docs" });
+
+        var docId = await UploadFile(container.Id, "test.md", "Hello from docs folder", path: "/docs");
+        await WaitForIngestionToComplete(container.Id, docId, timeoutSeconds: 60);
+
+        // Verify the document was stored with the right path
+        var docResponse = await fixture.AdminClient.GetAsync(
+            $"/api/containers/{container.Id}/files/{docId}");
+        docResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var doc = await docResponse.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions);
+        doc!.Path.Should().Be("/docs/test.md", "document should be stored with folder path");
+
+        // Act: list files with path filter
+        var response = await fixture.AdminClient.GetAsync(
+            $"/api/containers/{container.Id}/files?path=/docs/&skip=0&take=200");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var paged = await response.Content.ReadFromJsonAsync<PagedResponse<BrowseEntryDto>>(JsonOptions);
+        paged.Should().NotBeNull();
+        paged!.Items.Should().Contain(e => e.Name == "test.md" && !e.IsFolder,
+            "files uploaded to /docs/ should appear when filtering by ?path=/docs/");
+
+        // Also test without trailing slash
+        var response2 = await fixture.AdminClient.GetAsync(
+            $"/api/containers/{container.Id}/files?path=/docs&skip=0&take=200");
+        response2.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var paged2 = await response2.Content.ReadFromJsonAsync<PagedResponse<BrowseEntryDto>>(JsonOptions);
+        paged2.Should().NotBeNull();
+        paged2!.Items.Should().Contain(e => e.Name == "test.md" && !e.IsFolder,
+            "path filter should work with and without trailing slash");
+
+        // Cleanup
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/files/{docId}");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}/folders?path=/docs/&cascade=true");
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
+    }
+
     // ── DTOs ──────────────────────────────────────────────────────────
 
     private record ContainerDto(

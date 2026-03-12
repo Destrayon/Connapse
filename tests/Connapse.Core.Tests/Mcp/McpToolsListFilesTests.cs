@@ -68,10 +68,6 @@ public class McpToolsListFilesTests
     [Fact]
     public async Task ListFiles_ShowsFilesAtCorrectLevel()
     {
-        _folderStore
-            .ExistsAsync(ContainerId, "/docs/", Arg.Any<CancellationToken>())
-            .Returns(true);
-
         _documentStore
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
@@ -132,6 +128,41 @@ public class McpToolsListFilesTests
         // Should only appear once (HashSet deduplication)
         var count = result.Split("[DIR]  research/").Length - 1;
         count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ListFiles_ReturnsFilesAtPathWithoutExplicitFolderRecord()
+    {
+        // Documents exist at /docs/readme.txt but no folder record for /docs/
+        _folderStore
+            .ExistsAsync(ContainerId, "/docs/", Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document>
+            {
+                MakeDocument("/docs/readme.txt", "readme.txt")
+            });
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/docs/");
+
+        result.Should().Contain("[FILE] readme.txt");
+        result.Should().NotContain("Error");
+    }
+
+    [Fact]
+    public async Task ListFiles_ReturnsErrorForTrulyEmptyNonRootPath()
+    {
+        // No folder record and no documents at /nonexistent/
+        _folderStore
+            .ExistsAsync(ContainerId, "/nonexistent/", Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/nonexistent/");
+
+        result.Should().Contain("Error");
+        result.Should().Contain("/nonexistent/");
     }
 
     [Fact]

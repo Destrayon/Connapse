@@ -172,12 +172,12 @@ public class McpTools
 
         var normalizedPath = PathUtilities.NormalizeFolderPath(folderPath);
 
-        // Validate non-root paths exist as folder records
-        if (normalizedPath != "/" && !await folderStore.ExistsAsync(resolvedId.Value, normalizedPath, ct))
-            return $"Error: Folder '{normalizedPath}' not found in this container.";
-
         var folders = await folderStore.ListAsync(resolvedId.Value, parentPath: normalizedPath, take: int.MaxValue, ct: ct);
         var documents = await documentStore.ListAsync(resolvedId.Value, pathPrefix: normalizedPath, take: int.MaxValue, ct: ct);
+
+        // If non-root path has no folder record and no documents, it doesn't exist
+        if (normalizedPath != "/" && folders.Count == 0 && documents.Count == 0)
+            return $"Error: Folder '{normalizedPath}' not found in this container.";
 
         // Collect explicit folder names
         var folderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
