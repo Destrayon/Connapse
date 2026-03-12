@@ -158,6 +158,9 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Remove default "Server: Kestrel" header from all responses
+builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+
 var app = builder.Build();
 
 // Apply pending migrations and ensure infrastructure is ready
@@ -188,8 +191,6 @@ using (var scope = app.Services.CreateScope())
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
@@ -208,6 +209,26 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseForwardedHeaders();
+
+// Security headers — after UseForwardedHeaders so Request.IsHttps reflects the forwarded scheme
+app.Use(async (ctx, next) =>
+{
+    var headers = ctx.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+    headers["Content-Security-Policy"] =
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+        "connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self'; " +
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none';";
+
+    if (ctx.Request.IsHttps)
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+
+    await next(ctx);
+});
+
 app.UseHttpsRedirection();
 app.UseCors();
 
