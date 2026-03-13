@@ -133,11 +133,11 @@ public class UploadService : IUploadService
 
     private string? ValidateInput(UploadRequest request)
     {
-        if (!PathUtilities.IsValidFileName(request.FileName))
-            return $"Invalid filename: '{request.FileName}'.";
-
         if (request.FileName.Length > 255)
             return "Filename exceeds 255 characters.";
+
+        if (!PathUtilities.IsValidFileName(request.FileName))
+            return $"Invalid filename: '{request.FileName}'.";
 
         if (request.Path is not null && PathUtilities.ContainsPathTraversal(request.Path))
             return "Path traversal is not allowed.";
