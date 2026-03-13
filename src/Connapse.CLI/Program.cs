@@ -64,6 +64,7 @@ try
 {
     exitCode = command switch
     {
+        "help" or "--help" or "-h" => Help(),
         "version" or "--version" => HandleVersion(),
         "update" or "--update"  => await HandleUpdate(args),
         "auth"    => await HandleAuth(args, httpClient, jsonOptions, apiBaseUrl),
@@ -87,6 +88,12 @@ if (command is not ("version" or "update"))
     await CheckForUpdateNotification();
 
 return exitCode;
+
+static int Help() { PrintUsage(); return 0; }
+
+static bool IsHelpFlag(string arg) => arg is "--help" or "-h";
+static bool IsSubcommandHelp(string[] args) => args.Length >= 2 && IsHelpFlag(args[1]);
+static bool NeedsSubcommandUsage(string[] args) => args.Length < 2 || IsHelpFlag(args[1]);
 
 static void PrintUsage()
 {
@@ -160,7 +167,7 @@ static void PrintUsage()
 
 static async Task<int> HandleAuth(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions, string defaultBaseUrl)
 {
-    if (args.Length < 2)
+    if (NeedsSubcommandUsage(args))
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  connapse auth login [--url <server-url>] [--no-browser]");
@@ -169,7 +176,7 @@ static async Task<int> HandleAuth(string[] args, HttpClient httpClient, JsonSeri
         Console.WriteLine("  connapse auth pat create <name> [--expires <yyyy-MM-dd>]");
         Console.WriteLine("  connapse auth pat list");
         Console.WriteLine("  connapse auth pat revoke <id>");
-        return 1;
+        return IsSubcommandHelp(args) ? 0 : 1;
     }
 
     var subCommand = args[1].ToLower();
@@ -736,14 +743,14 @@ static async Task<int> PatRevoke(string[] args, HttpClient httpClient, JsonSeria
 
 static async Task<int> HandleContainer(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
-    if (args.Length < 2)
+    if (NeedsSubcommandUsage(args))
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  connapse container create <name> [--description \"...\"]");
         Console.WriteLine("  connapse container list");
         Console.WriteLine("  connapse container delete <name>");
         Console.WriteLine("  connapse container stats <name>");
-        return 1;
+        return IsSubcommandHelp(args) ? 0 : 1;
     }
 
     var subCommand = args[1].ToLower();
@@ -997,13 +1004,13 @@ static string FormatBytes(long bytes)
 
 static async Task<int> HandleFiles(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
-    if (args.Length < 2)
+    if (NeedsSubcommandUsage(args))
     {
         Console.WriteLine("Usage:");
         Console.WriteLine("  connapse files list --container <name> [--path <folder>]");
         Console.WriteLine("  connapse files delete --container <name> --file <id>");
         Console.WriteLine("  connapse files get --container <name> --file <id-or-path>");
-        return 1;
+        return IsSubcommandHelp(args) ? 0 : 1;
     }
 
     var subCommand = args[1].ToLower();
@@ -1213,10 +1220,10 @@ static async Task<int> FilesGet(string[] args, HttpClient httpClient, JsonSerial
 
 static async Task<int> HandleUpload(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
-    if (args.Length < 2)
+    if (NeedsSubcommandUsage(args))
     {
         Console.WriteLine("Usage: connapse upload <path> --container <name> [--strategy <name>] [--destination <path>]");
-        return 1;
+        return IsSubcommandHelp(args) ? 0 : 1;
     }
 
     var path = args[1];
@@ -1289,10 +1296,10 @@ static async Task<int> HandleUpload(string[] args, HttpClient httpClient, JsonSe
 
 static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
-    if (args.Length < 2)
+    if (NeedsSubcommandUsage(args))
     {
         Console.WriteLine("Usage: connapse search \"<query>\" --container <name> [--mode <mode>] [--top <n>] [--path <folder>] [--min-score <0.0-1.0>]");
-        return 1;
+        return IsSubcommandHelp(args) ? 0 : 1;
     }
 
     var query = args[1];
@@ -1378,6 +1385,12 @@ static async Task<int> HandleSearch(string[] args, HttpClient httpClient, JsonSe
 
 static async Task<int> HandleReindex(string[] args, HttpClient httpClient, JsonSerializerOptions jsonOptions)
 {
+    if (IsSubcommandHelp(args))
+    {
+        Console.WriteLine("Usage: connapse reindex --container <name> [--force] [--no-detect-changes]");
+        return 0;
+    }
+
     var containerName = GetOption(args, "--container");
     var force = HasFlag(args, "--force");
     var detectChanges = !HasFlag(args, "--no-detect-changes");
