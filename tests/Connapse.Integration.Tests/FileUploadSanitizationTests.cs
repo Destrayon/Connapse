@@ -158,6 +158,62 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task UploadFile_FilenameLongerThan255Chars_Returns400()
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"len-test-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            var longName = new string('a', 252) + ".txt"; // 256 chars
+            content.Add(fileContent, "files", longName);
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var body = await response.Content.ReadAsStringAsync();
+            body.Should().Contain("filename_too_long");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
+    [Fact]
+    public async Task UploadFile_FilenameAtExactly255Chars_Returns200()
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"len-ok-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            var exactName = new string('a', 251) + ".txt"; // 255 chars
+            content.Add(fileContent, "files", exactName);
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true

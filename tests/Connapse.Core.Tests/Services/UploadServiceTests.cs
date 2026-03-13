@@ -68,6 +68,23 @@ public class UploadServiceTests
     }
 
     [Fact]
+    public async Task UploadAsync_RejectsFilenameLongerThan255Characters()
+    {
+        var longName = new string('a', 252) + ".txt"; // 256 chars total
+        var result = await _sut.UploadAsync(MakeRequest(fileName: longName));
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("255");
+    }
+
+    [Fact]
+    public async Task UploadAsync_AcceptsFilenameAtExactly255Characters()
+    {
+        var exactName = new string('a', 251) + ".txt"; // 255 chars total
+        var result = await _sut.UploadAsync(MakeRequest(fileName: exactName));
+        result.Success.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task UploadAsync_RejectsPathTraversal()
     {
         var result = await _sut.UploadAsync(MakeRequest(path: "/docs/../etc/passwd"));

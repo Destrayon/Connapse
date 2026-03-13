@@ -26,6 +26,12 @@ public static class DocumentsEndpoints
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
+            foreach (var f in files)
+            {
+                if (f.FileName.Length > 255)
+                    return Results.BadRequest(new { error = "filename_too_long", message = $"Filename '{f.FileName[..50]}...' exceeds 255 characters." });
+            }
+
             var userId = GetUserId(httpContext);
 
             if (files.Count == 1)
