@@ -130,6 +130,10 @@ connapse upload ./documents --container my-project
 
 # Search
 connapse search "your query" --container my-project
+
+# Update to latest release (--pre to include alpha/pre-release builds)
+connapse update
+connapse update --pre
 ```
 
 ### Using with Claude (MCP)

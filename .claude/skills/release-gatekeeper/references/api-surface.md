@@ -161,9 +161,12 @@ connapse upload <path> --container <name> [--destination /folder/] [--strategy S
 connapse search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
 connapse reindex --container <name> [--force] [--no-detect-changes]
 
+# Updates
+connapse update [--check] [--pre]    # Update to latest release (--check to preview, --pre for pre-releases)
+connapse --version                   # Show installed version
+
 # General
 connapse --help
-connapse --version
 ```
 
 CLI stores credentials at `~/.connapse/credentials.json` (PAT auto-injected as X-Api-Key).
