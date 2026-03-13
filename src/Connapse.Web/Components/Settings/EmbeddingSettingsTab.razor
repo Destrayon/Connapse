@@ -114,6 +114,27 @@
             </button>
         </div>
 
+        <div class="col-12 mt-3">
+            <hr />
+            <h6>Re-Embedding</h6>
+            <p class="text-muted small mb-2">
+                Re-embed all documents using the current embedding model and settings.
+                Useful after changing the model, dimensions, or if embeddings need to be refreshed.
+            </p>
+            <button type="button" class="btn btn-outline-warning" @onclick="StartManualReEmbed" disabled="@isReEmbedding">
+                @if (isReEmbedding)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    <span>Starting...</span>
+                }
+                else
+                {
+                    <span class="bi-arrow-repeat me-1"></span>
+                    <span>Re-Embed All Documents</span>
+                }
+            </button>
+        </div>
+
         @if (!string.IsNullOrEmpty(testMessage))
         {
             <div class="col-12 mt-3">
@@ -274,6 +295,38 @@
         }
 
         StateHasChanged();
+    }
+
+    private async Task StartManualReEmbed()
+    {
+        isReEmbedding = true;
+        StateHasChanged();
+
+        try
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var scope = ScopeFactory.CreateAsyncScope();
+                    var reindexService = scope.ServiceProvider.GetRequiredService<IReindexService>();
+                    await reindexService.ReindexAsync(new ReindexOptions
+                    {
+                        Force = true
+                    }, CancellationToken.None);
+                }
+                catch { /* Reindex is best-effort; errors logged by ReindexService */ }
+            });
+
+            reEmbedStarted = true;
+            queueDepth = IngestionQueue.QueueDepth;
+        }
+        catch { /* Best-effort */ }
+        finally
+        {
+            isReEmbedding = false;
+            StateHasChanged();
+        }
     }
 
     private async Task StartReEmbed()
