@@ -27,6 +27,7 @@ public class McpToolsDeleteFileTests
     private readonly IFolderStore _folderStore;
     private readonly IKnowledgeFileSystem _fileSystem;
     private readonly ILogger<McpTools> _logger;
+    private readonly IIngestionQueue _ingestionQueue;
     private readonly IServiceProvider _services;
 
     public McpToolsDeleteFileTests()
@@ -36,6 +37,7 @@ public class McpToolsDeleteFileTests
         _folderStore = Substitute.For<IFolderStore>();
         _fileSystem = Substitute.For<IKnowledgeFileSystem>();
         _logger = Substitute.For<ILogger<McpTools>>();
+        _ingestionQueue = Substitute.For<IIngestionQueue>();
 
         _containerStore
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
@@ -51,6 +53,7 @@ public class McpToolsDeleteFileTests
         services.GetService(typeof(IFolderStore)).Returns(_folderStore);
         services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
         services.GetService(typeof(ILogger<McpTools>)).Returns(_logger);
+        services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
         _services = services;
     }
 
@@ -82,6 +85,19 @@ public class McpToolsDeleteFileTests
             Arg.Any<object>(),
             Arg.Is<IOException>(ex => ex.Message == "disk error"),
             Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task DeleteFile_CancelsIngestionJobBeforeDeletion()
+    {
+        await McpTools.DeleteFile(_services, ContainerId.ToString(), FileId);
+
+        await _ingestionQueue.Received(1).CancelJobForDocumentAsync(FileId);
+        Received.InOrder(() =>
+        {
+            _ingestionQueue.CancelJobForDocumentAsync(FileId);
+            _documentStore.DeleteAsync(FileId, Arg.Any<CancellationToken>());
+        });
     }
 
     private static Container MakeContainer() => new(

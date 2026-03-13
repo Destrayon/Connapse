@@ -17,6 +17,8 @@ public class McpToolsBulkDeleteTests
     private readonly IDocumentStore _documentStore;
     private readonly IKnowledgeFileSystem _fileSystem;
     private readonly ILogger<McpTools> _logger;
+    private readonly IFolderStore _folderStore;
+    private readonly IIngestionQueue _ingestionQueue;
     private readonly IServiceProvider _services;
 
     public McpToolsBulkDeleteTests()
@@ -25,6 +27,8 @@ public class McpToolsBulkDeleteTests
         _documentStore = Substitute.For<IDocumentStore>();
         _fileSystem = Substitute.For<IKnowledgeFileSystem>();
         _logger = Substitute.For<ILogger<McpTools>>();
+        _folderStore = Substitute.For<IFolderStore>();
+        _ingestionQueue = Substitute.For<IIngestionQueue>();
 
         _containerStore
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
@@ -35,6 +39,8 @@ public class McpToolsBulkDeleteTests
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
         services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
         services.GetService(typeof(ILogger<McpTools>)).Returns(_logger);
+        services.GetService(typeof(IFolderStore)).Returns(_folderStore);
+        services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
         _services = services;
     }
 
@@ -124,11 +130,43 @@ public class McpToolsBulkDeleteTests
         result.Should().StartWith("Error:");
     }
 
-    private static Container MakeContainer() => new(
+    [Fact]
+    public async Task BulkDelete_CancelsIngestionForEachFile()
+    {
+        var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");
+        var doc2 = MakeDocument("file-2", "b.txt", "/b.txt");
+        _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(doc1);
+        _documentStore.GetAsync("file-2", Arg.Any<CancellationToken>()).Returns(doc2);
+
+        var json = """["file-1","file-2"]""";
+        await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+
+        await _ingestionQueue.Received(1).CancelJobForDocumentAsync("file-1");
+        await _ingestionQueue.Received(1).CancelJobForDocumentAsync("file-2");
+    }
+
+    [Fact]
+    public async Task BulkDelete_ReadOnlyConnector_ReturnsError()
+    {
+        _containerStore
+            .GetAsync(ContainerId, Arg.Any<CancellationToken>())
+            .Returns(MakeContainer(ConnectorType.S3));
+
+        var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");
+        _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(doc1);
+
+        var json = """["file-1"]""";
+        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+
+        // Every file should get a write-guard error since BulkDelete delegates to DeleteFile
+        result.Should().Contain("Deleted 0 of 1");
+    }
+
+    private static Container MakeContainer(ConnectorType type = ConnectorType.MinIO) => new(
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,
-        ConnectorType: ConnectorType.MinIO,
+        ConnectorType: type,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 
