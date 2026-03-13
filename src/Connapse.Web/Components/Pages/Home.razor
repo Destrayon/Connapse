@@ -495,7 +495,7 @@ else
 
         try
         {
-            var normalizedName = newContainerName.Trim().ToLowerInvariant();
+            var normalizedName = newContainerName.Trim();
 
             if (!PathUtilities.IsValidContainerName(normalizedName))
             {

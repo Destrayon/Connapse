@@ -29,10 +29,12 @@ public static class ContainersEndpoints
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { error = "Container name is required" });
 
-            var normalizedName = request.Name.Trim().ToLowerInvariant();
+            var trimmedName = request.Name.Trim();
 
-            if (!PathUtilities.IsValidContainerName(normalizedName))
+            if (!PathUtilities.IsValidContainerName(trimmedName))
                 return Results.BadRequest(new { error = "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen" });
+
+            var normalizedName = trimmedName;
 
             // Validate connector config before creating
             if (request.ConnectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob)

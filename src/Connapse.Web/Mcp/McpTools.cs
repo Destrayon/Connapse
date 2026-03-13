@@ -22,7 +22,7 @@ public class McpTools
         [Description("Optional description for the container")] string? description = null,
         CancellationToken ct = default)
     {
-        name = name.Trim().ToLowerInvariant();
+        name = name.Trim();
 
         if (!PathUtilities.IsValidContainerName(name))
             return "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.";
