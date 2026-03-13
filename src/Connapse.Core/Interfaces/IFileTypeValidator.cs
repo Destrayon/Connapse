@@ -1,5 +1,6 @@
 namespace Connapse.Core.Interfaces;
 
+/// <summary>
 /// Validates file extensions against the set of types supported by registered parsers.
 /// </summary>
 public interface IFileTypeValidator
