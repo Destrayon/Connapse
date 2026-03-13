@@ -211,4 +211,16 @@ public class PathUtilitiesTests
     {
         PathUtilities.IsValidFileName(fileName!).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("file\0.txt")]        // Null byte
+    [InlineData("file\t.txt")]        // Tab
+    [InlineData("file\n.txt")]        // Newline
+    [InlineData("file\x1F.txt")]      // U+001F (last C0 control)
+    [InlineData("file\x7F.txt")]      // DEL
+    [InlineData("\x01report.pdf")]     // SOH at start
+    public void IsValidFileName_ControlCharacters_ReturnsFalse(string fileName)
+    {
+        PathUtilities.IsValidFileName(fileName).Should().BeFalse();
+    }
 }
