@@ -1,4 +1,6 @@
+using Connapse.Core.Interfaces;
 using FluentAssertions;
+using NSubstitute;
 using Xunit;
 
 namespace Connapse.Core.Tests;
@@ -137,5 +139,63 @@ public class ContainerWriteGuardTests
     public void IsReadOnly_ReturnsExpected(ConnectorType type, bool expected)
     {
         ContainerWriteGuard.IsReadOnly(type).Should().Be(expected);
+    }
+
+    // --- Connector-based overload ---
+
+    [Fact]
+    public void CheckWrite_ReturnsError_WhenConnectorDoesNotSupportWrite()
+    {
+        var connector = Substitute.For<IConnector>();
+        connector.SupportsWrite.Returns(false);
+        connector.Type.Returns(ConnectorType.S3);
+        var container = MakeContainer(ConnectorType.S3);
+
+        var error = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
+
+        error.Should().NotBeNull();
+        error.Should().Contain("read-only");
+    }
+
+    [Fact]
+    public void CheckWrite_ReturnsNull_WhenConnectorSupportsWrite()
+    {
+        var connector = Substitute.For<IConnector>();
+        connector.SupportsWrite.Returns(true);
+        connector.Type.Returns(ConnectorType.MinIO);
+        var container = MakeContainer(ConnectorType.MinIO);
+
+        var error = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void CheckWrite_ChecksFilesystemPermissions_WhenConnectorSupportsWrite()
+    {
+        var connector = Substitute.For<IConnector>();
+        connector.SupportsWrite.Returns(true);
+        connector.Type.Returns(ConnectorType.Filesystem);
+        var container = MakeContainer(
+            ConnectorType.Filesystem,
+            """{"allowUpload": false, "allowDelete": true, "allowCreateFolder": true}""");
+
+        var error = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
+
+        error.Should().NotBeNull();
+        error.Should().Contain("upload");
+    }
+
+    [Fact]
+    public void IsReadOnly_Connector_ReturnsExpected()
+    {
+        var writable = Substitute.For<IConnector>();
+        writable.SupportsWrite.Returns(true);
+
+        var readOnly = Substitute.For<IConnector>();
+        readOnly.SupportsWrite.Returns(false);
+
+        ContainerWriteGuard.IsReadOnly(writable).Should().BeFalse();
+        ContainerWriteGuard.IsReadOnly(readOnly).Should().BeTrue();
     }
 }
