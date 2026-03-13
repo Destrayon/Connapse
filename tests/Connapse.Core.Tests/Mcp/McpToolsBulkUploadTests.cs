@@ -12,39 +12,32 @@ public class McpToolsBulkUploadTests
     private static readonly Guid ContainerId = Guid.NewGuid();
 
     private readonly IContainerStore _containerStore;
-    private readonly IDocumentStore _documentStore;
-    private readonly IIngestionQueue _ingestionQueue;
-    private readonly IConnectorFactory _connectorFactory;
-    private readonly IConnector _connector;
-    private readonly IFolderStore _folderStore;
+    private readonly IUploadService _uploadService;
     private readonly IServiceProvider _services;
 
     public McpToolsBulkUploadTests()
     {
         _containerStore = Substitute.For<IContainerStore>();
-        _documentStore = Substitute.For<IDocumentStore>();
-        _ingestionQueue = Substitute.For<IIngestionQueue>();
-        _connectorFactory = Substitute.For<IConnectorFactory>();
-        _connector = Substitute.For<IConnector>();
-        _folderStore = Substitute.For<IFolderStore>();
+        _uploadService = Substitute.For<IUploadService>();
 
         var container = MakeContainer();
         _containerStore
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(container);
 
-        _connectorFactory.Create(Arg.Any<Container>()).Returns(_connector);
-
-        _folderStore
-            .ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(true);
+        // Default: uploads succeed
+        _uploadService.BulkUploadAsync(Arg.Any<BulkUploadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var req = ci.ArgAt<BulkUploadRequest>(0);
+                var results = req.Files.Select(f =>
+                    new UploadResult(true, Guid.NewGuid().ToString(), Guid.NewGuid().ToString())).ToList();
+                return new BulkUploadResult(results.Count, 0, Guid.NewGuid().ToString(), results);
+            });
 
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
-        services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
-        services.GetService(typeof(IConnectorFactory)).Returns(_connectorFactory);
-        services.GetService(typeof(IFolderStore)).Returns(_folderStore);
+        services.GetService(typeof(IUploadService)).Returns(_uploadService);
         _services = services;
     }
 
@@ -60,8 +53,8 @@ public class McpToolsBulkUploadTests
         var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 2 of 2");
-        await _ingestionQueue.Received(2).EnqueueAsync(
-            Arg.Is<IngestionJob>(j => j.BatchId != null),
+        await _uploadService.Received(1).BulkUploadAsync(
+            Arg.Is<BulkUploadRequest>(r => r.Files.Count == 2),
             Arg.Any<CancellationToken>());
     }
 
@@ -78,6 +71,16 @@ public class McpToolsBulkUploadTests
     [Fact]
     public async Task BulkUpload_InvalidBase64_ReportsPerItemError()
     {
+        // Only 1 valid file gets to IUploadService, the invalid base64 is caught at transport level
+        _uploadService.BulkUploadAsync(Arg.Any<BulkUploadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var req = ci.ArgAt<BulkUploadRequest>(0);
+                var results = req.Files.Select(f =>
+                    new UploadResult(true, Guid.NewGuid().ToString(), Guid.NewGuid().ToString())).ToList();
+                return new BulkUploadResult(results.Count, 0, Guid.NewGuid().ToString(), results);
+            });
+
         var json = """
         [
             {"filename":"good.txt","content":"hello"},
@@ -94,16 +97,13 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_SharedBatchId()
     {
         var json = """[{"filename":"a.txt","content":"x"},{"filename":"b.txt","content":"y"}]""";
-        await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
 
-        var jobs = _ingestionQueue.ReceivedCalls()
-            .Where(c => c.GetMethodInfo().Name == "EnqueueAsync")
-            .Select(c => (IngestionJob)c.GetArguments()[0]!)
-            .ToList();
-
-        jobs.Should().HaveCount(2);
-        jobs[0].BatchId.Should().NotBeNullOrEmpty();
-        jobs[0].BatchId.Should().Be(jobs[1].BatchId);
+        // BulkUploadAsync is called once with both files
+        await _uploadService.Received(1).BulkUploadAsync(
+            Arg.Is<BulkUploadRequest>(r => r.Files.Count == 2),
+            Arg.Any<CancellationToken>());
+        result.Should().Contain("Uploaded 2 of 2");
     }
 
     [Fact]
@@ -113,10 +113,10 @@ public class McpToolsBulkUploadTests
         var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 1 of 1");
-        await _connector.Received(1).WriteFileAsync(
-            Arg.Is<string>(p => p.Contains("notes") && p.Contains("doc.md")),
-            Arg.Any<Stream>(),
-            Arg.Any<string>(),
+        await _uploadService.Received(1).BulkUploadAsync(
+            Arg.Is<BulkUploadRequest>(r =>
+                r.Files[0].FileName == "doc.md" &&
+                r.Files[0].Path == "/notes/"),
             Arg.Any<CancellationToken>());
     }
 
