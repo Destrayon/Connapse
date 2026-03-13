@@ -75,17 +75,19 @@ public static class ContainersEndpoints
 
         // GET /api/containers - List containers (paginated)
         group.MapGet("/", async (
-            [FromQuery] int skip,
-            [FromQuery] int take,
+            [FromQuery] int? skip,
+            [FromQuery] int? take,
             [FromServices] IContainerStore containerStore,
             CancellationToken ct) =>
         {
-            var validationError = PaginationValidator.Validate(skip, take);
+            var effectiveSkip = skip ?? 0;
+            var effectiveTake = take ?? 50;
+            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
             if (validationError is not null) return validationError;
 
-            var containers = await containerStore.ListAsync(skip, take + 1, ct);
-            var hasMore = containers.Count > take;
-            var items = hasMore ? containers.Take(take).ToList() : containers;
+            var containers = await containerStore.ListAsync(effectiveSkip, effectiveTake + 1, ct);
+            var hasMore = containers.Count > effectiveTake;
+            var items = hasMore ? containers.Take(effectiveTake).ToList() : containers;
 
             return Results.Ok(new PagedResponse<Container>(items, items.Count, hasMore));
         })
@@ -106,6 +108,21 @@ public static class ContainersEndpoints
         })
         .WithName("GetContainer")
         .WithDescription("Get a specific container by ID")
+        .RequireAuthorization("RequireViewer");
+
+        // GET /api/containers/by-name/{name} - Resolve container by name
+        group.MapGet("/by-name/{name}", async (
+            string name,
+            [FromServices] IContainerStore containerStore,
+            CancellationToken ct) =>
+        {
+            var container = await containerStore.GetByNameAsync(name.ToLowerInvariant(), ct);
+            return container is not null
+                ? Results.Ok(container)
+                : Results.NotFound(new { error = $"Container '{name}' not found" });
+        })
+        .WithName("GetContainerByName")
+        .WithDescription("Get a specific container by name")
         .RequireAuthorization("RequireViewer");
 
         // DELETE /api/containers/{containerId} - Delete container (must be empty for storage-backed connectors; Filesystem containers just stop being watched)

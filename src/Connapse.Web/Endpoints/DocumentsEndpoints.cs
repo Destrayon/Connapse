@@ -115,15 +115,17 @@ public static class DocumentsEndpoints
             HttpContext httpContext,
             Guid containerId,
             [FromQuery] string? path,
-            [FromQuery] int skip,
-            [FromQuery] int take,
+            [FromQuery] int? skip,
+            [FromQuery] int? take,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IFolderStore folderStore,
             [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
-            var validationError = PaginationValidator.Validate(skip, take);
+            var effectiveSkip = skip ?? 0;
+            var effectiveTake = take ?? 50;
+            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
             if (validationError is not null) return validationError;
 
             var container = await containerStore.GetAsync(containerId, ct);
@@ -200,8 +202,8 @@ public static class DocumentsEndpoints
 
             // Paginate the combined, sorted result
             var totalCount = entries.Count;
-            var paged = entries.Skip(skip).Take(take).ToList();
-            var hasMore = skip + take < totalCount;
+            var paged = entries.Skip(effectiveSkip).Take(effectiveTake).ToList();
+            var hasMore = effectiveSkip + effectiveTake < totalCount;
 
             return Results.Ok(new PagedResponse<BrowseEntry>(paged, totalCount, hasMore));
         })
