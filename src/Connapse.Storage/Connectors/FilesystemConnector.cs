@@ -38,8 +38,12 @@ public class FilesystemConnector : IConnector
 
     public ConnectorType Type => ConnectorType.Filesystem;
     public bool SupportsLiveWatch => true;
+    public bool SupportsWrite => true;
 
     public string RootPath => _config.RootPath;
+
+    public string ResolveJobPath(string relativePath) =>
+        Path.Combine(RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
     public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {

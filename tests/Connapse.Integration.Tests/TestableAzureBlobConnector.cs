@@ -23,6 +23,10 @@ internal sealed class TestableAzureBlobConnector : IConnector
 
     public ConnectorType Type => ConnectorType.AzureBlob;
     public bool SupportsLiveWatch => false;
+    public bool SupportsWrite => false;
+
+    public string ResolveJobPath(string relativePath) =>
+        "/" + relativePath.TrimStart('/');
 
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {

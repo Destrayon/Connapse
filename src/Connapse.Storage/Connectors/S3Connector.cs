@@ -30,6 +30,10 @@ public class S3Connector : IConnector, IDisposable
 
     public ConnectorType Type => ConnectorType.S3;
     public bool SupportsLiveWatch => false;
+    public bool SupportsWrite => false;
+
+    public string ResolveJobPath(string relativePath) =>
+        "/" + relativePath.TrimStart('/');
 
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
