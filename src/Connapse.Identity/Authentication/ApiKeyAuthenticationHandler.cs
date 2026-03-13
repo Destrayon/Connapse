@@ -19,6 +19,12 @@ public class ApiKeyAuthenticationHandler(
     IServiceProvider serviceProvider)
     : AuthenticationHandler<ApiKeyAuthenticationOptions>(options, logger, encoder)
 {
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = 401;
+        return Task.CompletedTask;
+    }
+
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue(ApiKeyAuthenticationOptions.HeaderName, out var apiKeyHeader))

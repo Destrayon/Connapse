@@ -101,7 +101,9 @@ public static class IdentityServiceExtensions
             {
                 options.ForwardDefaultSelector = context =>
                 {
-                    // Check for API key header
+                    // Check for API key header — if the header is present (even empty),
+                    // route to ApiKey scheme so it rejects invalid keys with 401 instead
+                    // of falling through to cookie auth.
                     if (context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
                         return ApiKeyAuthenticationOptions.SchemeName;
 
@@ -126,11 +128,14 @@ public static class IdentityServiceExtensions
                 options.Cookie.SameSite = SameSiteMode.Strict;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
-                // For API/MCP endpoints, return 401 instead of redirecting to login
+                // For API/MCP endpoints, return 401 instead of redirecting to login.
+                // Also reject requests that explicitly sent an X-Api-Key header
+                // (even empty) — they intended API key auth, not cookie fallback.
                 options.Events.OnRedirectToLogin = context =>
                 {
                     if (context.Request.Path.StartsWithSegments("/api") ||
-                        context.Request.Path.StartsWithSegments("/mcp"))
+                        context.Request.Path.StartsWithSegments("/mcp") ||
+                        context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         return Task.CompletedTask;
