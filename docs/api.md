@@ -369,6 +369,41 @@ Deletes the agent and all its API keys.
 
 ---
 
+### Agent Permissions and Scope
+
+Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
+
+#### Implicit scopes
+
+When an agent authenticates via API key, it receives two implicit scopes:
+
+| Scope | Grants |
+|-------|--------|
+| `knowledge:read` | Search and read documents across all containers |
+| `agent:ingest` | Upload and delete files (subject to connector write guards) |
+
+#### MCP tool access
+
+Agents interact with Connapse through the MCP endpoint (`POST /mcp`). All 11 MCP tools documented in the [Model Context Protocol](#model-context-protocol-mcp) section are available to agents.
+
+#### What agents can do
+
+- Create, list, and delete containers
+- Upload and delete files (subject to connector write guards)
+- Search across any container
+- List files and retrieve document content
+
+#### What agents cannot do
+
+- Manage users or roles (requires Admin role, not Agent)
+- Change system settings (embedding, search, LLM configuration)
+- Create or manage other agents
+- Access the web UI (agent keys work via API/MCP only)
+
+> **Security note**: Since agents have system-wide container access, treat agent API keys with the same care as admin credentials. Revoke unused keys promptly.
+
+---
+
 ## Containers API
 
 All container endpoints require authentication. RBAC rules:
