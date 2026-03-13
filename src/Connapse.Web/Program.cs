@@ -101,6 +101,7 @@ builder.Services.AddMcpServer(options =>
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
+builder.Services.AddScoped<IUploadService, UploadService>();
 
 builder.Services.AddConnapseStorage(builder.Configuration);
 

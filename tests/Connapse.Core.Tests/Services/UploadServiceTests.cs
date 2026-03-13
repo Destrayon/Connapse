@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Web.Services;
 using FluentAssertions;
 using NSubstitute;
 
@@ -34,8 +35,9 @@ public class UploadServiceTests
         _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string> { ".txt", ".pdf", ".md" });
         _folderStore.ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        // Placeholder until implementation exists — test compile will fail as expected
-        _sut = null!;
+        _sut = new UploadService(
+            _containerStore, _connectorFactory, _folderStore,
+            _ingestionQueue, _fileTypeValidator, _cloudScopeService, _auditLogger);
     }
 
     private UploadRequest MakeRequest(
@@ -119,7 +121,7 @@ public class UploadServiceTests
 
         var result = await _sut.UploadAsync(MakeRequest());
         result.Success.Should().BeFalse();
-        result.Error.Should().Contain("access");
+        result.Error.Should().ContainEquivalentOf("access");
     }
 
     // --- Happy path ---
