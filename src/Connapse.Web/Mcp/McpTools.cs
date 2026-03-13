@@ -387,14 +387,13 @@ public class McpTools
         if (ids.Count > 100)
             return "Error: Maximum 100 files per bulk_delete call.";
 
+        // Early-exit if container doesn't exist (avoids N per-file "not found" errors).
+        // Note: DeleteFile re-resolves the container internally — this is redundant but
+        // keeps the top-level error message clean for missing containers.
         var containerStore = services.GetRequiredService<IContainerStore>();
         var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
-
-        var documentStore = services.GetRequiredService<IDocumentStore>();
-        var fileSystem = services.GetRequiredService<IKnowledgeFileSystem>();
-        var logger = services.GetRequiredService<ILogger<McpTools>>();
 
         var succeeded = 0;
         var failures = new List<string>();
@@ -402,25 +401,20 @@ public class McpTools
 
         foreach (var fileId in ids)
         {
-            var document = await documentStore.GetAsync(fileId, ct);
-            if (document is null || document.ContainerId != resolvedId.Value.ToString())
-            {
-                failures.Add($"{fileId}: not found");
-                continue;
-            }
+            var result = await DeleteFile(services, containerId, fileId, ct);
 
-            await documentStore.DeleteAsync(fileId, ct);
-            succeeded++;
-
-            try
+            if (result.StartsWith("Error:"))
             {
-                if (!string.IsNullOrEmpty(document.Path))
-                    await fileSystem.DeleteAsync(document.Path, ct);
+                failures.Add($"{fileId}: {result["Error: ".Length..]}");
             }
-            catch (Exception ex)
+            else if (result.Contains("backing storage file"))
             {
-                logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
-                warnings.Add($"{fileId} ({document.FileName}): storage cleanup failed");
+                succeeded++;
+                warnings.Add($"{fileId}: storage cleanup failed");
+            }
+            else
+            {
+                succeeded++;
             }
         }
 
