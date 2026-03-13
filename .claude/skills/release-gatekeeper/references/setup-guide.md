@@ -238,7 +238,7 @@ CLI="$WORKSPACE/connapse-$PLATFORM"
 "$CLI" --help
 ```
 
-On Windows in Git Bash, the binary is `connapse-win-x64.exe` and can be run directly.
+On Windows in Git Bash, the binary is `connapse-cli-win-x64.exe` and can be run directly.
 
 **Authenticate the CLI against the test instance — Credential Pre-Seeding:**
 
