@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.2-alpha] - 2026-03-13
+
 ### Added
 - CLI `files list`, `files delete`, `files get` commands (#166)
 - CLI `container stats` command (#165)
@@ -31,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convex Combination fusion for hybrid search with configurable alpha (#92)
 - DBSF (Distribution-Based Score Fusion) as alternative outlier-robust fusion method
 - AutoCut: automatic result trimming via score gap detection
-- Connector type support in MCP `container_create` (#145, planned)
 
 ### Fixed
 - CLI `EnsureAuthenticated` missing on container/search/upload/reindex commands (#164)
@@ -134,7 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ollama integration for local embeddings
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.3.2-alpha...HEAD
+[v0.3.2-alpha]: https://github.com/Destrayon/Connapse/compare/v0.3.1...v0.3.2-alpha
 [v0.3.1]: https://github.com/Destrayon/Connapse/compare/v0.2.2...v0.3.1
 [v0.2.2]: https://github.com/Destrayon/Connapse/compare/v0.2.1...v0.2.2
 [v0.2.1]: https://github.com/Destrayon/Connapse/compare/v0.2.0...v0.2.1
