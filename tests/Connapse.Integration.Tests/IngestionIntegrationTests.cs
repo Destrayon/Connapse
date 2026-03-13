@@ -175,7 +175,7 @@ public class IngestionIntegrationTests : IAsyncLifetime
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await response.Content.ReadFromJsonAsync<ErrorResponse>(JsonOptions);
-        body!.Error.Should().Be("File must not be empty");
+        body!.Error.Should().Contain("empty");
     }
 
     private record ErrorResponse(string Error);

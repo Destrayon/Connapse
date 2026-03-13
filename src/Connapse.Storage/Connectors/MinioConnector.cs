@@ -29,6 +29,10 @@ public class MinioConnector : IConnector
 
     public ConnectorType Type => ConnectorType.MinIO;
     public bool SupportsLiveWatch => false;
+    public bool SupportsWrite => true;
+
+    public string ResolveJobPath(string relativePath) =>
+        "/" + relativePath.TrimStart('/');
 
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {

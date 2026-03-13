@@ -282,55 +282,20 @@ public class McpTools
             }
         }
 
-        var parsedStrategy = Enum.TryParse<ChunkingStrategy>(strategy, ignoreCase: true, out var s)
-            ? s : ChunkingStrategy.Semantic;
+        var uploadService = services.GetRequiredService<IUploadService>();
+        var stream = new MemoryStream(fileBytes);
+        var request = new UploadRequest(
+            resolvedId.Value, fileName, stream, null, path, null, strategy, "MCP");
 
-        var destinationPath = path ?? "/";
-        var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
-        var filePath = PathUtilities.NormalizePath($"{normalizedDest}{fileName}");
+        var result = await uploadService.UploadAsync(request, ct);
+        if (!result.Success)
+            return $"Error: {result.Error}";
 
-        var container = await containerStore.GetAsync(resolvedId.Value, ct);
-
-        var writeError = ContainerWriteGuard.CheckWrite(container!, WriteOperation.Upload);
-        if (writeError is not null)
-            return $"Error: {writeError}";
-
-        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
-        var connector = connectorFactory.Create(container!);
-        using var stream = new MemoryStream(fileBytes);
-        await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
-
-        // Create intermediate folder entries so list_files can discover them
-        var folderStore = services.GetRequiredService<IFolderStore>();
-        await EnsureIntermediateFoldersAsync(folderStore, resolvedId.Value, normalizedDest, ct);
-
-        var documentId = Guid.NewGuid().ToString();
-        var jobId = Guid.NewGuid().ToString();
-
-        var job = new IngestionJob(
-            JobId: jobId,
-            DocumentId: documentId,
-            Path: filePath,
-            Options: new IngestionOptions(
-                DocumentId: documentId,
-                FileName: fileName,
-                ContentType: null,
-                ContainerId: resolvedId.Value.ToString(),
-                Path: filePath,
-                Strategy: parsedStrategy,
-                Metadata: new Dictionary<string, string>
-                {
-                    ["OriginalFileName"] = fileName,
-                    ["IngestedVia"] = "MCP",
-                    ["IngestedAt"] = DateTime.UtcNow.ToString("O")
-                }),
-            BatchId: null);
-
-        var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
-        await ingestionQueue.EnqueueAsync(job, ct);
+        var filePath = PathUtilities.NormalizePath(
+            PathUtilities.NormalizeFolderPath(path ?? "/") + fileName);
 
         return $"File '{fileName}' uploaded to {filePath} and queued for ingestion.\n\n" +
-               $"Document ID: {documentId}\nJob ID: {jobId}\n\n" +
+               $"Document ID: {result.DocumentId}\nJob ID: {result.JobId}\n\n" +
                "The file will be parsed, chunked, and embedded in the background.";
     }
 
@@ -489,121 +454,77 @@ public class McpTools
             return $"Error: Container '{containerId}' not found.";
 
         var container = await containerStore.GetAsync(resolvedId.Value, ct);
-        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
-        var connector = connectorFactory.Create(container!);
-        var folderStore = services.GetRequiredService<IFolderStore>();
-        var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
 
-        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
-        var batchId = Guid.NewGuid().ToString();
-        var succeeded = 0;
-        var failures = new List<string>();
+        // Pre-validate and decode all items (transport-level concerns)
+        var uploadRequests = new List<UploadRequest>();
+        var transportFailures = new List<string>();
 
-        try
+        for (var i = 0; i < items.Count; i++)
         {
-            for (var i = 0; i < items.Count; i++)
+            var item = items[i];
+            var itemLabel = item.Filename ?? $"item[{i}]";
+
+            if (string.IsNullOrWhiteSpace(item.Filename))
             {
-                var item = items[i];
-                var itemLabel = item.Filename ?? $"item[{i}]";
+                transportFailures.Add($"{itemLabel}: missing 'filename'");
+                continue;
+            }
 
-                if (string.IsNullOrWhiteSpace(item.Filename))
-                {
-                    failures.Add($"{itemLabel}: missing 'filename'");
-                    continue;
-                }
+            if (string.IsNullOrEmpty(item.Content))
+            {
+                transportFailures.Add($"{itemLabel}: missing 'content'");
+                continue;
+            }
 
-                if (!PathUtilities.IsValidFileName(item.Filename))
-                {
-                    failures.Add($"{itemLabel}: invalid filename — must not contain path separators or '..' segments");
-                    continue;
-                }
-
-                if (!fileTypeValidator.IsSupported(item.Filename))
-                {
-                    var ext = Path.GetExtension(item.Filename).ToLowerInvariant();
-                    failures.Add($"{itemLabel}: unsupported file type '{ext}'");
-                    continue;
-                }
-
-                if (string.IsNullOrEmpty(item.Content))
-                {
-                    failures.Add($"{itemLabel}: missing 'content'");
-                    continue;
-                }
-
-                byte[] fileBytes;
-                var isBase64 = string.Equals(item.Encoding, "base64", StringComparison.OrdinalIgnoreCase);
-                if (isBase64)
-                {
-                    try
-                    {
-                        fileBytes = Convert.FromBase64String(item.Content);
-                    }
-                    catch
-                    {
-                        failures.Add($"{itemLabel}: invalid base64 content");
-                        continue;
-                    }
-                }
-                else
-                {
-                    fileBytes = System.Text.Encoding.UTF8.GetBytes(item.Content);
-                }
-
-                var destinationPath = item.FolderPath ?? "/";
-                var normalizedDest = PathUtilities.NormalizeFolderPath(destinationPath);
-                var filePath = PathUtilities.NormalizePath($"{normalizedDest}{item.Filename}");
-
+            byte[] fileBytes;
+            var isBase64 = string.Equals(item.Encoding, "base64", StringComparison.OrdinalIgnoreCase);
+            if (isBase64)
+            {
                 try
                 {
-                    using var stream = new MemoryStream(fileBytes);
-                    await connector.WriteFileAsync(filePath.TrimStart('/'), stream, ct: ct);
-
-                    await EnsureIntermediateFoldersAsync(folderStore, resolvedId.Value, normalizedDest, ct);
-
-                    var documentId = Guid.NewGuid().ToString();
-                    var jobId = Guid.NewGuid().ToString();
-
-                    var job = new IngestionJob(
-                        JobId: jobId,
-                        DocumentId: documentId,
-                        Path: filePath,
-                        Options: new IngestionOptions(
-                            DocumentId: documentId,
-                            FileName: item.Filename,
-                            ContentType: null,
-                            ContainerId: resolvedId.Value.ToString(),
-                            Path: filePath,
-                            Strategy: ChunkingStrategy.Semantic,
-                            Metadata: new Dictionary<string, string>
-                            {
-                                ["OriginalFileName"] = item.Filename,
-                                ["IngestedVia"] = "MCP",
-                                ["IngestedAt"] = DateTime.UtcNow.ToString("O")
-                            }),
-                        BatchId: batchId);
-
-                    await ingestionQueue.EnqueueAsync(job, ct);
-                    succeeded++;
+                    fileBytes = Convert.FromBase64String(item.Content);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    failures.Add($"{itemLabel}: {ex.Message}");
+                    transportFailures.Add($"{itemLabel}: invalid base64 content");
+                    continue;
                 }
             }
+            else
+            {
+                fileBytes = System.Text.Encoding.UTF8.GetBytes(item.Content);
+            }
+
+            uploadRequests.Add(new UploadRequest(
+                resolvedId.Value, item.Filename, new MemoryStream(fileBytes),
+                null, item.FolderPath, null, null, "MCP"));
         }
-        finally
+
+        if (uploadRequests.Count == 0)
         {
-            (connector as IDisposable)?.Dispose();
+            var summary = $"Uploaded 0 of {items.Count} file(s).";
+            summary += $"\n\nFailures:\n{string.Join("\n", transportFailures.Select(f => $"- {f}"))}";
+            return summary;
         }
 
-        var summary = $"Uploaded {succeeded} of {items.Count} file(s) to container '{container!.Name}'.";
-        if (failures.Count > 0)
-            summary += $"\n\nFailures:\n{string.Join("\n", failures.Select(f => $"- {f}"))}";
-        else
-            summary += "\n\nAll files queued for ingestion (parsing, chunking, embedding).";
+        var uploadService = services.GetRequiredService<IUploadService>();
+        var bulkRequest = new BulkUploadRequest(resolvedId.Value, uploadRequests);
+        var result = await uploadService.BulkUploadAsync(bulkRequest, ct);
 
-        return summary;
+        // Merge transport failures with service results
+        var totalItems = items.Count;
+        var succeeded = result.SuccessCount;
+        var allFailures = new List<string>(transportFailures);
+        foreach (var r in result.Results.Where(r => !r.Success))
+            allFailures.Add(r.Error ?? "Unknown error");
+
+        var output = $"Uploaded {succeeded} of {totalItems} file(s) to container '{container!.Name}'.";
+        if (allFailures.Count > 0)
+            output += $"\n\nFailures:\n{string.Join("\n", allFailures.Select(f => $"- {f}"))}";
+        else
+            output += "\n\nAll files queued for ingestion (parsing, chunking, embedding).";
+
+        return output;
     }
 
     [McpServerTool(Name = "get_document", Destructive = false),
@@ -803,31 +724,6 @@ public class McpTools
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
     }
 
-    /// <summary>
-    /// Creates all intermediate folder entries for a given destination path.
-    /// For example, "/a/b/c/" creates "/a/", "/a/b/", and "/a/b/c/" if they don't exist.
-    /// Skips the root path "/".
-    /// </summary>
-    internal static async Task EnsureIntermediateFoldersAsync(
-        IFolderStore folderStore, Guid containerId, string normalizedFolderPath, CancellationToken ct)
-    {
-        if (normalizedFolderPath == "/")
-            return;
-
-        // Split into segments and build up each intermediate path
-        var segments = normalizedFolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var currentPath = "/";
-
-        foreach (var segment in segments)
-        {
-            currentPath += segment + "/";
-
-            if (!await folderStore.ExistsAsync(containerId, currentPath, ct))
-            {
-                await folderStore.CreateAsync(containerId, currentPath, ct);
-            }
-        }
-    }
 }
 
 internal record BulkUploadFileItem
