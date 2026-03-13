@@ -70,6 +70,8 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
     [InlineData("-invalid")]    // Starts with hyphen
     [InlineData("invalid-")]    // Ends with hyphen
     [InlineData("has spaces")]  // Spaces not allowed
+    [InlineData("UPPERCASE")]   // Uppercase not allowed (#225)
+    [InlineData("Mixed-Case")]  // Mixed case not allowed (#225)
     public async Task CreateContainer_InvalidName_Returns400(string name)
     {
         var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers", new { Name = name });

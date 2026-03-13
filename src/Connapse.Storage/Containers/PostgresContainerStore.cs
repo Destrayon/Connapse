@@ -18,7 +18,7 @@ public class PostgresContainerStore(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var name = request.Name.Trim().ToLowerInvariant();
+        var name = request.Name.Trim();
 
         if (!PathUtilities.IsValidContainerName(name))
             throw new ArgumentException(
