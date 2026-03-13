@@ -50,7 +50,19 @@ public static class DocumentsEndpoints
                     SuccessCount: 1));
             }
 
-            // Multi-file: use BulkUploadAsync
+            // Multi-file: pre-validate all extensions before starting uploads
+            // (reject the entire batch if any file is unsupported)
+            var fileTypeValidator = httpContext.RequestServices.GetRequiredService<IFileTypeValidator>();
+            foreach (var file in files)
+            {
+                if (!fileTypeValidator.IsSupported(file.FileName))
+                {
+                    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+                    var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+                    return Results.BadRequest(new { error = "unsupported_file_type", message = $"File type '{ext}' is not supported. Supported types: {supported}" });
+                }
+            }
+
             var uploadRequests = new List<UploadRequest>();
             var streams = new List<Stream>();
             foreach (var file in files)
@@ -473,6 +485,8 @@ public static class DocumentsEndpoints
             return Results.BadRequest(new { error = "write_denied", message = error });
         if (error.Contains("access denied", StringComparison.OrdinalIgnoreCase) || error.Contains("cloud identity", StringComparison.OrdinalIgnoreCase))
             return Results.Json(new { error = "cloud_access_denied", message = error }, statusCode: 403);
+        if (error.Contains("Unsupported file extension", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { error = "unsupported_file_type", message = error });
         return Results.BadRequest(new { error = error });
     }
 
