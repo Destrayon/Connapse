@@ -26,6 +26,12 @@ public static class DocumentsEndpoints
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
+            foreach (var f in files)
+            {
+                if (f.FileName.Length > 255)
+                    return Results.BadRequest(new { error = "filename_too_long", message = $"Filename '{f.FileName[..50]}...' exceeds 255 characters." });
+            }
+
             var userId = GetUserId(httpContext);
 
             if (files.Count == 1)
@@ -489,6 +495,8 @@ public static class DocumentsEndpoints
             return Results.Json(new { error = "cloud_access_denied", message = error }, statusCode: 403);
         if (error.Contains("Unsupported file extension", StringComparison.OrdinalIgnoreCase))
             return Results.BadRequest(new { error = "unsupported_file_type", message = error });
+        if (error.Contains("255 characters", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { error = "filename_too_long", message = error });
         return Results.BadRequest(new { error = error });
     }
 

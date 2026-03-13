@@ -133,6 +133,9 @@ public class UploadService : IUploadService
 
     private string? ValidateInput(UploadRequest request)
     {
+        if (request.FileName.Length > 255)
+            return "Filename exceeds 255 characters.";
+
         if (!PathUtilities.IsValidFileName(request.FileName))
             return $"Invalid filename: '{request.FileName}'.";
 
