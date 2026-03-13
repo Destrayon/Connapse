@@ -3,7 +3,6 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
-using Connapse.Storage.Connectors;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -21,119 +20,78 @@ public static class DocumentsEndpoints
             [FromForm] IFormFileCollection files,
             [FromForm] string? path,
             [FromForm] ChunkingStrategy? strategy,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeFileSystem fileSystem,
-            [FromServices] IConnectorFactory connectorFactory,
-            [FromServices] IIngestionQueue queue,
-            [FromServices] IAuditLogger auditLogger,
-            [FromServices] ICloudScopeService cloudScopeService,
+            [FromServices] IUploadService uploadService,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            // Cloud scope enforcement
-            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeDenied is not null) return scopeDenied;
-
-            var uploadError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload);
-            if (uploadError is not null)
-                return Results.BadRequest(new { error = "write_denied", message = uploadError });
-
             if (files.Count == 0)
                 return Results.BadRequest(new { error = "No files provided" });
 
-            if (files.Any(f => f.Length == 0))
-                return Results.BadRequest(new { error = "File must not be empty" });
+            var userId = GetUserId(httpContext);
 
-            // Reject path traversal attempts before normalization
-            if (path is not null && PathUtilities.ContainsPathTraversal(path))
-                return Results.BadRequest(new { error = "Path must not contain '..' segments" });
-
-            var destinationPath = PathUtilities.NormalizeFolderPath(path ?? "/");
-            var uploadedDocs = new List<UploadedDocumentResponse>();
-            string? batchId = files.Count > 1 ? Guid.NewGuid().ToString() : null;
-
-            foreach (var file in files)
+            if (files.Count == 1)
             {
-                if (!PathUtilities.IsValidFileName(file.FileName))
-                    return Results.BadRequest(new { error = $"Invalid filename: '{file.FileName}'" });
+                var file = files[0];
+                using var stream = file.OpenReadStream();
+                var request = new UploadRequest(
+                    containerId, file.FileName, stream, userId, path,
+                    file.ContentType, strategy?.ToString(), "API");
 
-                var documentId = Guid.NewGuid().ToString();
-                // Virtual path used for display and returned in response
-                var virtualFilePath = PathUtilities.NormalizePath($"{destinationPath}{file.FileName}");
+                var result = await uploadService.UploadAsync(request, ct);
+                if (!result.Success)
+                    return MapUploadError(result.Error!);
 
-                try
-                {
-                    // Write files through the connector so each container's storage is
-                    // properly scoped (e.g. MinIO prefix, Filesystem rootPath).
-                    string jobPath;
-                    var connector = connectorFactory.Create(container);
-                    var relativePath = virtualFilePath.TrimStart('/');
-                    using var stream = file.OpenReadStream();
-                    await connector.WriteFileAsync(relativePath, stream, file.ContentType, ct);
-
-                    if (container.ConnectorType == ConnectorType.Filesystem)
-                    {
-                        var fsConnector = (FilesystemConnector)connector;
-                        jobPath = Path.Combine(fsConnector.RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
-                    }
-                    else
-                    {
-                        jobPath = virtualFilePath;
-                    }
-
-                    // Enqueue ingestion job
-                    var job = new IngestionJob(
-                        JobId: Guid.NewGuid().ToString(),
-                        DocumentId: documentId,
-                        Path: jobPath,
-                        Options: new IngestionOptions(
-                            DocumentId: documentId,
-                            FileName: file.FileName,
-                            ContentType: file.ContentType,
-                            ContainerId: containerId.ToString(),
-                            Path: virtualFilePath,
-                            Strategy: strategy ?? ChunkingStrategy.Semantic,
-                            Metadata: new Dictionary<string, string>
-                            {
-                                ["OriginalFileName"] = file.FileName,
-                                ["UploadedAt"] = DateTime.UtcNow.ToString("O")
-                            }),
-                        BatchId: batchId);
-
-                    await queue.EnqueueAsync(job, ct);
-
-                    uploadedDocs.Add(new UploadedDocumentResponse(
-                        DocumentId: documentId,
-                        JobId: job.JobId,
-                        FileName: file.FileName,
-                        SizeBytes: file.Length,
-                        Path: virtualFilePath)); // return virtual path to the UI
-                }
-                catch (Exception ex)
-                {
-                    uploadedDocs.Add(new UploadedDocumentResponse(
-                        DocumentId: documentId,
-                        JobId: null,
-                        FileName: file.FileName,
-                        SizeBytes: file.Length,
-                        Path: virtualFilePath,
-                        Error: ex.Message));
-                }
+                return Results.Ok(new UploadResponse(
+                    BatchId: null,
+                    Documents: [new UploadedDocumentResponse(
+                        result.DocumentId!, result.JobId!, file.FileName, file.Length,
+                        PathUtilities.NormalizePath(
+                            PathUtilities.NormalizeFolderPath(path ?? "/") + file.FileName))],
+                    TotalCount: 1,
+                    SuccessCount: 1));
             }
 
-            var successCount = uploadedDocs.Count(d => d.Error == null);
-            if (successCount > 0)
-                await auditLogger.LogAsync("doc.uploaded", "container", containerId.ToString(),
-                    new { FileCount = successCount, ContainerId = containerId }, ct);
+            // Multi-file: use BulkUploadAsync
+            var uploadRequests = new List<UploadRequest>();
+            var streams = new List<Stream>();
+            foreach (var file in files)
+            {
+                var stream = file.OpenReadStream();
+                streams.Add(stream);
+                uploadRequests.Add(new UploadRequest(
+                    containerId, file.FileName, stream, userId, path,
+                    file.ContentType, strategy?.ToString(), "API"));
+            }
 
-            return Results.Ok(new UploadResponse(
-                BatchId: batchId,
-                Documents: uploadedDocs,
-                TotalCount: files.Count,
-                SuccessCount: successCount));
+            try
+            {
+                var bulkRequest = new BulkUploadRequest(containerId, uploadRequests);
+                var bulkResult = await uploadService.BulkUploadAsync(bulkRequest, ct);
+
+                var docs = new List<UploadedDocumentResponse>();
+                for (var i = 0; i < bulkResult.Results.Count; i++)
+                {
+                    var r = bulkResult.Results[i];
+                    var f = files[i];
+                    docs.Add(new UploadedDocumentResponse(
+                        r.DocumentId ?? Guid.Empty.ToString(),
+                        r.JobId,
+                        f.FileName,
+                        f.Length,
+                        PathUtilities.NormalizePath(
+                            PathUtilities.NormalizeFolderPath(path ?? "/") + f.FileName),
+                        r.Success ? null : r.Error));
+                }
+
+                return Results.Ok(new UploadResponse(
+                    BatchId: bulkResult.BatchId,
+                    Documents: docs,
+                    TotalCount: files.Count,
+                    SuccessCount: bulkResult.SuccessCount));
+            }
+            finally
+            {
+                foreach (var s in streams) s.Dispose();
+            }
         })
         .DisableAntiforgery()
         .WithName("UploadFiles")
@@ -506,6 +464,17 @@ public static class DocumentsEndpoints
     };
 
     private static bool IsTextExtension(string extension) => TextExtensions.Contains(extension);
+
+    private static IResult MapUploadError(string error)
+    {
+        if (error.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return Results.NotFound(new { error = error });
+        if (error.Contains("read-only", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { error = "write_denied", message = error });
+        if (error.Contains("access denied", StringComparison.OrdinalIgnoreCase) || error.Contains("cloud identity", StringComparison.OrdinalIgnoreCase))
+            return Results.Json(new { error = "cloud_access_denied", message = error }, statusCode: 403);
+        return Results.BadRequest(new { error = error });
+    }
 
     private static Guid? GetUserId(HttpContext httpContext)
     {
