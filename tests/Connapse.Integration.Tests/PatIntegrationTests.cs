@@ -216,4 +216,28 @@ public class PatIntegrationTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
+
+    // ── Empty / whitespace API key ───────────────────────────────────────
+
+    [Fact]
+    public async Task EmptyApiKey_Returns401()
+    {
+        using var client = _fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", "");
+
+        var response = await client.GetAsync("/api/containers?skip=0&take=50");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task WhitespaceApiKey_Returns401()
+    {
+        using var client = _fixture.Factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", "   ");
+
+        var response = await client.GetAsync("/api/containers?skip=0&take=50");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
 }
