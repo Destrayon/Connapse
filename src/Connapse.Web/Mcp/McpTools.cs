@@ -334,6 +334,9 @@ public class McpTools
         if (document is null || document.ContainerId != resolvedId.Value.ToString())
             return $"Error: File '{fileId}' not found in this container.";
 
+        var ingestionQueue = services.GetRequiredService<IIngestionQueue>();
+        await ingestionQueue.CancelJobForDocumentAsync(fileId);
+
         await documentStore.DeleteAsync(fileId, ct);
 
         // Clean up empty parent folders
