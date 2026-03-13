@@ -1025,10 +1025,10 @@ dotnet tool install -g Connapse.CLI
 
 **Option B: Native Binary** (no .NET required):
 Download the self-contained binary for your platform from [GitHub Releases](https://github.com/Destrayon/Connapse/releases):
-- `connapse-win-x64.exe`
-- `connapse-linux-x64`
-- `connapse-osx-x64`
-- `connapse-osx-arm64`
+- `connapse-cli-win-x64.exe`
+- `connapse-cli-linux-x64`
+- `connapse-cli-osx-x64`
+- `connapse-cli-osx-arm64`
 
 Binaries are published automatically on version tags via GitHub Actions.
 

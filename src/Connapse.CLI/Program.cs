@@ -1875,13 +1875,13 @@ static string GetCurrentVersion() =>
 
 static string GetPlatformAssetName()
 {
-    if (OperatingSystem.IsWindows()) return "connapse-win-x64.exe";
-    if (OperatingSystem.IsLinux())   return "connapse-linux-x64";
+    if (OperatingSystem.IsWindows()) return "connapse-cli-win-x64.exe";
+    if (OperatingSystem.IsLinux())   return "connapse-cli-linux-x64";
     if (OperatingSystem.IsMacOS())
         return RuntimeInformation.ProcessArchitecture == Architecture.Arm64
-            ? "connapse-osx-arm64"
-            : "connapse-osx-x64";
-    return "connapse-linux-x64";
+            ? "connapse-cli-osx-arm64"
+            : "connapse-cli-osx-x64";
+    return "connapse-cli-linux-x64";
 }
 
 static bool IsGlobalToolInstall()

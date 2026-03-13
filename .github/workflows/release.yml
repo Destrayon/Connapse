@@ -51,18 +51,18 @@ jobs:
 
       - name: Rename binary (non-Windows)
         if: matrix.rid != 'win-x64'
-        run: mv publish/${{ matrix.rid }}/connapse publish/${{ matrix.rid }}/connapse-${{ matrix.rid }}
+        run: mv publish/${{ matrix.rid }}/connapse publish/${{ matrix.rid }}/connapse-cli-${{ matrix.rid }}
 
       - name: Rename binary (Windows)
         if: matrix.rid == 'win-x64'
-        run: Rename-Item publish/${{ matrix.rid }}/connapse.exe connapse-${{ matrix.rid }}.exe
+        run: Rename-Item publish/${{ matrix.rid }}/connapse.exe connapse-cli-${{ matrix.rid }}.exe
         shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: connapse-${{ matrix.rid }}
-          path: publish/${{ matrix.rid }}/connapse-${{ matrix.rid }}*
+          name: connapse-cli-${{ matrix.rid }}
+          path: publish/${{ matrix.rid }}/connapse-cli-${{ matrix.rid }}*
           retention-days: 1
 
   publish-nuget:
@@ -171,6 +171,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: connapse-*
+          # Matches: connapse-cli-*, connapse-docker, connapse-nupkg
           merge-multiple: true
           path: release-assets
 
@@ -197,15 +198,15 @@ jobs:
             ## CLI binary (no .NET required)
 
             Download the binary for your platform and add it to your PATH:
-            - **Windows**: `connapse-win-x64.exe`
-            - **Linux**: `connapse-linux-x64`
-            - **macOS (Intel)**: `connapse-osx-x64`
-            - **macOS (Apple Silicon)**: `connapse-osx-arm64`
+            - **Windows**: `connapse-cli-win-x64.exe`
+            - **Linux**: `connapse-cli-linux-x64`
+            - **macOS (Intel)**: `connapse-cli-osx-x64`
+            - **macOS (Apple Silicon)**: `connapse-cli-osx-arm64`
 
             ```bash
             # Linux / macOS
-            chmod +x connapse-linux-x64
-            sudo mv connapse-linux-x64 /usr/local/bin/connapse
+            chmod +x connapse-cli-linux-x64
+            sudo mv connapse-cli-linux-x64 /usr/local/bin/connapse
             ```
 
             ## .NET Global Tool (requires .NET 10 SDK)
