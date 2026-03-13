@@ -7,6 +7,7 @@ This guide covers deploying Connapse in various environments.
 ## Table of Contents
 
 - [Quick Start (Docker Compose)](#quick-start-docker-compose)
+- [First-Time Setup](#first-time-setup)
 - [Local Development](#local-development)
 - [Production Deployment](#production-deployment)
 - [Configuration Reference](#configuration-reference)
@@ -97,6 +98,32 @@ The database schema is created automatically on first startup via EF Core migrat
 3. If no env vars were set, the login page shows a **First-Time Setup** form — create the admin account there
 4. After login, open **Settings** and click "Test Connection" for PostgreSQL, MinIO, and Ollama
 5. All tests should show ✅ Success
+
+---
+
+## First-Time Setup
+
+After starting services for the first time, you need to create the initial admin account. This applies to both Docker Compose and manual deployments.
+
+### Admin Account Creation
+
+If `CONNAPSE_ADMIN_EMAIL` and `CONNAPSE_ADMIN_PASSWORD` environment variables are set, the admin account is seeded automatically on first startup. Otherwise:
+
+1. Open the Web UI (e.g., `http://localhost:5001`) — you are redirected to the login page
+2. When no users exist in the database, the login page automatically shows a **First-Time Setup** form instead of the standard login
+3. Fill in your email and password to create the admin account
+4. The first user created this way is assigned the **Admin** role
+
+### Inviting Additional Users
+
+After the initial admin account exists, registration is invite-only:
+
+1. Log in as an admin and navigate to `/admin/users`
+2. Create an invitation for the new user
+3. Share the generated link with the user — it follows the format `/register?token=<token>`
+4. The invited user visits that link to set their password and complete registration
+
+There is no open registration endpoint. All new users must be invited by an admin.
 
 ---
 
