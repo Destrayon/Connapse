@@ -21,9 +21,10 @@ public class CliHelpTests
         };
 
         using var process = Process.Start(psi)!;
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var stdout = await process.StandardOutput.ReadToEndAsync(cts.Token);
+        var stderr = await process.StandardError.ReadToEndAsync(cts.Token);
+        await process.WaitForExitAsync(cts.Token);
 
         return (process.ExitCode, stdout + stderr);
     }
@@ -62,5 +63,15 @@ public class CliHelpTests
 
         exitCode.Should().Be(0);
         output.Should().Contain("container create");
+    }
+
+    [Fact]
+    public async Task Update_Help_Shows_Usage_Without_Network_Call()
+    {
+        var (exitCode, output) = await RunCliAsync("update", "--help");
+
+        exitCode.Should().Be(0);
+        output.Should().Contain("connapse update");
+        output.Should().NotContain("Current version:");
     }
 }

@@ -1644,6 +1644,12 @@ static int HandleVersion()
 
 static async Task<int> HandleUpdate(string[] args)
 {
+    if (IsSubcommandHelp(args))
+    {
+        Console.WriteLine("Usage: connapse update [--check] [--pre]");
+        return 0;
+    }
+
     var checkOnly = args.Contains("--check");
     var includePre = args.Contains("--pre");
     var currentVersion = GetCurrentVersion();
