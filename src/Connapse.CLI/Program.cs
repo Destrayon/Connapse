@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
+using NuGet.Versioning;
 
 // Load configuration
 var configuration = new ConfigurationBuilder()
@@ -97,8 +98,8 @@ static void PrintUsage()
     Console.WriteLine("  version");
     Console.WriteLine("      Show the installed version");
     Console.WriteLine();
-    Console.WriteLine("  update [--check]");
-    Console.WriteLine("      Update to the latest release (--check to preview without installing)");
+    Console.WriteLine("  update [--check] [--pre]");
+    Console.WriteLine("      Update to the latest release (--check to preview, --pre to include pre-releases)");
     Console.WriteLine();
     Console.WriteLine("Authentication:");
     Console.WriteLine("  auth login [--url <server-url>] [--no-browser]");
@@ -1631,8 +1632,15 @@ static int HandleVersion()
 static async Task<int> HandleUpdate(string[] args)
 {
     var checkOnly = args.Contains("--check");
+    var includePre = args.Contains("--pre");
     var currentVersion = GetCurrentVersion();
     Console.WriteLine($"Current version: v{currentVersion}");
+    if (includePre)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("Including pre-release versions.");
+        Console.ResetColor();
+    }
 
     using var ghClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
     ghClient.DefaultRequestHeaders.UserAgent.Add(
@@ -1641,9 +1649,7 @@ static async Task<int> HandleUpdate(string[] args)
     GitHubRelease? release;
     try
     {
-        release = await ghClient.GetFromJsonAsync(
-            "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
-            CliJsonContext.Default.GitHubRelease);
+        release = await GetLatestReleaseAsync(ghClient, includePre);
     }
     catch (Exception ex)
     {
@@ -1896,9 +1902,25 @@ static bool IsGlobalToolInstall()
 
 static bool IsNewer(string latest, string current)
 {
-    if (Version.TryParse(latest, out var latestV) && Version.TryParse(current, out var currentV))
+    if (NuGetVersion.TryParse(latest, out var latestV) && NuGetVersion.TryParse(current, out var currentV))
         return latestV > currentV;
     return string.Compare(latest, current, StringComparison.Ordinal) > 0;
+}
+
+static async Task<GitHubRelease?> GetLatestReleaseAsync(HttpClient ghClient, bool includePre)
+{
+    if (!includePre)
+    {
+        return await ghClient.GetFromJsonAsync(
+            "https://api.github.com/repos/Destrayon/Connapse/releases/latest",
+            CliJsonContext.Default.GitHubRelease);
+    }
+
+    var releases = await ghClient.GetFromJsonAsync(
+        "https://api.github.com/repos/Destrayon/Connapse/releases?per_page=10",
+        CliJsonContext.Default.ListGitHubRelease);
+
+    return releases?.FirstOrDefault(r => !r.Draft);
 }
 
 static async Task CheckForUpdateNotification()
@@ -2039,8 +2061,10 @@ record ReindexResult(
     Dictionary<string, int>? ReasonCounts,
     string Message);
 record GitHubRelease(
-    [property: JsonPropertyName("tag_name")] string TagName,
-    [property: JsonPropertyName("assets")]   List<GitHubAsset> Assets);
+    [property: JsonPropertyName("tag_name")]   string TagName,
+    [property: JsonPropertyName("prerelease")] bool Prerelease,
+    [property: JsonPropertyName("draft")]      bool Draft,
+    [property: JsonPropertyName("assets")]     List<GitHubAsset> Assets);
 record GitHubAsset(
     [property: JsonPropertyName("name")]                  string Name,
     [property: JsonPropertyName("browser_download_url")] string BrowserDownloadUrl);
@@ -2059,6 +2083,7 @@ record GitHubAsset(
 [JsonSerializable(typeof(CliExchangeResponse))]
 [JsonSerializable(typeof(CliCredentials))]
 [JsonSerializable(typeof(GitHubRelease))]
+[JsonSerializable(typeof(List<GitHubRelease>))]
 [JsonSerializable(typeof(GitHubAsset))]
 [JsonSerializable(typeof(JsonDocument))]
 internal partial class CliJsonContext : JsonSerializerContext { }
