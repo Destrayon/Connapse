@@ -87,7 +87,7 @@ The database schema is created automatically on first startup via EF Core migrat
 7. **Access the application**:
 
 - **Web UI**: http://localhost:5001 (shows the container list on the home page)
-- **MinIO Console**: http://localhost:9001 (login: `aikp_admin` / your password)
+- **MinIO Console**: http://localhost:9001 (login: `connapse_admin` / your password)
 - **Ollama API**: http://localhost:11434
 
 ### Verify Installation
@@ -153,10 +153,10 @@ sudo apt install postgresql-17-pgvector  # Ubuntu
 3. **Create database**:
 ```bash
 psql -U postgres
-CREATE DATABASE aikp;
-CREATE USER aikp WITH PASSWORD 'aikp_dev';
-GRANT ALL PRIVILEGES ON DATABASE aikp TO aikp;
-\c aikp
+CREATE DATABASE connapse;
+CREATE USER connapse WITH PASSWORD 'connapse_dev';
+GRANT ALL PRIVILEGES ON DATABASE connapse TO connapse;
+\c connapse
 CREATE EXTENSION IF NOT EXISTS vector;
 \q
 ```
@@ -179,8 +179,8 @@ sudo mv minio /usr/local/bin/
 2. **Start MinIO**:
 ```bash
 mkdir -p ~/minio/data
-export MINIO_ROOT_USER=aikp_dev
-export MINIO_ROOT_PASSWORD=aikp_dev_secret
+export MINIO_ROOT_USER=connapse_dev
+export MINIO_ROOT_PASSWORD=connapse_dev_secret
 minio server ~/minio/data --console-address ":9001"
 ```
 
@@ -272,7 +272,7 @@ builder.Configuration.AddAzureKeyVault(
 ```bash
 dotnet add package Amazon.Extensions.Configuration.SystemsManager
 
-builder.Configuration.AddSystemsManager("/aikp/production");
+builder.Configuration.AddSystemsManager("/connapse/production");
 ```
 
 **Environment Variables** (Kubernetes, Docker):
@@ -281,7 +281,7 @@ builder.Configuration.AddSystemsManager("/aikp/production");
 apiVersion: v1
 kind: Secret
 metadata:
-  name: aikp-secrets
+  name: connapse-secrets
 type: Opaque
 data:
   postgres-password: <base64-encoded-password>
@@ -295,13 +295,13 @@ data:
 Use nginx or Traefik with Let's Encrypt:
 
 ```nginx
-# /etc/nginx/sites-available/aikp
+# /etc/nginx/sites-available/connapse
 server {
     listen 443 ssl http2;
-    server_name aikp.example.com;
+    server_name connapse.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/aikp.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/aikp.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/connapse.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/connapse.example.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:5001;
@@ -342,17 +342,17 @@ export ASPNETCORE_URLS="https://+:443;http://+:80"
 
 ```sql
 -- Create read-only user for analytics
-CREATE ROLE aikp_readonly;
-GRANT CONNECT ON DATABASE aikp TO aikp_readonly;
-GRANT USAGE ON SCHEMA public TO aikp_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO aikp_readonly;
+CREATE ROLE connapse_readonly;
+GRANT CONNECT ON DATABASE connapse TO connapse_readonly;
+GRANT USAGE ON SCHEMA public TO connapse_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO connapse_readonly;
 
 -- Create app user with limited permissions
-CREATE USER aikp_app WITH PASSWORD 'secure_password';
-GRANT CONNECT ON DATABASE aikp TO aikp_app;
-GRANT USAGE, CREATE ON SCHEMA public TO aikp_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aikp_app;
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO aikp_app;
+CREATE USER connapse_app WITH PASSWORD 'secure_password';
+GRANT CONNECT ON DATABASE connapse TO connapse_app;
+GRANT USAGE, CREATE ON SCHEMA public TO connapse_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO connapse_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO connapse_app;
 
 -- Enable SSL
 ALTER SYSTEM SET ssl = on;
@@ -361,17 +361,17 @@ SELECT pg_reload_conf();
 
 **Connection string with SSL**:
 ```
-Host=postgres.example.com;Database=aikp;Username=aikp_app;Password=***;SSL Mode=Require;Trust Server Certificate=false
+Host=postgres.example.com;Database=connapse;Username=connapse_app;Password=***;SSL Mode=Require;Trust Server Certificate=false
 ```
 
 #### 4. MinIO Security
 
 ```bash
 # Create dedicated user (not root)
-mc admin user add myminio aikp_app <secure-password>
+mc admin user add myminio connapse_app <secure-password>
 
 # Create policy with minimal permissions
-cat > /tmp/aikp-policy.json <<EOF
+cat > /tmp/connapse-policy.json <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -392,8 +392,8 @@ cat > /tmp/aikp-policy.json <<EOF
 }
 EOF
 
-mc admin policy create myminio aikp-policy /tmp/aikp-policy.json
-mc admin policy attach myminio aikp-policy --user aikp_app
+mc admin policy create myminio connapse-policy /tmp/connapse-policy.json
+mc admin policy attach myminio connapse-policy --user connapse_app
 ```
 
 ### Dockerfile Optimization
@@ -428,9 +428,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Create non-root user
-RUN groupadd -r aikp && useradd -r -g aikp aikp
-RUN chown -R aikp:aikp /app
-USER aikp
+RUN groupadd -r connapse && useradd -r -g connapse connapse
+RUN chown -R connapse:connapse /app
+USER connapse
 
 COPY --from=build /app/publish .
 
@@ -440,8 +440,8 @@ ENTRYPOINT ["dotnet", "Connapse.Web.dll"]
 
 **Build and push**:
 ```bash
-docker build -t yourregistry/aikp:v1.0.0 .
-docker push yourregistry/aikp:v1.0.0
+docker build -t yourregistry/connapse:v1.0.0 .
+docker push yourregistry/connapse:v1.0.0
 ```
 
 ### Docker Compose (Production)
@@ -452,8 +452,8 @@ services:
   postgres:
     image: pgvector/pgvector:pg17
     environment:
-      POSTGRES_DB: aikp
-      POSTGRES_USER: aikp_app
+      POSTGRES_DB: connapse
+      POSTGRES_USER: connapse_app
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
@@ -479,10 +479,10 @@ services:
     restart: unless-stopped
 
   web:
-    image: yourregistry/aikp:v1.0.0
+    image: yourregistry/connapse:v1.0.0
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=aikp;Username=aikp_app;Password_FILE=/run/secrets/postgres_password;SSL Mode=Require"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse_app;Password_FILE=/run/secrets/postgres_password;SSL Mode=Require"
       Knowledge__Storage__MinIO__Endpoint: "minio:9000"
       Knowledge__Storage__MinIO__AccessKey_FILE: /run/secrets/minio_user
       Knowledge__Storage__MinIO__SecretKey_FILE: /run/secrets/minio_password
@@ -643,7 +643,7 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     }
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Host=postgres;Database=aikp;Username=aikp;Password=***"
+    "DefaultConnection": "Host=postgres;Database=connapse;Username=connapse;Password=***"
   },
   "Knowledge": {
     "Embedding": {
@@ -679,10 +679,10 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "DocumentStoreProvider": "Postgres",
       "FileStorageProvider": "MinIO",
       "MinioEndpoint": "minio:9000",
-      "MinioAccessKey": "aikp_dev",
-      "MinioSecretKey": "aikp_dev_secret",
+      "MinioAccessKey": "connapse_dev",
+      "MinioSecretKey": "connapse_dev_secret",
       "MinioUseSSL": false,
-      "MinioBucketName": "aikp-files"
+      "MinioBucketName": "connapse-files"
     },
     "Upload": {
       "MaxFileSizeBytes": 104857600,
@@ -714,28 +714,28 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 **Manual Backup**:
 ```bash
 # Dump entire database
-docker compose exec -T postgres pg_dump -U aikp aikp > backup_$(date +%Y%m%d_%H%M%S).sql
+docker compose exec -T postgres pg_dump -U connapse connapse > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Dump specific tables
-docker compose exec -T postgres pg_dump -U aikp aikp -t documents -t chunks > backup_tables.sql
+docker compose exec -T postgres pg_dump -U connapse connapse -t documents -t chunks > backup_tables.sql
 
 # Custom format (compressed)
-docker compose exec -T postgres pg_dump -U aikp -Fc aikp > backup.dump
+docker compose exec -T postgres pg_dump -U connapse -Fc connapse > backup.dump
 ```
 
 **Automated Backup** (cron):
 ```bash
-# /etc/cron.d/aikp-backup
-0 2 * * * docker compose -f /opt/aikp/docker-compose.yml exec -T postgres pg_dump -U aikp -Fc aikp > /backups/aikp_$(date +\%Y\%m\%d).dump
+# /etc/cron.d/connapse-backup
+0 2 * * * docker compose -f /opt/connapse/docker-compose.yml exec -T postgres pg_dump -U connapse -Fc connapse > /backups/connapse_$(date +\%Y\%m\%d).dump
 ```
 
 **Restore**:
 ```bash
 # From SQL file
-docker compose exec -T postgres psql -U aikp aikp < backup.sql
+docker compose exec -T postgres psql -U connapse connapse < backup.sql
 
 # From custom format
-docker compose exec -T postgres pg_restore -U aikp -d aikp backup.dump
+docker compose exec -T postgres pg_restore -U connapse -d connapse backup.dump
 ```
 
 ### MinIO Backup
@@ -747,18 +747,18 @@ brew install minio/stable/mc  # macOS
 # Or download from https://min.io/docs/minio/linux/reference/minio-mc.html
 
 # Configure alias
-mc alias set myminio http://localhost:9000 aikp_dev aikp_dev_secret
+mc alias set myminio http://localhost:9000 connapse_dev connapse_dev_secret
 
 # Mirror to local directory
 mc mirror myminio/knowledge-files /backups/minio/knowledge-files
 
 # Mirror to S3
-mc mirror myminio/knowledge-files s3/my-backup-bucket/aikp-minio/
+mc mirror myminio/knowledge-files s3/my-backup-bucket/connapse-minio/
 ```
 
 **Automated Backup** (cron):
 ```bash
-# /etc/cron.d/aikp-minio-backup
+# /etc/cron.d/connapse-minio-backup
 0 3 * * * mc mirror myminio/knowledge-files /backups/minio/knowledge-files
 ```
 
@@ -768,11 +768,11 @@ mc mirror myminio/knowledge-files s3/my-backup-bucket/aikp-minio/
 #!/bin/bash
 # backup.sh
 
-BACKUP_DIR="/backups/aikp/$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="/backups/connapse/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
 # Backup PostgreSQL
-docker compose exec -T postgres pg_dump -U aikp -Fc aikp > "$BACKUP_DIR/postgres.dump"
+docker compose exec -T postgres pg_dump -U connapse -Fc connapse > "$BACKUP_DIR/postgres.dump"
 
 # Backup MinIO (incremental)
 mc mirror myminio/knowledge-files "$BACKUP_DIR/minio"
@@ -793,7 +793,7 @@ echo "Backup completed: $BACKUP_DIR.tar.gz"
 1. **Deploy fresh infrastructure** (Docker Compose or cloud)
 2. **Restore PostgreSQL**:
 ```bash
-docker compose exec -T postgres pg_restore -U aikp -d aikp < postgres.dump
+docker compose exec -T postgres pg_restore -U connapse -d connapse < postgres.dump
 ```
 3. **Restore MinIO files**:
 ```bash
@@ -823,7 +823,7 @@ docker compose ps postgres
 docker compose logs postgres
 
 # Test connection
-docker compose exec postgres psql -U aikp -d aikp -c "SELECT 1;"
+docker compose exec postgres psql -U connapse -d connapse -c "SELECT 1;"
 
 # Verify connection string
 docker compose exec web env | grep ConnectionStrings
@@ -836,7 +836,7 @@ docker compose exec web env | grep ConnectionStrings
 **Solutions**:
 ```bash
 # Create bucket
-mc alias set local http://localhost:9000 aikp_dev aikp_dev_secret
+mc alias set local http://localhost:9000 connapse_dev connapse_dev_secret
 mc mb local/knowledge-files
 
 # Or via Docker
@@ -920,7 +920,7 @@ Check service health:
 
 ```bash
 # PostgreSQL
-docker compose exec postgres pg_isready -U aikp
+docker compose exec postgres pg_isready -U connapse
 
 # MinIO
 curl http://localhost:9000/minio/health/live

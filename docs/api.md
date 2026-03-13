@@ -1073,6 +1073,9 @@ connapse container list
 
 # Delete an empty container
 connapse container delete <name>
+
+# Show container statistics
+connapse container stats <name>
 ```
 
 ---
@@ -1082,6 +1085,15 @@ connapse container delete <name>
 ```bash
 # Upload a file or folder into a container
 connapse upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
+
+# List files and folders in a container
+connapse files list --container <name> [--path <folder>]
+
+# Get the full text content of a file
+connapse files get --container <name> --file <id-or-path>
+
+# Delete a file by ID
+connapse files delete --container <name> --file <id>
 
 # Search within a container
 connapse search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
