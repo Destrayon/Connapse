@@ -2,6 +2,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
+using Connapse.Web.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -73,9 +74,18 @@ public class McpTools
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
 
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+
         var deleted = await containerStore.DeleteAsync(resolvedId.Value, ct);
         if (!deleted)
             return $"Error: Container '{containerId}' is not empty. Delete all files first.";
+
+        var auditLogger = services.GetRequiredService<IAuditLogger>();
+        await auditLogger.LogAsync("container.deleted", "container", resolvedId.Value.ToString(),
+            new { Name = container?.Name ?? containerId }, ct);
+
+        var watcherService = services.GetRequiredService<ConnectorWatcherService>();
+        watcherService.StopWatchingContainer(resolvedId.Value);
 
         return $"Container '{containerId}' deleted.";
     }
