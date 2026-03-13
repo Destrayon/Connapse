@@ -246,6 +246,14 @@ public class McpTools
         if (!PathUtilities.IsValidFileName(fileName))
             return $"Error: invalid filename '{fileName}' — must not contain path separators or '..' segments.";
 
+        var fileTypeValidator = services.GetRequiredService<IFileTypeValidator>();
+        if (!fileTypeValidator.IsSupported(fileName))
+        {
+            var ext = Path.GetExtension(fileName).ToLowerInvariant();
+            var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+            return $"Error: file type '{ext}' is not supported. Supported types: {supported}";
+        }
+
         if (content is not null && textContent is not null)
             return "Error: Provide either 'content' or 'textContent', not both.";
 

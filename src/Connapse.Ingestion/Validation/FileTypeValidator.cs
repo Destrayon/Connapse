@@ -1,9 +1,9 @@
 using Connapse.Core.Interfaces;
 
-namespace Connapse.Ingestion;
+namespace Connapse.Ingestion.Validation;
 
 /// <summary>
-/// Validates file types by aggregating supported extensions from all registered document parsers.
+/// Validates file extensions against the union of all registered parser capabilities.
 /// </summary>
 public class FileTypeValidator : IFileTypeValidator
 {
@@ -19,11 +19,11 @@ public class FileTypeValidator : IFileTypeValidator
         }
     }
 
-    public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
-
     public bool IsSupported(string fileName)
     {
-        var ext = Path.GetExtension(fileName);
-        return !string.IsNullOrEmpty(ext) && _supportedExtensions.Contains(ext);
+        var extension = Path.GetExtension(fileName);
+        return _supportedExtensions.Contains(extension);
     }
+
+    public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
 }

@@ -13,12 +13,14 @@ public class McpToolsBulkUploadTests
 
     private readonly IContainerStore _containerStore;
     private readonly IUploadService _uploadService;
+    private readonly IFileTypeValidator _fileTypeValidator;
     private readonly IServiceProvider _services;
 
     public McpToolsBulkUploadTests()
     {
         _containerStore = Substitute.For<IContainerStore>();
         _uploadService = Substitute.For<IUploadService>();
+        _fileTypeValidator = Substitute.For<IFileTypeValidator>();
 
         var container = MakeContainer();
         _containerStore
@@ -35,9 +37,14 @@ public class McpToolsBulkUploadTests
                 return new BulkUploadResult(results.Count, 0, Guid.NewGuid().ToString(), results);
             });
 
+        // Accept all file types by default so existing tests are unaffected
+        _fileTypeValidator.IsSupported(Arg.Any<string>()).Returns(true);
+        _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string>());
+
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IUploadService)).Returns(_uploadService);
+        services.GetService(typeof(IFileTypeValidator)).Returns(_fileTypeValidator);
         _services = services;
     }
 
