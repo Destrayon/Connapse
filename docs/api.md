@@ -298,7 +298,7 @@ Agents are non-human identities (CI/CD pipelines, automation scripts) that authe
 
 ### Enable/Disable Agent
 
-**Endpoint**: `PUT /api/v1/agents/{id}/status`
+**Endpoint**: `PUT /api/v1/agents/{id}/active`
 
 **Request Body**:
 ```json
