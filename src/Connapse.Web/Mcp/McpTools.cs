@@ -716,31 +716,6 @@ public class McpTools
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
     }
 
-    /// <summary>
-    /// Creates all intermediate folder entries for a given destination path.
-    /// For example, "/a/b/c/" creates "/a/", "/a/b/", and "/a/b/c/" if they don't exist.
-    /// Skips the root path "/".
-    /// </summary>
-    internal static async Task EnsureIntermediateFoldersAsync(
-        IFolderStore folderStore, Guid containerId, string normalizedFolderPath, CancellationToken ct)
-    {
-        if (normalizedFolderPath == "/")
-            return;
-
-        // Split into segments and build up each intermediate path
-        var segments = normalizedFolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var currentPath = "/";
-
-        foreach (var segment in segments)
-        {
-            currentPath += segment + "/";
-
-            if (!await folderStore.ExistsAsync(containerId, currentPath, ct))
-            {
-                await folderStore.CreateAsync(containerId, currentPath, ct);
-            }
-        }
-    }
 }
 
 internal record BulkUploadFileItem
