@@ -1946,14 +1946,11 @@ static async Task<string?> ResolveContainerId(string nameOrId, HttpClient httpCl
         return nameOrId;
 
     // Otherwise resolve by name
-    var response = await httpClient.GetAsync("/api/containers");
+    var response = await httpClient.GetAsync($"/api/containers/by-name/{Uri.EscapeDataString(nameOrId.ToLowerInvariant())}");
     if (!response.IsSuccessStatusCode) return null;
 
-    var containers = await response.Content.ReadFromJsonAsync<List<ContainerInfo>>(jsonOptions);
-    var match = containers?.FirstOrDefault(c =>
-        c.Name.Equals(nameOrId, StringComparison.OrdinalIgnoreCase));
-
-    return match?.Id;
+    var container = await response.Content.ReadFromJsonAsync<ContainerInfo>(jsonOptions);
+    return container?.Id;
 }
 
 static string? GetOption(string[] args, string option)

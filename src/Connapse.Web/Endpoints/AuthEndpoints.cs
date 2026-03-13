@@ -167,20 +167,22 @@ public static class AuthEndpoints
 
         // GET /api/v1/auth/users — list users (Admin only, paginated)
         group.MapGet("/users", async (
-            [FromQuery] int skip,
-            [FromQuery] int take,
+            [FromQuery] int? skip,
+            [FromQuery] int? take,
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
-            var validationError = PaginationValidator.Validate(skip, take);
+            var effectiveSkip = skip ?? 0;
+            var effectiveTake = take ?? 50;
+            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
             if (validationError is not null) return validationError;
 
             var totalCount = await dbContext.Users.CountAsync(ct);
 
             var users = await dbContext.Users
                 .OrderBy(u => u.CreatedAt)
-                .Skip(skip)
-                .Take(take)
+                .Skip(effectiveSkip)
+                .Take(effectiveTake)
                 .ToListAsync(ct);
 
             var userIds = users.Select(u => u.Id).ToList();
@@ -207,7 +209,7 @@ public static class AuthEndpoints
                 u.CreatedAt,
                 u.LastLoginAt)).ToList();
 
-            return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, skip + take < totalCount));
+            return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, effectiveSkip + effectiveTake < totalCount));
         })
         .WithName("ListUsers")
         .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
