@@ -43,6 +43,10 @@ public static class FoldersEndpoints
             if (PathUtilities.ContainsPathTraversal(request.Path))
                 return Results.BadRequest(new { error = "Path must not contain '..' segments" });
 
+            var pathSegments = request.Path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (pathSegments.Length > ValidationConstants.MaxPathDepth)
+                return Results.BadRequest(new { error = "path_too_deep", message = $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels" });
+
             var normalizedPath = PathUtilities.NormalizeFolderPath(request.Path);
 
             // Verify path is within allowed prefixes
