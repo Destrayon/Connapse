@@ -1849,7 +1849,7 @@ static async Task<int> HandleUpdate(string[] args)
 
 static string GetCredentialsPath()
 {
-    var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    var home = GetUserHomePath();
     return Path.Combine(home, ".connapse", "credentials.json");
 }
 
@@ -1892,6 +1892,11 @@ static void EnsureAuthenticated()
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+static string GetUserHomePath() =>
+    Environment.GetEnvironmentVariable("USERPROFILE")
+    ?? Environment.GetEnvironmentVariable("HOME")
+    ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
 static string GetCurrentVersion() =>
     typeof(Program).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -1914,7 +1919,7 @@ static bool IsGlobalToolInstall()
     var exePath = Environment.ProcessPath;
     if (string.IsNullOrEmpty(exePath)) return false;
     var dotnetToolsDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        GetUserHomePath(),
         ".dotnet", "tools");
     return exePath.StartsWith(dotnetToolsDir, StringComparison.OrdinalIgnoreCase);
 }
@@ -1947,7 +1952,7 @@ static async Task CheckForUpdateNotification()
     try
     {
         var checkFile = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            GetUserHomePath(),
             ".connapse", "last-update-check");
 
         if (File.Exists(checkFile) &&
