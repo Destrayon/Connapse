@@ -201,9 +201,9 @@ The MCP server exposes **11 tools**:
 <details>
 <summary><strong>⚠️ Security Status (v0.3.x)</strong></summary>
 
-**This project is in active development (v0.3.0) and approaching production-readiness.**
+**This project is in active development (v0.3.2) and approaching production-readiness.**
 
-v0.3.0 adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, and cloud identity linking (AWS SSO + Azure AD).
+v0.3.x adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, cloud identity linking (AWS SSO + Azure AD), and rate limiting.
 
 - ✅ **Authentication and authorization** (v0.2.0)
 - ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)

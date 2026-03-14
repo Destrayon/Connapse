@@ -65,7 +65,7 @@ and the base URL to `http://ollama:11434` (already the default in `.env.example`
 Set `CONNAPSE_VERSION` in your `.env` file:
 
 ```bash
-CONNAPSE_VERSION=v0.3.0
+CONNAPSE_VERSION=v0.3.2
 ```
 
 Then re-pull and restart:
