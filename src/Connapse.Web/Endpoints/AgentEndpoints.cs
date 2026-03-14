@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +28,19 @@ public static class AgentEndpoints
             var adminUserId = GetUserId(httpContext);
             if (adminUserId is null)
                 return Results.Unauthorized();
+
+            var trimmedName = request.Name?.Trim() ?? "";
+            if (trimmedName.Length < ValidationConstants.MinAgentNameLength
+                || trimmedName.Length > ValidationConstants.MaxAgentNameLength
+                || !Regex.IsMatch(trimmedName, ValidationConstants.AgentNamePattern))
+                return Results.BadRequest(new { error = "agent_name_invalid", message = "Agent name must be 2-64 characters, alphanumeric with hyphens and underscores" });
+
+            if (request.Description is not null)
+            {
+                var trimmedDesc = request.Description.Trim();
+                if (trimmedDesc.Length > ValidationConstants.MaxAgentDescriptionLength)
+                    return Results.BadRequest(new { error = "agent_description_too_long", message = $"Agent description must not exceed {ValidationConstants.MaxAgentDescriptionLength} characters" });
+            }
 
             try
             {
@@ -115,6 +130,11 @@ public static class AgentEndpoints
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
+            var trimmedKeyName = request.Name?.Trim() ?? "";
+            if (trimmedKeyName.Length < ValidationConstants.MinAgentNameLength
+                || trimmedKeyName.Length > ValidationConstants.MaxAgentKeyNameLength)
+                return Results.BadRequest(new { error = "agent_key_name_invalid", message = $"Agent key name must be {ValidationConstants.MinAgentNameLength}-{ValidationConstants.MaxAgentKeyNameLength} characters" });
+
             try
             {
                 var key = await agentService.CreateKeyAsync(id, request, ct);
