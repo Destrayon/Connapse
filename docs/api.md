@@ -250,7 +250,7 @@ Base path: `/api/v1/agents`
 
 All agent endpoints require **Admin** role.
 
-Agents are non-human identities (CI/CD pipelines, automation scripts) that authenticate via API keys and access the MCP server.
+Agents are non-human identities (CI/CD pipelines, automation scripts) that authenticate via API keys and access the MCP server. For details on what agent API keys can access, see [Agent Permissions and Scope](#agent-permissions-and-scope).
 
 ### List Agents
 
@@ -371,16 +371,28 @@ Deletes the agent and all its API keys.
 
 ### Agent Permissions and Scope
 
-Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
+Agents are **MCP-only identities**. They authenticate with `cnp_`-prefixed API keys and interact with Connapse exclusively through the MCP endpoint. Agent keys **cannot** access REST API endpoints.
+
+#### Access surface
+
+| Interface | Access | Details |
+|-----------|--------|---------|
+| **MCP** (`POST /mcp`) | Allowed | All 11 MCP tools available |
+| **REST API** (`/api/v1/*`) | **403 Forbidden** | Agent role is not included in REST API authorization policies (Viewer/Editor/Admin) |
+| **Web UI** | Not accessible | Agent keys are API-only |
+
+This is by design. Agents interact exclusively through the MCP protocol, which provides a structured tool interface suited to non-human consumers. REST API endpoints use role-based policies (Viewer, Editor, Admin) that do not include the Agent role.
 
 #### Implicit scopes
 
-When an agent authenticates via API key, it receives two implicit scopes:
+When an agent authenticates via API key, it receives two implicit scopes. These scopes govern **MCP tool behavior only** — they do not grant REST API access.
 
 | Scope | Grants |
 |-------|--------|
-| `knowledge:read` | Search and read documents across all containers |
-| `agent:ingest` | Upload and delete files (subject to connector write guards) |
+| `knowledge:read` | Search and read documents across all containers via MCP |
+| `agent:ingest` | Upload and delete files via MCP (subject to connector write guards) |
+
+Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
 
 #### MCP tool access
 
@@ -388,19 +400,20 @@ Agents interact with Connapse through the MCP endpoint (`POST /mcp`). All 11 MCP
 
 #### What agents can do
 
-- Create, list, and delete containers
-- Upload and delete files (subject to connector write guards)
-- Search across any container
-- List files and retrieve document content
+- Create, list, and delete containers (via MCP)
+- Upload and delete files, subject to connector write guards (via MCP)
+- Search across any container (via MCP)
+- List files and retrieve document content (via MCP)
 
 #### What agents cannot do
 
-- Manage users or roles (requires Admin role, not Agent)
+- Access any REST API endpoint (returns 403)
+- Manage users or roles
 - Change system settings (embedding, search, LLM configuration)
 - Create or manage other agents
-- Access the web UI (agent keys work via API/MCP only)
+- Access the web UI
 
-> **Security note**: Since agents have system-wide container access, treat agent API keys with the same care as admin credentials. Revoke unused keys promptly.
+> **Security note**: Since agents have system-wide container access via MCP, treat agent API keys with the same care as admin credentials. Revoke unused keys promptly.
 
 ---
 
