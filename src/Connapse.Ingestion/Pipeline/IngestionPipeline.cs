@@ -234,6 +234,7 @@ public class IngestionPipeline : IKnowledgeIngester
             // Update document status
             documentEntity.ChunkCount = chunks.Count;
             documentEntity.Status = "Ready";
+            documentEntity.ErrorMessage = null;
             documentEntity.LastIndexedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(ct);
