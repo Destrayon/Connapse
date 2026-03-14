@@ -214,6 +214,67 @@ public class FileUploadSanitizationTests(SharedWebAppFixture fixture)
         }
     }
 
+    // Note: Control characters in filenames are tested at the unit level
+    // (PathUtilitiesTests.IsValidFileName_ControlCharacters_ReturnsFalse).
+    // HTTP multipart headers reject null bytes and control chars before
+    // they reach our validation code, making integration tests impossible.
+
+    [Fact]
+    public async Task UploadFile_PathTooDeep_Returns400()
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"depth-test-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var deepPath = "/" + string.Join("/", Enumerable.Range(0, 51).Select(i => $"d{i}"));
+
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            content.Add(fileContent, "files", "valid-file.txt");
+            content.Add(new StringContent(deepPath), "path");
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
+    [Fact]
+    public async Task UploadFile_PathAtMaxDepth_Returns200()
+    {
+        var createResp = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"depth-ok-{Guid.NewGuid():N}"[..20] });
+        createResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var container = await createResp.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            var maxPath = "/" + string.Join("/", Enumerable.Range(0, 50).Select(i => $"d{i}"));
+
+            var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(Encoding.UTF8.GetBytes("test content"));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            content.Add(fileContent, "files", "valid-file.txt");
+            content.Add(new StringContent(maxPath), "path");
+
+            var response = await fixture.AdminClient.PostAsync(
+                $"/api/containers/{container!.Id}/files", content);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true

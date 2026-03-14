@@ -77,6 +77,10 @@ public static partial class PathUtilities
     public static bool IsValidFileName(string fileName)
     {
         if (string.IsNullOrWhiteSpace(fileName)) return false;
+
+        // Reject control characters (U+0000-U+001F, U+007F)
+        if (fileName.Any(c => c <= '\x1F' || c == '\x7F')) return false;
+
         var normalized = fileName.Replace('\\', '/');
         var sanitized = Path.GetFileName(normalized);
         return !string.IsNullOrEmpty(sanitized)

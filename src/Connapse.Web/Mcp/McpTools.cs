@@ -107,6 +107,15 @@ public class McpTools
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
 
+        if (query.Length > ValidationConstants.MaxQueryLength)
+            throw new ArgumentException($"Query must not exceed {ValidationConstants.MaxQueryLength} characters.");
+
+        if (topK.HasValue && (topK.Value < ValidationConstants.MinTopK || topK.Value > ValidationConstants.MaxTopK))
+            throw new ArgumentException($"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}.");
+
+        if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
+            throw new ArgumentException($"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}.");
+
         var parsedMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var m) ? m : SearchMode.Hybrid;
         var effectiveTopK = topK ?? 10;
 
