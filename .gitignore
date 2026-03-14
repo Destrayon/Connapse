@@ -16,6 +16,7 @@ appsettings.*.json
 !appsettings.Development.json.template
 secrets.json
 *.pfx
+.mcpregistry_*
 
 # NuGet
 *.nupkg
