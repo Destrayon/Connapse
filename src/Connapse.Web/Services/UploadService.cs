@@ -133,14 +133,21 @@ public class UploadService : IUploadService
 
     private string? ValidateInput(UploadRequest request)
     {
-        if (request.FileName.Length > 255)
-            return "Filename exceeds 255 characters.";
+        if (request.FileName.Length > ValidationConstants.MaxFileNameLength)
+            return $"Filename exceeds {ValidationConstants.MaxFileNameLength} characters.";
 
         if (!PathUtilities.IsValidFileName(request.FileName))
             return $"Invalid filename: '{request.FileName}'.";
 
         if (request.Path is not null && PathUtilities.ContainsPathTraversal(request.Path))
             return "Path traversal is not allowed.";
+
+        if (request.Path is not null)
+        {
+            var segments = request.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length > ValidationConstants.MaxPathDepth)
+                return $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels.";
+        }
 
         if (!_fileTypeValidator.IsSupported(request.FileName))
         {
