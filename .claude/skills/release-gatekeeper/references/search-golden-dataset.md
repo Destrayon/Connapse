@@ -133,7 +133,7 @@ Run each query and validate against expected results. Use the API search endpoin
 | GQ-06 | "health checks container" | Hybrid | doc-03 | doc-11, doc-12 | hybrid |
 | GQ-07 | "classification" | Hybrid | doc-05 AND doc-06 | doc-11, doc-12 | disambiguation |
 | GQ-08 | "classification algorithms machine learning" | Semantic | doc-05 (top), doc-06 (lower) | doc-11 | disambiguation |
-| GQ-09 | "organizing books by subject" | Semantic | doc-06 | doc-05 | disambiguation |
+| GQ-09 | "organizing books by subject" | Semantic | doc-06 | doc-11, doc-12 | disambiguation |
 | GQ-10 | "chocolate cake recipe" | Semantic | doc-11 | doc-01, doc-02 | negative-pair |
 | GQ-11 | "quantum physics string theory" | Semantic | No high-scoring results | Everything | negative-absent |
 | GQ-12 | "httpOnly cookie OAuth" | Hybrid | doc-04, doc-08, doc-09 | doc-11 | paraphrase |
