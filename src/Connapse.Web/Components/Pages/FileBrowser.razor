@@ -398,7 +398,8 @@
                     <span class="detail-value">@model</span>
                 </div>
             }
-            @if (selectedFile.Metadata.TryGetValue("ErrorMessage", out var error) && !string.IsNullOrEmpty(error))
+            @if (selectedFile.Metadata.TryGetValue("ErrorMessage", out var error) && !string.IsNullOrEmpty(error)
+                && selectedFile.Metadata.GetValueOrDefault("Status") is "Failed" or "Error")
             {
                 <div class="detail-row">
                     <span class="detail-label">Error</span>
