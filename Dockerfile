@@ -14,6 +14,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app/publish .
 
+# MCP Registry ownership verification
+LABEL io.modelcontextprotocol.server.name="io.github.Destrayon/connapse"
+
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Install missing native lib needed by Npgsql's GSSAPI/Kerberos probe

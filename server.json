@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Destrayon/connapse",
+  "title": "Connapse",
+  "description": "Self-hosted knowledge backend for AI agents with hybrid search and MCP tools",
+  "version": "0.3.2",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/destrayon/connapse:v0.3.2",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:5001/mcp"
+      }
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/Destrayon/Connapse",
+    "source": "github"
+  }
+}
