@@ -3,4 +3,6 @@
   <assembly fullname="System.Text.Json" preserve="all" />
   <!-- Preserve Microsoft.Extensions.Configuration JSON provider -->
   <assembly fullname="Microsoft.Extensions.Configuration.Json" preserve="all" />
+  <!-- Preserve NuGet.Versioning for SemVer comparison in update command -->
+  <assembly fullname="NuGet.Versioning" preserve="all" />
 </linker>

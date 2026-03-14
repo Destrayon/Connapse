@@ -1926,10 +1926,32 @@ static bool IsGlobalToolInstall()
 
 static bool IsNewer(string latest, string current)
 {
-    if (NuGetVersion.TryParse(latest, out var latestV) && NuGetVersion.TryParse(current, out var currentV))
-        return latestV > currentV;
+    try
+    {
+        if (NuGetVersion.TryParse(latest, out var latestV) && NuGetVersion.TryParse(current, out var currentV))
+            return latestV > currentV;
+    }
+    catch { /* NuGet.Versioning assembly may be unavailable in trimmed builds */ }
+
+    // Fallback: strip pre-release suffix and compare base versions, then treat
+    // pre-release as older than the same base version (per SemVer 2.0).
+    var latestBase = StripPreRelease(latest);
+    var currentBase = StripPreRelease(current);
+
+    if (Version.TryParse(latestBase, out var lv) && Version.TryParse(currentBase, out var cv))
+    {
+        if (lv != cv) return lv > cv;
+        // Same base version: release (no suffix) is newer than pre-release (has suffix)
+        var latestIsPre = latest.Contains('-');
+        var currentIsPre = current.Contains('-');
+        return !latestIsPre && currentIsPre;
+    }
+
     return string.Compare(latest, current, StringComparison.Ordinal) > 0;
 }
+
+static string StripPreRelease(string version) =>
+    version.Contains('-') ? version[..version.IndexOf('-')] : version;
 
 static async Task<GitHubRelease?> GetLatestReleaseAsync(HttpClient ghClient, bool includePre)
 {
