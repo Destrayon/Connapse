@@ -44,6 +44,52 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
     };
 
     /// <summary>
+    /// Spins up a second app instance with AllowAnonymousDiscovery = true.
+    /// Verifies that tools/call is rejected for unauthenticated clients.
+    /// </summary>
+    [Fact]
+    public async Task McpToolsCall_AnonDiscoveryEnabled_UnauthenticatedReturnsError()
+    {
+        await using var anonFactory = CreateFactoryWithAnonDiscovery();
+        using var anonClient = anonFactory.CreateClient();
+
+        // First initialize the MCP session
+        var initResponse = await PostMcpAsync(anonClient, McpInitializeRequest);
+        initResponse.StatusCode.Should().Be(HttpStatusCode.OK,
+            because: "initialize should succeed when anonymous discovery is enabled");
+
+        // Now try to call a tool — should be rejected by the CallToolFilter
+        var callToolRequest = new
+        {
+            jsonrpc = "2.0",
+            method = "tools/call",
+            @params = new
+            {
+                name = "container_list",
+                arguments = new { }
+            },
+            id = "2"
+        };
+
+        var callResponse = await PostMcpAsync(anonClient, callToolRequest);
+
+        // The MCP SDK returns 200 with an error payload in the JSON-RPC response,
+        // because the CallToolFilter returns a CallToolResult with IsError=true
+        // rather than short-circuiting the HTTP response.
+        callResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await callResponse.Content.ReadAsStringAsync();
+        body.Should().Contain("Authentication required");
+    }
+
+    private WebApplicationFactory<Program> CreateFactoryWithAnonDiscovery()
+    {
+        return fixture.Factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Mcp:AllowAnonymousDiscovery", "true");
+        });
+    }
+
+    /// <summary>
     /// Sends a POST to /mcp with the Accept headers required by Streamable HTTP transport.
     /// </summary>
     private static async Task<HttpResponseMessage> PostMcpAsync(HttpClient client, object body)
