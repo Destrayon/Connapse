@@ -15,7 +15,7 @@ namespace Connapse.Web.Mcp;
 public class McpTools
 {
     [McpServerTool(Name = "container_create"),
-     Description("Create a new container for organizing files. Containers provide isolated vector indexes.")]
+     Description("Create a new container for organizing documents. Use when setting up a new knowledge domain or project.")]
     public static async Task<string> ContainerCreate(
         IServiceProvider services,
         [Description("Container name (lowercase alphanumeric and hyphens, 2-128 chars)")] string name,
@@ -38,7 +38,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
-     Description("List all containers with their document counts.")]
+     Description("List all containers with document counts. Use to discover available knowledge bases before searching.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
         CancellationToken ct = default)
@@ -62,7 +62,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_delete", Destructive = true),
-     Description("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.")]
+     Description("Delete a container. MinIO containers must be emptied first. Filesystem/S3/Azure files are not deleted — only the index is removed.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -91,7 +91,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
-     Description("Search within a container using semantic, keyword, or hybrid search. Returns relevant document chunks with scores.")]
+     Description("Search a container using semantic, keyword, or hybrid mode. Returns ranked document chunks with scores. Use when answering questions from stored knowledge.")]
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
         [Description("The search query text")] string query,
@@ -172,7 +172,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
-     Description("List files and folders in a container at a given path.")]
+     Description("List files and folders at a path within a container. Use to browse container contents before retrieving documents.")]
     public static async Task<string> ListFiles(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -248,7 +248,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "upload_file"),
-     Description("Upload a file to a container. The file will be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
+     Description("Upload a file to be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
     public static async Task<string> UploadFile(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -319,7 +319,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "delete_file", Destructive = true),
-     Description("Delete a file from a container. This also deletes all associated chunks and vectors.")]
+     Description("Delete a file and all its chunks and vectors. To update a file, delete it first then re-upload with upload_file.")]
     public static async Task<string> DeleteFile(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -373,7 +373,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "bulk_delete", Destructive = true),
-     Description("Delete multiple files from a container in one operation. Returns per-file results.")]
+     Description("Delete up to 100 files in one call. Returns per-file success/failure results.")]
     public static async Task<string> BulkDelete(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -437,7 +437,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "bulk_upload"),
-     Description("Upload multiple files to a container in one operation. Each file is parsed, chunked, embedded, and made searchable. Returns per-file results.")]
+     Description("Upload up to 100 files in one call. Each file is parsed, chunked, and embedded. Returns per-file results.")]
     public static async Task<string> BulkUpload(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -544,7 +544,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
-     Description("Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.")]
+     Description("Retrieve a document's full text by ID or path. Returns extracted text for binary formats (PDF, DOCX, PPTX).")]
     public static async Task<string> GetDocument(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -668,7 +668,7 @@ public class McpTools
     private static bool IsTextNative(string extension) => TextExtensions.Contains(extension);
 
     [McpServerTool(Name = "container_stats", ReadOnly = true, Idempotent = true),
-     Description("Get statistics for a container: document counts by status, chunk count, storage size, embedding model, and last indexed time.")]
+     Description("Get container statistics: document counts, chunk count, storage size, and embedding model info.")]
     public static async Task<string> ContainerStats(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
