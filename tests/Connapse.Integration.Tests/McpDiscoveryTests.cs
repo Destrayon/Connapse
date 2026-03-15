@@ -85,6 +85,117 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
         body.Should().Contain("Authentication required");
     }
 
+    [Fact]
+    public async Task McpToolsList_AnonDiscoveryEnabled_UnauthenticatedReturnsToolSchemas()
+    {
+        await using var anonFactory = CreateFactoryWithAnonDiscovery();
+        using var anonClient = anonFactory.CreateClient();
+
+        // Initialize session first (required by MCP protocol)
+        var initResponse = await PostMcpAsync(anonClient, McpInitializeRequest);
+        initResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var sessionId = initResponse.Headers.TryGetValues("Mcp-Session-Id", out var values)
+            ? values.FirstOrDefault() : null;
+
+        // Request tools/list
+        var listRequest = new
+        {
+            jsonrpc = "2.0",
+            method = "tools/list",
+            id = "2"
+        };
+
+        var response = await PostMcpAsync(anonClient, listRequest, sessionId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        // Verify we get actual tool definitions back
+        body.Should().Contain("container_list");
+        body.Should().Contain("search_knowledge");
+    }
+
+    [Fact]
+    public async Task McpToolsCall_AnonDiscoveryEnabled_AuthenticatedAgentSucceeds()
+    {
+        await using var anonFactory = CreateFactoryWithAnonDiscovery();
+
+        // Create an agent and API key using the admin client from the parent fixture
+        var agentResponse = await fixture.AdminClient.PostAsJsonAsync("/api/v1/agents",
+            new { name = "mcp-discovery-test-agent", description = "test" });
+        agentResponse.EnsureSuccessStatusCode();
+        var agent = await agentResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var agentId = agent.GetProperty("id").GetString()!;
+
+        var keyResponse = await fixture.AdminClient.PostAsJsonAsync(
+            $"/api/v1/agents/{agentId}/keys",
+            new { name = "discovery-key", scopes = new[] { "knowledge:read" } });
+        keyResponse.EnsureSuccessStatusCode();
+        var key = await keyResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var apiKeyToken = key.GetProperty("token").GetString()!;
+
+        // Create client against the anon-discovery factory, authenticated via X-Api-Key
+        using var agentClient = anonFactory.CreateClient();
+        agentClient.DefaultRequestHeaders.Add("X-Api-Key", apiKeyToken);
+
+        // Initialize MCP session
+        var initResponse = await PostMcpAsync(agentClient, McpInitializeRequest);
+        initResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var sessionId = initResponse.Headers.TryGetValues("Mcp-Session-Id", out var values)
+            ? values.FirstOrDefault() : null;
+
+        // Call container_list — should succeed for authenticated agent
+        var callRequest = new
+        {
+            jsonrpc = "2.0",
+            method = "tools/call",
+            @params = new
+            {
+                name = "container_list",
+                arguments = new { }
+            },
+            id = "3"
+        };
+
+        var response = await PostMcpAsync(agentClient, callRequest, sessionId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().NotContain("Authentication required");
+
+        // Cleanup
+        await fixture.AdminClient.DeleteAsync($"/api/v1/agents/{agentId}");
+    }
+
+    [Fact]
+    public async Task McpEndpoint_AnonDiscoveryEnabled_RateLimitingStillApplies()
+    {
+        // Create a factory with anon discovery AND a very low MCP rate limit
+        await using var factory = fixture.Factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Mcp:AllowAnonymousDiscovery", "true");
+            builder.UseSetting("RateLimiting:McpPermitLimit", "2");
+            builder.UseSetting("RateLimiting:McpWindowSeconds", "60");
+        });
+        using var client = factory.CreateClient();
+
+        // Send requests until rate limited
+        HttpResponseMessage? rateLimited = null;
+        for (var i = 0; i < 10; i++)
+        {
+            var response = await PostMcpAsync(client, McpInitializeRequest);
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                rateLimited = response;
+                break;
+            }
+        }
+
+        rateLimited.Should().NotBeNull("expected to hit rate limit within 10 requests with limit of 2");
+        rateLimited!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
     private WebApplicationFactory<Program> CreateFactoryWithAnonDiscovery()
     {
         return fixture.Factory.WithWebHostBuilder(builder =>
