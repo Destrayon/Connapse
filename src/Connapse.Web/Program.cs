@@ -298,8 +298,11 @@ api.MapGroup("/api/v1/identity")
     .MapIdentityApi<ConnapseUser>();
 
 // Map MCP server (Streamable HTTP + legacy SSE transport)
-app.MapMcp("/mcp").RequireAuthorization("RequireAgent")
+var mcpEndpoint = app.MapMcp("/mcp")
     .RequireRateLimiting(RateLimitingExtensions.McpPolicy);
+
+if (!allowAnonDiscovery)
+    mcpEndpoint.RequireAuthorization("RequireAgent");
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");
