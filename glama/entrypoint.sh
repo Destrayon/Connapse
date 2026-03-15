@@ -44,4 +44,4 @@ for i in $(seq 1 60); do
 done
 
 # Bridge Connapse HTTP MCP to stdio (main process — Glama's mcp-proxy reads this)
-exec npx -y mcp-remote http://localhost:8080/mcp --allow-http 2>/dev/null
+exec npx -y mcp-remote http://localhost:8080/mcp --allow-http --port 0 2>/dev/null
