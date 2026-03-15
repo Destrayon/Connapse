@@ -218,6 +218,35 @@ The MCP server exposes **11 tools**:
 
 > **Write guards**: S3 and AzureBlob containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
 
+<details>
+<summary><strong>Example prompts</strong> — what to ask your agent</summary>
+
+- *"Create a container called 'project-research' for my architecture notes"*
+- *"Upload all the PDFs in my downloads folder to the project-research container"*
+- *"Search my project-research container for information about rate limiting strategies"*
+- *"List all files in the /notes/ folder of my project-research container"*
+- *"Get the full text of distributed-systems-notes.md from project-research"*
+- *"Delete meeting-2026-03-14.md from project-research and upload this updated version"*
+- *"Delete all files in the /drafts/ folder of project-research"*
+- *"How many documents and chunks are in my project-research container?"*
+
+</details>
+
+<details>
+<summary><strong>Troubleshooting</strong></summary>
+
+**Connection refused on localhost:5001** — Docker not running or port conflict. Check `docker compose ps` and `docker compose logs web`.
+
+**401 Unauthorized / API key not working** — Verify the key in Settings > Agent API Keys. Keys are shown once at creation.
+
+**Tools not appearing in Claude** — Restart your MCP client after config changes. Verify endpoint with `curl http://localhost:5001/mcp`.
+
+**Uploads failing or timing out** — Check file type is in the allowlist. Max file size depends on server config.
+
+**Search returns no results** — Documents need time to embed after upload. Check container stats for embedding progress.
+
+</details>
+
 ---
 
 ## 🚀 Features
