@@ -14,6 +14,7 @@
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
   <a href="https://github.com/Destrayon/Connapse/issues"><img src="https://img.shields.io/github/issues/Destrayon/Connapse" alt="GitHub Issues"></a>
   <a href="https://github.com/Destrayon/Connapse/stargazers"><img src="https://img.shields.io/github/stars/Destrayon/Connapse?style=social" alt="GitHub Stars"></a>
+  <a href="https://glama.ai/mcp/servers/Destrayon/Connapse"><img src="https://glama.ai/mcp/servers/Destrayon/Connapse/badges/score.svg" alt="Connapse MCP server"></a>
   <a href="https://github.com/Destrayon/Connapse#-quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker"></a>
 </p>
 
@@ -313,6 +314,17 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Background sync: FileSystemWatcher for local, 5-min polling for cloud containers
 - ✅ Connection testing for all providers (S3, Azure Blob, MinIO, LLM, embeddings, AWS SSO, Azure AD)
 - ✅ 457 passing tests (unit + integration)
+
+### v0.3.2 — Hardening & Polish (Complete)
+- ✅ Input validation hardening: filename length, path depth, control characters, search params, agent fields
+- ✅ Security fixes: empty API key auth bypass, path traversal, security headers middleware
+- ✅ Unified upload pipeline (`IUploadService`) shared by API and MCP
+- ✅ File type allowlist for uploads
+- ✅ Rate limiting middleware (per-user and per-IP)
+- ✅ Bulk MCP tools: `bulk_upload` and `bulk_delete`
+- ✅ CLI improvements: `files` commands, `container stats`, `--pre` updates, `--help` flags
+- ✅ Self-hosted fonts (no CDN dependencies)
+- ✅ Docker release package on ghcr.io
 
 ### Future
 - **v0.4.0**: Communication connectors (Slack, Discord)
