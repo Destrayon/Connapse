@@ -30,7 +30,7 @@ export Knowledge__Storage__MinIO__AccessKey="minioadmin"
 export Knowledge__Storage__MinIO__SecretKey="minioadmin"
 export Knowledge__Storage__MinIO__UseSSL=false
 export Identity__Jwt__Secret="glama-discovery-only-not-for-production-use-minimum-32-chars"
-export ASPNETCORE_URLS="http://localhost:8080"
+export ASPNETCORE_URLS="http://localhost:3100"
 export ASPNETCORE_ENVIRONMENT="Production"
 
 # Start Connapse in background (redirect all output to log file so it doesn't
@@ -39,9 +39,9 @@ dotnet /opt/connapse/Connapse.Web.dll >/var/log/connapse.log 2>&1 &
 
 # Wait for Connapse to be healthy
 for i in $(seq 1 60); do
-    if curl -sf http://localhost:8080/health >/dev/null 2>&1; then break; fi
+    if curl -sf http://localhost:3100/health >/dev/null 2>&1; then break; fi
     sleep 1
 done
 
 # Bridge Connapse HTTP MCP to stdio (main process — Glama's mcp-proxy reads this)
-exec npx -y mcp-remote http://localhost:8080/mcp --allow-http --port 0 2>/dev/null
+exec npx -y mcp-remote http://localhost:3100/mcp --allow-http --port 0 2>/dev/null
