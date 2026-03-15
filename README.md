@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <em>The knowledge backend for AI agents. Open-source, container-isolated, hybrid search.</em>
+  <em>Stop losing context between AI sessions. Give your agents persistent, searchable memory.</em>
 </p>
 
 <p align="center">
@@ -21,9 +21,9 @@
   <img src="docs/demos/hero-upload-search.gif" alt="Connapse demo — upload a PDF, search with hybrid vector and keyword search, get results with source citations in seconds" width="720" />
 </p>
 
-> *Upload documents and search your knowledge base with hybrid AI search — in seconds.*
+> *Your AI agents forget everything between sessions. Connapse fixes that.*
 
-Connapse is an open-source platform that turns your documents into searchable, AI-ready knowledge — organized in isolated containers, each with its own vector index and search configuration. Point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Connect it to Claude via MCP — agents can both query your knowledge base and build their own research corpus by uploading and organizing documents. Use the REST API, web UI, or CLI. Built on .NET 10 — not another Python monolith.
+Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Agents query and build their own research corpus via 11 MCP tools, REST API, or CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
 
 <details>
 <summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
