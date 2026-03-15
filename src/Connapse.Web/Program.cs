@@ -89,7 +89,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherSe
 builder.Services.AddSingleton<ReindexStateService>();
 
 // Add MCP server (official SDK)
-builder.Services.AddMcpServer(options =>
+var allowAnonDiscovery = builder.Configuration.GetValue<bool>("Mcp:AllowAnonymousDiscovery");
+
+var mcpBuilder = builder.Services.AddMcpServer(options =>
 {
     var assemblyVersion = typeof(Program).Assembly
         .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -97,7 +99,33 @@ builder.Services.AddMcpServer(options =>
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
 })
 .WithHttpTransport()
-.WithToolsFromAssembly();
+.WithToolsFromAssembly()
+.AddAuthorizationFilters();
+
+if (allowAnonDiscovery)
+{
+    mcpBuilder.WithRequestFilters(filters =>
+    {
+        filters.AddCallToolFilter(next => async (context, ct) =>
+        {
+            if (context.User?.Identity?.IsAuthenticated != true ||
+                !(context.User.IsInRole("Owner") ||
+                  context.User.IsInRole("Admin") ||
+                  context.User.IsInRole("Agent")))
+            {
+                return new ModelContextProtocol.Protocol.CallToolResult
+                {
+                    Content = [new ModelContextProtocol.Protocol.TextContentBlock
+                    {
+                        Text = "Authentication required. Provide an API key via X-Api-Key header."
+                    }],
+                    IsError = true
+                };
+            }
+            return await next(context, ct);
+        });
+    });
+}
 
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
@@ -270,8 +298,11 @@ api.MapGroup("/api/v1/identity")
     .MapIdentityApi<ConnapseUser>();
 
 // Map MCP server (Streamable HTTP + legacy SSE transport)
-app.MapMcp("/mcp").RequireAuthorization("RequireAgent")
+var mcpEndpoint = app.MapMcp("/mcp")
     .RequireRateLimiting(RateLimitingExtensions.McpPolicy);
+
+if (!allowAnonDiscovery)
+    mcpEndpoint.RequireAuthorization("RequireAgent");
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");
