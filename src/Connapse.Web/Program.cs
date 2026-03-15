@@ -208,7 +208,16 @@ using (var scope = app.Services.CreateScope())
 
     var minio = scope.ServiceProvider.GetService<MinioFileSystem>();
     if (minio is not null)
-        await minio.EnsureBucketExistsAsync();
+    {
+        try
+        {
+            await minio.EnsureBucketExistsAsync();
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
+        }
+    }
 
     // Ensure partial IVFFlat indexes exist for each embedding model in chunk_vectors
     var vectorColumnManager = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
