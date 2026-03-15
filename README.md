@@ -141,9 +141,62 @@ connapse update --pre
 
 Connapse includes a Model Context Protocol (MCP) server for integration with Claude and any MCP client.
 
-**Setup**:
-1. Create an Agent in the Connapse UI (`/admin/agents`) and generate an API key
-2. Configure Claude to send requests to your Connapse instance with the agent's `X-Api-Key`
+**Setup**: Create an agent API key via the web UI (Settings → Agent API Keys) or CLI (`connapse auth agent-key create`), then add the config snippet for your client:
+
+<details>
+<summary><strong>Claude Code (CLI)</strong></summary>
+
+```bash
+claude mcp add connapse --transport streamable-http http://localhost:5001/mcp --header "X-Agent-Api-Key: YOUR_API_KEY"
+```
+
+</details>
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "connapse": {
+      "transport": "streamable-http",
+      "url": "http://localhost:5001/mcp",
+      "headers": {
+        "X-Agent-Api-Key": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>VS Code / Cursor</strong></summary>
+
+Add to your `.vscode/settings.json` (VS Code) or Cursor MCP config:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "connapse": {
+        "transport": "streamable-http",
+        "url": "http://localhost:5001/mcp",
+        "headers": {
+          "X-Agent-Api-Key": "${input:connapseApiKey}"
+        }
+      }
+    }
+  }
+}
+```
+
+VS Code will prompt for the API key on first use.
+
+</details>
 
 The MCP server exposes **11 tools**:
 
