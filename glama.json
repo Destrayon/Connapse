@@ -1,4 +1,5 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "description": "Stop losing context between AI sessions. Give your agents persistent, searchable memory with hybrid RAG — self-hosted and private.",
   "maintainers": ["Destrayon"]
 }
