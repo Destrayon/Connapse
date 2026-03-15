@@ -14,7 +14,7 @@ namespace Connapse.Web.Mcp;
 [McpServerToolType]
 public class McpTools
 {
-    [McpServerTool(Name = "container_create", Destructive = false),
+    [McpServerTool(Name = "container_create"),
      Description("Create a new container for organizing files. Containers provide isolated vector indexes.")]
     public static async Task<string> ContainerCreate(
         IServiceProvider services,
@@ -37,7 +37,7 @@ public class McpTools
         return $"Container '{container.Name}' created.\n\nID: {container.Id}";
     }
 
-    [McpServerTool(Name = "container_list", Destructive = false),
+    [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
      Description("List all containers with their document counts.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
@@ -61,7 +61,7 @@ public class McpTools
         return text.TrimEnd();
     }
 
-    [McpServerTool(Name = "container_delete"),
+    [McpServerTool(Name = "container_delete", Destructive = true),
      Description("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — underlying data is not deleted.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
@@ -90,7 +90,7 @@ public class McpTools
         return $"Container '{containerId}' deleted.";
     }
 
-    [McpServerTool(Name = "search_knowledge", Destructive = false),
+    [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
      Description("Search within a container using semantic, keyword, or hybrid search. Returns relevant document chunks with scores.")]
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
@@ -171,7 +171,7 @@ public class McpTools
         return resultText.TrimEnd();
     }
 
-    [McpServerTool(Name = "list_files", Destructive = false),
+    [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
      Description("List files and folders in a container at a given path.")]
     public static async Task<string> ListFiles(
         IServiceProvider services,
@@ -318,7 +318,7 @@ public class McpTools
                "The file will be parsed, chunked, and embedded in the background.";
     }
 
-    [McpServerTool(Name = "delete_file"),
+    [McpServerTool(Name = "delete_file", Destructive = true),
      Description("Delete a file from a container. This also deletes all associated chunks and vectors.")]
     public static async Task<string> DeleteFile(
         IServiceProvider services,
@@ -372,7 +372,7 @@ public class McpTools
             : $"File '{document.FileName}' (ID: {fileId}) deleted.";
     }
 
-    [McpServerTool(Name = "bulk_delete"),
+    [McpServerTool(Name = "bulk_delete", Destructive = true),
      Description("Delete multiple files from a container in one operation. Returns per-file results.")]
     public static async Task<string> BulkDelete(
         IServiceProvider services,
@@ -543,7 +543,7 @@ public class McpTools
         return output;
     }
 
-    [McpServerTool(Name = "get_document", Destructive = false),
+    [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
      Description("Retrieve the full text content of a document by ID or path. For text files the original content is returned; for binary formats (PDF, DOCX, PPTX) the extracted text is returned.")]
     public static async Task<string> GetDocument(
         IServiceProvider services,
@@ -667,7 +667,7 @@ public class McpTools
 
     private static bool IsTextNative(string extension) => TextExtensions.Contains(extension);
 
-    [McpServerTool(Name = "container_stats", Destructive = false),
+    [McpServerTool(Name = "container_stats", ReadOnly = true, Idempotent = true),
      Description("Get statistics for a container: document counts by status, chunk count, storage size, embedding model, and last indexed time.")]
     public static async Task<string> ContainerStats(
         IServiceProvider services,
