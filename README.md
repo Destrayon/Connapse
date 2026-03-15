@@ -24,7 +24,7 @@
 
 > *Your AI agents forget everything between sessions. Connapse fixes that.*
 
-Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing S3 buckets, Azure Blob containers, or local filesystems. Agents query and build their own research corpus via 11 MCP tools, REST API, or CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
+Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing Amazon S3 buckets, Azure Blob Storage containers, or local filesystems. Agents query and build their own research corpus via 11 MCP tools, REST API, or CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
 
 <details>
 <summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
@@ -216,7 +216,7 @@ The MCP server exposes **11 tools**:
 
 > **Full reference:** See [docs/mcp-tools.md](docs/mcp-tools.md) for parameter tables, return formats, error cases, and usage examples.
 
-> **Write guards**: S3 and AzureBlob containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
+> **Write guards**: Amazon S3 and Azure Blob Storage containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
 
 <details>
 <summary><strong>Example prompts</strong> — what to ask your agent</summary>
@@ -254,7 +254,7 @@ The MCP server exposes **11 tools**:
 - **🗂️ Container-Isolated Knowledge** — Each project gets its own vector index, storage connector, and search configuration. No cross-contamination between projects, teams, or clients.
 - **🔍 Hybrid Search** — Vector similarity + keyword full-text with configurable fusion (convex combination, DBSF, AutoCut). Get results that pure vector search misses.
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
-- **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), S3 (IAM auth), or Azure Blob (managed identity). Your files stay where they are.
+- **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), Amazon S3 (IAM auth), or Azure Blob Storage (managed identity). Your files stay where they are.
 - **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server (11 tools for Claude). Built for humans, scripts, and AI agents equally.
 - **🔐 Enterprise Auth** — Three-tier RBAC (Cookie + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
@@ -281,7 +281,7 @@ The MCP server exposes **11 tools**:
 - **AI agent developers** who need a knowledge backend their agents can both query and build — upload research, curate a corpus, and search it via MCP or REST API
 - **.NET / Azure teams** who want a RAG platform that fits their existing stack and cloud identity
 - **Enterprise teams** who need project-isolated knowledge bases with proper RBAC and audit trails
-- **Anyone tired of re-uploading files** — point Connapse at your existing S3/Azure/filesystem storage
+- **Anyone tired of re-uploading files** — point Connapse at your existing Amazon S3/Azure Blob Storage/filesystem storage
 
 <details>
 <summary><strong>⚠️ Security Status (v0.3.x)</strong></summary>
@@ -307,25 +307,25 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Access Surfaces                         │
-│  Web UI (Blazor)  │  REST API  │  CLI  │  MCP Server       │
-└────────────┬────────────────────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────────────────────┐
-│                   Core Services Layer                        │
-│  Document Store  │  Vector Store  │  Search  │  Ingestion  │
-└────────────┬────────────────────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────────────────────┐
-│                    Connectors Layer                           │
-│  MinIO  │  Filesystem  │  S3  │  Azure Blob               │
-└────────────┬────────────────────────────────────────────────┘
-             │
-┌────────────▼────────────────────────────────────────────────┐
-│                    Infrastructure                            │
-│  PostgreSQL+pgvector  │  MinIO (S3)  │  Ollama (optional)  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Access Surfaces                              │
+│  Web UI (Blazor)  │  REST API  │  CLI  │  MCP Server                │
+└─────────────┬────────────────────────────────────────────────────────┘
+              │
+┌─────────────▼────────────────────────────────────────────────────────┐
+│                       Core Services Layer                            │
+│  Document Store  │  Vector Store  │  Search  │  Ingestion           │
+└─────────────┬────────────────────────────────────────────────────────┘
+              │
+┌─────────────▼────────────────────────────────────────────────────────┐
+│                        Connectors Layer                              │
+│  MinIO  │  Filesystem  │  Amazon S3  │  Azure Blob Storage          │
+└─────────────┬────────────────────────────────────────────────────────┘
+              │
+┌─────────────▼────────────────────────────────────────────────────────┐
+│                        Infrastructure                                │
+│  PostgreSQL+pgvector  │  MinIO (S3)  │  Ollama (optional)           │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow: Upload → Search
@@ -348,7 +348,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
 - **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
 - **Search**: Hybrid vector + keyword with convex combination fusion
-- **Connectors**: MinIO, Filesystem, S3, Azure Blob
+- **Connectors**: MinIO, Filesystem, Amazon S3, Azure Blob Storage
 
 ---
 
@@ -387,7 +387,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ 256 passing tests (unit + integration)
 
 ### v0.3.0 — Connector Architecture (Complete)
-- ✅ 4 connector types: MinIO, Filesystem (FileSystemWatcher), S3 (IAM-only), Azure Blob (managed identity)
+- ✅ 4 connector types: MinIO, Filesystem (FileSystemWatcher), Amazon S3 (IAM-only), Azure Blob Storage (managed identity)
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
 - ✅ Cloud identity linking: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE)
 - ✅ IAM-derived scope enforcement — cloud permissions are the source of truth
@@ -396,7 +396,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Multi-dimension vector support with partial IVFFlat indexes per model
 - ✅ Cross-model search: automatic Semantic→Hybrid fallback for legacy vectors
 - ✅ Background sync: FileSystemWatcher for local, 5-min polling for cloud containers
-- ✅ Connection testing for all providers (S3, Azure Blob, MinIO, LLM, embeddings, AWS SSO, Azure AD)
+- ✅ Connection testing for all providers (Amazon S3, Azure Blob Storage, MinIO, LLM, embeddings, AWS SSO, Azure AD)
 - ✅ 457 passing tests (unit + integration)
 
 ### v0.3.2 — Hardening & Polish (Complete)
