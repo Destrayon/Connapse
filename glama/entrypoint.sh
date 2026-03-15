@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Glama MCP discovery entrypoint
 # Starts PostgreSQL (with pgvector) + Connapse locally,
-# then runs mcp-proxy as a stdio-to-HTTP bridge so Glama can discover tools.
+# then runs mcp-remote as a stdio-to-HTTP bridge.
+# Glama wraps this script with npm mcp-proxy, which reads stdout as MCP JSON-RPC.
 set -e
 
 PG_VERSION=17
@@ -42,5 +43,5 @@ for i in $(seq 1 60); do
     sleep 1
 done
 
-# Run mcp-proxy as stdio bridge (main process — Glama connects to this)
-exec mcp-proxy http://localhost:8080/mcp
+# Bridge Connapse HTTP MCP to stdio (main process — Glama's mcp-proxy reads this)
+exec npx -y mcp-remote http://localhost:8080/mcp --allow-http 2>/dev/null
