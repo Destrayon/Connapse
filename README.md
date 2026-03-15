@@ -214,6 +214,8 @@ The MCP server exposes **11 tools**:
 | `bulk_delete` | Delete up to 100 files in one operation |
 | `search_knowledge` | Semantic, keyword, or hybrid search within a container |
 
+> **Full reference:** See [docs/mcp-tools.md](docs/mcp-tools.md) for parameter tables, return formats, error cases, and usage examples.
+
 > **Write guards**: S3 and AzureBlob containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
 
 ---
