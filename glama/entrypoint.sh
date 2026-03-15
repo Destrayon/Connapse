@@ -8,7 +8,7 @@ PG_VERSION=17
 
 # Initialize and start PostgreSQL
 su - postgres -c "/usr/lib/postgresql/${PG_VERSION}/bin/initdb -D /var/lib/postgresql/data" 2>/dev/null || true
-su - postgres -c "/usr/lib/postgresql/${PG_VERSION}/bin/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/logfile start"
+su - postgres -c "/usr/lib/postgresql/${PG_VERSION}/bin/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/logfile start" 2>/dev/null
 
 # Wait for PostgreSQL
 for i in $(seq 1 30); do
@@ -32,8 +32,9 @@ export Identity__Jwt__Secret="glama-discovery-only-not-for-production-use-minimu
 export ASPNETCORE_URLS="http://localhost:8080"
 export ASPNETCORE_ENVIRONMENT="Production"
 
-# Start Connapse in background
-dotnet /opt/connapse/Connapse.Web.dll &
+# Start Connapse in background (redirect all output to log file so it doesn't
+# pollute the stdio pipe that mcp-proxy uses for JSON-RPC communication)
+dotnet /opt/connapse/Connapse.Web.dll >/var/log/connapse.log 2>&1 &
 
 # Wait for Connapse to be healthy
 for i in $(seq 1 60); do
