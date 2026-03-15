@@ -417,6 +417,20 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 
 ---
 
+## ❓ FAQ
+
+**Does Connapse require internet access?** — No. Use Ollama for fully offline embeddings and search.
+
+**How many documents can it handle?** — Thousands per container. Built on PostgreSQL + pgvector.
+
+**Which MCP clients work with Connapse?** — Any client supporting Streamable HTTP transport — Claude Desktop, Claude Code, VS Code, Cursor, and others.
+
+**Is my data private?** — Fully self-hosted. With Ollama, nothing leaves your machine. Cloud providers (OpenAI, Azure) are optional.
+
+**What embedding providers are supported?** — Ollama (local), OpenAI, and Azure OpenAI. Switch at runtime without re-deploying.
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
