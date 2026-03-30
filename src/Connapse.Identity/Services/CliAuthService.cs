@@ -41,7 +41,7 @@ public class CliAuthService(
             ExpiresAt = DateTime.UtcNow.Add(CodeExpiry),
         };
 
-        dbContext.CliAuthCodes.Add(entity);
+        dbContext.Set<CliAuthCodeEntity>().Add(entity);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation("CLI auth code created for user {UserId} on machine {MachineName}",
@@ -62,7 +62,7 @@ public class CliAuthService(
     {
         var codeHash = HashToken(rawCode);
 
-        var entity = await dbContext.CliAuthCodes
+        var entity = await dbContext.Set<CliAuthCodeEntity>()
             .Include(e => e.User)
             .FirstOrDefaultAsync(e => e.CodeHash == codeHash, cancellationToken);
 

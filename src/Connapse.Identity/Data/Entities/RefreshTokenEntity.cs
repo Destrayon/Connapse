@@ -8,6 +8,7 @@ public class RefreshTokenEntity
     public DateTime ExpiresAt { get; set; }
     public DateTime? RevokedAt { get; set; }
     public string? ReplacedByTokenHash { get; set; }
+    public string? ClientId { get; set; }
     public DateTime CreatedAt { get; set; }
 
     // Navigation properties
