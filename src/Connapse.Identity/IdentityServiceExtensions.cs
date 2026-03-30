@@ -59,7 +59,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<InviteService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
-        services.AddScoped<CliAuthService>();
+        services.AddScoped<OAuthAuthCodeService>();
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddHttpContextAccessor();
