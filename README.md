@@ -483,3 +483,8 @@ Built with:
 ---
 
 **⭐ If you find this project useful, please star the repository to show your support!**
+
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/destrayon-connapse).
+
