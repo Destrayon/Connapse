@@ -64,7 +64,7 @@ public static class OAuthEndpoints
                 "authorization_code" => await HandleAuthorizationCodeGrant(
                     form, authCodeService, tokenService, userManager, dbContext, ct),
                 "refresh_token" => await HandleRefreshTokenGrant(
-                    form, tokenService, ct),
+                    form, tokenService, dbContext, ct),
                 _ => Results.Json(new { error = "unsupported_grant_type" }, statusCode: 400),
             };
         })
@@ -163,15 +163,40 @@ public static class OAuthEndpoints
     private static async Task<IResult> HandleRefreshTokenGrant(
         IFormCollection form,
         ITokenService tokenService,
+        ConnapseIdentityDbContext dbContext,
         CancellationToken ct)
     {
         var refreshToken = form["refresh_token"].ToString();
+        var clientId = form["client_id"].ToString();
         if (string.IsNullOrEmpty(refreshToken))
             return Results.Json(new { error = "invalid_request" }, statusCode: 400);
+
+        // Look up the old refresh token to validate client_id and propagate it
+        var oldTokenHash = ComputeSha256Hex(refreshToken);
+        var oldRefreshEntity = await dbContext.RefreshTokens
+            .FirstOrDefaultAsync(r => r.TokenHash == oldTokenHash, ct);
+        if (oldRefreshEntity?.ClientId is not null &&
+            !string.Equals(oldRefreshEntity.ClientId, clientId, StringComparison.Ordinal))
+        {
+            return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+        }
 
         var tokenResponse = await tokenService.RefreshTokenAsync(refreshToken, ct);
         if (tokenResponse is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
+
+        // Tag the new refresh token with client_id
+        if (!string.IsNullOrEmpty(clientId))
+        {
+            var newTokenHash = ComputeSha256Hex(tokenResponse.RefreshToken);
+            var newRefreshEntity = await dbContext.RefreshTokens
+                .FirstOrDefaultAsync(r => r.TokenHash == newTokenHash, ct);
+            if (newRefreshEntity is not null)
+            {
+                newRefreshEntity.ClientId = clientId;
+                await dbContext.SaveChangesAsync(ct);
+            }
+        }
 
         return Results.Json(new
         {

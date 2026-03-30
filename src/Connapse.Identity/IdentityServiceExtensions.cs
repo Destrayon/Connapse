@@ -198,6 +198,18 @@ public static class IdentityServiceExtensions
                             context.Token = accessToken;
                         }
                         return Task.CompletedTask;
+                    },
+                    OnChallenge = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments("/mcp"))
+                        {
+                            var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
+                            context.Response.Headers.WWWAuthenticate =
+                                $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        }
+                        return Task.CompletedTask;
                     }
                 };
             });
