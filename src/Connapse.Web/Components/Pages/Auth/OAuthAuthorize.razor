@@ -241,6 +241,17 @@
             return false;
         }
 
+        // RFC 8707: validate resource parameter matches this server
+        if (!string.IsNullOrWhiteSpace(Resource))
+        {
+            var baseUrl = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+            if (!string.Equals(Resource, baseUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "The resource parameter does not match this server.";
+                return false;
+            }
+        }
+
         error = null;
         return true;
     }
