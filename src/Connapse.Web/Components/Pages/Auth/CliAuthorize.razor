@@ -79,6 +79,8 @@
             <input type="hidden" name="Form.CodeChallengeMethod" value="@CodeChallengeMethod" />
             <input type="hidden" name="Form.State" value="@State" />
             <input type="hidden" name="Form.MachineName" value="@MachineName" />
+            <input type="hidden" name="Form.ClientId" value="@ClientId" />
+            <input type="hidden" name="Form.Scope" value="@Scope" />
 
             <div class="d-grid gap-2 mt-4">
                 <button type="submit" name="Form.Action" value="authorize" class="btn btn-primary btn-lg">
@@ -114,7 +116,13 @@
     [SupplyParameterFromForm(FormName = "cli-authorize")]
     private FormModel? Form { get; set; }
 
-    [Inject] private CliAuthService CliAuthService { get; set; } = default!;
+    [SupplyParameterFromQuery(Name = "client_id")]
+    private string? ClientId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "scope")]
+    private string? Scope { get; set; }
+
+    [Inject] private OAuthAuthCodeService OAuthAuthCodeService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
 
     private bool isError;
@@ -130,6 +138,8 @@
             CodeChallengeMethod = Form.CodeChallengeMethod;
             State = Form.State;
             MachineName = Form.MachineName;
+            ClientId = Form.ClientId;
+            Scope = Form.Scope;
         }
 
         if (!ValidateParams(out errorMessage))
@@ -163,10 +173,11 @@
             return;
         }
 
-        var machineName = string.IsNullOrWhiteSpace(MachineName) ? "Unknown" : MachineName;
+        var effectiveClientId = string.IsNullOrWhiteSpace(ClientId) ? "connapse-cli" : ClientId;
+        var effectiveScope = string.IsNullOrWhiteSpace(Scope) ? "knowledge:read knowledge:write" : Scope;
 
-        var rawCode = await CliAuthService.InitiateAsync(
-            userId, CodeChallenge!, RedirectUri!, machineName);
+        var rawCode = await OAuthAuthCodeService.CreateAsync(
+            userId, effectiveClientId, CodeChallenge!, RedirectUri!, effectiveScope);
 
         var callbackUrl = $"{RedirectUri}" +
             $"?code={Uri.EscapeDataString(rawCode)}" +
@@ -213,6 +224,8 @@
         public string? CodeChallengeMethod { get; set; }
         public string? State { get; set; }
         public string? MachineName { get; set; }
+        public string? ClientId { get; set; }
+        public string? Scope { get; set; }
         public string? Action { get; set; }
     }
 }

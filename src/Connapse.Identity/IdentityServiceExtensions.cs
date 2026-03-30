@@ -134,8 +134,16 @@ public static class IdentityServiceExtensions
                 // (even empty) — they intended API key auth, not cookie fallback.
                 options.Events.OnRedirectToLogin = context =>
                 {
+                    if (context.Request.Path.StartsWithSegments("/mcp"))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
+                        context.Response.Headers.WWWAuthenticate =
+                            $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                        return Task.CompletedTask;
+                    }
+
                     if (context.Request.Path.StartsWithSegments("/api") ||
-                        context.Request.Path.StartsWithSegments("/mcp") ||
                         context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
