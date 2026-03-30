@@ -120,7 +120,27 @@ public class OAuthClientService(
 
     public static bool ValidateRedirectUri(OAuthClientInfo client, string redirectUri)
     {
-        return client.RedirectUris.Contains(redirectUri, StringComparer.Ordinal);
+        // Exact match first
+        if (client.RedirectUris.Contains(redirectUri, StringComparer.Ordinal))
+            return true;
+
+        // RFC 8252 Section 7.3: loopback redirect URIs may use any port
+        if (Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri) &&
+            uri.Host is "127.0.0.1" or "localhost" &&
+            uri.Scheme == "http")
+        {
+            // Check if any registered URI matches except for port
+            return client.RedirectUris.Any(registered =>
+            {
+                if (!Uri.TryCreate(registered, UriKind.Absolute, out var regUri))
+                    return false;
+                return regUri.Host == uri.Host &&
+                       regUri.Scheme == uri.Scheme &&
+                       regUri.AbsolutePath == uri.AbsolutePath;
+            });
+        }
+
+        return false;
     }
 
     // -- Validation --

@@ -141,4 +141,24 @@ public class OAuthClientServiceTests
 
         result.Should().BeFalse();
     }
+
+    [Fact]
+    public void ValidateRedirectUri_LoopbackDifferentPort_ReturnsTrue()
+    {
+        var client = new OAuthClientInfo("test", "Test", ["http://127.0.0.1/callback"], "native");
+
+        var result = OAuthClientService.ValidateRedirectUri(client, "http://127.0.0.1:54321/callback");
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ValidateRedirectUri_LoopbackDifferentPath_ReturnsFalse()
+    {
+        var client = new OAuthClientInfo("test", "Test", ["http://127.0.0.1/callback"], "native");
+
+        var result = OAuthClientService.ValidateRedirectUri(client, "http://127.0.0.1:54321/evil");
+
+        result.Should().BeFalse();
+    }
 }

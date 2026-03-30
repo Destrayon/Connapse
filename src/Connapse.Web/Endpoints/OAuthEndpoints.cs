@@ -46,6 +46,25 @@ public static class OAuthEndpoints
             });
         }).AllowAnonymous();
 
+        // -- Static CLI Metadata Document --
+
+        app.MapGet("/oauth/clients/cli.json", (HttpContext ctx) =>
+        {
+            var baseUrl = GetBaseUrl(ctx);
+            return Results.Json(new
+            {
+                client_id = $"{baseUrl}/oauth/clients/cli.json",
+                client_name = "Connapse CLI",
+                redirect_uris = new[]
+                {
+                    "http://127.0.0.1/callback",
+                },
+                grant_types = new[] { "authorization_code", "refresh_token" },
+                response_types = new[] { "code" },
+                token_endpoint_auth_method = "none",
+            });
+        }).AllowAnonymous();
+
         // -- Token Endpoint --
 
         app.MapPost("/oauth/token", async (
