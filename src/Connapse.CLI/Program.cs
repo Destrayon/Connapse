@@ -43,13 +43,16 @@ var httpClient = new HttpClient(handler)
 
 // Inject stored API key into all requests
 if (credentials?.ApiKey is not null)
-    httpClient.DefaultRequestHeaders.Add("X-Api-Key", credentials.ApiKey);
+    httpClient.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Bearer", credentials.ApiKey);
 
 var jsonOptions = new JsonSerializerOptions
 {
     PropertyNameCaseInsensitive = true,
     TypeInfoResolver = CliJsonContext.Default
 };
+
+await EnsureValidToken(httpClient, jsonOptions);
 
 if (args.Length == 0)
 {
@@ -206,8 +209,6 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
 {
     Console.WriteLine($"Logging in to {serverUrl}");
 
-    var oldCredentials = LoadCredentials();
-
     // Generate PKCE values
     var codeVerifier = GenerateCodeVerifier();
     var codeChallenge = ComputeS256Challenge(codeVerifier);
@@ -219,12 +220,15 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
     var port = ((IPEndPoint)listener.LocalEndpoint).Port;
     var redirectUri = $"http://127.0.0.1:{port}/callback";
 
-    var authUrl = $"{serverUrl}/cli/authorize" +
-        $"?redirect_uri={Uri.EscapeDataString(redirectUri)}" +
+    var authUrl = $"{serverUrl}/oauth/authorize" +
+        $"?response_type=code" +
+        $"&client_id={Uri.EscapeDataString($"{serverUrl}/oauth/clients/cli.json")}" +
+        $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
         $"&code_challenge={Uri.EscapeDataString(codeChallenge)}" +
         $"&code_challenge_method=S256" +
         $"&state={Uri.EscapeDataString(state)}" +
-        $"&machine_name={Uri.EscapeDataString(Environment.MachineName)}";
+        $"&scope=knowledge:read+knowledge:write" +
+        $"&resource={Uri.EscapeDataString(serverUrl)}";
 
     Console.WriteLine("Opening browser to complete authentication...");
     try
@@ -279,14 +283,19 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
         Timeout = TimeSpan.FromSeconds(30)
     };
 
-    var exchangeRequest = new { code = receivedCode, codeVerifier, redirectUri };
-    var exchangeJson = JsonSerializer.Serialize(exchangeRequest);
-    var exchangeContent = new StringContent(exchangeJson, Encoding.UTF8, "application/json");
+    var formContent = new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "authorization_code",
+        ["code"] = receivedCode,
+        ["redirect_uri"] = redirectUri,
+        ["client_id"] = $"{serverUrl}/oauth/clients/cli.json",
+        ["code_verifier"] = codeVerifier,
+    });
 
     HttpResponseMessage exchangeResponse;
     try
     {
-        exchangeResponse = await loginClient.PostAsync("/api/v1/auth/cli/exchange", exchangeContent);
+        exchangeResponse = await loginClient.PostAsync("/oauth/token", formContent);
     }
     catch (Exception ex)
     {
@@ -304,30 +313,22 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
         return 1;
     }
 
-    var exchangeResult = await exchangeResponse.Content.ReadFromJsonAsync<CliExchangeResponse>(jsonOptions);
-    if (exchangeResult is null)
+    var tokenResult = await exchangeResponse.Content.ReadFromJsonAsync<OAuthTokenResponse>(jsonOptions);
+    if (tokenResult is null)
         return Error("Unexpected response from server.");
 
-    var creds = new CliCredentials(exchangeResult.Token, serverUrl, exchangeResult.Email, exchangeResult.PatId);
+    var creds = new CliCredentials(
+        tokenResult.AccessToken,
+        serverUrl,
+        "", // email not in token response
+        tokenResult.RefreshToken,
+        DateTime.UtcNow.AddSeconds(tokenResult.ExpiresIn));
     SaveCredentials(creds);
-
-    // Revoke the old PAT to prevent accumulation on repeated logins
-    if (oldCredentials?.PatId is not null)
-    {
-        try
-        {
-            loginClient.DefaultRequestHeaders.Add("X-Api-Key", exchangeResult.Token);
-            await loginClient.DeleteAsync($"/api/v1/auth/pats/{oldCredentials.PatId}");
-        }
-        catch { /* Non-fatal — old PAT may already be revoked or server unreachable */ }
-    }
 
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("Authenticated");
     Console.ResetColor();
-    Console.WriteLine($"  Logged in as: {exchangeResult.Email}");
     Console.WriteLine($"  Server: {serverUrl}");
-    Console.WriteLine($"  Token: {exchangeResult.PatId}");
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.DarkGray;
     Console.WriteLine("Credentials stored in ~/.connapse/credentials.json");
@@ -339,8 +340,6 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
 static async Task<int> AuthLoginPassword(string serverUrl, JsonSerializerOptions jsonOptions)
 {
     Console.WriteLine($"Logging in to {serverUrl}");
-
-    var oldCredentials = LoadCredentials();
 
     Console.Write("Email: ");
     var email = Console.ReadLine()?.Trim();
@@ -396,60 +395,14 @@ static async Task<int> AuthLoginPassword(string serverUrl, JsonSerializerOptions
     if (tokenResult is null)
         return Error("Unexpected response from server.");
 
-    loginClient.DefaultRequestHeaders.Authorization =
-        new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
-
-    var patName = $"CLI ({Environment.MachineName})";
-    var patRequest = new { name = patName, scopes = (string[]?)null, expiresAt = (DateTime?)null };
-    var patJson = JsonSerializer.Serialize(patRequest);
-    var patContent = new StringContent(patJson, Encoding.UTF8, "application/json");
-
-    HttpResponseMessage patResponse;
-    try
-    {
-        patResponse = await loginClient.PostAsync("/api/v1/auth/pats", patContent);
-    }
-    catch (Exception ex)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Failed to create access token: {ex.Message}");
-        Console.ResetColor();
-        return 1;
-    }
-
-    if (!patResponse.IsSuccessStatusCode)
-    {
-        var errBody = await patResponse.Content.ReadAsStringAsync();
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"Failed to create access token ({(int)patResponse.StatusCode}): {errBody}");
-        Console.ResetColor();
-        return 1;
-    }
-
-    var pat = await patResponse.Content.ReadFromJsonAsync<PatCreateResponse>(jsonOptions);
-    if (pat is null)
-        return Error("Unexpected response when creating access token.");
-
-    var creds = new CliCredentials(pat.Token, serverUrl, email, pat.Id);
+    var creds = new CliCredentials(tokenResult.AccessToken, serverUrl, email);
     SaveCredentials(creds);
-
-    // Revoke the old PAT to prevent accumulation on repeated logins
-    // loginClient already has the JWT bearer token set, so it can authorize the delete
-    if (oldCredentials?.PatId is not null)
-    {
-        try
-        {
-            await loginClient.DeleteAsync($"/api/v1/auth/pats/{oldCredentials.PatId}");
-        }
-        catch { /* Non-fatal — old PAT may already be revoked or server unreachable */ }
-    }
 
     Console.ForegroundColor = ConsoleColor.Green;
     Console.WriteLine("Authenticated");
     Console.ResetColor();
     Console.WriteLine($"  Logged in as: {email}");
     Console.WriteLine($"  Server: {serverUrl}");
-    Console.WriteLine($"  Token: {pat.Id} ({patName})");
     Console.WriteLine();
     Console.ForegroundColor = ConsoleColor.DarkGray;
     Console.WriteLine("Credentials stored in ~/.connapse/credentials.json");
@@ -466,40 +419,6 @@ static async Task<int> AuthLogout(HttpClient httpClient)
         Console.WriteLine("Not logged in (no credentials found).");
         Console.ResetColor();
         return 0;
-    }
-
-    var credentials = LoadCredentials();
-    if (credentials?.PatId is not null)
-    {
-        Console.Write("Revoking CLI token... ");
-        try
-        {
-            var response = await httpClient.DeleteAsync($"/api/v1/auth/pats/{credentials.PatId}");
-            if (response.IsSuccessStatusCode)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("Revoked");
-                Console.ResetColor();
-            }
-            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("Already revoked");
-                Console.ResetColor();
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Could not revoke ({(int)response.StatusCode}) — clearing credentials anyway");
-                Console.ResetColor();
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"Could not reach server ({ex.Message}) — clearing credentials anyway");
-            Console.ResetColor();
-        }
     }
 
     File.Delete(path);
@@ -558,6 +477,54 @@ static async Task<int> AuthWhoami(HttpClient httpClient, JsonSerializerOptions j
     }
 
     return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Token refresh
+// ---------------------------------------------------------------------------
+
+static async Task<bool> EnsureValidToken(HttpClient httpClient, JsonSerializerOptions jsonOptions)
+{
+    var creds = LoadCredentials();
+    if (creds is null) return false;
+
+    if (creds.ExpiresAt is null || creds.ExpiresAt > DateTime.UtcNow.AddMinutes(1))
+        return true;
+
+    if (creds.RefreshToken is null) return false;
+
+    var formContent = new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "refresh_token",
+        ["refresh_token"] = creds.RefreshToken,
+        ["client_id"] = $"{creds.ApiBaseUrl}/oauth/clients/cli.json",
+    });
+
+    try
+    {
+        var response = await httpClient.PostAsync("/oauth/token", formContent);
+        if (!response.IsSuccessStatusCode) return false;
+
+        var tokenResult = await response.Content.ReadFromJsonAsync<OAuthTokenResponse>(jsonOptions);
+        if (tokenResult is null) return false;
+
+        var newCreds = new CliCredentials(
+            tokenResult.AccessToken,
+            creds.ApiBaseUrl,
+            creds.UserEmail,
+            tokenResult.RefreshToken,
+            DateTime.UtcNow.AddSeconds(tokenResult.ExpiresIn));
+        SaveCredentials(newCreds);
+
+        httpClient.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokenResult.AccessToken);
+
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2086,8 +2053,18 @@ static string ReadPassword()
 // DTOs and records
 // ---------------------------------------------------------------------------
 
-record CliCredentials(string ApiKey, string ApiBaseUrl, string UserEmail, Guid? PatId = null);
-record CliExchangeResponse(string Token, Guid PatId, DateTime? ExpiresAt, string Email);
+record CliCredentials(
+    string ApiKey,
+    string ApiBaseUrl,
+    string UserEmail,
+    string? RefreshToken = null,
+    DateTime? ExpiresAt = null);
+record OAuthTokenResponse(
+    [property: JsonPropertyName("access_token")] string AccessToken,
+    [property: JsonPropertyName("token_type")] string TokenType,
+    [property: JsonPropertyName("expires_in")] int ExpiresIn,
+    [property: JsonPropertyName("refresh_token")] string RefreshToken,
+    [property: JsonPropertyName("scope")] string? Scope = null);
 record TokenResponse(string AccessToken, string RefreshToken, DateTime ExpiresAt, string TokenType);
 record PatCreateResponse(Guid Id, string Name, string Token, string[] Scopes, DateTime CreatedAt, DateTime? ExpiresAt);
 record PatListItem(Guid Id, string Name, string TokenPrefix, string[] Scopes, DateTime CreatedAt, DateTime? ExpiresAt, DateTime? LastUsedAt, bool IsRevoked);
@@ -2123,7 +2100,7 @@ record GitHubAsset(
 [JsonSerializable(typeof(SearchHit))]
 [JsonSerializable(typeof(ReindexResult))]
 [JsonSerializable(typeof(TokenResponse))]
-[JsonSerializable(typeof(CliExchangeResponse))]
+[JsonSerializable(typeof(OAuthTokenResponse))]
 [JsonSerializable(typeof(CliCredentials))]
 [JsonSerializable(typeof(GitHubRelease))]
 [JsonSerializable(typeof(List<GitHubRelease>))]
