@@ -75,14 +75,6 @@ public record CreateAgentKeyResponse(
     DateTime CreatedAt,
     DateTime? ExpiresAt);
 
-public record CliExchangeRequest(string Code, string CodeVerifier, string RedirectUri);
-
-public record CliExchangeResponse(
-    string Token,
-    Guid PatId,
-    DateTime? ExpiresAt,
-    string Email);
-
 public record CloudIdentityDto(
     Guid Id,
     CloudProvider Provider,
