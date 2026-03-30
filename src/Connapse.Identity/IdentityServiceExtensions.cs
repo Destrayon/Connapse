@@ -60,6 +60,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<OAuthAuthCodeService>();
+        services.AddHttpClient<OAuthClientService>();
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddHttpContextAccessor();
