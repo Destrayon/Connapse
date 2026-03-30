@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -39,7 +40,7 @@ public class OAuthAuthCodeService(
         dbContext.OAuthAuthCodes.Add(entity);
         await dbContext.SaveChangesAsync(ct);
 
-        logger.LogInformation("OAuth auth code created for user {UserId}, client {ClientId}", userId, clientId);
+        logger.LogInformation("OAuth auth code created for user {UserId}, client {ClientId}", userId, LogSanitizer.Sanitize(clientId));
         return rawCode;
     }
 
@@ -98,7 +99,7 @@ public class OAuthAuthCodeService(
         entity.UsedAt = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(ct);
 
-        logger.LogInformation("OAuth code exchange succeeded for user {UserId}, client {ClientId}", entity.UserId, clientId);
+        logger.LogInformation("OAuth code exchange succeeded for user {UserId}, client {ClientId}", entity.UserId, LogSanitizer.Sanitize(clientId));
 
         return new OAuthCodeExchangeResult(entity.UserId, entity.Scope, entity.User.Email ?? entity.User.UserName ?? "");
     }

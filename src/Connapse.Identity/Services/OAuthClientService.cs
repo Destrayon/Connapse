@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -35,7 +36,7 @@ public class OAuthClientService(
         dbContext.OAuthClients.Add(entity);
         await dbContext.SaveChangesAsync(ct);
 
-        logger.LogInformation("OAuth client registered: {ClientId} ({ClientName})", clientId, clientName);
+        logger.LogInformation("OAuth client registered: {ClientId} ({ClientName})", clientId, LogSanitizer.Sanitize(clientName));
 
         return new OAuthClientInfo(clientId, clientName, redirectUris, applicationType);
     }
@@ -72,7 +73,7 @@ public class OAuthClientService(
             if (!string.Equals(docClientId, clientIdUrl, StringComparison.Ordinal))
             {
                 logger.LogWarning("Client ID metadata document client_id mismatch: expected {Expected}, got {Actual}",
-                    clientIdUrl, docClientId);
+                    LogSanitizer.Sanitize(clientIdUrl), LogSanitizer.Sanitize(docClientId));
                 return null;
             }
 
@@ -86,7 +87,7 @@ public class OAuthClientService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to fetch client ID metadata document from {Url}", clientIdUrl);
+            logger.LogWarning(ex, "Failed to fetch client ID metadata document from {Url}", LogSanitizer.Sanitize(clientIdUrl));
             return null;
         }
     }
