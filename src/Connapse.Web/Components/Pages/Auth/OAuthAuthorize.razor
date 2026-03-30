@@ -1,25 +1,22 @@
-@page "/cli/authorize"
+@page "/oauth/authorize"
 @layout AuthLayout
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Identity
 @using System.Security.Claims
-@using Connapse.Identity.Data.Entities
 @using Connapse.Identity.Services
 @attribute [Authorize]
 
-<PageTitle>Authorize CLI - Connapse</PageTitle>
+<PageTitle>Authorize - Connapse</PageTitle>
 
 <div class="auth-card">
     <div class="auth-header">
         <div class="cli-icon-wrap">
             <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="4 17 10 11 4 5"></polyline>
-                <line x1="12" y1="19" x2="20" y2="19"></line>
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
             </svg>
         </div>
         <h1>Connapse</h1>
-        <p class="text-muted">CLI Authorization</p>
+        <p class="text-muted">Authorization Request</p>
     </div>
 
     @if (isError)
@@ -32,17 +29,17 @@
     {
         <div class="cli-request-box">
             <div class="cli-request-body">
-                <span class="cli-app-name">Connapse CLI</span>
-                @if (!string.IsNullOrWhiteSpace(MachineName))
+                <span class="cli-app-name">@(clientInfo?.ClientName ?? ClientId)</span>
+                @if (!string.IsNullOrWhiteSpace(clientDomain))
                 {
                     <span class="cli-machine-badge">
                         <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none"
                              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                            <line x1="8" y1="21" x2="16" y2="21"></line>
-                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
                         </svg>
-                        @MachineName
+                        @clientDomain
                     </span>
                 }
             </div>
@@ -50,37 +47,33 @@
         </div>
 
         <div class="cli-permissions">
-            <p class="cli-permissions-label">This will grant the CLI permission to:</p>
+            <p class="cli-permissions-label">This will grant the following permissions:</p>
             <ul class="cli-permissions-list">
-                <li>
-                    <span class="perm-check">&#10003;</span>
-                    Read and search your knowledge base
-                </li>
-                <li>
-                    <span class="perm-check">&#10003;</span>
-                    Ingest files and documents
-                </li>
-                <li>
-                    <span class="perm-check">&#10003;</span>
-                    Run agent sessions on your behalf
-                </li>
+                @foreach (var scopeLabel in GetScopeLabels())
+                {
+                    <li>
+                        <span class="perm-check">&#10003;</span>
+                        @scopeLabel
+                    </li>
+                }
             </ul>
         </div>
 
         <p class="cli-revoke-note">
-            A Personal Access Token will be created. You can revoke it any time from
+            You can revoke this access at any time from
             <strong>Settings &rsaquo; Access Tokens</strong>.
         </p>
 
-        <form method="post" @formname="cli-authorize" data-enhance="true">
+        <form method="post" @formname="oauth-authorize" data-enhance="true">
             <AntiforgeryToken />
+            <input type="hidden" name="Form.ResponseType" value="@ResponseType" />
+            <input type="hidden" name="Form.ClientId" value="@ClientId" />
             <input type="hidden" name="Form.RedirectUri" value="@RedirectUri" />
             <input type="hidden" name="Form.CodeChallenge" value="@CodeChallenge" />
             <input type="hidden" name="Form.CodeChallengeMethod" value="@CodeChallengeMethod" />
             <input type="hidden" name="Form.State" value="@State" />
-            <input type="hidden" name="Form.MachineName" value="@MachineName" />
-            <input type="hidden" name="Form.ClientId" value="@ClientId" />
             <input type="hidden" name="Form.Scope" value="@Scope" />
+            <input type="hidden" name="Form.Resource" value="@Resource" />
 
             <div class="d-grid gap-2 mt-4">
                 <button type="submit" name="Form.Action" value="authorize" class="btn btn-primary btn-lg">
@@ -98,6 +91,12 @@
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
+    [SupplyParameterFromQuery(Name = "response_type")]
+    private string? ResponseType { get; set; }
+
+    [SupplyParameterFromQuery(Name = "client_id")]
+    private string? ClientId { get; set; }
+
     [SupplyParameterFromQuery(Name = "redirect_uri")]
     private string? RedirectUri { get; set; }
 
@@ -110,42 +109,66 @@
     [SupplyParameterFromQuery(Name = "state")]
     private string? State { get; set; }
 
-    [SupplyParameterFromQuery(Name = "machine_name")]
-    private string? MachineName { get; set; }
-
-    [SupplyParameterFromForm(FormName = "cli-authorize")]
-    private FormModel? Form { get; set; }
-
-    [SupplyParameterFromQuery(Name = "client_id")]
-    private string? ClientId { get; set; }
-
     [SupplyParameterFromQuery(Name = "scope")]
     private string? Scope { get; set; }
 
+    [SupplyParameterFromQuery(Name = "resource")]
+    private string? Resource { get; set; }
+
+    [SupplyParameterFromForm(FormName = "oauth-authorize")]
+    private FormModel? Form { get; set; }
+
+    [Inject] private OAuthClientService OAuthClientService { get; set; } = default!;
     [Inject] private OAuthAuthCodeService OAuthAuthCodeService { get; set; } = default!;
     [Inject] private NavigationManager NavigationManager { get; set; } = default!;
 
     private bool isError;
     private string? errorMessage;
+    private OAuthClientInfo? clientInfo;
+    private string? clientDomain;
 
     protected override async Task OnInitializedAsync()
     {
         // On form POST, use values from hidden inputs (not query string)
         if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
         {
+            ResponseType = Form.ResponseType;
+            ClientId = Form.ClientId;
             RedirectUri = Form.RedirectUri;
             CodeChallenge = Form.CodeChallenge;
             CodeChallengeMethod = Form.CodeChallengeMethod;
             State = Form.State;
-            MachineName = Form.MachineName;
-            ClientId = Form.ClientId;
             Scope = Form.Scope;
+            Resource = Form.Resource;
         }
 
         if (!ValidateParams(out errorMessage))
         {
             isError = true;
             return;
+        }
+
+        // Resolve and validate client
+        clientInfo = await OAuthClientService.ResolveClientAsync(ClientId!);
+        if (clientInfo is null)
+        {
+            isError = true;
+            errorMessage = "Unknown or unregistered client.";
+            return;
+        }
+
+        // Validate redirect URI against client's allowed list
+        if (!OAuthClientService.ValidateRedirectUri(clientInfo, RedirectUri!))
+        {
+            isError = true;
+            errorMessage = "The redirect_uri does not match the registered redirect URIs for this client.";
+            return;
+        }
+
+        // Extract domain for URL-format client IDs
+        if (Uri.TryCreate(ClientId, UriKind.Absolute, out var clientUri))
+        {
+            clientDomain = clientUri.Host;
         }
 
         if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
@@ -158,9 +181,10 @@
     {
         if (action == "deny")
         {
-            NavigationManager.NavigateTo(
-                $"{RedirectUri}?error=access_denied&state={Uri.EscapeDataString(State!)}",
-                forceLoad: true);
+            var denyUrl = string.IsNullOrWhiteSpace(State)
+                ? $"{RedirectUri}?error=access_denied"
+                : $"{RedirectUri}?error=access_denied&state={Uri.EscapeDataString(State!)}";
+            NavigationManager.NavigateTo(denyUrl, forceLoad: true);
             return;
         }
 
@@ -173,25 +197,35 @@
             return;
         }
 
-        var effectiveClientId = string.IsNullOrWhiteSpace(ClientId) ? "connapse-cli" : ClientId;
         var effectiveScope = string.IsNullOrWhiteSpace(Scope) ? "knowledge:read knowledge:write" : Scope;
 
         var rawCode = await OAuthAuthCodeService.CreateAsync(
-            userId, effectiveClientId, CodeChallenge!, RedirectUri!, effectiveScope);
+            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope);
 
-        var callbackUrl = $"{RedirectUri}" +
-            $"?code={Uri.EscapeDataString(rawCode)}" +
-            $"&state={Uri.EscapeDataString(State!)}";
+        var callbackUrl = string.IsNullOrWhiteSpace(State)
+            ? $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}"
+            : $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}&state={Uri.EscapeDataString(State!)}";
 
         NavigationManager.NavigateTo(callbackUrl, forceLoad: true);
     }
 
     private bool ValidateParams(out string? error)
     {
-        if (string.IsNullOrWhiteSpace(RedirectUri) ||
-            !RedirectUri.StartsWith("http://127.0.0.1:", StringComparison.Ordinal))
+        if (!string.Equals(ResponseType, "code", StringComparison.OrdinalIgnoreCase))
         {
-            error = "Invalid redirect_uri. CLI authorization only accepts loopback addresses (http://127.0.0.1:PORT).";
+            error = "Unsupported response_type. Only 'code' is accepted.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ClientId))
+        {
+            error = "Missing client_id parameter.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(RedirectUri))
+        {
+            error = "Missing redirect_uri parameter.";
             return false;
         }
 
@@ -207,25 +241,36 @@
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(State))
-        {
-            error = "Missing state parameter.";
-            return false;
-        }
-
         error = null;
         return true;
     }
 
+    private IEnumerable<string> GetScopeLabels()
+    {
+        var scopes = (Scope ?? "knowledge:read knowledge:write")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var scope in scopes)
+        {
+            yield return scope switch
+            {
+                "knowledge:read" => "Read and search your knowledge base",
+                "knowledge:write" => "Ingest files and modify documents",
+                _ => scope
+            };
+        }
+    }
+
     private sealed class FormModel
     {
+        public string? ResponseType { get; set; }
+        public string? ClientId { get; set; }
         public string? RedirectUri { get; set; }
         public string? CodeChallenge { get; set; }
         public string? CodeChallengeMethod { get; set; }
         public string? State { get; set; }
-        public string? MachineName { get; set; }
-        public string? ClientId { get; set; }
         public string? Scope { get; set; }
+        public string? Resource { get; set; }
         public string? Action { get; set; }
     }
 }
