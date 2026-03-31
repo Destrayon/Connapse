@@ -256,7 +256,7 @@ The MCP server exposes **11 tools**:
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
 - **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), Amazon S3 (IAM auth), or Azure Blob Storage (managed identity). Your files stay where they are.
 - **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server (11 tools for Claude). Built for humans, scripts, and AI agents equally.
-- **🔐 Enterprise Auth** — Three-tier RBAC (Cookie + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
+- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
 <details>

@@ -11,8 +11,8 @@ v0.2.0 delivered the full authentication and authorization foundation:
 - **Authentication**: ASP.NET Core Identity with password-based login (cookie auth for the Blazor UI, bearer tokens for API clients)
 - **Invite-only registration**: The first user becomes the system admin. All subsequent users require a time-limited invite link issued by an admin. No public self-registration.
 - **Role-based access control**: Four built-in roles — Admin, Editor, Viewer, Agent
-- **Personal Access Tokens (PATs)**: `cnp_`-prefixed tokens for programmatic access (CLI, scripts, integrations). Scoped, revocable, and auto-revoked on re-login
-- **CLI PKCE auth flow**: Secure browser-based login for the CLI — no password ever touches the terminal
+- **Personal Access Tokens (PATs)**: `cnp_`-prefixed tokens for programmatic access (scripts, integrations). Scoped, revocable, and auditable
+- **CLI OAuth 2.1 auth**: Secure browser-based login via OAuth 2.1 authorization code + PKCE (RFC 7636) — no password ever touches the terminal. JWT + refresh token rotation with replay detection.
 - **JWT tokens**: Standard JWTs for third-party SDK and API client access
 - **Scope-based authorization**: Fine-grained per-token permission scopes enforced server-side
 - **Agent API keys**: Dedicated API keys for agent entities with their own scope model
@@ -44,7 +44,7 @@ These are known gaps to address before v1.0.0:
 - **Rate limiting is basic**: Built-in ASP.NET Core rate limiting is configured with per-user and per-IP fixed-window policies. For high-traffic public deployments, consider an upstream reverse proxy (nginx, Caddy) or API gateway for more advanced throttling
 - **No encryption at rest**: Database and object storage data is stored unencrypted. Rely on OS/disk-level encryption (e.g., LUKS, BitLocker, encrypted EBS volumes) for sensitive deployments
 - **No MFA**: Multi-factor authentication is not yet implemented
-- **No traditional OIDC / SSO login**: OAuth/OIDC login via GitHub, Google, or Microsoft is not yet implemented. v0.3.0 added cloud identity linking (AWS IAM Identity Center + Azure AD) for cloud container access control, but user login is still password-based.
+- **No traditional OIDC / SSO login**: Social login via GitHub, Google, or Microsoft is not yet implemented. OAuth 2.1 with PKCE is used for CLI authentication, and v0.3.0 added cloud identity linking (AWS IAM Identity Center + Azure AD) for cloud container access control, but web UI login is still password-based.
 - **Cloud scope granularity**: AWS `SimulatePrincipalPolicy` not yet implemented (grants full access when identity is linked). Azure RBAC enforcement at container-prefix level only, not per-folder.
 - **Cloud provider testing**: Cloud connector and AI provider integrations are unit-tested with mocks only — no end-to-end tests against real cloud services
 
@@ -111,9 +111,10 @@ If you are self-hosting Connapse:
 | Version | Status | Authentication | Production Ready |
 |---------|--------|----------------|------------------|
 | v0.1.0-alpha | Released | None | No |
-| v0.2.0 | Released (Beta) | Password + PATs + JWT + CLI PKCE | Self-hosted (trusted networks) |
-| v0.3.0 | Current (Beta) | + Cloud identity (AWS SSO + Azure AD) + IAM scope enforcement | Self-hosted (trusted networks) |
-| v0.3.2 | Current (Beta) | + Rate limiting (per-user, per-IP, per-agent) | Self-hosted (trusted networks) |
+| v0.2.0 | Released (Beta) | Password + PATs + JWT | Self-hosted (trusted networks) |
+| v0.3.0 | Released (Beta) | + Cloud identity (AWS SSO + Azure AD) + IAM scope enforcement | Self-hosted (trusted networks) |
+| v0.3.2 | Released (Beta) | + Rate limiting (per-user, per-IP, per-agent) | Self-hosted (trusted networks) |
+| v0.3.x | Current (Beta) | + OAuth 2.1 (PKCE + refresh token rotation) for CLI/MCP auth | Self-hosted (trusted networks) |
 | v1.0.0 | Future | + MFA + OIDC/SSO login + encryption at rest | Yes |
 
 ---

@@ -6,13 +6,14 @@ Quick reference for testable endpoints, CLI commands, and MCP tools.
 
 ## Auth Model
 
-Connapse uses **three auth mechanisms** — understanding this is critical for writing correct tests:
+Connapse uses **four auth mechanisms** — understanding this is critical for writing correct tests:
 
 1. **Cookie auth (Blazor Server)** — Used by the web UI. Login happens via the `/login` Blazor page, NOT a REST endpoint. The browser gets an auth cookie. Not scriptable via curl.
-2. **PAT auth (`X-Api-Key` header)** — Used for API scripting and CLI. The primary scriptable auth for testing. PATs are created via the API (requires JWT first) or via the UI.
-3. **Agent key auth (`X-Api-Key` header)** — Used by MCP clients. Agent keys have limited scope.
+2. **OAuth 2.1 (`Authorization: Bearer` header)** — Used by the CLI. Browser-based PKCE flow via `/oauth/authorize` → `/oauth/token`. Returns JWT access token + refresh token with rotation.
+3. **PAT auth (`X-Api-Key` header)** — Used for API scripting and automation. PATs are created via the API (requires JWT first) or via the UI.
+4. **Agent key auth (`X-Api-Key` header)** — Used by MCP clients. Agent keys have limited scope.
 
-**The `/api/v1/auth/token` endpoint may not exist** in all versions. Connapse's primary auth is cookie-based Blazor. If this endpoint returns 404, all JWT-based tests must be adapted to use PAT auth instead. Always probe before assuming.
+**The `/api/v1/auth/token` endpoint** is used for headless/password-based JWT login. The CLI's default flow uses OAuth 2.1 (`/oauth/authorize` + `/oauth/token`), falling back to `/api/v1/auth/token` with `--no-browser`.
 
 ## Response Shapes (Critical for Test Scripts)
 
@@ -32,10 +33,20 @@ These shapes were verified in live testing and differ from what you might assume
 
 ## REST API Endpoints
 
+### OAuth 2.1 (`/oauth`)
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/.well-known/oauth-protected-resource` | None | Protected resource metadata |
+| GET | `/.well-known/oauth-authorization-server` | None | Authorization server metadata |
+| GET | `/oauth/clients/cli.json` | None | CLI client metadata document |
+| GET | `/oauth/authorize` | Cookie | OAuth consent page (renders Blazor page) |
+| POST | `/oauth/token` | None | Token exchange (auth code or refresh token grant) |
+| POST | `/oauth/register` | None | Dynamic client registration |
+
 ### Auth (`/api/v1/auth`)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | `/api/v1/auth/token` | None | Get JWT — **may return 404; probe first** |
+| POST | `/api/v1/auth/token` | None | Get JWT (password login — headless fallback) |
 | POST | `/api/v1/auth/token/refresh` | None | Refresh JWT — **may return 404** |
 | GET | `/api/v1/auth/pats` | PAT/JWT | List PATs |
 | POST | `/api/v1/auth/pats` | PAT/JWT | Create PAT |
@@ -144,7 +155,8 @@ Based on release notes and README:
 
 ```
 # Auth
-connapse auth login [--url <url>]                    # Log in (prompts email+password, creates PAT)
+connapse auth login [--url <url>]                    # Log in (opens browser for OAuth 2.1 PKCE)
+connapse auth login --url <url> --no-browser         # Log in headless (email+password prompt)
 connapse auth logout                                  # Remove stored credentials
 connapse auth whoami                                  # Show current identity
 connapse auth pat create "<name>" [--expires <date>]  # Create named PAT
@@ -169,7 +181,7 @@ connapse --version                   # Show installed version
 connapse --help
 ```
 
-CLI stores credentials at `~/.connapse/credentials.json` (PAT auto-injected as X-Api-Key).
+CLI stores credentials at `~/.connapse/credentials.json` (JWT access token + refresh token, auto-injected as `Authorization: Bearer`). Tokens are refreshed automatically when expired.
 
 Test each command and verify output format, error messages, and exit codes.
 
@@ -214,7 +226,8 @@ Navigate to each of these and verify they render and function:
 | Settings | `/admin/settings` or similar | Category tabs, form fields, save |
 | User Management | `/admin/users` | User list, invite button, role editor |
 | Agent Management | `/admin/agents` | Agent list, create form, key management |
-| Profile | `/profile` | PAT management, cloud identity linking |
+| Profile | `/profile` | Cloud identity linking, PAT management |
+| OAuth Authorize | `/oauth/authorize` | OAuth consent page (approve/deny scopes for CLI or third-party clients) |
 | Audit Log | `/admin/audit` or similar | Event list with timestamps |
 
 Note: Exact URL paths may vary. Use Playwright `browser_snapshot` to discover navigation elements.

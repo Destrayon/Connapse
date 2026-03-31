@@ -66,7 +66,7 @@ Connapse is a .NET 10 Blazor WebApp that transforms uploaded documents into sear
 src/
 ├── Connapse.Web/          # Blazor UI + API endpoints + hosting
 ├── Connapse.Core/         # Domain models, interfaces, shared types
-├── Connapse.Identity/     # Auth: ASP.NET Core Identity, PAT, JWT, RBAC, audit logging
+├── Connapse.Identity/     # Auth: ASP.NET Core Identity, OAuth 2.1, PAT, JWT, RBAC, audit logging
 ├── Connapse.Ingestion/    # Document parsing, chunking, pipeline orchestration
 ├── Connapse.Search/       # Vector search, keyword search, hybrid fusion
 ├── Connapse.Storage/      # Database, vector store, object storage, settings
