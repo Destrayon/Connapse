@@ -86,6 +86,9 @@ catch (Exception ex)
     return Error(ex.Message);
 }
 
+// Report result of a previous background update (if any)
+CheckPendingUpdateResult();
+
 // Passive update check — runs once per day, silent on failure
 if (command is not ("version" or "update"))
     await CheckForUpdateNotification();
@@ -1718,41 +1721,59 @@ static async Task<int> HandleUpdate(string[] args)
                 await dlResponse.Content.CopyToAsync(fs);
             Console.WriteLine("done.");
 
-            Console.Write("Installing... ");
-            using var proc = Process.Start(new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"tool update -g Connapse.CLI --add-source \"{tmpDir}\" --version {latestVersion}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            })!;
+            // Spawn a detached process that waits for the CLI to exit, then runs
+            // `dotnet tool update`. This avoids the file-lock issue where the
+            // running process holds handles on its own .store directory.
+            var resultPath = GetUpdateResultPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(resultPath)!);
 
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
-            await proc.WaitForExitAsync();
-            var stderr = await stderrTask;
-
-            if (proc.ExitCode == 0)
+            if (OperatingSystem.IsWindows())
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"done. Updated to v{latestVersion}.");
-                Console.ResetColor();
+                var batPath = Path.Combine(Path.GetTempPath(), "connapse-tool-update.bat");
+                File.WriteAllText(batPath,
+                    "@echo off\r\n" +
+                    "timeout /t 3 /nobreak > nul\r\n" +
+                    $"dotnet tool update -g Connapse.CLI --add-source \"{tmpDir}\" --version {latestVersion} > nul 2>&1\r\n" +
+                    "if %ERRORLEVEL% == 0 (\r\n" +
+                    $"  echo OK:{latestVersion}> \"{resultPath}\"\r\n" +
+                    ") else (\r\n" +
+                    $"  echo FAIL:dotnet tool update exited with code %ERRORLEVEL%> \"{resultPath}\"\r\n" +
+                    ")\r\n" +
+                    $"rmdir /s /q \"{tmpDir}\" 2> nul\r\n" +
+                    "del \"%~f0\"\r\n");
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd",
+                    Arguments = $"/c \"{batPath}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                });
             }
             else
             {
-                Console.WriteLine();
-                return Error($"dotnet tool update failed:\n{stderr.Trim()}");
+                var shellCmd =
+                    $"sleep 3 && " +
+                    $"dotnet tool update -g Connapse.CLI --add-source '{tmpDir}' --version {latestVersion} > /dev/null 2>&1 && " +
+                    $"echo 'OK:{latestVersion}' > '{resultPath}' || " +
+                    $"echo 'FAIL:dotnet tool update failed' > '{resultPath}'; " +
+                    $"rm -rf '{tmpDir}'";
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "/bin/sh",
+                    Arguments = $"-c \"{shellCmd}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                });
             }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"Update to v{latestVersion} is installing in the background.");
+            Console.WriteLine("Run 'connapse version' shortly to confirm.");
+            Console.ResetColor();
         }
         catch (Exception ex)
         {
             return Error($"\nUpdate failed: {ex.Message}");
-        }
-        finally
-        {
-            try { Directory.Delete(tmpDir, true); } catch { }
         }
 
         return 0;
@@ -1898,6 +1919,38 @@ static bool IsGlobalToolInstall()
         GetUserHomePath(),
         ".dotnet", "tools");
     return exePath.StartsWith(dotnetToolsDir, StringComparison.OrdinalIgnoreCase);
+}
+
+static string GetUpdateResultPath() =>
+    Path.Combine(GetUserHomePath(), ".connapse", "update-result");
+
+static void CheckPendingUpdateResult()
+{
+    var resultPath = GetUpdateResultPath();
+    if (!File.Exists(resultPath)) return;
+
+    try
+    {
+        var content = File.ReadAllText(resultPath).Trim();
+        File.Delete(resultPath);
+
+        if (content.StartsWith("OK:", StringComparison.Ordinal))
+        {
+            var version = content["OK:".Length..];
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  Update to v{version} completed successfully.");
+            Console.ResetColor();
+        }
+        else if (content.StartsWith("FAIL:", StringComparison.Ordinal))
+        {
+            var reason = content["FAIL:".Length..];
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"  Background update failed: {reason}");
+            Console.WriteLine("  Try running: dotnet tool update -g Connapse.CLI");
+            Console.ResetColor();
+        }
+    }
+    catch { }
 }
 
 static bool IsNewer(string latest, string current)
