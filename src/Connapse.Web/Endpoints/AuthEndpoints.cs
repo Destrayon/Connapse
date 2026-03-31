@@ -58,11 +58,21 @@ public static class AuthEndpoints
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
         // POST /api/v1/auth/token/refresh — rotate refresh token → new token pair
+        // OAuth-issued refresh tokens (tagged with client_id) must use /oauth/token instead
         group.MapPost("/token/refresh", async (
             [FromBody] RefreshTokenRequest request,
             [FromServices] ITokenService tokenService,
+            [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            // Reject OAuth-issued refresh tokens — they must go through /oauth/token
+            var tokenHash = OAuthEndpoints.ComputeSha256Hex(request.RefreshToken);
+            var existingToken = await dbContext.RefreshTokens
+                .FirstOrDefaultAsync(r => r.TokenHash == tokenHash, ct);
+            if (existingToken?.ClientId is not null)
+                return Results.Json(new { error = "OAuth tokens must use /oauth/token endpoint" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
             var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, ct);
             if (tokenResponse is null)
                 return Results.Json(new { error = "Invalid or expired refresh token" },

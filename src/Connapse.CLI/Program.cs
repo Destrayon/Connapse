@@ -227,7 +227,7 @@ static async Task<int> AuthLoginBrowser(string serverUrl, JsonSerializerOptions 
         $"&code_challenge={Uri.EscapeDataString(codeChallenge)}" +
         $"&code_challenge_method=S256" +
         $"&state={Uri.EscapeDataString(state)}" +
-        $"&scope=knowledge:read+knowledge:write" +
+        $"&scope={Uri.EscapeDataString("knowledge:read knowledge:write")}" +
         $"&resource={Uri.EscapeDataString(serverUrl)}";
 
     Console.WriteLine("Opening browser to complete authentication...");
@@ -503,7 +503,13 @@ static async Task<bool> EnsureValidToken(HttpClient httpClient, JsonSerializerOp
     try
     {
         var response = await httpClient.PostAsync("/oauth/token", formContent);
-        if (!response.IsSuccessStatusCode) return false;
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Error.WriteLine($"Token refresh failed (HTTP {(int)response.StatusCode}). Please re-authenticate with 'connapse auth login'.");
+            Console.ResetColor();
+            return false;
+        }
 
         var tokenResult = await response.Content.ReadFromJsonAsync<OAuthTokenResponse>(jsonOptions);
         if (tokenResult is null) return false;
@@ -521,8 +527,11 @@ static async Task<bool> EnsureValidToken(HttpClient httpClient, JsonSerializerOp
 
         return true;
     }
-    catch
+    catch (Exception ex)
     {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Error.WriteLine($"Token refresh failed: {ex.Message}. Please re-authenticate with 'connapse auth login'.");
+        Console.ResetColor();
         return false;
     }
 }

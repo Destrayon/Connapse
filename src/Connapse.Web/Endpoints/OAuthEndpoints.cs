@@ -183,7 +183,7 @@ public static class OAuthEndpoints
         {
             access_token = tokenResponse.AccessToken,
             token_type = "bearer",
-            expires_in = 3600,
+            expires_in = (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
             refresh_token = tokenResponse.RefreshToken,
             scope = exchangeResult.Scope,
         });
@@ -231,7 +231,7 @@ public static class OAuthEndpoints
         {
             access_token = tokenResponse.AccessToken,
             token_type = "bearer",
-            expires_in = 3600,
+            expires_in = (int)(tokenResponse.ExpiresAt - DateTime.UtcNow).TotalSeconds,
             refresh_token = tokenResponse.RefreshToken,
         });
     }
@@ -262,7 +262,7 @@ public static class OAuthEndpoints
         return $"{request.Scheme}://{request.Host}";
     }
 
-    private static string ComputeSha256Hex(string input)
+    internal static string ComputeSha256Hex(string input)
     {
         var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
         return Convert.ToHexStringLower(bytes);
