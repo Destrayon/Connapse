@@ -75,6 +75,16 @@ public static class OAuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            // OAuth 2.1 requires application/x-www-form-urlencoded (RFC 6749 §3.2)
+            if (!ctx.Request.HasFormContentType)
+            {
+                return Results.Json(new
+                {
+                    error = "invalid_request",
+                    error_description = "Content-Type must be application/x-www-form-urlencoded",
+                }, statusCode: 400);
+            }
+
             var form = await ctx.Request.ReadFormAsync(ct);
             var grantType = form["grant_type"].ToString();
 

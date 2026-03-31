@@ -53,8 +53,12 @@ public class OAuthClientService(
 
     public async Task<OAuthClientInfo?> FetchMetadataDocumentAsync(string clientIdUrl, CancellationToken ct = default)
     {
-        if (!Uri.TryCreate(clientIdUrl, UriKind.Absolute, out var uri) ||
-            uri.Scheme != "https")
+        if (!Uri.TryCreate(clientIdUrl, UriKind.Absolute, out var uri))
+            return null;
+
+        // HTTPS required, except HTTP allowed for loopback (RFC 8252 §8.3)
+        bool isLoopback = uri.Host is "127.0.0.1" or "localhost";
+        if (uri.Scheme != "https" && !(uri.Scheme == "http" && isLoopback))
         {
             return null;
         }
@@ -97,7 +101,8 @@ public class OAuthClientService(
     public async Task<OAuthClientInfo?> ResolveClientAsync(string clientId, CancellationToken ct = default)
     {
         // URL-formatted client_id = Client ID Metadata Document
-        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && uri.Scheme == "https")
+        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == "https" || (uri.Scheme == "http" && uri.Host is "127.0.0.1" or "localhost")))
         {
             return await FetchMetadataDocumentAsync(clientId, ct);
         }
@@ -148,6 +153,9 @@ public class OAuthClientService(
 
     private static void ValidateRedirectUris(List<string> redirectUris, string applicationType)
     {
+        if (redirectUris.Count == 0)
+            throw new ArgumentException("At least one redirect_uri is required.");
+
         foreach (string uri in redirectUris)
         {
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed))
