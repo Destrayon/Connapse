@@ -75,16 +75,6 @@ public static class OAuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
-            // OAuth 2.1 requires application/x-www-form-urlencoded (RFC 6749 §3.2)
-            if (!ctx.Request.HasFormContentType)
-            {
-                return Results.Json(new
-                {
-                    error = "invalid_request",
-                    error_description = "Content-Type must be application/x-www-form-urlencoded",
-                }, statusCode: 400);
-            }
-
             var form = await ctx.Request.ReadFormAsync(ct);
             var grantType = form["grant_type"].ToString();
 
@@ -99,6 +89,7 @@ public static class OAuthEndpoints
         })
         .AllowAnonymous()
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
+        .AddEndpointFilter(RequireFormContentType)
         .DisableAntiforgery();
 
         // -- Dynamic Client Registration --
@@ -260,6 +251,22 @@ public static class OAuthEndpoints
     {
         var request = ctx.Request;
         return $"{request.Scheme}://{request.Host}";
+    }
+
+    // OAuth 2.1 requires application/x-www-form-urlencoded (RFC 6749 §3.2)
+    private static async ValueTask<object?> RequireFormContentType(
+        EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        if (!context.HttpContext.Request.HasFormContentType)
+        {
+            return Results.Json(new
+            {
+                error = "invalid_request",
+                error_description = "Content-Type must be application/x-www-form-urlencoded",
+            }, statusCode: 400);
+        }
+
+        return await next(context);
     }
 
     internal static string ComputeSha256Hex(string input)
