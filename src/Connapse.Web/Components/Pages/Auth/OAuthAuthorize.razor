@@ -1,0 +1,287 @@
+@page "/oauth/authorize"
+@layout AuthLayout
+@using Microsoft.AspNetCore.Authorization
+@using System.Security.Claims
+@using Connapse.Identity.Services
+@attribute [Authorize]
+
+<PageTitle>Authorize - Connapse</PageTitle>
+
+<div class="auth-card">
+    <div class="auth-header">
+        <div class="cli-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+        </div>
+        <h1>Connapse</h1>
+        <p class="text-muted">Authorization Request</p>
+    </div>
+
+    @if (isError)
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @errorMessage
+        </div>
+    }
+    else
+    {
+        <div class="cli-request-box">
+            <div class="cli-request-body">
+                <span class="cli-app-name">@(clientInfo?.ClientName ?? ClientId)</span>
+                @if (!string.IsNullOrWhiteSpace(clientDomain))
+                {
+                    <span class="cli-machine-badge">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                        @clientDomain
+                    </span>
+                }
+            </div>
+            <p class="cli-request-desc">is requesting access to your account</p>
+        </div>
+
+        <div class="cli-permissions">
+            <p class="cli-permissions-label">This will grant the following permissions:</p>
+            <ul class="cli-permissions-list">
+                @foreach (var scopeLabel in GetScopeLabels())
+                {
+                    <li>
+                        <span class="perm-check">&#10003;</span>
+                        @scopeLabel
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <p class="cli-revoke-note">
+            You can revoke this access at any time from
+            <strong>Settings &rsaquo; Access Tokens</strong>.
+        </p>
+
+        <form method="post" @formname="oauth-authorize" data-enhance="true">
+            <AntiforgeryToken />
+            <input type="hidden" name="Form.ResponseType" value="@ResponseType" />
+            <input type="hidden" name="Form.ClientId" value="@ClientId" />
+            <input type="hidden" name="Form.RedirectUri" value="@RedirectUri" />
+            <input type="hidden" name="Form.CodeChallenge" value="@CodeChallenge" />
+            <input type="hidden" name="Form.CodeChallengeMethod" value="@CodeChallengeMethod" />
+            <input type="hidden" name="Form.State" value="@State" />
+            <input type="hidden" name="Form.Scope" value="@Scope" />
+            <input type="hidden" name="Form.Resource" value="@Resource" />
+
+            <div class="d-grid gap-2 mt-4">
+                <button type="submit" name="Form.Action" value="authorize" class="btn btn-primary btn-lg">
+                    Authorize
+                </button>
+                <button type="submit" name="Form.Action" value="deny" class="btn btn-outline-secondary">
+                    Deny
+                </button>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "response_type")]
+    private string? ResponseType { get; set; }
+
+    [SupplyParameterFromQuery(Name = "client_id")]
+    private string? ClientId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "redirect_uri")]
+    private string? RedirectUri { get; set; }
+
+    [SupplyParameterFromQuery(Name = "code_challenge")]
+    private string? CodeChallenge { get; set; }
+
+    [SupplyParameterFromQuery(Name = "code_challenge_method")]
+    private string? CodeChallengeMethod { get; set; }
+
+    [SupplyParameterFromQuery(Name = "state")]
+    private string? State { get; set; }
+
+    [SupplyParameterFromQuery(Name = "scope")]
+    private string? Scope { get; set; }
+
+    [SupplyParameterFromQuery(Name = "resource")]
+    private string? Resource { get; set; }
+
+    [SupplyParameterFromForm(FormName = "oauth-authorize")]
+    private FormModel? Form { get; set; }
+
+    [Inject] private OAuthClientService OAuthClientService { get; set; } = default!;
+    [Inject] private OAuthAuthCodeService OAuthAuthCodeService { get; set; } = default!;
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    private bool isError;
+    private string? errorMessage;
+    private OAuthClientInfo? clientInfo;
+    private string? clientDomain;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // On form POST, use values from hidden inputs (not query string)
+        if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
+        {
+            ResponseType = Form.ResponseType;
+            ClientId = Form.ClientId;
+            RedirectUri = Form.RedirectUri;
+            CodeChallenge = Form.CodeChallenge;
+            CodeChallengeMethod = Form.CodeChallengeMethod;
+            State = Form.State;
+            Scope = Form.Scope;
+            Resource = Form.Resource;
+        }
+
+        if (!ValidateParams(out errorMessage))
+        {
+            isError = true;
+            return;
+        }
+
+        // Resolve and validate client
+        clientInfo = await OAuthClientService.ResolveClientAsync(ClientId!);
+        if (clientInfo is null)
+        {
+            isError = true;
+            errorMessage = "Unknown or unregistered client.";
+            return;
+        }
+
+        // Validate redirect URI against client's allowed list
+        if (!OAuthClientService.ValidateRedirectUri(clientInfo, RedirectUri!))
+        {
+            isError = true;
+            errorMessage = "The redirect_uri does not match the registered redirect URIs for this client.";
+            return;
+        }
+
+        // Extract domain for URL-format client IDs
+        if (Uri.TryCreate(ClientId, UriKind.Absolute, out var clientUri))
+        {
+            clientDomain = clientUri.Host;
+        }
+
+        if (HttpMethods.IsPost(HttpContext.Request.Method) && Form is not null)
+        {
+            await HandleFormAsync(Form.Action);
+        }
+    }
+
+    private async Task HandleFormAsync(string? action)
+    {
+        if (action == "deny")
+        {
+            var denyUrl = string.IsNullOrWhiteSpace(State)
+                ? $"{RedirectUri}?error=access_denied"
+                : $"{RedirectUri}?error=access_denied&state={Uri.EscapeDataString(State!)}";
+            NavigationManager.NavigateTo(denyUrl, forceLoad: true);
+            return;
+        }
+
+        // action == "authorize"
+        var userIdClaim = HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            isError = true;
+            errorMessage = "Could not identify the authenticated user.";
+            return;
+        }
+
+        var effectiveScope = string.IsNullOrWhiteSpace(Scope) ? "knowledge:read knowledge:write" : Scope;
+
+        var rawCode = await OAuthAuthCodeService.CreateAsync(
+            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope);
+
+        var callbackUrl = string.IsNullOrWhiteSpace(State)
+            ? $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}"
+            : $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}&state={Uri.EscapeDataString(State!)}";
+
+        NavigationManager.NavigateTo(callbackUrl, forceLoad: true);
+    }
+
+    private bool ValidateParams(out string? error)
+    {
+        if (!string.Equals(ResponseType, "code", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Unsupported response_type. Only 'code' is accepted.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ClientId))
+        {
+            error = "Missing client_id parameter.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(RedirectUri))
+        {
+            error = "Missing redirect_uri parameter.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(CodeChallenge))
+        {
+            error = "Missing code_challenge parameter.";
+            return false;
+        }
+
+        if (!string.Equals(CodeChallengeMethod, "S256", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Unsupported code_challenge_method. Only S256 is accepted.";
+            return false;
+        }
+
+        // RFC 8707: validate resource parameter matches this server
+        if (!string.IsNullOrWhiteSpace(Resource))
+        {
+            var baseUrl = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
+            if (!string.Equals(Resource.TrimEnd('/'), baseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            {
+                error = "The resource parameter does not match this server.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
+    }
+
+    private IEnumerable<string> GetScopeLabels()
+    {
+        var scopes = (Scope ?? "knowledge:read knowledge:write")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var scope in scopes)
+        {
+            yield return scope switch
+            {
+                "knowledge:read" => "Read and search your knowledge base",
+                "knowledge:write" => "Ingest files and modify documents",
+                _ => scope
+            };
+        }
+    }
+
+    private sealed class FormModel
+    {
+        public string? ResponseType { get; set; }
+        public string? ClientId { get; set; }
+        public string? RedirectUri { get; set; }
+        public string? CodeChallenge { get; set; }
+        public string? CodeChallengeMethod { get; set; }
+        public string? State { get; set; }
+        public string? Scope { get; set; }
+        public string? Resource { get; set; }
+        public string? Action { get; set; }
+    }
+}

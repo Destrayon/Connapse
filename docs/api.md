@@ -16,12 +16,13 @@ All endpoints return JSON. Errors follow RFC 7807 Problem Details format.
 
 ### Authentication
 
-Connapse uses a **three-tier authentication** system:
+Connapse uses a **multi-tier authentication** system:
 
 | Tier | Header / Mechanism | Used By | Lifetime |
 |------|--------------------|---------|----------|
 | **Cookie** | ASP.NET Core Identity cookie | Blazor UI (browser sessions) | 14-day sliding |
-| **PAT** | `X-Api-Key: cnp_<token>` | CLI, REST API clients, automation | Until revoked |
+| **OAuth 2.1** | `Authorization: Bearer <token>` (via PKCE) | CLI (browser-based login) | 60-90 min + refresh token |
+| **PAT** | `X-Api-Key: cnp_<token>` | REST API clients, scripts, automation | Until revoked |
 | **JWT Bearer** | `Authorization: Bearer <token>` | SDK clients, external integrations | 60-90 min + refresh |
 
 **Role-based access control (RBAC)**:
@@ -192,6 +193,107 @@ Exchange a valid refresh token for a new access/refresh token pair.
 **Auth**: Required (own tokens only; admins can revoke any)
 
 **Response** (204 No Content)
+
+---
+
+### OAuth 2.1 Endpoints
+
+Connapse implements OAuth 2.1 with PKCE for CLI and third-party client authentication. These endpoints follow [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) and [RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636).
+
+#### Discovery
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /.well-known/oauth-protected-resource` | Protected resource metadata (resource URL, supported scopes) |
+| `GET /.well-known/oauth-authorization-server` | Authorization server metadata (endpoints, supported grants, PKCE methods) |
+
+#### CLI Client Metadata
+
+`GET /oauth/clients/cli.json` — Static metadata document for the built-in CLI client. Returns the client ID, allowed redirect URIs, and grant types.
+
+#### Authorization
+
+`GET /oauth/authorize` — Renders the OAuth consent page. The user authenticates (or is already authenticated via cookie) and approves the requested scopes.
+
+**Query Parameters**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `response_type` | Yes | Must be `code` |
+| `client_id` | Yes | Client ID (URL to metadata document, or registered ID) |
+| `redirect_uri` | Yes | Must match a registered redirect URI |
+| `code_challenge` | Yes | PKCE code challenge (S256) |
+| `code_challenge_method` | Yes | Must be `S256` |
+| `state` | Recommended | CSRF protection value |
+| `scope` | Optional | Space-separated scopes (e.g., `knowledge:read knowledge:write`) |
+| `resource` | Optional | Resource indicator (RFC 8707) |
+
+#### Token Exchange
+
+`POST /oauth/token` — Exchange an authorization code or refresh token for an access token.
+
+**Content-Type**: `application/x-www-form-urlencoded` (required)
+
+**Grant type `authorization_code`**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `grant_type` | Yes | `authorization_code` |
+| `code` | Yes | Authorization code from the consent page redirect |
+| `redirect_uri` | Yes | Must match the original authorize request |
+| `client_id` | Yes | Client ID |
+| `code_verifier` | Yes | PKCE code verifier |
+
+**Grant type `refresh_token`**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `grant_type` | Yes | `refresh_token` |
+| `refresh_token` | Yes | The refresh token to exchange |
+| `client_id` | Optional | If provided, must match the original grant's client |
+
+**Response** (200 OK):
+```json
+{
+  "access_token": "eyJhbGci...",
+  "token_type": "bearer",
+  "expires_in": 5400,
+  "refresh_token": "new-refresh-token...",
+  "scope": "knowledge:read knowledge:write"
+}
+```
+
+**Notes**:
+- Refresh tokens are rotated on each use (old token is revoked)
+- Replay detection: reusing a consumed refresh token revokes the entire token family
+- The `resource` parameter in the authorize request is validated against the server's base URL
+
+#### Dynamic Client Registration
+
+`POST /oauth/register` — Register a new OAuth client dynamically.
+
+**Request Body**:
+```json
+{
+  "client_name": "My App",
+  "redirect_uris": ["http://127.0.0.1:9999/callback"],
+  "application_type": "native"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "client_id": "generated-client-id",
+  "client_name": "My App",
+  "redirect_uris": ["http://127.0.0.1:9999/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "application_type": "native",
+  "token_endpoint_auth_method": "none"
+}
+```
+
+**Supported scopes**: `knowledge:read`, `knowledge:write`
 
 ---
 
@@ -1087,8 +1189,11 @@ Binaries are published automatically on version tags via GitHub Actions.
 Before using other CLI commands, authenticate to store credentials locally (`~/.connapse/credentials.json`).
 
 ```bash
-# Log in — prompts for email + password, creates a PAT, saves credentials
+# Log in — opens browser for OAuth 2.1 PKCE flow
 connapse auth login [--url https://your-server.com]
+
+# Log in — headless/SSH fallback (email + password prompt)
+connapse auth login --url https://your-server.com --no-browser
 
 # Log out — removes stored credentials
 connapse auth logout
@@ -1106,7 +1211,9 @@ connapse auth pat list
 connapse auth pat revoke <pat-guid>
 ```
 
-**Login flow**: `connapse auth login` prompts for email + password, calls `POST /api/v1/auth/token`, then creates a PAT named `CLI ({MachineName})` via `POST /api/v1/auth/pats`. The PAT token is stored locally and auto-injected into all subsequent API requests as `X-Api-Key`.
+**Login flow**: `connapse auth login` opens a browser to the Connapse OAuth consent page (`/oauth/authorize`) using PKCE (RFC 7636). A local loopback listener on a random port receives the authorization code callback, which is exchanged for a JWT access token + refresh token via `POST /oauth/token`. Tokens are stored locally and auto-injected into all subsequent API requests as `Authorization: Bearer`. The CLI automatically refreshes expired tokens using the stored refresh token.
+
+**Headless fallback**: `connapse auth login --no-browser` prompts for email + password, calls `POST /api/v1/auth/token`, and stores the JWT directly. No refresh token is available in this mode.
 
 ---
 

@@ -59,7 +59,8 @@ public static class IdentityServiceExtensions
         services.AddScoped<InviteService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
-        services.AddScoped<CliAuthService>();
+        services.AddScoped<OAuthAuthCodeService>();
+        services.AddHttpClient<OAuthClientService>();
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddHttpContextAccessor();
@@ -133,8 +134,16 @@ public static class IdentityServiceExtensions
                 // (even empty) — they intended API key auth, not cookie fallback.
                 options.Events.OnRedirectToLogin = context =>
                 {
+                    if (context.Request.Path.StartsWithSegments("/mcp"))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
+                        context.Response.Headers.WWWAuthenticate =
+                            $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                        return Task.CompletedTask;
+                    }
+
                     if (context.Request.Path.StartsWithSegments("/api") ||
-                        context.Request.Path.StartsWithSegments("/mcp") ||
                         context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -187,6 +196,18 @@ public static class IdentityServiceExtensions
                         if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
                         {
                             context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = context =>
+                    {
+                        if (context.Request.Path.StartsWithSegments("/mcp"))
+                        {
+                            var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
+                            context.Response.Headers.WWWAuthenticate =
+                                $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         }
                         return Task.CompletedTask;
                     }

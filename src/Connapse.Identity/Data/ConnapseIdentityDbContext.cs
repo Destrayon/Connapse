@@ -17,7 +17,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserInvitation> UserInvitations => Set<UserInvitation>();
     public DbSet<AgentEntity> Agents => Set<AgentEntity>();
     public DbSet<AgentApiKeyEntity> AgentApiKeys => Set<AgentApiKeyEntity>();
-    public DbSet<CliAuthCodeEntity> CliAuthCodes => Set<CliAuthCodeEntity>();
+    public DbSet<OAuthClientEntity> OAuthClients => Set<OAuthClientEntity>();
+    public DbSet<OAuthAuthCodeEntity> OAuthAuthCodes => Set<OAuthAuthCodeEntity>();
     public DbSet<UserCloudIdentityEntity> UserCloudIdentities => Set<UserCloudIdentityEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -31,7 +32,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureUserInvitations(modelBuilder);
         ConfigureAgents(modelBuilder);
         ConfigureAgentApiKeys(modelBuilder);
-        ConfigureCliAuthCodes(modelBuilder);
+        ConfigureOAuthClients(modelBuilder);
+        ConfigureOAuthAuthCodes(modelBuilder);
         ConfigureUserCloudIdentities(modelBuilder);
     }
 
@@ -221,6 +223,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.Property(e => e.ReplacedByTokenHash)
                 .HasColumnName("replaced_by_token_hash")
                 .HasMaxLength(64);
+
+            entity.Property(e => e.ClientId)
+                .HasColumnName("client_id")
+                .HasMaxLength(256);
 
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
@@ -463,24 +469,79 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         });
     }
 
-    private static void ConfigureCliAuthCodes(ModelBuilder modelBuilder)
+    private static void ConfigureOAuthClients(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<CliAuthCodeEntity>(entity =>
+        modelBuilder.Entity<OAuthClientEntity>(entity =>
         {
-            entity.ToTable("cli_auth_codes");
+            entity.ToTable("oauth_clients");
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Id)
                 .HasColumnName("id")
                 .HasDefaultValueSql("gen_random_uuid()");
 
-            entity.Property(e => e.UserId)
-                .HasColumnName("user_id")
+            entity.Property(e => e.ClientId)
+                .HasColumnName("client_id")
+                .HasMaxLength(256)
                 .IsRequired();
+
+            entity.Property(e => e.ClientSecretHash)
+                .HasColumnName("client_secret_hash")
+                .HasMaxLength(64);
+
+            entity.Property(e => e.ClientName)
+                .HasColumnName("client_name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.RedirectUris)
+                .HasColumnName("redirect_uris")
+                .HasColumnType("jsonb")
+                .IsRequired();
+
+            entity.Property(e => e.ApplicationType)
+                .HasColumnName("application_type")
+                .HasMaxLength(16)
+                .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => e.ClientId)
+                .HasDatabaseName("ix_oauth_clients_client_id")
+                .IsUnique();
+        });
+    }
+
+    private static void ConfigureOAuthAuthCodes(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<OAuthAuthCodeEntity>(entity =>
+        {
+            entity.ToTable("oauth_auth_codes");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
 
             entity.Property(e => e.CodeHash)
                 .HasColumnName("code_hash")
                 .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.ClientId)
+                .HasColumnName("client_id")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id")
+                .IsRequired();
+
+            entity.Property(e => e.RedirectUri)
+                .HasColumnName("redirect_uri")
+                .HasMaxLength(2048)
                 .IsRequired();
 
             entity.Property(e => e.CodeChallenge)
@@ -488,14 +549,9 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasMaxLength(128)
                 .IsRequired();
 
-            entity.Property(e => e.RedirectUri)
-                .HasColumnName("redirect_uri")
-                .HasMaxLength(512)
-                .IsRequired();
-
-            entity.Property(e => e.MachineName)
-                .HasColumnName("machine_name")
-                .HasMaxLength(256)
+            entity.Property(e => e.Scope)
+                .HasColumnName("scope")
+                .HasMaxLength(1024)
                 .IsRequired();
 
             entity.Property(e => e.CreatedAt)
@@ -510,7 +566,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasColumnName("used_at");
 
             entity.HasIndex(e => e.CodeHash)
-                .HasDatabaseName("ix_cli_auth_codes_code_hash")
+                .HasDatabaseName("ix_oauth_auth_codes_code_hash")
                 .IsUnique();
 
             entity.HasOne(e => e.User)

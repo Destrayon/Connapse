@@ -298,6 +298,9 @@ api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 
+// Map OAuth 2.1 endpoints (discovery, token, registration)
+app.MapOAuthEndpoints();
+
 // Map built-in Identity API endpoints (register, login, refresh, 2FA, etc.)
 // Auth rate limit protects anonymous endpoints (login, register) from brute force.
 // Note: both the parent API policy and this auth policy apply (ASP.NET Core stacks them).

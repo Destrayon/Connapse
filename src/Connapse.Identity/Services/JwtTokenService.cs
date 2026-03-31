@@ -78,7 +78,8 @@ public class JwtTokenService(
 
         if (existingToken.RevokedAt is not null)
         {
-            logger.LogWarning("Attempted to use revoked refresh token for user {UserId}", existingToken.UserId);
+            logger.LogWarning("Attempted to use revoked refresh token for user {UserId} — revoking token family", existingToken.UserId);
+            await RevokeTokenFamilyAsync(existingToken.ReplacedByTokenHash, cancellationToken);
             return null;
         }
 
@@ -187,6 +188,28 @@ public class JwtTokenService(
     {
         var randomBytes = RandomNumberGenerator.GetBytes(32);
         return Convert.ToBase64String(randomBytes);
+    }
+
+    /// <summary>
+    /// Walks the ReplacedByTokenHash chain forward and revokes all descendant tokens.
+    /// Called when a revoked refresh token is replayed (potential token theft).
+    /// </summary>
+    private async Task RevokeTokenFamilyAsync(string? tokenHash, CancellationToken ct)
+    {
+        while (!string.IsNullOrEmpty(tokenHash))
+        {
+            var token = await dbContext.RefreshTokens
+                .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
+
+            if (token is null || token.RevokedAt is not null)
+                break;
+
+            token.RevokedAt = DateTime.UtcNow;
+            logger.LogWarning("Revoked refresh token in family chain: {TokenHash}", tokenHash[..8]);
+            tokenHash = token.ReplacedByTokenHash;
+        }
+
+        await dbContext.SaveChangesAsync(ct);
     }
 
     private static string ComputeSha256Hash(string input)

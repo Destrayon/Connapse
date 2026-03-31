@@ -3,6 +3,7 @@ using System;
 using Connapse.Identity.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Connapse.Identity.Migrations
 {
     [DbContext(typeof(ConnapseIdentityDbContext))]
-    partial class ConnapseIdentityDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260330214432_OAuthProvider")]
+    partial class OAuthProvider
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -58,11 +58,21 @@ public static class AuthEndpoints
         .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
         // POST /api/v1/auth/token/refresh — rotate refresh token → new token pair
+        // OAuth-issued refresh tokens (tagged with client_id) must use /oauth/token instead
         group.MapPost("/token/refresh", async (
             [FromBody] RefreshTokenRequest request,
             [FromServices] ITokenService tokenService,
+            [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            // Reject OAuth-issued refresh tokens — they must go through /oauth/token
+            var tokenHash = OAuthEndpoints.ComputeSha256Hex(request.RefreshToken);
+            var existingToken = await dbContext.RefreshTokens
+                .FirstOrDefaultAsync(r => r.TokenHash == tokenHash, ct);
+            if (existingToken?.ClientId is not null)
+                return Results.Json(new { error = "OAuth tokens must use /oauth/token endpoint" },
+                    statusCode: StatusCodes.Status400BadRequest);
+
             var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, ct);
             if (tokenResponse is null)
                 return Results.Json(new { error = "Invalid or expired refresh token" },
@@ -135,35 +145,6 @@ public static class AuthEndpoints
         .WithName("RevokePat")
         .WithDescription("Revoke a personal access token by ID")
         .RequireAuthorization();
-
-        // POST /api/v1/auth/cli/exchange — exchange a CLI PKCE auth code for a PAT (anonymous)
-        group.MapPost("/cli/exchange", async (
-            [FromBody] CliExchangeRequest request,
-            [FromServices] CliAuthService cliAuthService,
-            [FromServices] IAuditLogger auditLogger,
-            CancellationToken ct) =>
-        {
-            var result = await cliAuthService.ExchangeAsync(
-                request.Code, request.CodeVerifier, request.RedirectUri, ct);
-
-            if (result is null)
-            {
-                await auditLogger.LogAsync("auth.cli.exchange.failed", "cli_auth", null, null, ct);
-                return Results.Json(
-                    new { error = "Invalid, expired, or already used authorization code" },
-                    statusCode: StatusCodes.Status400BadRequest);
-            }
-
-            var (pat, email) = result.Value;
-            await auditLogger.LogAsync("auth.cli.exchange.success", "pat", pat.Id.ToString(),
-                new { pat.Name }, ct);
-
-            return Results.Ok(new CliExchangeResponse(pat.Token, pat.Id, pat.ExpiresAt, email));
-        })
-        .WithName("ExchangeCliAuthCode")
-        .WithDescription("Exchange a CLI PKCE authorization code for a personal access token")
-        .AllowAnonymous()
-        .RequireRateLimiting(RateLimitingExtensions.AuthPolicy);
 
         // GET /api/v1/auth/users — list users (Admin only, paginated)
         group.MapGet("/users", async (
