@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Amazon.S3;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.FileSystem;
 using FluentAssertions;
@@ -19,7 +20,8 @@ public class ConnectorFactoryTests
     {
         var s3 = Substitute.For<IAmazonS3>();
         var minioOptions = Options.Create(new MinioOptions());
-        _factory = new ConnectorFactory(s3, minioOptions);
+        var managedStorageProvider = Substitute.For<IManagedStorageProvider>();
+        _factory = new ConnectorFactory(s3, minioOptions, managedStorageProvider);
     }
 
     [Fact]

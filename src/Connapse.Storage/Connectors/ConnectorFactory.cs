@@ -14,16 +14,21 @@ public class ConnectorFactory : IConnectorFactory
 {
     private readonly IAmazonS3 _s3;
     private readonly IOptions<MinioOptions> _minioOptions;
+    private readonly IManagedStorageProvider _managedStorageProvider;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public ConnectorFactory(IAmazonS3 s3, IOptions<MinioOptions> minioOptions)
+    public ConnectorFactory(
+        IAmazonS3 s3,
+        IOptions<MinioOptions> minioOptions,
+        IManagedStorageProvider managedStorageProvider)
     {
         _s3 = s3;
         _minioOptions = minioOptions;
+        _managedStorageProvider = managedStorageProvider;
     }
 
     public IConnector Create(Container container)
@@ -34,8 +39,26 @@ public class ConnectorFactory : IConnectorFactory
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
+            ConnectorType.ManagedStorage => CreateManagedStorageConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
+    }
+
+    private ManagedStorageConnector CreateManagedStorageConnector(Container container)
+    {
+        if (string.IsNullOrEmpty(container.ConnectorConfig))
+            throw new InvalidOperationException(
+                $"ManagedStorage connector for container '{container.Name}' requires configuration. No connector config found.");
+
+        var config = JsonSerializer.Deserialize<ManagedStorageConnectorConfig>(container.ConnectorConfig, JsonOptions)
+            ?? throw new InvalidOperationException(
+                $"Failed to deserialize ManagedStorage connector config for container '{container.Name}'.");
+
+        if (string.IsNullOrWhiteSpace(config.ContainerName))
+            throw new InvalidOperationException(
+                $"ManagedStorage connector for container '{container.Name}' has an empty container name.");
+
+        return new ManagedStorageConnector(_managedStorageProvider, config);
     }
 
     private MinioConnector CreateMinioConnector(Container container)
