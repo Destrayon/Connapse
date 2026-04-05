@@ -27,8 +27,11 @@ public class InviteServiceTests
 
     private static InviteService CreateService(
         ConnapseIdentityDbContext db,
-        UserManager<ConnapseUser>? userManager = null) =>
-        new(db, userManager ?? CreateMockUserManager(), NullLogger<InviteService>.Instance);
+        UserManager<ConnapseUser>? userManager = null,
+        IInviteAuthorizationPolicy? authPolicy = null) =>
+        new(db, userManager ?? CreateMockUserManager(),
+            authPolicy ?? new DefaultInviteAuthorizationPolicy(userManager ?? CreateMockUserManager()),
+            NullLogger<InviteService>.Instance);
 
     // ── CreateInviteAsync ─────────────────────────────────────────────────
 
