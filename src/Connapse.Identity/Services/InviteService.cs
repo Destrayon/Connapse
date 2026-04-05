@@ -11,6 +11,7 @@ namespace Connapse.Identity.Services;
 public class InviteService(
     ConnapseIdentityDbContext dbContext,
     UserManager<ConnapseUser> userManager,
+    IInviteAuthorizationPolicy authorizationPolicy,
     ILogger<InviteService> logger)
 {
     private static readonly TimeSpan DefaultExpiry = TimeSpan.FromDays(7);
@@ -40,13 +41,9 @@ public class InviteService(
         if (role == "Owner")
             throw new InvalidOperationException("The Owner role cannot be assigned via invitation.");
 
-        // Only Owners can invite Admins
-        if (role == "Admin")
-        {
-            var inviter = await userManager.FindByIdAsync(createdByUserId.ToString());
-            if (inviter is null || !await userManager.IsInRoleAsync(inviter, "Owner"))
-                throw new InvalidOperationException("Only the Owner can invite users with the Admin role.");
-        }
+        // Delegate role-based authorization to the injected policy
+        if (!await authorizationPolicy.CanInviteWithRoleAsync(createdByUserId, role))
+            throw new InvalidOperationException("Only the Owner can invite users with the Admin role.");
 
         var rawToken = GenerateToken();
         var tokenHash = HashToken(rawToken);
