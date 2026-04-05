@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
@@ -57,6 +58,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<AdminSeedService>();
         services.AddScoped<InviteService>();
+        services.TryAddScoped<IInviteAuthorizationPolicy, DefaultInviteAuthorizationPolicy>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<OAuthAuthCodeService>();
