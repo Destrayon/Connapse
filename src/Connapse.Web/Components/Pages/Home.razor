@@ -130,8 +130,7 @@ else
                 <div class="mb-3">
                     <label class="form-label">Connector</label>
                     <select class="form-select" @bind="newConnectorType">
-                        <option value="@ConnectorType.ManagedStorage">Managed Storage</option>
-                        <option value="@ConnectorType.MinIO">MinIO (legacy)</option>
+                        <option value="@ConnectorType.MinIO">Managed Storage</option>
                         <option value="@ConnectorType.Filesystem">Filesystem (local folder, live watch)</option>
                         <option value="@ConnectorType.S3">AWS S3 (IAM / DefaultAWSCredentials)</option>
                         <option value="@ConnectorType.AzureBlob">Azure Blob (managed identity)</option>
@@ -376,7 +375,7 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
-    private ConnectorType newConnectorType = ConnectorType.ManagedStorage;
+    private ConnectorType newConnectorType = ConnectorType.MinIO;
     private string newFilesystemRootPath = "";
     private string newFilesystemIncludePatterns = "";
     private string newFilesystemExcludePatterns = "";
@@ -460,7 +459,7 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
-        newConnectorType = ConnectorType.ManagedStorage;
+        newConnectorType = ConnectorType.MinIO;
         newFilesystemRootPath = "";
         newFilesystemIncludePatterns = "";
         newFilesystemExcludePatterns = "";
@@ -699,8 +698,7 @@ else
 
     private static string GetConnectorLabel(ConnectorType type) => type switch
     {
-        ConnectorType.ManagedStorage => "Managed Storage",
-        ConnectorType.MinIO          => "MinIO (legacy)",
+        ConnectorType.MinIO          => "Managed Storage",
         ConnectorType.Filesystem     => "Filesystem",
         ConnectorType.S3             => "AWS S3",
         ConnectorType.AzureBlob      => "Azure Blob",

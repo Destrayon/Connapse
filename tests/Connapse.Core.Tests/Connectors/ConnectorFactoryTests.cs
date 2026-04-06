@@ -18,19 +18,18 @@ public class ConnectorFactoryTests
 
     public ConnectorFactoryTests()
     {
-        var s3 = Substitute.For<IAmazonS3>();
-        var minioOptions = Options.Create(new MinioOptions());
         var managedStorageProvider = Substitute.For<IManagedStorageProvider>();
-        _factory = new ConnectorFactory(s3, minioOptions, managedStorageProvider);
+        managedStorageProvider.CreateConnector(Arg.Any<string>())
+            .Returns(ci => Substitute.For<IConnector>());
+        _factory = new ConnectorFactory(managedStorageProvider);
     }
 
     [Fact]
-    public void Create_MinIO_ReturnsMinioConnector()
+    public void Create_MinIO_ReturnsConnectorFromProvider()
     {
         var container = MakeContainer(ConnectorType.MinIO);
         var connector = _factory.Create(container);
-        connector.Type.Should().Be(ConnectorType.MinIO);
-        connector.SupportsLiveWatch.Should().BeFalse();
+        connector.Should().NotBeNull();
     }
 
     [Fact]

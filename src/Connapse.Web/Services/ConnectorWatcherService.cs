@@ -677,10 +677,10 @@ public class ConnectorWatcherService : BackgroundService
     }
 
     private static bool IsWatchableConnector(ConnectorType type) =>
-        type is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO or ConnectorType.ManagedStorage;
+        type is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO;
 
     private static bool IsCloudConnector(ConnectorType type) =>
-        type is ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO or ConnectorType.ManagedStorage;
+        type is ConnectorType.S3 or ConnectorType.AzureBlob or ConnectorType.MinIO;
 
     private static string? GetContentType(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch

@@ -1,9 +1,6 @@
 using System.Text.Json;
-using Amazon.S3;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Storage.FileSystem;
-using Microsoft.Extensions.Options;
 
 namespace Connapse.Storage.Connectors;
 
@@ -12,8 +9,6 @@ namespace Connapse.Storage.Connectors;
 /// </summary>
 public class ConnectorFactory : IConnectorFactory
 {
-    private readonly IAmazonS3 _s3;
-    private readonly IOptions<MinioOptions> _minioOptions;
     private readonly IManagedStorageProvider _managedStorageProvider;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -21,13 +16,8 @@ public class ConnectorFactory : IConnectorFactory
         PropertyNameCaseInsensitive = true
     };
 
-    public ConnectorFactory(
-        IAmazonS3 s3,
-        IOptions<MinioOptions> minioOptions,
-        IManagedStorageProvider managedStorageProvider)
+    public ConnectorFactory(IManagedStorageProvider managedStorageProvider)
     {
-        _s3 = s3;
-        _minioOptions = minioOptions;
         _managedStorageProvider = managedStorageProvider;
     }
 
@@ -35,36 +25,12 @@ public class ConnectorFactory : IConnectorFactory
     {
         return container.ConnectorType switch
         {
-            ConnectorType.MinIO => CreateMinioConnector(container),
+            ConnectorType.MinIO => _managedStorageProvider.CreateConnector(container.Id),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
-            ConnectorType.ManagedStorage => CreateManagedStorageConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
-    }
-
-    private ManagedStorageConnector CreateManagedStorageConnector(Container container)
-    {
-        if (string.IsNullOrEmpty(container.ConnectorConfig))
-            throw new InvalidOperationException(
-                $"ManagedStorage connector for container '{container.Name}' requires configuration. No connector config found.");
-
-        var config = JsonSerializer.Deserialize<ManagedStorageConnectorConfig>(container.ConnectorConfig, JsonOptions)
-            ?? throw new InvalidOperationException(
-                $"Failed to deserialize ManagedStorage connector config for container '{container.Name}'.");
-
-        if (string.IsNullOrWhiteSpace(config.ContainerName))
-            throw new InvalidOperationException(
-                $"ManagedStorage connector for container '{container.Name}' has an empty container name.");
-
-        return new ManagedStorageConnector(_managedStorageProvider, config);
-    }
-
-    private MinioConnector CreateMinioConnector(Container container)
-    {
-        var config = new MinioConnectorConfig { ContainerId = container.Id };
-        return new MinioConnector(_s3, _minioOptions, config);
     }
 
     private static S3Connector CreateS3Connector(Container container)

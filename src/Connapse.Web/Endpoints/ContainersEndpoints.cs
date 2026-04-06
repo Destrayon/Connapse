@@ -296,7 +296,7 @@ public static class ContainersEndpoints
                         request.ConnectorConfig, timeout, ct),
                     ConnectorType.AzureBlob => await azureTester.TestConnectionAsync(
                         request.ConnectorConfig, timeout, ct),
-                    ConnectorType.MinIO or ConnectorType.ManagedStorage => await minioTester.TestConnectionAsync(
+                    ConnectorType.MinIO => await minioTester.TestConnectionAsync(
                         request.ConnectorConfig, timeout, ct),
                     _ => ConnectionTestResult.CreateFailure(
                         $"Connector type '{request.ConnectorType}' does not support connection testing from this endpoint")
@@ -465,7 +465,7 @@ public static class ContainersEndpoints
 public record CreateContainerApiRequest(
     string Name,
     string? Description = null,
-    ConnectorType ConnectorType = ConnectorType.ManagedStorage,
+    ConnectorType ConnectorType = ConnectorType.MinIO,
     string? ConnectorConfig = null);
 
 public record ContainerReindexRequest(

@@ -73,19 +73,10 @@ public class MinioManagedStorageProvider(
         }, ct);
     }
 
-    public IConnector CreateConnector(string containerName)
+    public IConnector CreateConnector(string containerId)
     {
-        // Use the container name as the MinIO bucket, with no prefix
-        // (each tenant gets their own bucket)
-        var config = new MinioConnectorConfig { ContainerId = "" };
-        var bucketOptions = new MinioOptions
-        {
-            Endpoint = minioOptions.Value.Endpoint,
-            AccessKey = minioOptions.Value.AccessKey,
-            SecretKey = minioOptions.Value.SecretKey,
-            UseSSL = minioOptions.Value.UseSSL,
-            BucketName = containerName,
-        };
-        return new MinioConnector(s3, Options.Create(bucketOptions), config);
+        // Use the container ID as a path prefix within the shared MinIO bucket
+        var config = new MinioConnectorConfig { ContainerId = containerId };
+        return new MinioConnector(s3, minioOptions, config);
     }
 }

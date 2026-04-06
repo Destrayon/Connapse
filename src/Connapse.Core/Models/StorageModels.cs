@@ -1,6 +1,6 @@
 namespace Connapse.Core;
 
-public enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, ManagedStorage = 5 }
+public enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
 
 public record ContainerSettingsOverrides
 {
@@ -28,7 +28,7 @@ public record Container(
 public record CreateContainerRequest(
     string Name,
     string? Description = null,
-    ConnectorType ConnectorType = ConnectorType.ManagedStorage,
+    ConnectorType ConnectorType = ConnectorType.MinIO,
     string? ConnectorConfig = null);
 
 public record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);

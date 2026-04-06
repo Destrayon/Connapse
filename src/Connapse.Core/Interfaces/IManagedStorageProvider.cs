@@ -18,7 +18,9 @@ public interface IManagedStorageProvider
     Task DeleteStorageAsync(string containerName, CancellationToken ct = default);
 
     /// <summary>
-    /// Creates an IConnector instance for reading/writing to the given managed container.
+    /// Creates an IConnector instance for reading/writing files in the given container.
+    /// The provider maps the container ID to the appropriate storage location
+    /// (e.g., path prefix in MinIO, blob container in Azure).
     /// </summary>
-    IConnector CreateConnector(string containerName);
+    IConnector CreateConnector(string containerId);
 }
