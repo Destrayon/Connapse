@@ -8,7 +8,7 @@ namespace Connapse.Storage.Connectors;
 
 /// <summary>
 /// Default IManagedStorageProvider backed by MinIO (S3-compatible).
-/// Creates buckets for tenants and returns MinioConnector instances.
+/// Creates buckets for containers and returns MinioConnector instances.
 /// Used in local dev and self-hosted deployments.
 /// </summary>
 public class MinioManagedStorageProvider(
