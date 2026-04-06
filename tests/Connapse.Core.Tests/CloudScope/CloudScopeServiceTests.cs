@@ -42,7 +42,7 @@ public class CloudScopeServiceTests
         ConnectorConfig: config);
 
     [Theory]
-    [InlineData(ConnectorType.MinIO)]
+    [InlineData(ConnectorType.ManagedStorage)]
     [InlineData(ConnectorType.Filesystem)]
     public async Task GetScopesAsync_NonCloudContainer_ReturnsNull(ConnectorType type)
     {

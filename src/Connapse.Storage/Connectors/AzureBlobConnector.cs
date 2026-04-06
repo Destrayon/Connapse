@@ -25,7 +25,7 @@ public class AzureBlobConnector : IConnector
 
     public ConnectorType Type => ConnectorType.AzureBlob;
     public bool SupportsLiveWatch => false;
-    public bool SupportsWrite => false;
+    public bool SupportsWrite => true;
 
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');

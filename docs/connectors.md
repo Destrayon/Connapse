@@ -8,26 +8,28 @@ Connapse uses **Connectors** to interface with different storage backends. A **C
 
 | Type | Config Required | Live Watch | Sync | Use Case |
 |------|----------------|------------|------|----------|
-| **MinIO** | No (global) | Polling (5 min) | Yes | Default — self-hosted S3-compatible storage |
+| **Managed Storage** | No (global) | Polling (5 min) | Yes | Default — provider-abstracted storage (MinIO by default, overridable per deployment) |
 | **Filesystem** | `rootPath` | FileSystemWatcher | No (auto) | Local directories, shared drives |
 | **S3** | `bucketName`, `region` | Polling (5 min) | Yes | AWS S3 buckets (IAM-only) |
 | **AzureBlob** | `storageAccountName`, `containerName` | Polling (5 min) | Yes | Azure Blob Storage (managed identity) |
 
 ---
 
-## MinIO (Default)
+## Managed Storage (default)
 
-MinIO is the default connector. It uses globally configured storage settings — no per-container configuration needed.
+Managed Storage is the default connector. It uses an `IManagedStorageProvider` abstraction — backed by MinIO by default, and overridable per deployment. No per-container configuration is needed; the backing store is configured globally.
+
+The enum value remains `MinIO = 0` for backwards compatibility.
 
 **How it works:**
-- Single `IAmazonS3` client shared across all MinIO containers
-- Files stored in a global MinIO instance with per-container key prefixes
+- Requests route through `IManagedStorageProvider`, which dispatches to the active backend (MinIO or an override)
+- Files are stored with per-container key prefixes in a shared instance
 - Background polling detects remote changes every 5 minutes
 
 **Setup:**
 1. MinIO runs automatically via Docker (development) or is configured in `appsettings.json`
 2. Global settings: Settings > Storage > MinIO endpoint, access key, secret key
-3. Create a container with no connector type specified (defaults to MinIO)
+3. Create a container with no connector type specified (defaults to Managed Storage)
 
 **API:**
 ```http
@@ -198,7 +200,7 @@ Write operations (upload, delete, create folder) are subject to **container writ
 
 | Connector Type | Upload | Delete | Create Folder | Notes |
 |---------------|--------|--------|---------------|-------|
-| **MinIO** | Allowed | Allowed | Allowed | Default connector; full read/write |
+| **Managed Storage** | Allowed | Allowed | Allowed | Default connector; full read/write |
 | **InMemory** | Allowed | Allowed | Allowed | Ephemeral storage |
 | **Filesystem** | Configurable | Configurable | Configurable | Per-container flags (default: allowed) |
 | **S3** | Blocked | Blocked | Blocked | Read-only; files are synced from the source bucket |
@@ -310,12 +312,12 @@ POST /api/containers/test-connection
 }
 ```
 
-**Supported connectors:** S3, AzureBlob, MinIO. Filesystem doesn't need connection tests.
+**Supported connectors:** S3, AzureBlob, Managed Storage (MinIO). Filesystem doesn't need connection tests.
 
 **What gets tested:**
 - **S3:** `ListObjectsV2` with MaxKeys=5 — verifies bucket exists and credentials have read access
 - **AzureBlob:** `GetBlobsAsync` with limit of 5 — verifies container exists and identity has access
-- **MinIO:** `ListBuckets` + bucket existence check — verifies endpoint and credentials
+- **Managed Storage (MinIO):** `ListBuckets` + bucket existence check — verifies endpoint and credentials
 
 ---
 
@@ -325,7 +327,7 @@ The `ConnectorWatcherService` manages file change detection for all containers.
 
 **Filesystem containers:** Real-time `FileSystemWatcher` with 750ms debounce + 5-minute rescan safety net.
 
-**Cloud containers (S3, AzureBlob, MinIO):** 5-minute polling loop that:
+**Cloud containers (S3, AzureBlob, Managed Storage):** 5-minute polling loop that:
 1. Lists all remote files via `ListFilesAsync`
 2. Compares against database documents and an in-memory snapshot
 3. Detects creates, deletes, and changes (after first poll)

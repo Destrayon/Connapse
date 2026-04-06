@@ -56,7 +56,7 @@ public class McpToolsContainerStatsTests
         var result = await McpTools.ContainerStats(_services, ContainerId.ToString());
 
         result.Should().Contain("Container: test-container");
-        result.Should().Contain("Type: MinIO");
+        result.Should().Contain("Type: ManagedStorage");
         result.Should().Contain("Documents: 10 (8 ready, 1 processing, 1 failed)");
         result.Should().Contain("Chunks: 250");
         result.Should().Contain("Storage: 1.0 MB");
@@ -128,7 +128,7 @@ public class McpToolsContainerStatsTests
         Id: ContainerId.ToString(),
         Name: "test-container",
         Description: "A test container",
-        ConnectorType: ConnectorType.MinIO,
+        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: new DateTime(2026, 2, 28, 10, 0, 0, DateTimeKind.Utc),
         UpdatedAt: new DateTime(2026, 3, 5, 14, 0, 0, DateTimeKind.Utc));
 }

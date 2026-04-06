@@ -162,7 +162,7 @@ public class McpToolsBulkDeleteTests
         result.Should().Contain("Deleted 0 of 1");
     }
 
-    private static Container MakeContainer(ConnectorType type = ConnectorType.MinIO) => new(
+    private static Container MakeContainer(ConnectorType type = ConnectorType.ManagedStorage) => new(
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,

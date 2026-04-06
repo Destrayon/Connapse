@@ -137,6 +137,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ConnectorFactory>();
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
 
+        // Managed storage provider (default: MinIO — Cloud overrides with Azure Blob)
+        services.AddSingleton<IManagedStorageProvider, MinioManagedStorageProvider>();
+
         // Connection testers
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();

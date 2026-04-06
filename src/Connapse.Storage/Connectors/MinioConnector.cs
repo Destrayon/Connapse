@@ -27,7 +27,7 @@ public class MinioConnector : IConnector
         _config = config;
     }
 
-    public ConnectorType Type => ConnectorType.MinIO;
+    public ConnectorType Type => ConnectorType.ManagedStorage;
     public bool SupportsLiveWatch => false;
     public bool SupportsWrite => true;
 

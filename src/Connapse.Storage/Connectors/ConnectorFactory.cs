@@ -1,9 +1,6 @@
 using System.Text.Json;
-using Amazon.S3;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Storage.FileSystem;
-using Microsoft.Extensions.Options;
 
 namespace Connapse.Storage.Connectors;
 
@@ -12,36 +9,28 @@ namespace Connapse.Storage.Connectors;
 /// </summary>
 public class ConnectorFactory : IConnectorFactory
 {
-    private readonly IAmazonS3 _s3;
-    private readonly IOptions<MinioOptions> _minioOptions;
+    private readonly IManagedStorageProvider _managedStorageProvider;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public ConnectorFactory(IAmazonS3 s3, IOptions<MinioOptions> minioOptions)
+    public ConnectorFactory(IManagedStorageProvider managedStorageProvider)
     {
-        _s3 = s3;
-        _minioOptions = minioOptions;
+        _managedStorageProvider = managedStorageProvider;
     }
 
     public IConnector Create(Container container)
     {
         return container.ConnectorType switch
         {
-            ConnectorType.MinIO => CreateMinioConnector(container),
+            ConnectorType.ManagedStorage => _managedStorageProvider.CreateConnector(container.Id),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
             _ => throw new NotSupportedException($"Unknown connector type: {container.ConnectorType}")
         };
-    }
-
-    private MinioConnector CreateMinioConnector(Container container)
-    {
-        var config = new MinioConnectorConfig { ContainerId = container.Id };
-        return new MinioConnector(_s3, _minioOptions, config);
     }
 
     private static S3Connector CreateS3Connector(Container container)

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Amazon.S3;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.FileSystem;
 using FluentAssertions;
@@ -17,18 +18,18 @@ public class ConnectorFactoryTests
 
     public ConnectorFactoryTests()
     {
-        var s3 = Substitute.For<IAmazonS3>();
-        var minioOptions = Options.Create(new MinioOptions());
-        _factory = new ConnectorFactory(s3, minioOptions);
+        var managedStorageProvider = Substitute.For<IManagedStorageProvider>();
+        managedStorageProvider.CreateConnector(Arg.Any<string>())
+            .Returns(ci => Substitute.For<IConnector>());
+        _factory = new ConnectorFactory(managedStorageProvider);
     }
 
     [Fact]
-    public void Create_MinIO_ReturnsMinioConnector()
+    public void Create_MinIO_ReturnsConnectorFromProvider()
     {
-        var container = MakeContainer(ConnectorType.MinIO);
+        var container = MakeContainer(ConnectorType.ManagedStorage);
         var connector = _factory.Create(container);
-        connector.Type.Should().Be(ConnectorType.MinIO);
-        connector.SupportsLiveWatch.Should().BeFalse();
+        connector.Should().NotBeNull();
     }
 
     [Fact]
