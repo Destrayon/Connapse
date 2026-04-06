@@ -8,7 +8,7 @@ Connapse uses **Connectors** to interface with different storage backends. A **C
 
 | Type | Config Required | Live Watch | Sync | Use Case |
 |------|----------------|------------|------|----------|
-| **Managed Storage** | No (global) | Polling (5 min) | Yes | Default — provider-abstracted storage (MinIO locally, Azure Blob in Cloud) |
+| **Managed Storage** | No (global) | Polling (5 min) | Yes | Default — provider-abstracted storage (MinIO by default, overridable per deployment) |
 | **Filesystem** | `rootPath` | FileSystemWatcher | No (auto) | Local directories, shared drives |
 | **S3** | `bucketName`, `region` | Polling (5 min) | Yes | AWS S3 buckets (IAM-only) |
 | **AzureBlob** | `storageAccountName`, `containerName` | Polling (5 min) | Yes | Azure Blob Storage (managed identity) |
@@ -17,7 +17,7 @@ Connapse uses **Connectors** to interface with different storage backends. A **C
 
 ## Managed Storage (default)
 
-Managed Storage is the default connector. It uses an `IManagedStorageProvider` abstraction — backed by MinIO in local/self-hosted deployments, and overridable (e.g., Azure Blob Storage in Cloud deployments). No per-container configuration is needed; the backing store is configured globally.
+Managed Storage is the default connector. It uses an `IManagedStorageProvider` abstraction — backed by MinIO by default, and overridable per deployment. No per-container configuration is needed; the backing store is configured globally.
 
 The enum value remains `MinIO = 0` for backwards compatibility.
 

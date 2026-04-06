@@ -543,7 +543,7 @@ All container endpoints require authentication. RBAC rules:
 **Fields**:
 - `name` (required): lowercase alphanumeric + hyphens, 2-128 chars, globally unique
 - `description` (optional): Container description
-- `connectorType` (optional, default: `MinIO`): `MinIO` (Managed Storage — internally MinIO locally, overridable in Cloud) | `Filesystem` | `S3` | `AzureBlob`
+- `connectorType` (optional, default: `MinIO`): `MinIO` (Managed Storage — MinIO by default, overridable per deployment) | `Filesystem` | `S3` | `AzureBlob`
 - `connectorConfig` (conditional): JSON string with connector-specific config
 
 **Connector Config Requirements**:
