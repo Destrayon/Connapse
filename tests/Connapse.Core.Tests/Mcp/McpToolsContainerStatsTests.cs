@@ -56,7 +56,7 @@ public class McpToolsContainerStatsTests
         var result = await McpTools.ContainerStats(_services, ContainerId.ToString());
 
         result.Should().Contain("Container: test-container");
-        result.Should().Contain("Type: MinIO");
+        result.Should().Contain("Type: ManagedStorage");
         result.Should().Contain("Documents: 10 (8 ready, 1 processing, 1 failed)");
         result.Should().Contain("Chunks: 250");
         result.Should().Contain("Storage: 1.0 MB");
