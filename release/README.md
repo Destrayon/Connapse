@@ -39,7 +39,7 @@ Navigate to [http://localhost:5001](http://localhost:5001) and log in with the
 
 **4. Create your first container and upload documents.**
 
-- Click **New Container** and choose a connector type (MinIO is pre-configured).
+- Click **New Container** and choose a connector type (Managed Storage is pre-configured — backed by MinIO).
 - Upload files — Connapse will ingest and embed them automatically.
 - Use the **Search** page to query your knowledge base.
 

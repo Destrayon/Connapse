@@ -342,13 +342,13 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 
 **Key Technologies**:
 - **Database**: PostgreSQL 17 + pgvector for vector embeddings
-- **Object Storage**: MinIO (S3-compatible) for original files
+- **Object Storage**: Managed Storage abstraction — MinIO (S3-compatible) by default, overridable per deployment
 - **Backend**: ASP.NET Core 10 Minimal APIs
 - **Frontend**: Blazor Server (interactive mode)
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
 - **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
 - **Search**: Hybrid vector + keyword with convex combination fusion
-- **Connectors**: MinIO, Filesystem, Amazon S3, Azure Blob Storage
+- **Connectors**: Managed Storage (MinIO default), Filesystem, Amazon S3, Azure Blob Storage
 
 ---
 
@@ -387,7 +387,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ 256 passing tests (unit + integration)
 
 ### v0.3.0 — Connector Architecture (Complete)
-- ✅ 4 connector types: MinIO, Filesystem (FileSystemWatcher), Amazon S3 (IAM-only), Azure Blob Storage (managed identity)
+- ✅ 4 connector types: Managed Storage (MinIO default, provider-abstracted), Filesystem (FileSystemWatcher), Amazon S3 (IAM-only), Azure Blob Storage (managed identity)
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
 - ✅ Cloud identity linking: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE)
 - ✅ IAM-derived scope enforcement — cloud permissions are the source of truth

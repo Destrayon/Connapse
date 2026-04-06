@@ -133,6 +133,7 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
 | `ILlmProvider` | LLM completion + streaming | `OllamaLlmProvider`, `OpenAiLlmProvider`, `AzureOpenAiLlmProvider`, `AnthropicLlmProvider` |
 | `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `S3Connector`, `AzureBlobConnector` |
+| `IManagedStorageProvider` | Managed Storage abstraction (routes to active backend) | `MinioManagedStorageProvider` (default); overridden in Cloud deployments (e.g., `AzureBlobManagedStorageProvider`) |
 | `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
 | `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
 | `ICloudScopeService` | IAM-derived access control | `CloudScopeService` |
@@ -156,7 +157,7 @@ All domain types live in the `Connapse.Core` namespace (files in `Models/` folde
 
 ```csharp
 // Containers & Storage
-enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
+enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 } // MinIO = 0 is the Managed Storage type — value kept for backwards compatibility
 record Container(string Id, string Name, string? Description, ConnectorType ConnectorType,
     string? ConnectorConfig, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
 record ContainerSettingsOverrides { ChunkingSettings? Chunking, EmbeddingSettings? Embedding,

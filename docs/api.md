@@ -543,7 +543,7 @@ All container endpoints require authentication. RBAC rules:
 **Fields**:
 - `name` (required): lowercase alphanumeric + hyphens, 2-128 chars, globally unique
 - `description` (optional): Container description
-- `connectorType` (optional, default: `MinIO`): `MinIO` | `Filesystem` | `S3` | `AzureBlob`
+- `connectorType` (optional, default: `MinIO`): `MinIO` (Managed Storage — internally MinIO locally, overridable in Cloud) | `Filesystem` | `S3` | `AzureBlob`
 - `connectorConfig` (conditional): JSON string with connector-specific config
 
 **Connector Config Requirements**:
@@ -1050,7 +1050,7 @@ Write operations (`upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) ar
 
 | Connector Type | Upload | Delete | Notes |
 |---------------|--------|--------|-------|
-| **MinIO** | Allowed | Allowed | Default connector; full read/write |
+| **Managed Storage** | Allowed | Allowed | Default connector (`MinIO` wire value); full read/write |
 | **InMemory** | Allowed | Allowed | Ephemeral storage |
 | **Filesystem** | Configurable | Configurable | Per-container `allowUpload`/`allowDelete` flags (default: allowed) |
 | **S3** | Blocked | Blocked | Read-only; files are synced from the source bucket |
@@ -1305,7 +1305,7 @@ Test a cloud connector configuration before creating a container.
 }
 ```
 
-**Supported connectors**: S3, AzureBlob, MinIO.
+**Supported connectors**: S3, AzureBlob, Managed Storage (wire value: `MinIO`).
 
 ---
 
