@@ -727,9 +727,9 @@
             {
                 jsModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDrop.js");
                 dotNetRef ??= DotNetObjectReference.Create(this);
-                // Extract the path prefix (e.g., "/khastra") from NavigationManager so the
-                // JS fetch includes it — TenantMiddleware needs the org slug in the URL to
-                // add role claims required by RequireEditor.
+                // Extract the path prefix (e.g., "/my-org") from NavigationManager so the
+                // JS fetch includes it — tenant middleware needs the org slug in the URL to
+                // add role claims required by authorization policies.
                 var basePath = new Uri(Navigation.BaseUri).AbsolutePath.TrimEnd('/');
                 await jsModule.InvokeVoidAsync("initializeDropZone", "fileDropZone", dotNetRef, ContainerId, basePath);
                 jsInitialized = true;
