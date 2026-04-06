@@ -157,6 +157,10 @@ public class IngestionWorker : BackgroundService
         {
             // Create a scope for scoped dependencies (IKnowledgeIngester, IContainerStore use DbContext)
             await using var scope = _scopeFactory.CreateAsyncScope();
+
+            // Allow deployments to initialize execution context before processing
+            scope.ServiceProvider.GetService<IIngestionJobInitializer>()?.Initialize(job);
+
             var ingester = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
 
             Stream fileStream;

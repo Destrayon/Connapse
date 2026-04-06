@@ -7,7 +7,7 @@
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
 
-export function initializeDropZone(dropZoneId, dotNetRef, containerId) {
+export function initializeDropZone(dropZoneId, dotNetRef, containerId, basePath) {
     let dragCounter = 0;
     let bound = false;
 
@@ -23,7 +23,8 @@ export function initializeDropZone(dropZoneId, dotNetRef, containerId) {
         formData.append('path', currentPath);
 
         try {
-            const response = await fetch(`/api/containers/${containerId}/files`, {
+            const prefix = basePath || '';
+            const response = await fetch(`${prefix}/api/containers/${containerId}/files`, {
                 method: 'POST',
                 body: formData
             });

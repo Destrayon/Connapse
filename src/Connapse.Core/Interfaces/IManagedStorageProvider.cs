@@ -7,7 +7,7 @@ namespace Connapse.Core.Interfaces;
 public interface IManagedStorageProvider
 {
     /// <summary>
-    /// Creates the storage container/bucket for a tenant.
+    /// Creates the storage container/bucket for a knowledge container.
     /// Idempotent — does nothing if it already exists.
     /// </summary>
     Task CreateStorageAsync(string containerName, CancellationToken ct = default);
