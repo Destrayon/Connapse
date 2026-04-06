@@ -130,7 +130,7 @@ else
                 <div class="mb-3">
                     <label class="form-label">Connector</label>
                     <select class="form-select" @bind="newConnectorType">
-                        <option value="@ConnectorType.MinIO">Managed Storage</option>
+                        <option value="@ConnectorType.ManagedStorage">Managed Storage</option>
                         <option value="@ConnectorType.Filesystem">Filesystem (local folder, live watch)</option>
                         <option value="@ConnectorType.S3">AWS S3 (IAM / DefaultAWSCredentials)</option>
                         <option value="@ConnectorType.AzureBlob">Azure Blob (managed identity)</option>
@@ -375,7 +375,7 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
-    private ConnectorType newConnectorType = ConnectorType.MinIO;
+    private ConnectorType newConnectorType = ConnectorType.ManagedStorage;
     private string newFilesystemRootPath = "";
     private string newFilesystemIncludePatterns = "";
     private string newFilesystemExcludePatterns = "";
@@ -459,7 +459,7 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
-        newConnectorType = ConnectorType.MinIO;
+        newConnectorType = ConnectorType.ManagedStorage;
         newFilesystemRootPath = "";
         newFilesystemIncludePatterns = "";
         newFilesystemExcludePatterns = "";
@@ -698,7 +698,7 @@ else
 
     private static string GetConnectorLabel(ConnectorType type) => type switch
     {
-        ConnectorType.MinIO          => "Managed Storage",
+        ConnectorType.ManagedStorage          => "Managed Storage",
         ConnectorType.Filesystem     => "Filesystem",
         ConnectorType.S3             => "AWS S3",
         ConnectorType.AzureBlob      => "Azure Blob",

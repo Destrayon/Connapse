@@ -25,7 +25,7 @@ public class ConnectorFactory : IConnectorFactory
     {
         return container.ConnectorType switch
         {
-            ConnectorType.MinIO => _managedStorageProvider.CreateConnector(container.Id),
+            ConnectorType.ManagedStorage => _managedStorageProvider.CreateConnector(container.Id),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),

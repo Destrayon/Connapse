@@ -49,7 +49,7 @@ public class SyncEndpointIntegrationTests(SharedWebAppFixture fixture)
     {
         // MinIO container with real Testcontainers MinIO — sync should succeed (empty bucket)
         var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
-            new { Name = "sync-minio-test", ConnectorType = ConnectorType.MinIO });
+            new { Name = "sync-minio-test", ConnectorType = ConnectorType.ManagedStorage });
         var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
 
         var syncResponse = await fixture.AdminClient.PostAsync(

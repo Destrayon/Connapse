@@ -206,7 +206,7 @@ public class McpToolsGetDocumentTests
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,
-        ConnectorType: ConnectorType.MinIO,
+        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 

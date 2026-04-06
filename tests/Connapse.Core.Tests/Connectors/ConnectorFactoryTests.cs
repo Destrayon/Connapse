@@ -27,7 +27,7 @@ public class ConnectorFactoryTests
     [Fact]
     public void Create_MinIO_ReturnsConnectorFromProvider()
     {
-        var container = MakeContainer(ConnectorType.MinIO);
+        var container = MakeContainer(ConnectorType.ManagedStorage);
         var connector = _factory.Create(container);
         connector.Should().NotBeNull();
     }

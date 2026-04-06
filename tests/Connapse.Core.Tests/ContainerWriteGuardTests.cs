@@ -52,7 +52,7 @@ public class ContainerWriteGuardTests
     [InlineData(WriteOperation.CreateFolder)]
     public void MinIO_AllowsAllWrites(WriteOperation op)
     {
-        var container = MakeContainer(ConnectorType.MinIO);
+        var container = MakeContainer(ConnectorType.ManagedStorage);
         ContainerWriteGuard.CheckWrite(container, op).Should().BeNull();
     }
 
@@ -134,7 +134,7 @@ public class ContainerWriteGuardTests
     [Theory]
     [InlineData(ConnectorType.S3, true)]
     [InlineData(ConnectorType.AzureBlob, true)]
-    [InlineData(ConnectorType.MinIO, false)]
+    [InlineData(ConnectorType.ManagedStorage, false)]
     [InlineData(ConnectorType.Filesystem, false)]
     public void IsReadOnly_ReturnsExpected(ConnectorType type, bool expected)
     {
@@ -162,8 +162,8 @@ public class ContainerWriteGuardTests
     {
         var connector = Substitute.For<IConnector>();
         connector.SupportsWrite.Returns(true);
-        connector.Type.Returns(ConnectorType.MinIO);
-        var container = MakeContainer(ConnectorType.MinIO);
+        connector.Type.Returns(ConnectorType.ManagedStorage);
+        var container = MakeContainer(ConnectorType.ManagedStorage);
 
         var error = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
 

@@ -128,7 +128,7 @@ public class McpToolsContainerStatsTests
         Id: ContainerId.ToString(),
         Name: "test-container",
         Description: "A test container",
-        ConnectorType: ConnectorType.MinIO,
+        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: new DateTime(2026, 2, 28, 10, 0, 0, DateTimeKind.Utc),
         UpdatedAt: new DateTime(2026, 3, 5, 14, 0, 0, DateTimeKind.Utc));
 }

@@ -20,7 +20,7 @@ public class ConnectorContainerIntegrationTests(SharedWebAppFixture fixture)
     public async Task CreateContainer_MinIODefault_Returns201()
     {
         var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
-            new { Name = "connector-minio-test", ConnectorType = ConnectorType.MinIO });
+            new { Name = "connector-minio-test", ConnectorType = ConnectorType.ManagedStorage });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await response.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);

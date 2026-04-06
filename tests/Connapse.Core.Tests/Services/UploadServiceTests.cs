@@ -49,7 +49,7 @@ public class UploadServiceTests
             UserId, path, null, strategy, "API");
 
     private static Container MakeContainer(
-        ConnectorType type = ConnectorType.MinIO,
+        ConnectorType type = ConnectorType.ManagedStorage,
         string? config = null) =>
         new(ContainerId.ToString(), "test", null, type, DateTime.UtcNow, DateTime.UtcNow,
             ConnectorConfig: config);
