@@ -43,6 +43,8 @@ public record Document(
     DateTime CreatedAt,
     Dictionary<string, string> Metadata);
 
+public record StoreResult(string DocumentId, int Generation);
+
 public record ContainerStats(
     int DocumentCount,
     int ReadyCount,

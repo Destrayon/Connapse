@@ -146,6 +146,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("chunk_count")
                 .HasDefaultValue(0);
 
+            entity.Property(e => e.Generation)
+                .HasColumnName("generation")
+                .HasDefaultValue(1);
+
             entity.Property(e => e.Status)
                 .HasColumnName("status")
                 .IsRequired()

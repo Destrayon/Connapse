@@ -4,6 +4,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -116,9 +117,24 @@ public class IngestionPipeline : IKnowledgeIngester
                 ? cId
                 : Guid.Empty;
 
-            // Check if document already exists (e.g., during reindex)
+            // Check if document already exists (created eagerly by UploadService)
             documentEntity = await _context.Documents.FindAsync([documentId], ct);
             bool isReindex = documentEntity is not null;
+
+            // Generation check: skip stale jobs early (before any expensive work)
+            int jobGeneration = options.Generation;
+            if (isReindex && !await IsCurrentGenerationAsync(documentId, jobGeneration, ct))
+            {
+                _logger.LogInformation(
+                    "Skipping stale job for document {DocumentId}: job generation {JobGen} != current generation",
+                    documentId, jobGeneration);
+                return new IngestionResult(
+                    DocumentId: documentId.ToString(),
+                    ChunkCount: 0,
+                    Duration: stopwatch.Elapsed,
+                    Warnings: ["Stale job skipped — document was re-uploaded"]);
+            }
+
             if (documentEntity != null)
             {
                 // Update existing document for reindex
@@ -157,7 +173,7 @@ public class IngestionPipeline : IKnowledgeIngester
             if (isReindex)
             {
                 await _context.Chunks
-                    .Where(c => c.DocumentId == documentId)
+                    .Where(c => c.DocumentId == documentEntity.Id)
                     .ExecuteDeleteAsync(ct);
             }
 
@@ -197,6 +213,35 @@ public class IngestionPipeline : IKnowledgeIngester
                 embeddings = await _embeddingProvider.EmbedBatchAsync(chunkContents, ct);
             }
 
+            // Second generation check: the document may have been re-uploaded during the
+            // expensive embedding call. If so, skip chunk insertion — the newer job will handle it.
+            if (!await IsCurrentGenerationAsync(documentEntity.Id, jobGeneration, ct))
+            {
+                _logger.LogInformation(
+                    "Document {DocumentId} was re-uploaded during ingestion (generation changed) — skipping chunk insertion",
+                    documentEntity.Id);
+                return new IngestionResult(
+                    DocumentId: documentEntity.Id.ToString(),
+                    ChunkCount: 0,
+                    Duration: stopwatch.Elapsed,
+                    Warnings: ["Document was re-uploaded during ingestion"]);
+            }
+
+            // Also verify the row still exists (handles deletion during ingestion)
+            var docStillExists = await _context.Documents
+                .AnyAsync(d => d.Id == documentEntity.Id, ct);
+            if (!docStillExists)
+            {
+                _logger.LogWarning(
+                    "Document {DocumentId} was deleted during ingestion — skipping chunk insertion",
+                    documentEntity.Id);
+                return new IngestionResult(
+                    DocumentId: documentEntity.Id.ToString(),
+                    ChunkCount: 0,
+                    Duration: stopwatch.Elapsed,
+                    Warnings: ["Document was deleted during ingestion"]);
+            }
+
             // Stage all chunk entities and vector items, then flush in two SaveChangesAsync calls
             // (one inside UpsertBatchAsync for chunks+vectors, one for the document status update).
             var vectorItems = new List<(string Id, float[] Vector, Dictionary<string, string> Metadata)>(chunks.Count);
@@ -209,7 +254,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 _context.Chunks.Add(new ChunkEntity
                 {
                     Id = chunkId,
-                    DocumentId = documentId,
+                    DocumentId = documentEntity.Id,
                     ContainerId = containerId,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
@@ -221,7 +266,7 @@ public class IngestionPipeline : IKnowledgeIngester
 
                 vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
                 {
-                    ["documentId"] = documentId.ToString(),
+                    ["documentId"] = documentEntity.Id.ToString(),
                     ["containerId"] = containerId.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
@@ -358,6 +403,19 @@ public class IngestionPipeline : IKnowledgeIngester
         }
 
         return await strategy.ChunkAsync(parsedDocument, settings, ct);
+    }
+
+    private async Task<bool> IsCurrentGenerationAsync(Guid documentId, int jobGeneration, CancellationToken ct)
+    {
+        if (jobGeneration == 0)
+            return true;
+
+        int currentGen = await _context.Documents
+            .Where(d => d.Id == documentId)
+            .Select(d => d.Generation)
+            .FirstOrDefaultAsync(ct);
+
+        return currentGen == jobGeneration;
     }
 
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)

@@ -10,6 +10,7 @@ public class UploadService : IUploadService
     private readonly IConnectorFactory _connectorFactory;
     private readonly IFolderStore _folderStore;
     private readonly IIngestionQueue _ingestionQueue;
+    private readonly IDocumentStore _documentStore;
     private readonly IFileTypeValidator _fileTypeValidator;
     private readonly ICloudScopeService _cloudScopeService;
     private readonly IAuditLogger _auditLogger;
@@ -35,6 +36,7 @@ public class UploadService : IUploadService
         IConnectorFactory connectorFactory,
         IFolderStore folderStore,
         IIngestionQueue ingestionQueue,
+        IDocumentStore documentStore,
         IFileTypeValidator fileTypeValidator,
         ICloudScopeService cloudScopeService,
         IAuditLogger auditLogger)
@@ -43,6 +45,7 @@ public class UploadService : IUploadService
         _connectorFactory = connectorFactory;
         _folderStore = folderStore;
         _ingestionQueue = ingestionQueue;
+        _documentStore = documentStore;
         _fileTypeValidator = fileTypeValidator;
         _cloudScopeService = cloudScopeService;
         _auditLogger = auditLogger;
@@ -190,19 +193,45 @@ public class UploadService : IUploadService
         // Resolve job path
         var jobPath = connector.ResolveJobPath(relativePath);
 
+        // Cancel any in-flight ingestion for an existing document at the same path.
+        var existingDoc = await _documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
+        if (existingDoc is not null)
+            await _ingestionQueue.CancelJobForDocumentAsync(existingDoc.Id);
+
+        // Eagerly create/update the document row. The upsert atomically increments
+        // the generation counter, so any in-flight job for a prior generation will
+        // detect it's stale and skip chunk insertion.
+        var storeResult = await _documentStore.StoreAsync(new Document(
+            documentId,
+            request.ContainerId.ToString(),
+            request.FileName,
+            contentType,
+            virtualFilePath,
+            request.Content.CanSeek ? request.Content.Length : 0,
+            DateTime.UtcNow,
+            new Dictionary<string, string>
+            {
+                ["OriginalFileName"] = request.FileName,
+                ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
+                ["IngestedVia"] = request.IngestedVia
+            }), ct);
+
+        // Use the winning document ID (may differ from our generated one if upsert hit an existing row)
+        var winnerDocId = storeResult.DocumentId;
+
         // Parse strategy
         var strategy = ChunkingStrategy.Semantic;
         if (request.Strategy is not null &&
             Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
             strategy = parsed;
 
-        // Build and enqueue ingestion job
+        // Build and enqueue ingestion job with the current generation
         var job = new IngestionJob(
             JobId: jobId,
-            DocumentId: documentId,
+            DocumentId: winnerDocId,
             Path: jobPath,
             Options: new IngestionOptions(
-                DocumentId: documentId,
+                DocumentId: winnerDocId,
                 FileName: request.FileName,
                 ContentType: contentType,
                 ContainerId: request.ContainerId.ToString(),
@@ -213,16 +242,18 @@ public class UploadService : IUploadService
                     ["OriginalFileName"] = request.FileName,
                     ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                     ["IngestedVia"] = request.IngestedVia
-                }),
+                },
+                Generation: storeResult.Generation),
+            Generation: storeResult.Generation,
             BatchId: batchId);
 
         await _ingestionQueue.EnqueueAsync(job, ct);
 
         // Audit log
-        await _auditLogger.LogAsync("doc.uploaded", "document", documentId,
+        await _auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
             new { FileName = request.FileName, ContainerId = request.ContainerId, Via = request.IngestedVia }, ct);
 
-        return new UploadResult(true, documentId, jobId);
+        return new UploadResult(true, winnerDocId, jobId);
     }
 
     private static string InferContentType(string fileName)

@@ -18,6 +18,7 @@ public class UploadServiceTests
     private readonly IConnector _connector = Substitute.For<IConnector>();
     private readonly IFolderStore _folderStore = Substitute.For<IFolderStore>();
     private readonly IIngestionQueue _ingestionQueue = Substitute.For<IIngestionQueue>();
+    private readonly IDocumentStore _documentStore = Substitute.For<IDocumentStore>();
     private readonly IFileTypeValidator _fileTypeValidator = Substitute.For<IFileTypeValidator>();
     private readonly ICloudScopeService _cloudScopeService = Substitute.For<ICloudScopeService>();
     private readonly IAuditLogger _auditLogger = Substitute.For<IAuditLogger>();
@@ -34,10 +35,12 @@ public class UploadServiceTests
         _fileTypeValidator.IsSupported(Arg.Any<string>()).Returns(true);
         _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string> { ".txt", ".pdf", ".md" });
         _folderStore.ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new StoreResult(Guid.NewGuid().ToString(), 1));
 
         _sut = new UploadService(
             _containerStore, _connectorFactory, _folderStore,
-            _ingestionQueue, _fileTypeValidator, _cloudScopeService, _auditLogger);
+            _ingestionQueue, _documentStore, _fileTypeValidator, _cloudScopeService, _auditLogger);
     }
 
     private UploadRequest MakeRequest(

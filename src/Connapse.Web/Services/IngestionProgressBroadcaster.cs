@@ -1,6 +1,5 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Ingestion.Pipeline;
 using Connapse.Web.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Hosting;
@@ -41,50 +40,47 @@ public class IngestionProgressBroadcaster : BackgroundService
             try
             {
                 // Get all current job statuses
-                if (_queue is IngestionQueue queue)
+                var allStatuses = _queue.GetAllStatuses();
+
+                foreach (var (jobId, status) in allStatuses)
                 {
-                    var allStatuses = queue.GetAllStatuses();
-
-                    foreach (var (jobId, status) in allStatuses)
+                    // Only broadcast if status has changed or hasn't been broadcast recently
+                    if (ShouldBroadcast(jobId, status))
                     {
-                        // Only broadcast if status has changed or hasn't been broadcast recently
-                        if (ShouldBroadcast(jobId, status))
-                        {
-                            // Broadcast to job-specific group
-                            var progressUpdate = new IngestionProgressUpdate(
-                                JobId: jobId,
-                                DocumentId: status.DocumentId,
-                                ContainerId: status.ContainerId,
-                                State: status.State.ToString(),
-                                CurrentPhase: status.CurrentPhase?.ToString(),
-                                PercentComplete: status.PercentComplete,
-                                ErrorMessage: status.ErrorMessage,
-                                StartedAt: status.StartedAt,
-                                CompletedAt: status.CompletedAt);
+                        // Broadcast to job-specific group
+                        var progressUpdate = new IngestionProgressUpdate(
+                            JobId: jobId,
+                            DocumentId: status.DocumentId,
+                            ContainerId: status.ContainerId,
+                            State: status.State.ToString(),
+                            CurrentPhase: status.CurrentPhase?.ToString(),
+                            PercentComplete: status.PercentComplete,
+                            ErrorMessage: status.ErrorMessage,
+                            StartedAt: status.StartedAt,
+                            CompletedAt: status.CompletedAt);
 
-                            await _hubContext.Clients.Group(jobId).SendAsync(
-                                "IngestionProgress",
-                                progressUpdate,
-                                stoppingToken);
+                        await _hubContext.Clients.Group(jobId).SendAsync(
+                            "IngestionProgress",
+                            progressUpdate,
+                            stoppingToken);
 
-                            // Also notify in-process subscribers (Blazor Server components)
-                            _notifier.Notify(progressUpdate);
+                        // Also notify in-process subscribers (Blazor Server components)
+                        _notifier.Notify(progressUpdate);
 
-                            _lastBroadcast[jobId] = DateTime.UtcNow;
-                        }
+                        _lastBroadcast[jobId] = DateTime.UtcNow;
                     }
+                }
 
-                    // Clean up old broadcast tracking (jobs completed > 5 minutes ago)
-                    var cutoff = DateTime.UtcNow.AddMinutes(-5);
-                    var oldJobs = _lastBroadcast
-                        .Where(kvp => !allStatuses.ContainsKey(kvp.Key) || kvp.Value < cutoff)
-                        .Select(kvp => kvp.Key)
-                        .ToList();
+                // Clean up old broadcast tracking (jobs completed > 5 minutes ago)
+                var cutoff = DateTime.UtcNow.AddMinutes(-5);
+                var oldJobs = _lastBroadcast
+                    .Where(kvp => !allStatuses.ContainsKey(kvp.Key) || kvp.Value < cutoff)
+                    .Select(kvp => kvp.Key)
+                    .ToList();
 
-                    foreach (var jobId in oldJobs)
-                    {
-                        _lastBroadcast.Remove(jobId);
-                    }
+                foreach (var jobId in oldJobs)
+                {
+                    _lastBroadcast.Remove(jobId);
                 }
 
                 // Wait 500ms before next poll

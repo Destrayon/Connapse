@@ -10,6 +10,7 @@ public class DocumentEntity
     public string ContentHash { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
     public int ChunkCount { get; set; }
+    public int Generation { get; set; } = 1;
     public string Status { get; set; } = "Pending";
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; }
