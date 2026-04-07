@@ -24,6 +24,34 @@ public class PostgresFolderStore(
         if (exists)
             throw new InvalidOperationException($"Folder '{normalizedPath}' already exists in this container.");
 
+        // Build list of all ancestor paths that need to exist (mkdir -p behavior)
+        var segments = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var ancestorPaths = new List<string>();
+        for (var i = 1; i < segments.Length; i++)
+        {
+            ancestorPaths.Add("/" + string.Join("/", segments.Take(i)) + "/");
+        }
+
+        if (ancestorPaths.Count > 0)
+        {
+            var existingPaths = await context.Folders
+                .Where(f => f.ContainerId == containerId && ancestorPaths.Contains(f.Path))
+                .Select(f => f.Path)
+                .ToListAsync(ct);
+
+            var now = DateTime.UtcNow;
+            foreach (var ancestor in ancestorPaths.Where(a => !existingPaths.Contains(a)))
+            {
+                context.Folders.Add(new FolderEntity
+                {
+                    Id = Guid.NewGuid(),
+                    ContainerId = containerId,
+                    Path = ancestor,
+                    CreatedAt = now
+                });
+            }
+        }
+
         var entity = new FolderEntity
         {
             Id = Guid.NewGuid(),
