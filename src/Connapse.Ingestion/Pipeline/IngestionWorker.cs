@@ -76,21 +76,17 @@ public class IngestionWorker : BackgroundService
                     job.DocumentId);
 
                 // Update status to Processing
-                if (_queue is IngestionQueue queue)
-                {
-                    queue.UpdateJobStatus(
-                        job.JobId,
-                        IngestionJobState.Processing,
-                        IngestionPhase.Parsing,
-                        0);
-                }
+                _queue.UpdateJobStatus(
+                    job.JobId,
+                    IngestionJobState.Processing,
+                    IngestionPhase.Parsing,
+                    0);
 
                 // Create a per-job CTS linked with the application stopping token
                 // so the job can be individually cancelled (e.g., on document delete)
                 using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
-                if (_queue is IngestionQueue q)
-                    q.RegisterJobCancellation(job.JobId, jobCts);
+                _queue.RegisterJobCancellation(job.JobId, jobCts);
 
                 IngestionResult result;
                 try
@@ -99,30 +95,26 @@ public class IngestionWorker : BackgroundService
                 }
                 finally
                 {
-                    if (_queue is IngestionQueue q2)
-                        q2.UnregisterJobCancellation(job.JobId);
+                    _queue.UnregisterJobCancellation(job.JobId);
                 }
 
                 // Update final status
-                if (_queue is IngestionQueue queue2)
+                if (result.Warnings.Any(w => w.Contains("failed", StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (result.Warnings.Any(w => w.Contains("failed", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        queue2.UpdateJobStatus(
-                            job.JobId,
-                            IngestionJobState.Failed,
-                            IngestionPhase.Complete,
-                            100,
-                            string.Join("; ", result.Warnings));
-                    }
-                    else
-                    {
-                        queue2.UpdateJobStatus(
-                            job.JobId,
-                            IngestionJobState.Completed,
-                            IngestionPhase.Complete,
-                            100);
-                    }
+                    _queue.UpdateJobStatus(
+                        job.JobId,
+                        IngestionJobState.Failed,
+                        IngestionPhase.Complete,
+                        100,
+                        string.Join("; ", result.Warnings));
+                }
+                else
+                {
+                    _queue.UpdateJobStatus(
+                        job.JobId,
+                        IngestionJobState.Completed,
+                        IngestionPhase.Complete,
+                        100);
                 }
 
                 _logger.LogInformation(

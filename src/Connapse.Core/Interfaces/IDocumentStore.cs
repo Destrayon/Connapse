@@ -2,7 +2,7 @@ namespace Connapse.Core.Interfaces;
 
 public interface IDocumentStore
 {
-    Task<string> StoreAsync(Document document, CancellationToken ct = default);
+    Task<StoreResult> StoreAsync(Document document, CancellationToken ct = default);
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);

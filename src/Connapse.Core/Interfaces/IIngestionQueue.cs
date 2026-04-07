@@ -37,6 +37,31 @@ public interface IIngestionQueue
     /// Gets the current queue depth.
     /// </summary>
     int QueueDepth { get; }
+
+    /// <summary>
+    /// Updates the status of a job (phase, progress, error).
+    /// </summary>
+    void UpdateJobStatus(
+        string jobId,
+        IngestionJobState state,
+        IngestionPhase? currentPhase = null,
+        double percentComplete = 0,
+        string? errorMessage = null);
+
+    /// <summary>
+    /// Gets all job statuses for monitoring and progress broadcasting.
+    /// </summary>
+    IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses();
+
+    /// <summary>
+    /// Registers a CancellationTokenSource for a job so it can be cancelled on demand.
+    /// </summary>
+    void RegisterJobCancellation(string jobId, CancellationTokenSource cts);
+
+    /// <summary>
+    /// Removes the CancellationTokenSource for a completed/failed job.
+    /// </summary>
+    void UnregisterJobCancellation(string jobId);
 }
 
 /// <summary>
@@ -47,6 +72,7 @@ public record IngestionJob(
     string DocumentId,
     string Path,
     IngestionOptions Options,
+    int Generation = 0,
     string? BatchId = null);
 
 /// <summary>

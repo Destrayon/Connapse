@@ -7,7 +7,8 @@ public record IngestionOptions(
     string? ContainerId = null,
     string? Path = null,
     ChunkingStrategy Strategy = ChunkingStrategy.Semantic,
-    Dictionary<string, string>? Metadata = null);
+    Dictionary<string, string>? Metadata = null,
+    int Generation = 0);
 
 public record IngestionResult(
     string DocumentId,

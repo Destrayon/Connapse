@@ -4,6 +4,9 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
+using System.Text.Json;
 using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Storage.Documents;
@@ -26,38 +29,72 @@ public class PostgresDocumentStore : IDocumentStore
         _logger = logger;
     }
 
-    public async Task<string> StoreAsync(Document document, CancellationToken ct = default)
+    public async Task<StoreResult> StoreAsync(Document document, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(document);
 
         await using var context = await _factory.CreateDbContextAsync(ct);
 
-        var entity = new DocumentEntity
-        {
-            Id = string.IsNullOrEmpty(document.Id) ? Guid.NewGuid() : Guid.Parse(document.Id),
-            ContainerId = Guid.Parse(document.ContainerId),
-            FileName = document.FileName,
-            ContentType = document.ContentType,
-            Path = document.Path,
-            ContentHash = string.Empty,
-            SizeBytes = document.SizeBytes,
-            ChunkCount = 0,
-            Status = "Pending",
-            CreatedAt = document.CreatedAt,
-            Metadata = document.Metadata ?? new Dictionary<string, string>()
-        };
+        var docId = string.IsNullOrEmpty(document.Id) ? Guid.NewGuid() : Guid.Parse(document.Id);
+        var containerId = Guid.Parse(document.ContainerId);
+        var metadata = document.Metadata ?? new Dictionary<string, string>();
 
-        context.Documents.Add(entity);
-        await context.SaveChangesAsync(ct);
+        // Atomic upsert: INSERT ... ON CONFLICT (container_id, path) DO UPDATE.
+        // On conflict, increments generation so stale ingestion jobs can detect they're outdated.
+        // Returns the winning row's id and generation.
+        var conn = context.Database.GetDbConnection();
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, status, created_at, metadata)
+            VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Pending', @created, @meta::jsonb)
+            ON CONFLICT (container_id, path) DO UPDATE SET
+                file_name    = EXCLUDED.file_name,
+                content_type = EXCLUDED.content_type,
+                content_hash = EXCLUDED.content_hash,
+                size_bytes   = EXCLUDED.size_bytes,
+                generation   = documents.generation + 1,
+                status       = 'Pending',
+                metadata     = EXCLUDED.metadata
+            RETURNING id, generation
+            """;
+
+        var p = cmd.Parameters;
+        p.Add(new NpgsqlParameter("id", docId));
+        p.Add(new NpgsqlParameter("cid", containerId));
+        p.Add(new NpgsqlParameter("fname", document.FileName));
+        p.Add(new NpgsqlParameter("ctype", document.ContentType));
+        p.Add(new NpgsqlParameter("path", document.Path));
+        p.Add(new NpgsqlParameter("hash", string.Empty));
+        p.Add(new NpgsqlParameter("size", document.SizeBytes));
+        p.Add(new NpgsqlParameter("created", document.CreatedAt));
+        p.Add(new NpgsqlParameter("meta", NpgsqlTypes.NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(metadata) });
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        var winnerId = reader.GetGuid(0);
+        int generation = reader.GetInt32(1);
+
+        // Close reader before running EF commands on the same connection
+        await reader.CloseAsync();
+
+        // If an existing row was updated (not our new id), purge its stale chunks.
+        if (winnerId != docId)
+        {
+            await context.Chunks
+                .Where(c => c.DocumentId == winnerId)
+                .ExecuteDeleteAsync(ct);
+        }
 
         _logger.LogInformation(
-            "Stored document {DocumentId} ({FileName}, {SizeBytes} bytes) in container {ContainerId}",
-            entity.Id,
-            entity.FileName,
-            entity.SizeBytes,
-            entity.ContainerId);
+            "Stored document {DocumentId} gen={Generation} ({FileName}, {SizeBytes} bytes) in container {ContainerId}",
+            winnerId,
+            generation,
+            document.FileName,
+            document.SizeBytes,
+            containerId);
 
-        return entity.Id.ToString();
+        return new StoreResult(winnerId.ToString(), generation);
     }
 
     public async Task<Document?> GetAsync(string documentId, CancellationToken ct = default)
