@@ -70,7 +70,7 @@ public class InviteService(
     /// <summary>
     /// Validates an invite token and returns the invitation if valid.
     /// </summary>
-    public async Task<UserInvitation?> ValidateInviteAsync(string token)
+    public virtual async Task<UserInvitation?> ValidateInviteAsync(string token)
     {
         var tokenHash = HashToken(token);
 
@@ -85,7 +85,7 @@ public class InviteService(
     /// Accepts an invitation: creates the user account with the assigned role.
     /// Returns the created user, or errors if the invite is invalid.
     /// </summary>
-    public async Task<(ConnapseUser User, IdentityResult Result)> AcceptInviteAsync(
+    public virtual async Task<(ConnapseUser User, IdentityResult Result)> AcceptInviteAsync(
         string token, string password, string? displayName)
     {
         var invitation = await ValidateInviteAsync(token);
