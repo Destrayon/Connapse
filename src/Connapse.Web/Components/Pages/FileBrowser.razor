@@ -1085,6 +1085,14 @@
             {
                 jobToDocumentId.Remove(progress.JobId);
 
+                // If the job failed (includes cancellation from deletion), remove
+                // any matching entry from the list. This prevents ghost entries
+                // that survive RefreshEntries() when a file is deleted mid-ingestion.
+                if (progress.State is "Failed")
+                {
+                    entries.RemoveAll(e => e.Id == documentId);
+                }
+
                 if (jobToDocumentId.Count == 0)
                 {
                     _ = InvokeAsync(async () =>
@@ -1199,16 +1207,28 @@
                 return;
             }
 
-            if (entryToDelete.IsFolder)
+            // Optimistic: remove from UI immediately
+            var entry = entryToDelete;
+            entries.Remove(entry);
+            selectedEntryKeys.Remove(GetEntryKey(entry));
+            entryToDelete = null;
+            StateHasChanged();
+
+            try
             {
-                await DeleteFolderEntry(containerId, entryToDelete);
+                if (entry.IsFolder)
+                    await DeleteFolderEntry(containerId, entry);
+                else
+                    await DeleteFileEntry(entry);
             }
-            else
+            catch (Exception ex)
             {
-                await DeleteFileEntry(entryToDelete);
+                // Rollback: re-add entry on failure
+                entries.Add(entry);
+                deleteError = ex.Message;
+                StateHasChanged();
             }
 
-            entryToDelete = null;
             await RefreshEntries();
             await LoadContainer();
         }
@@ -1355,6 +1375,11 @@
 
             foreach (var entry in toDelete)
             {
+                // Optimistic: remove from UI immediately
+                entries.Remove(entry);
+                selectedEntryKeys.Remove(GetEntryKey(entry));
+                StateHasChanged();
+
                 try
                 {
                     if (entry.IsFolder)
@@ -1364,7 +1389,10 @@
                 }
                 catch (Exception ex)
                 {
+                    // Rollback: re-add entry on failure
+                    entries.Add(entry);
                     errors.Add($"{entry.Name}: {ex.Message}");
+                    StateHasChanged();
                 }
             }
 
