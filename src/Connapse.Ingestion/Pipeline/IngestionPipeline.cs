@@ -27,6 +27,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IEnumerable<IChunkingStrategy> _chunkingStrategies;
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
+    private readonly EmbeddingCache _embeddingCache;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -46,6 +47,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IEnumerable<IChunkingStrategy> chunkingStrategies,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
+        EmbeddingCache embeddingCache,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -56,6 +58,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _chunkingStrategies = chunkingStrategies;
         _chunkingSettings = chunkingSettings;
         _embeddingSettings = embeddingSettings;
+        _embeddingCache = embeddingCache;
         _logger = logger;
     }
 
@@ -210,7 +213,43 @@ public class IngestionPipeline : IKnowledgeIngester
             else
             {
                 var chunkContents = chunks.Select(c => c.Content).ToArray();
-                embeddings = await _embeddingProvider.EmbedBatchAsync(chunkContents, ct);
+                string modelId = embedSettings.Model;
+                int dimensions = embedSettings.Dimensions;
+
+                // Check content-hash cache before calling the embedding API
+                var cached = await _embeddingCache.GetCachedEmbeddingsAsync(
+                    chunkContents, modelId, dimensions, ct);
+
+                // Only embed chunks that don't have a cached vector
+                var missIndices = cached
+                    .Select((v, i) => (v, i))
+                    .Where(x => x.v == null)
+                    .Select(x => x.i)
+                    .ToList();
+
+                float[]?[] result = new float[]?[chunkContents.Length];
+
+                // Copy cache hits
+                for (int i = 0; i < cached.Count; i++)
+                    if (cached[i] != null) result[i] = cached[i];
+
+                if (missIndices.Count > 0)
+                {
+                    var missContents = missIndices.Select(i => chunkContents[i]).ToArray();
+                    var freshEmbeddings = await _embeddingProvider.EmbedBatchAsync(missContents, ct);
+                    for (int k = 0; k < missIndices.Count; k++)
+                        result[missIndices[k]] = freshEmbeddings[k];
+
+                    _logger.LogDebug(
+                        "Embedding cache: {Hits} hits, {Misses} misses for {Total} chunks",
+                        cached.Count - missIndices.Count, missIndices.Count, chunkContents.Length);
+                }
+                else
+                {
+                    _logger.LogDebug("Embedding cache: all {Count} chunks were cache hits", chunkContents.Length);
+                }
+
+                embeddings = result.Select(v => v!).ToList();
             }
 
             // Second generation check: the document may have been re-uploaded during the
@@ -269,7 +308,9 @@ public class IngestionPipeline : IKnowledgeIngester
                     ["documentId"] = documentEntity.Id.ToString(),
                     ["containerId"] = containerId.ToString(),
                     ["modelId"] = embedSettings.Model,
-                    ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString()
+                    ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
+                    ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),
+                    ["dimensions"] = embedSettings.Dimensions.ToString(),
                 }));
             }
 

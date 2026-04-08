@@ -87,6 +87,7 @@ public class IngestionPipelineTests
             new[] { _chunkingStrategy },
             _chunkingSettings,
             _embeddingSettings,
+            new EmbeddingCache(dbContext),
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()

@@ -125,7 +125,10 @@ public class PgVectorStore : IVectorStore
                 DocumentId = documentId,
                 ContainerId = containerId,
                 Embedding = new Vector(vector),
-                ModelId = modelId
+                ModelId = modelId,
+                ContentHash = metadata.TryGetValue("contentHash", out var hash) ? hash : null,
+                Dimensions = metadata.TryGetValue("dimensions", out var dims)
+                    && int.TryParse(dims, out var d) ? d : null,
             });
         }
 

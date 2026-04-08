@@ -271,6 +271,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("model_id")
                 .IsRequired();
 
+            entity.Property(e => e.ContentHash)
+                .HasColumnName("content_hash");
+
+            entity.Property(e => e.Dimensions)
+                .HasColumnName("dimensions");
+
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
 

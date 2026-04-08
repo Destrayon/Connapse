@@ -9,6 +9,8 @@ public class ChunkVectorEntity
     public Guid ContainerId { get; set; }
     public Vector Embedding { get; set; } = null!;
     public string ModelId { get; set; } = string.Empty;
+    public string? ContentHash { get; set; }
+    public int? Dimensions { get; set; }
 
     // Navigation properties
     public ChunkEntity Chunk { get; set; } = null!;
