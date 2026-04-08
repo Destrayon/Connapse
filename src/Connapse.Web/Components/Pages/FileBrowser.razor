@@ -1051,6 +1051,12 @@
     {
         await InvokeAsync(() =>
         {
+            // Skip progress updates entirely while a delete operation is in progress.
+            // The delete loop manages UI state optimistically — concurrent progress
+            // updates can re-add entries or trigger RefreshEntries that races with deletion.
+            if (isDeletingBulk || isDeletingEntry)
+                return;
+
             // Prefer the tracked UI-upload mapping; fall back to the document ID embedded
             // in the progress update (populated for watcher-originated jobs).
             if (!jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
@@ -1085,7 +1091,7 @@
             {
                 jobToDocumentId.Remove(progress.JobId);
 
-                if (jobToDocumentId.Count == 0)
+                if (jobToDocumentId.Count == 0 && !isDeletingBulk && !isDeletingEntry)
                 {
                     _ = InvokeAsync(async () =>
                     {
@@ -1199,16 +1205,28 @@
                 return;
             }
 
-            if (entryToDelete.IsFolder)
+            // Optimistic: remove from UI immediately
+            var entry = entryToDelete;
+            entries.Remove(entry);
+            selectedEntryKeys.Remove(GetEntryKey(entry));
+            entryToDelete = null;
+            await InvokeAsync(StateHasChanged);
+
+            try
             {
-                await DeleteFolderEntry(containerId, entryToDelete);
+                if (entry.IsFolder)
+                    await DeleteFolderEntry(containerId, entry);
+                else
+                    await DeleteFileEntry(entry);
             }
-            else
+            catch (Exception ex)
             {
-                await DeleteFileEntry(entryToDelete);
+                // Rollback: re-add entry on failure
+                entries.Add(entry);
+                deleteError = ex.Message;
+                await InvokeAsync(StateHasChanged);
             }
 
-            entryToDelete = null;
             await RefreshEntries();
             await LoadContainer();
         }
@@ -1355,6 +1373,15 @@
 
             foreach (var entry in toDelete)
             {
+                // Optimistic: remove from UI immediately
+                entries.Remove(entry);
+                selectedEntryKeys.Remove(GetEntryKey(entry));
+
+                // Yield to the Blazor renderer so the diff is pushed over
+                // the SignalR circuit before we block on the server delete.
+                await InvokeAsync(StateHasChanged);
+                await Task.Yield();
+
                 try
                 {
                     if (entry.IsFolder)
@@ -1364,7 +1391,10 @@
                 }
                 catch (Exception ex)
                 {
+                    // Rollback: re-add entry on failure
+                    entries.Add(entry);
                     errors.Add($"{entry.Name}: {ex.Message}");
+                    await InvokeAsync(StateHasChanged);
                 }
             }
 
@@ -1377,9 +1407,6 @@
                 showBulkDeleteModal = false;
                 selectedEntryKeys.Clear();
             }
-
-            await RefreshEntries();
-            await LoadContainer();
         }
         catch (Exception ex)
         {
@@ -1389,6 +1416,11 @@
         {
             isDeletingBulk = false;
         }
+
+        // Refresh after isDeletingBulk is cleared so that any pending
+        // HandleIngestionProgress calls can also run cleanly.
+        await RefreshEntries();
+        await LoadContainer();
     }
 
     // Helpers
