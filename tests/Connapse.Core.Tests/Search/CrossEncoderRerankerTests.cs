@@ -153,6 +153,107 @@ public class CrossEncoderRerankerTests
     }
 
     [Fact]
+    public async Task RerankAsync_VoyageProvider_ParsesResponse()
+    {
+        var voyageResponse = JsonSerializer.Serialize(new
+        {
+            data = new[]
+            {
+                new { index = 1, relevance_score = 0.92 },
+                new { index = 0, relevance_score = 0.41 }
+            }
+        });
+
+        var reranker = CreateReranker(
+            new SearchSettings
+            {
+                CrossEncoderProvider = "Voyage",
+                CrossEncoderModel = "rerank-2.5-lite",
+                CrossEncoderApiKey = "test-key"
+            },
+            voyageResponse);
+
+        var hits = new List<SearchHit>
+        {
+            CreateHit("chunk1", 0.5f),
+            CreateHit("chunk2", 0.5f)
+        };
+
+        var result = await reranker.RerankAsync("test query", hits);
+
+        result.Should().HaveCount(2);
+        result[0].ChunkId.Should().Be("chunk2");  // index=1, score=0.92
+        result[1].ChunkId.Should().Be("chunk1");  // index=0, score=0.41
+    }
+
+    [Fact]
+    public async Task RerankAsync_VoyageProvider_ScoresOrderedDescending()
+    {
+        var voyageResponse = JsonSerializer.Serialize(new
+        {
+            data = new[]
+            {
+                new { index = 0, relevance_score = 0.1 },
+                new { index = 2, relevance_score = 0.85 },
+                new { index = 1, relevance_score = 0.5 }
+            }
+        });
+
+        var reranker = CreateReranker(
+            new SearchSettings
+            {
+                CrossEncoderProvider = "Voyage",
+                CrossEncoderModel = "rerank-2",
+                CrossEncoderApiKey = "test-key"
+            },
+            voyageResponse);
+
+        var hits = new List<SearchHit>
+        {
+            CreateHit("chunk1", 0.3f),
+            CreateHit("chunk2", 0.3f),
+            CreateHit("chunk3", 0.3f)
+        };
+
+        var result = await reranker.RerankAsync("test query", hits);
+
+        result.Should().HaveCount(3);
+        result[0].ChunkId.Should().Be("chunk3");  // index=2, score=0.85
+        result[1].ChunkId.Should().Be("chunk2");  // index=1, score=0.5
+        result[2].ChunkId.Should().Be("chunk1");  // index=0, score=0.1
+    }
+
+    [Fact]
+    public async Task RerankAsync_VoyageProvider_HttpError_FallsBackToOriginalOrder()
+    {
+        var handler = new MockHttpHandler(HttpStatusCode.TooManyRequests, "Rate limit exceeded");
+        var httpClientFactory = CreateHttpClientFactory(handler);
+
+        var settings = new SearchSettings
+        {
+            CrossEncoderProvider = "Voyage",
+            CrossEncoderModel = "rerank-2.5-lite",
+            CrossEncoderApiKey = "test-key"
+        };
+        var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
+        monitor.CurrentValue.Returns(settings);
+
+        var reranker = new CrossEncoderReranker(monitor, httpClientFactory, _logger);
+        var hits = new List<SearchHit>
+        {
+            CreateHit("chunk1", 0.9f),
+            CreateHit("chunk2", 0.5f)
+        };
+
+        var result = await reranker.RerankAsync("test query", hits);
+
+        result.Should().HaveCount(2);
+        result[0].ChunkId.Should().Be("chunk1");
+        result[0].Score.Should().Be(0.9f);
+        result[0].Metadata.Should().NotContainKey("reranker");
+    }
+
+    [Fact]
     public async Task RerankAsync_PassesThroughProviderScoresDirectly()
     {
         var response = JsonSerializer.Serialize(new[]

@@ -118,6 +118,7 @@ public class CrossEncoderReranker : ISearchReranker
             "Cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
             "Jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
             "AzureAIFoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
+            "Voyage" => new VoyageCrossEncoderProvider(httpClient, settings, _logger),
             _ => new TeiCrossEncoderProvider(httpClient, settings, _logger)
         };
     }
