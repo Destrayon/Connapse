@@ -1091,14 +1091,6 @@
             {
                 jobToDocumentId.Remove(progress.JobId);
 
-                // If the job failed (includes cancellation from deletion), remove
-                // any matching entry from the list. This prevents ghost entries
-                // that survive RefreshEntries() when a file is deleted mid-ingestion.
-                if (progress.State is "Failed")
-                {
-                    entries.RemoveAll(e => e.Id == documentId);
-                }
-
                 if (jobToDocumentId.Count == 0 && !isDeletingBulk && !isDeletingEntry)
                 {
                     _ = InvokeAsync(async () =>
