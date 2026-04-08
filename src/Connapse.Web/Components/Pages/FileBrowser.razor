@@ -221,7 +221,7 @@
     {
         <div class="alert alert-danger">@errorMessage</div>
     }
-    else if (entries.Count == 0)
+    else if (VisibleEntries.Count == 0)
     {
         @* Empty folder state *@
         <div class="empty-folder">
@@ -273,7 +273,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var entry in entries)
+                @foreach (var entry in VisibleEntries)
                 {
                     <tr class="file-row @(entry.IsFolder ? "folder-row" : "") @(IsSelected(entry) ? "row-selected" : "")"
                         @onclick="() => HandleEntryClick(entry)">
@@ -502,7 +502,7 @@
             <div class="modal-body-custom">
                 <p>Are you sure you want to delete <strong>@selectedEntryKeys.Count</strong> selected item(s)?</p>
                 @{
-                    var selectedFolders = entries.Count(e => e.IsFolder && selectedEntryKeys.Contains(GetEntryKey(e)));
+                    var selectedFolders = VisibleEntries.Count(e => e.IsFolder && selectedEntryKeys.Contains(GetEntryKey(e)));
                 }
                 @if (selectedFolders > 0)
                 {
@@ -596,6 +596,11 @@
     private bool showBulkDeleteModal;
     private string? bulkDeleteError;
     private bool isDeletingBulk;
+
+    // Pending delete tracking — entries in this set are filtered from display.
+    // This is the sole coordination mechanism between delete operations and
+    // background handlers (HandleIngestionProgress, OnFileChanged, RefreshEntries).
+    private readonly HashSet<string> _pendingDeleteIds = new();
 
     // Upload tracking (maps JobId to document id for progress updates)
     private Dictionary<string, string> jobToDocumentId = new();
@@ -811,7 +816,8 @@
             var preserved = entries
                 .Where(e => e.Id is not null
                           && inFlightDocIds.Contains(e.Id)
-                          && !serverIds.Contains(e.Id))
+                          && !serverIds.Contains(e.Id)
+                          && !_pendingDeleteIds.Contains(e.Id))
                 .ToList();
 
             entries = serverEntries;
@@ -1051,12 +1057,6 @@
     {
         await InvokeAsync(() =>
         {
-            // Skip progress updates entirely while a delete operation is in progress.
-            // The delete loop manages UI state optimistically — concurrent progress
-            // updates can re-add entries or trigger RefreshEntries that races with deletion.
-            if (isDeletingBulk || isDeletingEntry)
-                return;
-
             // Prefer the tracked UI-upload mapping; fall back to the document ID embedded
             // in the progress update (populated for watcher-originated jobs).
             if (!jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
@@ -1091,7 +1091,7 @@
             {
                 jobToDocumentId.Remove(progress.JobId);
 
-                if (jobToDocumentId.Count == 0 && !isDeletingBulk && !isDeletingEntry)
+                if (jobToDocumentId.Count == 0)
                 {
                     _ = InvokeAsync(async () =>
                     {
@@ -1197,6 +1197,9 @@
         isDeletingEntry = true;
         deleteError = null;
 
+        var entry = entryToDelete;
+        var entryKey = GetEntryKey(entry);
+
         try
         {
             if (!Guid.TryParse(ContainerId, out var containerId))
@@ -1205,39 +1208,28 @@
                 return;
             }
 
-            // Optimistic: remove from UI immediately
-            var entry = entryToDelete;
-            entries.Remove(entry);
-            selectedEntryKeys.Remove(GetEntryKey(entry));
+            // Mark as pending delete — entry vanishes from VisibleEntries immediately
+            _pendingDeleteIds.Add(entryKey);
             entryToDelete = null;
-            await InvokeAsync(StateHasChanged);
 
-            try
-            {
-                if (entry.IsFolder)
-                    await DeleteFolderEntry(containerId, entry);
-                else
-                    await DeleteFileEntry(entry);
-            }
-            catch (Exception ex)
-            {
-                // Rollback: re-add entry on failure
-                entries.Add(entry);
-                deleteError = ex.Message;
-                await InvokeAsync(StateHasChanged);
-            }
-
-            await RefreshEntries();
-            await LoadContainer();
+            if (entry.IsFolder)
+                await DeleteFolderEntry(containerId, entry);
+            else
+                await DeleteFileEntry(entry);
         }
         catch (Exception ex)
         {
+            _pendingDeleteIds.Remove(entryKey);
             deleteError = ex.Message;
         }
         finally
         {
             isDeletingEntry = false;
         }
+
+        await RefreshEntries();
+        await LoadContainer();
+        _pendingDeleteIds.Remove(entryKey);
     }
 
     private async Task DeleteFileEntry(BrowseEntryDto entry)
@@ -1322,9 +1314,20 @@
     // Multi-select helpers
     private string GetEntryKey(BrowseEntryDto entry) => entry.Id ?? entry.Path;
 
+    private bool IsEntryVisible(BrowseEntryDto entry) => !_pendingDeleteIds.Contains(GetEntryKey(entry));
+
+    private List<BrowseEntryDto> VisibleEntries => entries.Where(IsEntryVisible).ToList();
+
     private bool IsSelected(BrowseEntryDto entry) => selectedEntryKeys.Contains(GetEntryKey(entry));
 
-    private bool AllSelected => entries.Count > 0 && entries.All(e => selectedEntryKeys.Contains(GetEntryKey(e)));
+    private bool AllSelected
+    {
+        get
+        {
+            var visible = VisibleEntries;
+            return visible.Count > 0 && visible.All(e => selectedEntryKeys.Contains(GetEntryKey(e)));
+        }
+    }
 
     private void ToggleSelection(BrowseEntryDto entry)
     {
@@ -1338,7 +1341,7 @@
         if (AllSelected)
             selectedEntryKeys.Clear();
         else
-            foreach (var entry in entries)
+            foreach (var entry in VisibleEntries)
                 selectedEntryKeys.Add(GetEntryKey(entry));
     }
 
@@ -1369,19 +1372,19 @@
             }
 
             var toDelete = entries.Where(e => selectedEntryKeys.Contains(GetEntryKey(e))).ToList();
-            var errors = new List<string>();
 
+            // Mark all selected entries as pending delete — they vanish from
+            // VisibleEntries immediately. No list mutation, no race conditions.
+            foreach (var entry in toDelete)
+                _pendingDeleteIds.Add(GetEntryKey(entry));
+
+            showBulkDeleteModal = false;
+            selectedEntryKeys.Clear();
+
+            // Server-side deletion
+            var errors = new List<string>();
             foreach (var entry in toDelete)
             {
-                // Optimistic: remove from UI immediately
-                entries.Remove(entry);
-                selectedEntryKeys.Remove(GetEntryKey(entry));
-
-                // Yield to the Blazor renderer so the diff is pushed over
-                // the SignalR circuit before we block on the server delete.
-                await InvokeAsync(StateHasChanged);
-                await Task.Yield();
-
                 try
                 {
                     if (entry.IsFolder)
@@ -1391,22 +1394,14 @@
                 }
                 catch (Exception ex)
                 {
-                    // Rollback: re-add entry on failure
-                    entries.Add(entry);
+                    // Rollback: remove from pending set so entry reappears
+                    _pendingDeleteIds.Remove(GetEntryKey(entry));
                     errors.Add($"{entry.Name}: {ex.Message}");
-                    await InvokeAsync(StateHasChanged);
                 }
             }
 
             if (errors.Count > 0)
-            {
                 bulkDeleteError = $"Failed to delete {errors.Count} item(s): {string.Join("; ", errors)}";
-            }
-            else
-            {
-                showBulkDeleteModal = false;
-                selectedEntryKeys.Clear();
-            }
         }
         catch (Exception ex)
         {
@@ -1417,10 +1412,10 @@
             isDeletingBulk = false;
         }
 
-        // Refresh after isDeletingBulk is cleared so that any pending
-        // HandleIngestionProgress calls can also run cleanly.
+        // Final consistency: refresh from server and clear pending set.
         await RefreshEntries();
         await LoadContainer();
+        _pendingDeleteIds.Clear();
     }
 
     // Helpers
