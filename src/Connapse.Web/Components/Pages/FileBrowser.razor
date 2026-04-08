@@ -1212,7 +1212,7 @@
             entries.Remove(entry);
             selectedEntryKeys.Remove(GetEntryKey(entry));
             entryToDelete = null;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
 
             try
             {
@@ -1226,7 +1226,7 @@
                 // Rollback: re-add entry on failure
                 entries.Add(entry);
                 deleteError = ex.Message;
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
             }
 
             await RefreshEntries();
@@ -1378,7 +1378,11 @@
                 // Optimistic: remove from UI immediately
                 entries.Remove(entry);
                 selectedEntryKeys.Remove(GetEntryKey(entry));
-                StateHasChanged();
+
+                // Yield to the Blazor renderer so the diff is pushed over
+                // the SignalR circuit before we block on the server delete.
+                await InvokeAsync(StateHasChanged);
+                await Task.Yield();
 
                 try
                 {
@@ -1392,7 +1396,7 @@
                     // Rollback: re-add entry on failure
                     entries.Add(entry);
                     errors.Add($"{entry.Name}: {ex.Message}");
-                    StateHasChanged();
+                    await InvokeAsync(StateHasChanged);
                 }
             }
 
