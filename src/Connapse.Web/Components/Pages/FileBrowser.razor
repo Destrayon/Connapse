@@ -1093,7 +1093,7 @@
                     entries.RemoveAll(e => e.Id == documentId);
                 }
 
-                if (jobToDocumentId.Count == 0)
+                if (jobToDocumentId.Count == 0 && !isDeletingBulk && !isDeletingEntry)
                 {
                     _ = InvokeAsync(async () =>
                     {
