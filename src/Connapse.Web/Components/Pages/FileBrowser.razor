@@ -1051,6 +1051,12 @@
     {
         await InvokeAsync(() =>
         {
+            // Skip progress updates entirely while a delete operation is in progress.
+            // The delete loop manages UI state optimistically — concurrent progress
+            // updates can re-add entries or trigger RefreshEntries that races with deletion.
+            if (isDeletingBulk || isDeletingEntry)
+                return;
+
             // Prefer the tracked UI-upload mapping; fall back to the document ID embedded
             // in the progress update (populated for watcher-originated jobs).
             if (!jobToDocumentId.TryGetValue(progress.JobId, out var documentId))
@@ -1409,9 +1415,6 @@
                 showBulkDeleteModal = false;
                 selectedEntryKeys.Clear();
             }
-
-            await RefreshEntries();
-            await LoadContainer();
         }
         catch (Exception ex)
         {
@@ -1421,6 +1424,11 @@
         {
             isDeletingBulk = false;
         }
+
+        // Refresh after isDeletingBulk is cleared so that any pending
+        // HandleIngestionProgress calls can also run cleanly.
+        await RefreshEntries();
+        await LoadContainer();
     }
 
     // Helpers
