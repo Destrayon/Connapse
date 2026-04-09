@@ -34,7 +34,13 @@ public class HybridSearchService : IKnowledgeSearch
 
     /// <summary>
     /// Performs hybrid search combining vector and keyword results.
+    /// <summary>
+    /// Performs a search using the provided query and options, selecting semantic, keyword, or hybrid execution based on runtime settings, then applies optional reranking, filtering, auto-cut, and top-K limiting.
     /// </summary>
+    /// <param name="query">The search text to execute. If null or whitespace, an empty SearchResult is returned immediately.</param>
+    /// <param name="options">Search runtime options (e.g., Mode, TopK, MinScore) that control execution and result limits.</param>
+    /// <param name="ct">A cancellation token to cancel the search operation.</param>
+    /// <returns>A SearchResult containing the final ranked and filtered hits, the total returned count, and the elapsed search time.</returns>
     public async Task<SearchResult> SearchAsync(
         string query,
         SearchOptions options,

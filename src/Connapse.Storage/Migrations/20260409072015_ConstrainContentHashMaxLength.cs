@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -21,7 +21,9 @@ namespace Connapse.Storage.Migrations
                 oldNullable: true);
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Alters the "content_hash" column in the "chunk_vectors" table to SQL type "text", preserving its nullable state.
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterColumn<string>(

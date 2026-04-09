@@ -23,6 +23,11 @@ namespace Connapse.Storage.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers storage-related services into the DI container, including PostgreSQL/pgvector DbContexts, file systems (MinIO/local), embedding and LLM providers, stores, connectors, managed storage, vector utilities, and connection testers.
+    /// </summary>
+    /// <param name="configuration">Application configuration used to obtain the default database connection string and options for file system, MinIO, embedding, and LLM settings.</param>
+    /// <returns>The same <see cref="IServiceCollection"/> instance with the storage services registered.</returns>
     public static IServiceCollection AddConnapseStorage(
         this IServiceCollection services,
         IConfiguration configuration)

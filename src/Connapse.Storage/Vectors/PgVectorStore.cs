@@ -96,6 +96,24 @@ public class PgVectorStore : IVectorStore
             vector.Length);
     }
 
+    /// <summary>
+    /// Adds a batch of chunk vector records to the database and persists them in a single save operation.
+    /// </summary>
+    /// <param name="items">
+    /// A list of tuples each containing:
+    /// - Id: the chunk identifier as a GUID string.
+    /// - Vector: the embedding vector for the chunk.
+    /// - Metadata: required and optional metadata for the chunk.
+    /// Required metadata keys: "documentId" (GUID string) and "modelId" (string).
+    /// Optional metadata keys:
+    /// - "containerId" (GUID string; unparseable or missing defaults to Guid.Empty),
+    /// - "contentHash" (string),
+    /// - "dimensions" (integer string; used only if parses to an int > 0).
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="ArgumentException">
+    /// Thrown when an item Id is not a valid GUID, when "documentId" is missing or not a valid GUID, or when "modelId" is missing.
+    /// </exception>
     public async Task UpsertBatchAsync(
         IReadOnlyList<(string Id, float[] Vector, Dictionary<string, string> Metadata)> items,
         CancellationToken ct = default)

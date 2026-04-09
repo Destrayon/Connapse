@@ -17,6 +17,11 @@ public static class SettingsEndpoints
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>
+    /// Maps and configures settings-related HTTP endpoints under "/api/settings" and applies the "RequireAdmin" authorization policy.
+    /// </summary>
+    /// <param name="app">The endpoint route builder to attach the settings routes to.</param>
+    /// <returns>The same <see cref="IEndpointRouteBuilder"/> with the settings endpoints mapped.</returns>
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings").WithTags("Settings")
@@ -438,6 +443,13 @@ public static class SettingsEndpoints
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 
+    /// <summary>
+    /// Tests the cross-encoder connection described by the supplied SearchSettings JSON, using the provider specified in SearchSettings.CrossEncoderProvider.
+    /// </summary>
+    /// <param name="settingsJson">A JSON element containing SearchSettings to use for the connection test.</param>
+    /// <param name="timeoutSeconds">Optional timeout in seconds for the connection test; null means no specific timeout.</param>
+    /// <param name="ct">Cancellation token to cancel the test operation.</param>
+    /// <returns>A <see cref="ConnectionTestResult"/> describing success or failure of the connection test.</returns>
     private static async Task<ConnectionTestResult> TestCrossEncoderConnection(
         JsonElement settingsJson,
         TeiConnectionTester teiTester,

@@ -20,7 +20,18 @@ public class VoyageConnectionTester(IHttpClientFactory httpClientFactory, ILogge
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Tests connectivity to the Voyage AI Rerank API using the provided search settings.
+    /// </summary>
+    /// <param name="settings">A <see cref="SearchSettings"/> instance containing at minimum <c>CrossEncoderApiKey</c> and optional <c>CrossEncoderModel</c>.</param>
+    /// <param name="timeout">Optional request timeout; defaults to 10 seconds when not provided.</param>
+    /// <param name="ct">Cancellation token that, when signaled, cancels the test and results in an <see cref="OperationCanceledException"/> being thrown.</param>
+    /// <returns>
+    /// A <see cref="ConnectionTestResult"/> representing success or failure. On success the result includes metadata entries:
+    /// <c>model</c> (the rerank model used) and <c>provider</c> set to "Voyage".
+    /// On failure the result includes an <c>error</c> metadata entry with a descriptive message.
+    /// </returns>
+    /// <exception cref="OperationCanceledException">Thrown when the provided <paramref name="ct"/> is canceled during the operation.</exception>
     public async Task<ConnectionTestResult> TestConnectionAsync(
         object settings,
         TimeSpan? timeout = null,

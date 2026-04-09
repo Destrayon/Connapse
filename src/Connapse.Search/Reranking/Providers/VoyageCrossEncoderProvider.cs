@@ -25,6 +25,12 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="VoyageCrossEncoderProvider"/> and configures the HTTP client with Voyage API defaults (base address, timeout, and bearer authorization).
+    /// </summary>
+    /// <param name="httpClient">An <see cref="HttpClient"/> instance used to send requests to the Voyage API.</param>
+    /// <param name="settings">Search settings containing the cross-encoder API key and timeout values.</param>
+    /// <param name="logger">An <see cref="ILogger"/> used for diagnostic logging.</param>
     public VoyageCrossEncoderProvider(HttpClient httpClient, SearchSettings settings, ILogger logger)
     {
         _httpClient = httpClient;
@@ -37,6 +43,11 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
             new AuthenticationHeaderValue("Bearer", settings.CrossEncoderApiKey);
     }
 
+    /// <summary>
+    /// Reranks the provided candidate documents for the given query using Voyage AI's rerank model.
+    /// </summary>
+    /// <param name="topN">Maximum number of top results to return; pass <c>null</c> to return scores for all documents.</param>
+    /// <returns>A list of <see cref="CrossEncoderScore"/> items ordered by descending score.</returns>
     public async Task<IReadOnlyList<CrossEncoderScore>> RerankAsync(
         string query,
         IReadOnlyList<string> documents,

@@ -18,6 +18,9 @@ public class CrossEncoderReranker : ISearchReranker
 
     public string Name => "CrossEncoder";
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CrossEncoderReranker"/> with the required search settings monitor, HTTP client factory, and logger.
+    /// </summary>
     public CrossEncoderReranker(
         IOptionsMonitor<SearchSettings> searchSettings,
         IHttpClientFactory httpClientFactory,
@@ -28,7 +31,13 @@ public class CrossEncoderReranker : ISearchReranker
         _logger = logger;
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Reorders the provided search hits by scoring each (query, document) pair with the configured cross-encoder and returning hits sorted by those scores.
+    /// </summary>
+    /// <param name="query">The query used to score each document.</param>
+    /// <param name="hits">The list of search hits to be rescored and reordered.</param>
+    /// <param name="cancellationToken">Token to cancel the reranking operation.</param>
+    /// <returns>The input hits with updated Score and Metadata entries (including `crossEncoderScore`, `reranker`, and `crossEncoderProvider`) ordered by Score descending; if reranking is skipped or fails, the original hits list is returned unchanged.</returns>
     public async Task<List<SearchHit>> RerankAsync(
         string query,
         List<SearchHit> hits,
@@ -111,6 +120,13 @@ public class CrossEncoderReranker : ISearchReranker
         }
     }
 
+    /// <summary>
+    /// Create an <see cref="ICrossEncoderProvider"/> implementation selected by <see cref="SearchSettings.CrossEncoderProvider"/> and configured with the current HTTP client and settings.
+    /// </summary>
+    /// <param name="settings">Search settings used to determine which provider to construct and to configure the provider.</param>
+    /// <returns>
+    /// An <see cref="ICrossEncoderProvider"/> instance corresponding to the provider name in <paramref name="settings"/>; when the provider value is null or unrecognized, a <see cref="TeiCrossEncoderProvider"/> is returned.
+    /// </returns>
     private ICrossEncoderProvider CreateProvider(SearchSettings settings)
     {
         var httpClient = _httpClientFactory.CreateClient("CrossEncoder");

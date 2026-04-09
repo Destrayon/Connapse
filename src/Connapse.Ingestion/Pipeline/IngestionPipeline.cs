@@ -38,6 +38,9 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
+    /// </summary>
     public IngestionPipeline(
         KnowledgeDbContext context,
         IKnowledgeFileSystem fileSystem,
@@ -62,6 +65,16 @@ public class IngestionPipeline : IKnowledgeIngester
         _logger = logger;
     }
 
+    /// <summary>
+    /// Ingests a document stream by parsing, chunking, embedding, and storing chunks and vectors, then returns the ingestion outcome.
+    /// </summary>
+    /// <param name="content">The document data stream. If the stream is not seekable it will be copied to a temporary in-memory stream.</param>
+    /// <param name="options">Ingestion options controlling document id, container, path/filename, chunking strategy, generation, metadata, and related settings.</param>
+    /// <param name="ct">Cancellation token to cancel the ingestion operation.</param>
+    /// <returns>
+    /// An <see cref="IngestionResult"/> containing the document id, number of chunks stored, total duration, and any warnings.
+    /// A ChunkCount of 0 indicates the job was skipped (stale generation, document deleted/re-uploaded) or ingestion failed/no chunks were produced.
+    /// </returns>
     public async Task<IngestionResult> IngestAsync(
         Stream content,
         IngestionOptions options,

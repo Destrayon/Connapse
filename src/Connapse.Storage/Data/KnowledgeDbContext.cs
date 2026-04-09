@@ -245,6 +245,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         });
     }
 
+    /// <summary>
+    /// Configures EF Core mapping for ChunkVectorEntity to the "chunk_vectors" table, including columns, indexes, and relationships.
+    /// </summary>
+    /// <param name="modelBuilder">The ModelBuilder used to configure the ChunkVectorEntity mapping, column types, indexes, and foreign-key relationships.</param>
     private static void ConfigureChunkVectors(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ChunkVectorEntity>(entity =>

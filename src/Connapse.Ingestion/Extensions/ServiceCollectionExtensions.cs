@@ -20,7 +20,10 @@ public static class ServiceCollectionExtensions
     /// - Ingestion pipeline and queue
     /// - Reindex service
     /// - Background worker
+    /// <summary>
+    /// Registers all services required for document ingestion into the provided DI container.
     /// </summary>
+    /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
     {
         // Register document parsers
