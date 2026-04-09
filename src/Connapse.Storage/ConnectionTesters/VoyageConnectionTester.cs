@@ -41,10 +41,12 @@ public class VoyageConnectionTester(IHttpClientFactory httpClientFactory, ILogge
             httpClient.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", searchSettings.CrossEncoderApiKey);
 
-            var model = searchSettings.CrossEncoderModel ?? "rerank-2.5-lite";
+            var model = string.IsNullOrWhiteSpace(searchSettings.CrossEncoderModel)
+                ? "rerank-2.5-lite"
+                : searchSettings.CrossEncoderModel;
             var request = new { model, query = "test", documents = new[] { "test document" }, top_k = 1 };
 
-            var response = await httpClient.PostAsJsonAsync("/v1/rerank", request, JsonOptions, ct);
+            using var response = await httpClient.PostAsJsonAsync("/v1/rerank", request, JsonOptions, ct);
             response.EnsureSuccessStatusCode();
 
             stopwatch.Stop();

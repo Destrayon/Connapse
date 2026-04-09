@@ -272,7 +272,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .IsRequired();
 
             entity.Property(e => e.ContentHash)
-                .HasColumnName("content_hash");
+                .HasColumnName("content_hash")
+                .HasMaxLength(64);
 
             entity.Property(e => e.Dimensions)
                 .HasColumnName("dimensions");

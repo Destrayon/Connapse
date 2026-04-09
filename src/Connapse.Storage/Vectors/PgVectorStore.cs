@@ -128,7 +128,7 @@ public class PgVectorStore : IVectorStore
                 ModelId = modelId,
                 ContentHash = metadata.TryGetValue("contentHash", out var hash) ? hash : null,
                 Dimensions = metadata.TryGetValue("dimensions", out var dims)
-                    && int.TryParse(dims, out var d) ? d : null,
+                    && int.TryParse(dims, out var d) && d > 0 ? d : null,
             });
         }
 

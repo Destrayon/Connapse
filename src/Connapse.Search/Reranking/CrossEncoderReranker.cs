@@ -114,12 +114,13 @@ public class CrossEncoderReranker : ISearchReranker
     {
         var httpClient = _httpClientFactory.CreateClient("CrossEncoder");
 
-        return settings.CrossEncoderProvider switch
+        var provider = settings.CrossEncoderProvider?.Trim().ToLowerInvariant();
+        return provider switch
         {
-            "Cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
-            "Jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
-            "AzureAIFoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
-            "Voyage" => new VoyageCrossEncoderProvider(httpClient, settings, _logger),
+            "cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
+            "jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
+            "azureaifoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
+            "voyage" => new VoyageCrossEncoderProvider(httpClient, settings, _logger),
             _ => new TeiCrossEncoderProvider(httpClient, settings, _logger)
         };
     }

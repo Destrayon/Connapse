@@ -21,4 +21,11 @@ public class EmbeddingCacheTests
         var h2 = EmbeddingCache.ComputeHash("goodbye world");
         h1.Should().NotBe(h2);
     }
+
+    [Fact]
+    public void ComputeHash_KnownInput_ReturnsExpectedDigest()
+    {
+        string hash = EmbeddingCache.ComputeHash("hello world");
+        hash.Should().Be("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    }
 }
