@@ -156,6 +156,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CohereConnectionTester>();
         services.AddScoped<JinaConnectionTester>();
         services.AddScoped<AzureAIFoundryConnectionTester>();
+        services.AddScoped<VoyageConnectionTester>();
 
         // Cloud scope discovery
         services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();

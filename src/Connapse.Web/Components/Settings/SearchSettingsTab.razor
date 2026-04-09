@@ -70,6 +70,7 @@
                     <option value="Cohere">Cohere Rerank</option>
                     <option value="Jina">Jina Reranker</option>
                     <option value="AzureAIFoundry">Azure AI Foundry</option>
+                    <option value="Voyage">Voyage AI</option>
                 </InputSelect>
             </div>
 
@@ -206,6 +207,7 @@
 @inject CohereConnectionTester CohereTester
 @inject JinaConnectionTester JinaTester
 @inject AzureAIFoundryConnectionTester AzureAIFoundryTester
+@inject VoyageConnectionTester VoyageTester
 @using Microsoft.Extensions.Options
 
 @code {
@@ -257,6 +259,7 @@
             "Cohere" => "rerank-v3.5",
             "Jina" => "jina-reranker-v3",
             "AzureAIFoundry" => null,
+            "Voyage" => "rerank-2.5-lite",
             _ => "BAAI/bge-reranker-large"
         };
 
@@ -292,6 +295,7 @@
                 "Cohere" => CohereTester,
                 "Jina" => JinaTester,
                 "AzureAIFoundry" => AzureAIFoundryTester,
+                "Voyage" => VoyageTester,
                 _ => TeiTester
             };
 

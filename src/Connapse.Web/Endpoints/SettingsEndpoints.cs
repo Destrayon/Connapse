@@ -175,6 +175,7 @@ public static class SettingsEndpoints
             [FromServices] CohereConnectionTester cohereTester,
             [FromServices] JinaConnectionTester jinaTester,
             [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
+            [FromServices] VoyageConnectionTester voyageTester,
             [FromServices] MinioConnectionTester minioTester,
             CancellationToken ct) =>
         {
@@ -199,7 +200,7 @@ public static class SettingsEndpoints
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, openAiLlmTester, azureOpenAiLlmTester, anthropicTester, request.TimeoutSeconds, ct),
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
-                    "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, request.TimeoutSeconds, ct),
+                    "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, voyageTester, request.TimeoutSeconds, ct),
                     "minio" => await TestMinioConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     _ => ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing")
                 };
@@ -443,6 +444,7 @@ public static class SettingsEndpoints
         CohereConnectionTester cohereTester,
         JinaConnectionTester jinaTester,
         AzureAIFoundryConnectionTester azureAIFoundryTester,
+        VoyageConnectionTester voyageTester,
         int? timeoutSeconds,
         CancellationToken ct)
     {
@@ -457,6 +459,7 @@ public static class SettingsEndpoints
             "Cohere" => cohereTester,
             "Jina" => jinaTester,
             "AzureAIFoundry" => azureAIFoundryTester,
+            "Voyage" => voyageTester,
             _ => teiTester
         };
 
