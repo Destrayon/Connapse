@@ -40,7 +40,19 @@ public class IngestionPipeline : IKnowledgeIngester
 
     /// <summary>
     /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
+    /// <summary>
+    /// Initializes a new IngestionPipeline with the dependencies required to parse documents, split them into chunks, produce embeddings, and persist vectors and document state.
     /// </summary>
+    /// <param name="context">Database context used to persist documents, chunks, and related entities.</param>
+    /// <param name="fileSystem">Abstraction for file and stream access.</param>
+    /// <param name="embeddingProvider">Service that produces embeddings for text content.</param>
+    /// <param name="vectorStore">Store used to upsert and manage vector data.</param>
+    /// <param name="parsers">Collection of document parsers supporting different file types.</param>
+    /// <param name="chunkingStrategies">Collection of chunking strategies available for splitting documents.</param>
+    /// <param name="chunkingSettings">Runtime monitor providing current chunking configuration.</param>
+    /// <param name="embeddingSettings">Runtime monitor providing current embedding configuration.</param>
+    /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
+    /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
         IKnowledgeFileSystem fileSystem,
@@ -74,7 +86,13 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <returns>
     /// An <see cref="IngestionResult"/> containing the document id, number of chunks stored, total duration, and any warnings.
     /// A ChunkCount of 0 indicates the job was skipped (stale generation, document deleted/re-uploaded) or ingestion failed/no chunks were produced.
-    /// </returns>
+    /// <summary>
+    /// Runs the full ingestion pipeline for a document: parse the input stream, generate chunks, produce embeddings, and persist chunks and vectors to storage.
+    /// </summary>
+    /// <param name="content">The input stream containing the document to ingest; must be readable and will be made seekable if not.</param>
+    /// <param name="options">Options that control ingestion behavior (document id, container id, file name, chunking strategy, metadata, generation, etc.).</param>
+    /// <param name="ct">Cancellation token to observe while performing ingestion.</param>
+    /// <returns>An <see cref="IngestionResult"/> containing the ingested document id, number of chunks stored, total duration, and any warnings produced during processing.</returns>
     public async Task<IngestionResult> IngestAsync(
         Stream content,
         IngestionOptions options,

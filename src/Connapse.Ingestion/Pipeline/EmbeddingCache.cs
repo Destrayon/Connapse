@@ -21,6 +21,13 @@ public class EmbeddingCache(KnowledgeDbContext context)
     /// <param name="modelId">The embedding model identifier used to filter cached entries.</param>
     /// <param name="dimensions">The embedding vector dimensionality used to filter cached entries.</param>
     /// <param name="ct">Cancellation token for the asynchronous operation.</param>
+    /// <summary>
+    /// Looks up cached embedding vectors for the provided text chunks, filtered by the specified embedding model and dimensionality.
+    /// </summary>
+    /// <param name="chunkContents">The input chunk strings whose SHA-256 (lowercase hex) hashes are used to query the cache; output order is aligned to this list.</param>
+    /// <param name="modelId">The embedding model identifier used to filter cached entries.</param>
+    /// <param name="dimensions">The expected embedding vector dimensionality used to filter cached entries.</param>
+    /// <param name="ct">A cancellation token to cancel the database query.</param>
     /// <returns>An IReadOnlyList aligned to <paramref name="chunkContents"/> where each element is the cached embedding array for that chunk, or <c>null</c> if no cached embedding was found.</returns>
     public async Task<IReadOnlyList<float[]?>> GetCachedEmbeddingsAsync(
         IReadOnlyList<string> chunkContents,
@@ -46,6 +53,10 @@ public class EmbeddingCache(KnowledgeDbContext context)
     /// Compute the SHA-256 hash of the provided text and return it as a lowercase hexadecimal string.
     /// </summary>
     /// <param name="content">The input text to hash.</param>
+    /// <summary>
+    /// Compute the SHA-256 hash of the provided string and return it as a lowercase hexadecimal string.
+    /// </summary>
+    /// <param name="content">The input text to hash; encoded as UTF-8 before hashing.</param>
     /// <returns>The SHA-256 hash of <paramref name="content"/>, encoded as a lowercase hex string.</returns>
     public static string ComputeHash(string content)
     {

@@ -30,6 +30,11 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
     /// </summary>
     /// <param name="httpClient">An <see cref="HttpClient"/> instance used to send requests to the Voyage API.</param>
     /// <param name="settings">Search settings containing the cross-encoder API key and timeout values.</param>
+    /// <summary>
+    /// Initializes a new instance of <see cref="VoyageCrossEncoderProvider"/> and configures the HTTP client to call Voyage AI's rerank API.
+    /// </summary>
+    /// <param name="httpClient">The HTTP client used to send requests to the Voyage API.</param>
+    /// <param name="settings">Search settings that supply the CrossEncoder API key, timeout, and optional model selection.</param>
     /// <param name="logger">An <see cref="ILogger"/> used for diagnostic logging.</param>
     public VoyageCrossEncoderProvider(HttpClient httpClient, SearchSettings settings, ILogger logger)
     {
@@ -47,7 +52,14 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
     /// Reranks the provided candidate documents for the given query using Voyage AI's rerank model.
     /// </summary>
     /// <param name="topN">Maximum number of top results to return; pass <c>null</c> to return scores for all documents.</param>
+    /// <summary>
+    /// Reranks candidate documents for a query using Voyage AI's Cross-Encoder Rerank API.
+    /// </summary>
+    /// <param name="query">The user query to score documents against.</param>
+    /// <param name="documents">The candidate documents to be reranked.</param>
+    /// <param name="topN">Optional maximum number of top documents to request from the service; pass null to request all.</param>
     /// <returns>A list of <see cref="CrossEncoderScore"/> items ordered by descending score.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the Voyage API returns a null response.</exception>
     public async Task<IReadOnlyList<CrossEncoderScore>> RerankAsync(
         string query,
         IReadOnlyList<string> documents,

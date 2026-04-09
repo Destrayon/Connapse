@@ -40,6 +40,12 @@ public class HybridSearchService : IKnowledgeSearch
     /// <param name="query">The search text to execute. If null or whitespace, an empty SearchResult is returned immediately.</param>
     /// <param name="options">Search runtime options (e.g., Mode, TopK, MinScore) that control execution and result limits.</param>
     /// <param name="ct">A cancellation token to cancel the search operation.</param>
+    /// <summary>
+    /// Performs a search for the given query using semantic, keyword, or hybrid execution, optionally reranks and post-filters results, and returns the final ranked hits.
+    /// </summary>
+    /// <param name="query">The search text to execute; an empty or whitespace query returns an empty result.</param>
+    /// <param name="options">Execution options such as search mode, TopK, and MinScore.</param>
+    /// <param name="ct">Cancellation token to cancel the search operation.</param>
     /// <returns>A SearchResult containing the final ranked and filtered hits, the total returned count, and the elapsed search time.</returns>
     public async Task<SearchResult> SearchAsync(
         string query,

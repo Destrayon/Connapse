@@ -22,7 +22,10 @@ namespace Connapse.Storage.Migrations
         /// <summary>
         /// Constructs the Entity Framework Core target model for this migration, configuring tables, columns, indexes, relationships, and database-specific annotations used to produce the migration snapshot.
         /// </summary>
-        /// <param name="modelBuilder">The ModelBuilder used to define the database model for the migration.</param>
+        /// <summary>
+        /// Configures the Entity Framework Core model snapshot that represents the target database schema for this migration.
+        /// </summary>
+        /// <param name="modelBuilder">The ModelBuilder used to configure entity mappings, properties, indexes, computed columns, and relationships for the migration snapshot.</param>
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

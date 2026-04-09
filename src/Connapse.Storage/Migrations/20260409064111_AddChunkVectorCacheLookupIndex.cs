@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -17,7 +17,9 @@ namespace Connapse.Storage.Migrations
                 filter: "\"content_hash\" IS NOT NULL AND \"dimensions\" IS NOT NULL");
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Removes the database index "idx_chunk_vectors_cache_lookup" from the "chunk_vectors" table.
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(

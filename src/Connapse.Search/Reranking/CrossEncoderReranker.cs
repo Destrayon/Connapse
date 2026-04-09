@@ -20,6 +20,8 @@ public class CrossEncoderReranker : ISearchReranker
 
     /// <summary>
     /// Initializes a new instance of <see cref="CrossEncoderReranker"/> with the required search settings monitor, HTTP client factory, and logger.
+    /// <summary>
+    /// Initializes a new instance of <see cref="CrossEncoderReranker"/> with the required settings monitor, HTTP client factory, and logger.
     /// </summary>
     public CrossEncoderReranker(
         IOptionsMonitor<SearchSettings> searchSettings,
@@ -37,7 +39,10 @@ public class CrossEncoderReranker : ISearchReranker
     /// <param name="query">The query used to score each document.</param>
     /// <param name="hits">The list of search hits to be rescored and reordered.</param>
     /// <param name="cancellationToken">Token to cancel the reranking operation.</param>
-    /// <returns>The input hits with updated Score and Metadata entries (including `crossEncoderScore`, `reranker`, and `crossEncoderProvider`) ordered by Score descending; if reranking is skipped or fails, the original hits list is returned unchanged.</returns>
+    /// <summary>
+    /// Reranks search hits by scoring each (query, document) pair using the configured cross-encoder provider and returns the hits ordered by those scores.
+    /// </summary>
+    /// <returns>The hits with updated <see cref="SearchHit.Score"/> and Metadata (including `crossEncoderScore`, `reranker`, and `crossEncoderProvider`) ordered by Score descending; if reranking is skipped (for example, when a non-Voyage provider requires a configured model and none is set), the provider returns no scores, or an error occurs, the original hits list is returned unchanged.</returns>
     public async Task<List<SearchHit>> RerankAsync(
         string query,
         List<SearchHit> hits,
@@ -126,7 +131,11 @@ public class CrossEncoderReranker : ISearchReranker
     /// <param name="settings">Search settings used to determine which provider to construct and to configure the provider.</param>
     /// <returns>
     /// An <see cref="ICrossEncoderProvider"/> instance corresponding to the provider name in <paramref name="settings"/>; when the provider value is null or unrecognized, a <see cref="TeiCrossEncoderProvider"/> is returned.
-    /// </returns>
+    /// <summary>
+    /// Creates an ICrossEncoderProvider based on the configured cross-encoder provider name in <paramref name="settings"/>.
+    /// </summary>
+    /// <param name="settings">Search settings that specify the cross-encoder provider and its configuration.</param>
+    /// <returns>An ICrossEncoderProvider implementation matching the configured provider; defaults to the TEI provider when the provider name is unrecognized or not provided.</returns>
     private ICrossEncoderProvider CreateProvider(SearchSettings settings)
     {
         var httpClient = _httpClientFactory.CreateClient("CrossEncoder");

@@ -20,7 +20,13 @@ namespace Connapse.Storage.Migrations
         /// <summary>
         /// Configures the Entity Framework Core model for the KnowledgeDbContext, including PostgreSQL extensions, table mappings, columns, keys, indexes, and relationships.
         /// </summary>
-        /// <param name="modelBuilder">The <see cref="ModelBuilder"/> used to build the EF Core model.</param>
+        /// <summary>
+        /// Configures the Entity Framework Core model for KnowledgeDbContext.
+        /// </summary>
+        /// <remarks>
+        /// Defines model-wide annotations and PostgreSQL extensions, and configures entity mappings, columns, keys, indexes, computed columns, and relationships used by the context.
+        /// </remarks>
+        /// <param name="modelBuilder">The ModelBuilder used to construct entity mappings and model configuration.</param>
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618

@@ -27,6 +27,21 @@ public class PgVectorStore : IVectorStore
         _logger = logger;
     }
 
+    /// <summary>
+    /// Inserts a new chunk embedding or updates an existing one, storing the embedding and related identifiers/metadata in the database.
+    /// </summary>
+    /// <param name="id">Chunk identifier; must be a valid GUID string.</param>
+    /// <param name="vector">Embedding values; must not be null or empty.</param>
+    /// <param name="metadata">Metadata containing required keys:
+    /// - "documentId": a GUID string identifying the document,
+    /// - "modelId": the model identifier string.
+    /// Optionally may contain "containerId" as a GUID string.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <exception cref="ArgumentException">Thrown when:
+    /// - <paramref name="id"/> is not a valid GUID,
+    /// - <paramref name="vector"/> is null or empty,
+    /// - <paramref name="metadata"/> does not contain a valid "documentId",
+    /// - <paramref name="metadata"/> does not contain a "modelId".</exception>
     public async Task UpsertAsync(
         string id,
         float[] vector,
@@ -113,6 +128,18 @@ public class PgVectorStore : IVectorStore
     /// <param name="ct">Cancellation token.</param>
     /// <exception cref="ArgumentException">
     /// Thrown when an item Id is not a valid GUID, when "documentId" is missing or not a valid GUID, or when "modelId" is missing.
+    /// <summary>
+    /// Adds a batch of chunk vector entities from the provided items and saves them to the database with a single commit.
+    /// </summary>
+    /// <param name="items">
+    /// A list of tuples where each tuple contains:
+    /// - Id: a string representation of the chunk GUID.
+    /// - Vector: the embedding values for the chunk.
+    /// - Metadata: a dictionary that must include "documentId" (GUID string) and "modelId"; may include "containerId" (GUID string), "contentHash", and "dimensions" (positive integer string).
+    /// </param>
+    /// <param name="ct">Cancellation token to cancel the operation.</param>
+    /// <exception cref="ArgumentException">
+    /// Thrown if any item's Id is not a valid GUID, if "documentId" is missing or not a valid GUID, or if "modelId" is missing in an item's metadata.
     /// </exception>
     public async Task UpsertBatchAsync(
         IReadOnlyList<(string Id, float[] Vector, Dictionary<string, string> Metadata)> items,

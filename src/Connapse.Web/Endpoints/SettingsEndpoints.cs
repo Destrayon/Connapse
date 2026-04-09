@@ -21,6 +21,10 @@ public static class SettingsEndpoints
     /// Maps and configures settings-related HTTP endpoints under "/api/settings" and applies the "RequireAdmin" authorization policy.
     /// </summary>
     /// <param name="app">The endpoint route builder to attach the settings routes to.</param>
+    /// <summary>
+    /// Adds authenticated HTTP endpoints for managing and testing application settings under the "/api/settings" route.
+    /// </summary>
+    /// <param name="app">The endpoint route builder to extend with the settings endpoints.</param>
     /// <returns>The same <see cref="IEndpointRouteBuilder"/> with the settings endpoints mapped.</returns>
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -429,6 +433,16 @@ public static class SettingsEndpoints
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
+    /// <summary>
+    /// Tests connectivity to a MinIO-compatible storage endpoint using the supplied settings JSON.
+    /// </summary>
+    /// <param name="settingsJson">A JSON element containing serialized Connapse.Storage.FileSystem.MinioOptions.</param>
+    /// <param name="tester">The service that performs the MinIO connection test.</param>
+    /// <param name="timeoutSeconds">Optional timeout in seconds for the test; null means no timeout.</param>
+    /// <param name="ct">Cancellation token for the operation.</param>
+    /// <returns>
+    /// A <see cref="ConnectionTestResult"/> describing whether the connection succeeded and any diagnostic information; returns a failure result if the settings JSON is invalid.
+    /// </returns>
     private static async Task<ConnectionTestResult> TestMinioConnection(
         JsonElement settingsJson,
         MinioConnectionTester tester,
@@ -449,6 +463,12 @@ public static class SettingsEndpoints
     /// <param name="settingsJson">A JSON element containing SearchSettings to use for the connection test.</param>
     /// <param name="timeoutSeconds">Optional timeout in seconds for the connection test; null means no specific timeout.</param>
     /// <param name="ct">Cancellation token to cancel the test operation.</param>
+    /// <summary>
+    /// Tests connectivity for a cross-encoder provider using the provided SearchSettings JSON.
+    /// </summary>
+    /// <param name="settingsJson">Raw JSON representing the <see cref="SearchSettings"/> to use for the test.</param>
+    /// <param name="timeoutSeconds">Optional maximum time in seconds to allow the test to run; null to use the tester's default.</param>
+    /// <param name="ct">A cancellation token to cancel the connection test.</param>
     /// <returns>A <see cref="ConnectionTestResult"/> describing success or failure of the connection test.</returns>
     private static async Task<ConnectionTestResult> TestCrossEncoderConnection(
         JsonElement settingsJson,

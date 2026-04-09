@@ -184,6 +184,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         });
     }
 
+    /// <summary>
+    /// Configures EF Core mappings for ChunkEntity and maps it to the "chunks" table.
+    /// </summary>
+    /// <remarks>
+    /// Defines column mappings (including a stored tsvector computed column "search_vector"), indexes on DocumentId and ContainerId, a GIN index for full-text search on SearchVector, and a cascade delete relationship to DocumentEntity.
+    /// </remarks>
     private static void ConfigureChunks(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ChunkEntity>(entity =>
@@ -248,6 +254,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     /// <summary>
     /// Configures EF Core mapping for ChunkVectorEntity to the "chunk_vectors" table, including columns, indexes, and relationships.
     /// </summary>
+    /// <summary>
+    /// Configure EF Core mapping for ChunkVectorEntity.
+    /// </summary>
+    /// <remarks>
+    /// Maps ChunkVectorEntity to the "chunk_vectors" table, configures columns (including the PostgreSQL `vector` column for embeddings, `content_hash`, and `dimensions`), creates indexes (including a composite cache-lookup index filtered to rows where `content_hash` and `dimensions` are not null), and establishes foreign-key relationships to Chunk (one-to-one) and Document (many-to-one) with cascade delete behavior.
+    /// </remarks>
     /// <param name="modelBuilder">The ModelBuilder used to configure the ChunkVectorEntity mapping, column types, indexes, and foreign-key relationships.</param>
     private static void ConfigureChunkVectors(ModelBuilder modelBuilder)
     {

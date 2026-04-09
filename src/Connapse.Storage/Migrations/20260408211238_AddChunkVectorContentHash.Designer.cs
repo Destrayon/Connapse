@@ -25,7 +25,10 @@ namespace Connapse.Storage.Migrations
         /// <remarks>
         /// Defines entity mappings, columns, keys, indexes, relationships, PostgreSQL-specific annotations (including the `vector` extension and identity column strategy),
         /// computed columns, JSONB/tsvector/pgvector column types, and cascade delete behaviors used by the KnowledgeDbContext migration snapshot.
-        /// </remarks>
+        /// <summary>
+        /// Configures the EF Core model to match the database schema produced by the AddChunkVectorContentHash migration.
+        /// </summary>
+        /// <param name="modelBuilder">The model builder used to declare entities, properties, keys, indexes, and relationships for the target schema.</param>
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
