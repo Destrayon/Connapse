@@ -20,30 +20,7 @@ public class VoyageConnectionTester(IHttpClientFactory httpClientFactory, ILogge
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    /// <summary>
-    /// Tests connectivity to the Voyage AI Rerank API using the provided search settings.
-    /// </summary>
-    /// <param name="settings">A <see cref="SearchSettings"/> instance containing at minimum <c>CrossEncoderApiKey</c> and optional <c>CrossEncoderModel</c>.</param>
-    /// <param name="timeout">Optional request timeout; defaults to 10 seconds when not provided.</param>
-    /// <param name="ct">Cancellation token that, when signaled, cancels the test and results in an <see cref="OperationCanceledException"/> being thrown.</param>
-    /// <returns>
-    /// A <see cref="ConnectionTestResult"/> representing success or failure. On success the result includes metadata entries:
-    /// <c>model</c> (the rerank model used) and <c>provider</c> set to "Voyage".
-    /// On failure the result includes an <c>error</c> metadata entry with a descriptive message.
-    /// </returns>
-    /// <summary>
-    /// Tests connectivity to the Voyage AI Rerank API using the provided search settings.
-    /// </summary>
-    /// <remarks>
-    /// Performs a minimal rerank request to verify the API key and model are usable and reports timing and provider metadata on success; returns a failure result with error metadata on error or invalid input.
-    /// </remarks>
-    /// <param name="settings">A <see cref="SearchSettings"/> instance (provided as object) containing <c>CrossEncoderApiKey</c> and optional <c>CrossEncoderModel</c>. If <c>CrossEncoderApiKey</c> is missing or empty, a failure result is returned.</param>
-    /// <param name="timeout">Optional request timeout; if not provided a default timeout is used.</param>
-    /// <param name="ct">Cancellation token used to cancel the operation.</param>
-    /// <returns>
-    /// A <see cref="ConnectionTestResult"/> indicating success or failure. On success the result includes metadata entries for the chosen model and provider and the elapsed time; on failure the result includes an <c>error</c> metadata entry and the elapsed time.
-    /// </returns>
-    /// <exception cref="OperationCanceledException">Thrown when the provided <paramref name="ct"/> is canceled during the operation.</exception>
+    /// <inheritdoc />
     public async Task<ConnectionTestResult> TestConnectionAsync(
         object settings,
         TimeSpan? timeout = null,
