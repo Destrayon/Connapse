@@ -66,7 +66,9 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
         int? topN,
         CancellationToken ct = default)
     {
-        var model = _settings.CrossEncoderModel ?? "rerank-2.5-lite";
+        var model = string.IsNullOrWhiteSpace(_settings.CrossEncoderModel)
+            ? "rerank-2.5-lite"
+            : _settings.CrossEncoderModel;
 
         var request = new VoyageRerankRequest
         {
