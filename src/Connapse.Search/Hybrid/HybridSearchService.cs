@@ -106,8 +106,8 @@ public class HybridSearchService : IKnowledgeSearch
             }
             else
             {
-                _logger.LogWarning(
-                    "Configured reranker '{Reranker}' not found, using original ranking",
+                _logger.LogDebug(
+                    "Unknown reranker '{Reranker}' configured, treating as None",
                     rerankerName);
             }
         }
