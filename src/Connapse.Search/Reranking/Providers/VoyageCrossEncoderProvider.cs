@@ -55,7 +55,7 @@ internal class VoyageCrossEncoderProvider : ICrossEncoderProvider
 
         _logger.LogDebug("Voyage rerank: {Count} documents with model {Model}", documents.Count, model);
 
-        var response = await _httpClient.PostAsJsonAsync("/v1/rerank", request, JsonOptions, ct);
+        using var response = await _httpClient.PostAsJsonAsync("/v1/rerank", request, JsonOptions, ct);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<VoyageRerankResponse>(JsonOptions, ct)

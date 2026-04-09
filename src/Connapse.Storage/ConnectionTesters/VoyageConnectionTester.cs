@@ -67,6 +67,11 @@ public class VoyageConnectionTester(IHttpClientFactory httpClientFactory, ILogge
                 new Dictionary<string, object> { ["error"] = ex.Message },
                 stopwatch.Elapsed);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+            throw;
+        }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
             stopwatch.Stop();

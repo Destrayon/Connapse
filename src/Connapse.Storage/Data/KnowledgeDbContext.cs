@@ -277,6 +277,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Dimensions)
                 .HasColumnName("dimensions");
 
+            entity.HasIndex(e => new { e.ContentHash, e.ModelId, e.Dimensions })
+                .HasDatabaseName("idx_chunk_vectors_cache_lookup")
+                .HasFilter("\"content_hash\" IS NOT NULL AND \"dimensions\" IS NOT NULL");
+
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
 

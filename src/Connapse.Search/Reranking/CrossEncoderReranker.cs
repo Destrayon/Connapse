@@ -38,7 +38,8 @@ public class CrossEncoderReranker : ISearchReranker
 
         var settings = _searchSettingsMonitor.CurrentValue;
 
-        if (string.IsNullOrEmpty(settings.CrossEncoderModel))
+        var isVoyage = string.Equals(settings.CrossEncoderProvider, "Voyage", StringComparison.OrdinalIgnoreCase);
+        if (!isVoyage && string.IsNullOrEmpty(settings.CrossEncoderModel))
         {
             _logger.LogWarning("CrossEncoderModel not configured, returning original order");
             return hits;
