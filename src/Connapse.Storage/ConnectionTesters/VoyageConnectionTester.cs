@@ -20,6 +20,7 @@ public class VoyageConnectionTester(IHttpClientFactory httpClientFactory, ILogge
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    /// <inheritdoc />
     public async Task<ConnectionTestResult> TestConnectionAsync(
         object settings,
         TimeSpan? timeout = null,

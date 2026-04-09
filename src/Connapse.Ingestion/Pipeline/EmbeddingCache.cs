@@ -12,6 +12,9 @@ namespace Connapse.Ingestion.Pipeline;
 /// </summary>
 public class EmbeddingCache(KnowledgeDbContext context)
 {
+    /// <summary>
+    /// Returns cached embedding vectors for each chunk, or null where no cache hit exists.
+    /// </summary>
     public async Task<IReadOnlyList<float[]?>> GetCachedEmbeddingsAsync(
         IReadOnlyList<string> chunkContents,
         string modelId,
@@ -30,6 +33,9 @@ public class EmbeddingCache(KnowledgeDbContext context)
         return hashes.Select(h => cached.TryGetValue(h, out var v) ? v : null).ToList();
     }
 
+    /// <summary>
+    /// Computes a lowercase hex SHA-256 hash of the given content string.
+    /// </summary>
     public static string ComputeHash(string content)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(content));

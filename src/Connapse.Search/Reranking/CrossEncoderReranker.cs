@@ -28,6 +28,7 @@ public class CrossEncoderReranker : ISearchReranker
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public async Task<List<SearchHit>> RerankAsync(
         string query,
         List<SearchHit> hits,
