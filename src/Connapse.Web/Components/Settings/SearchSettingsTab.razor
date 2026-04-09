@@ -45,6 +45,14 @@
         </div>
 
         <div class="col-md-6">
+            <label class="form-label">Minimum Score</label>
+            <InputNumber @bind-Value="localSettings.MinimumScore" class="form-control" step="0.05" min="0" max="1" />
+            <small class="form-text text-muted">
+                Drop results below this score (0.0 = no filter, e.g. 0.2 to cut noise)
+            </small>
+        </div>
+
+        <div class="col-md-6">
             <div class="form-check mt-4">
                 <InputCheckbox @bind-Value="localSettings.AutoCut" class="form-check-input" id="autoCut" />
                 <label class="form-check-label" for="autoCut">
@@ -70,6 +78,7 @@
                     <option value="Cohere">Cohere Rerank</option>
                     <option value="Jina">Jina Reranker</option>
                     <option value="AzureAIFoundry">Azure AI Foundry</option>
+                    <option value="Voyage">Voyage AI</option>
                 </InputSelect>
             </div>
 
@@ -206,6 +215,7 @@
 @inject CohereConnectionTester CohereTester
 @inject JinaConnectionTester JinaTester
 @inject AzureAIFoundryConnectionTester AzureAIFoundryTester
+@inject VoyageConnectionTester VoyageTester
 @using Microsoft.Extensions.Options
 
 @code {
@@ -257,6 +267,7 @@
             "Cohere" => "rerank-v3.5",
             "Jina" => "jina-reranker-v3",
             "AzureAIFoundry" => null,
+            "Voyage" => "rerank-2.5-lite",
             _ => "BAAI/bge-reranker-large"
         };
 
@@ -292,6 +303,7 @@
                 "Cohere" => CohereTester,
                 "Jina" => JinaTester,
                 "AzureAIFoundry" => AzureAIFoundryTester,
+                "Voyage" => VoyageTester,
                 _ => TeiTester
             };
 

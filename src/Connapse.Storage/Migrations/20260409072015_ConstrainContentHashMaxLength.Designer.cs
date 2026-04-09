@@ -5,6 +5,7 @@ using System.Text.Json;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,19 +16,17 @@ using Pgvector;
 namespace Connapse.Storage.Migrations
 {
     [DbContext(typeof(KnowledgeDbContext))]
-    partial class KnowledgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260409072015_ConstrainContentHashMaxLength")]
+    partial class ConstrainContentHashMaxLength
     {
         /// <summary>
-        /// Configures the Entity Framework Core model for the KnowledgeDbContext, including PostgreSQL extensions, table mappings, columns, keys, indexes, and relationships.
+        /// Constructs the Entity Framework Core target model for this migration, configuring tables, columns, indexes, relationships, and database-specific annotations used to produce the migration snapshot.
         /// </summary>
         /// <summary>
-        /// Configures the Entity Framework Core model for KnowledgeDbContext.
+        /// Configures the Entity Framework Core model snapshot that represents the target database schema for this migration.
         /// </summary>
-        /// <remarks>
-        /// Defines model-wide annotations and PostgreSQL extensions, and configures entity mappings, columns, keys, indexes, computed columns, and relationships used by the context.
-        /// </remarks>
-        /// <param name="modelBuilder">The ModelBuilder used to construct entity mappings and model configuration.</param>
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <param name="modelBuilder">The ModelBuilder used to configure entity mappings, properties, indexes, computed columns, and relationships for the migration snapshot.</param>
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

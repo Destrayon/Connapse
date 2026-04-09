@@ -20,7 +20,13 @@ public static class ServiceCollectionExtensions
     /// - Ingestion pipeline and queue
     /// - Reindex service
     /// - Background worker
+    /// <summary>
+    /// Registers all services required for document ingestion into the provided DI container.
     /// </summary>
+    /// <summary>
+    /// Registers services required for document ingestion into the provided service collection.
+    /// </summary>
+    /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
     {
         // Register document parsers
@@ -36,6 +42,9 @@ public static class ServiceCollectionExtensions
 
         // Register ingestion queue (singleton for shared state)
         services.AddSingleton<IIngestionQueue, IngestionQueue>(sp => new IngestionQueue(capacity: 1000));
+
+        // Register embedding cache
+        services.AddScoped<EmbeddingCache>();
 
         // Register ingestion pipeline
         services.AddScoped<IKnowledgeIngester, IngestionPipeline>();

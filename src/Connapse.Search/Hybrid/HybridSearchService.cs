@@ -34,7 +34,19 @@ public class HybridSearchService : IKnowledgeSearch
 
     /// <summary>
     /// Performs hybrid search combining vector and keyword results.
+    /// <summary>
+    /// Performs a search using the provided query and options, selecting semantic, keyword, or hybrid execution based on runtime settings, then applies optional reranking, filtering, auto-cut, and top-K limiting.
     /// </summary>
+    /// <param name="query">The search text to execute. If null or whitespace, an empty SearchResult is returned immediately.</param>
+    /// <param name="options">Search runtime options (e.g., Mode, TopK, MinScore) that control execution and result limits.</param>
+    /// <param name="ct">A cancellation token to cancel the search operation.</param>
+    /// <summary>
+    /// Performs a search for the given query using semantic, keyword, or hybrid execution, optionally reranks and post-filters results, and returns the final ranked hits.
+    /// </summary>
+    /// <param name="query">The search text to execute; an empty or whitespace query returns an empty result.</param>
+    /// <param name="options">Execution options such as search mode, TopK, and MinScore.</param>
+    /// <param name="ct">Cancellation token to cancel the search operation.</param>
+    /// <returns>A SearchResult containing the final ranked and filtered hits, the total returned count, and the elapsed search time.</returns>
     public async Task<SearchResult> SearchAsync(
         string query,
         SearchOptions options,
@@ -106,8 +118,8 @@ public class HybridSearchService : IKnowledgeSearch
             }
             else
             {
-                _logger.LogWarning(
-                    "Configured reranker '{Reranker}' not found, using original ranking",
+                _logger.LogDebug(
+                    "Unknown reranker '{Reranker}' configured, treating as None",
                     rerankerName);
             }
         }

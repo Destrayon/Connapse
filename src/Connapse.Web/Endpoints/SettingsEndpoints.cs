@@ -17,6 +17,15 @@ public static class SettingsEndpoints
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>
+    /// Maps and configures settings-related HTTP endpoints under "/api/settings" and applies the "RequireAdmin" authorization policy.
+    /// </summary>
+    /// <param name="app">The endpoint route builder to attach the settings routes to.</param>
+    /// <summary>
+    /// Adds authenticated HTTP endpoints for managing and testing application settings under the "/api/settings" route.
+    /// </summary>
+    /// <param name="app">The endpoint route builder to extend with the settings endpoints.</param>
+    /// <returns>The same <see cref="IEndpointRouteBuilder"/> with the settings endpoints mapped.</returns>
     public static IEndpointRouteBuilder MapSettingsEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/settings").WithTags("Settings")
@@ -175,6 +184,7 @@ public static class SettingsEndpoints
             [FromServices] CohereConnectionTester cohereTester,
             [FromServices] JinaConnectionTester jinaTester,
             [FromServices] AzureAIFoundryConnectionTester azureAIFoundryTester,
+            [FromServices] VoyageConnectionTester voyageTester,
             [FromServices] MinioConnectionTester minioTester,
             CancellationToken ct) =>
         {
@@ -199,7 +209,7 @@ public static class SettingsEndpoints
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, openAiLlmTester, azureOpenAiLlmTester, anthropicTester, request.TimeoutSeconds, ct),
                     "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
-                    "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, request.TimeoutSeconds, ct),
+                    "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, voyageTester, request.TimeoutSeconds, ct),
                     "minio" => await TestMinioConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
                     _ => ConnectionTestResult.CreateFailure($"Category '{request.Category}' does not support connection testing")
                 };
@@ -423,6 +433,16 @@ public static class SettingsEndpoints
         var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
+    /// <summary>
+    /// Tests connectivity to a MinIO-compatible storage endpoint using the supplied settings JSON.
+    /// </summary>
+    /// <param name="settingsJson">A JSON element containing serialized Connapse.Storage.FileSystem.MinioOptions.</param>
+    /// <param name="tester">The service that performs the MinIO connection test.</param>
+    /// <param name="timeoutSeconds">Optional timeout in seconds for the test; null means no timeout.</param>
+    /// <param name="ct">Cancellation token for the operation.</param>
+    /// <returns>
+    /// A <see cref="ConnectionTestResult"/> describing whether the connection succeeded and any diagnostic information; returns a failure result if the settings JSON is invalid.
+    /// </returns>
     private static async Task<ConnectionTestResult> TestMinioConnection(
         JsonElement settingsJson,
         MinioConnectionTester tester,
@@ -437,12 +457,26 @@ public static class SettingsEndpoints
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 
+    /// <summary>
+    /// Tests the cross-encoder connection described by the supplied SearchSettings JSON, using the provider specified in SearchSettings.CrossEncoderProvider.
+    /// </summary>
+    /// <param name="settingsJson">A JSON element containing SearchSettings to use for the connection test.</param>
+    /// <param name="timeoutSeconds">Optional timeout in seconds for the connection test; null means no specific timeout.</param>
+    /// <param name="ct">Cancellation token to cancel the test operation.</param>
+    /// <summary>
+    /// Tests connectivity for a cross-encoder provider using the provided SearchSettings JSON.
+    /// </summary>
+    /// <param name="settingsJson">Raw JSON representing the <see cref="SearchSettings"/> to use for the test.</param>
+    /// <param name="timeoutSeconds">Optional maximum time in seconds to allow the test to run; null to use the tester's default.</param>
+    /// <param name="ct">A cancellation token to cancel the connection test.</param>
+    /// <returns>A <see cref="ConnectionTestResult"/> describing success or failure of the connection test.</returns>
     private static async Task<ConnectionTestResult> TestCrossEncoderConnection(
         JsonElement settingsJson,
         TeiConnectionTester teiTester,
         CohereConnectionTester cohereTester,
         JinaConnectionTester jinaTester,
         AzureAIFoundryConnectionTester azureAIFoundryTester,
+        VoyageConnectionTester voyageTester,
         int? timeoutSeconds,
         CancellationToken ct)
     {
@@ -457,6 +491,7 @@ public static class SettingsEndpoints
             "Cohere" => cohereTester,
             "Jina" => jinaTester,
             "AzureAIFoundry" => azureAIFoundryTester,
+            "Voyage" => voyageTester,
             _ => teiTester
         };
 

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,19 +16,17 @@ using Pgvector;
 namespace Connapse.Storage.Migrations
 {
     [DbContext(typeof(KnowledgeDbContext))]
-    partial class KnowledgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260409064111_AddChunkVectorCacheLookupIndex")]
+    partial class AddChunkVectorCacheLookupIndex
     {
         /// <summary>
-        /// Configures the Entity Framework Core model for the KnowledgeDbContext, including PostgreSQL extensions, table mappings, columns, keys, indexes, and relationships.
+        /// Builds the Entity Framework Core target model that this migration applies to the database.
         /// </summary>
         /// <summary>
-        /// Configures the Entity Framework Core model for KnowledgeDbContext.
+        /// Builds the EF Core model describing the migration's target database schema, including tables, columns, keys, indexes (including the chunk_vectors cache lookup index), computed columns, and relationships.
         /// </summary>
-        /// <remarks>
-        /// Defines model-wide annotations and PostgreSQL extensions, and configures entity mappings, columns, keys, indexes, computed columns, and relationships used by the context.
-        /// </remarks>
-        /// <param name="modelBuilder">The ModelBuilder used to construct entity mappings and model configuration.</param>
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <param name="modelBuilder">The ModelBuilder used to configure entities, properties, keys, indexes, computed columns, and relationships for the migration's target model.</param>
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -178,8 +177,7 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("container_id");
 
                     b.Property<string>("ContentHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("text")
                         .HasColumnName("content_hash");
 
                     b.Property<int?>("Dimensions")

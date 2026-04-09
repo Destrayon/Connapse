@@ -18,6 +18,9 @@ public class CrossEncoderReranker : ISearchReranker
 
     public string Name => "CrossEncoder";
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CrossEncoderReranker"/> with the required settings monitor, HTTP client factory, and logger.
+    /// </summary>
     public CrossEncoderReranker(
         IOptionsMonitor<SearchSettings> searchSettings,
         IHttpClientFactory httpClientFactory,
@@ -28,6 +31,7 @@ public class CrossEncoderReranker : ISearchReranker
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public async Task<List<SearchHit>> RerankAsync(
         string query,
         List<SearchHit> hits,
@@ -38,7 +42,8 @@ public class CrossEncoderReranker : ISearchReranker
 
         var settings = _searchSettingsMonitor.CurrentValue;
 
-        if (string.IsNullOrEmpty(settings.CrossEncoderModel))
+        var isVoyage = string.Equals(settings.CrossEncoderProvider, "Voyage", StringComparison.OrdinalIgnoreCase);
+        if (!isVoyage && string.IsNullOrEmpty(settings.CrossEncoderModel))
         {
             _logger.LogWarning("CrossEncoderModel not configured, returning original order");
             return hits;
@@ -113,11 +118,13 @@ public class CrossEncoderReranker : ISearchReranker
     {
         var httpClient = _httpClientFactory.CreateClient("CrossEncoder");
 
-        return settings.CrossEncoderProvider switch
+        var provider = settings.CrossEncoderProvider?.Trim().ToLowerInvariant();
+        return provider switch
         {
-            "Cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
-            "Jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
-            "AzureAIFoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
+            "cohere" => new CohereCrossEncoderProvider(httpClient, settings, _logger),
+            "jina" => new JinaCrossEncoderProvider(httpClient, settings, _logger),
+            "azureaifoundry" => new AzureAIFoundryCrossEncoderProvider(httpClient, settings, _logger),
+            "voyage" => new VoyageCrossEncoderProvider(httpClient, settings, _logger),
             _ => new TeiCrossEncoderProvider(httpClient, settings, _logger)
         };
     }

@@ -23,6 +23,16 @@ namespace Connapse.Storage.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers storage-related services into the DI container, including PostgreSQL/pgvector DbContexts, file systems (MinIO/local), embedding and LLM providers, stores, connectors, managed storage, vector utilities, and connection testers.
+    /// </summary>
+    /// <param name="configuration">Application configuration used to obtain the default database connection string and options for file system, MinIO, embedding, and LLM settings.</param>
+    /// <summary>
+    /// Registers storage-related services (database, file systems, embedding/LLM providers, stores, utilities, and connection testers) into the dependency injection container.
+    /// </summary>
+    /// <param name="services">The service collection to register storage services into.</param>
+    /// <param name="configuration">Configuration used to obtain connection strings and bind storage-related options (for example `DefaultConnection`, `KnowledgeFileSystemOptions`, and `MinioOptions`).</param>
+    /// <returns>The same <see cref="IServiceCollection"/> instance with the storage services registered.</returns>
     public static IServiceCollection AddConnapseStorage(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -156,6 +166,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CohereConnectionTester>();
         services.AddScoped<JinaConnectionTester>();
         services.AddScoped<AzureAIFoundryConnectionTester>();
+        services.AddScoped<VoyageConnectionTester>();
 
         // Cloud scope discovery
         services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();

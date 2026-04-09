@@ -5,6 +5,7 @@ using System.Text.Json;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -15,23 +16,24 @@ using Pgvector;
 namespace Connapse.Storage.Migrations
 {
     [DbContext(typeof(KnowledgeDbContext))]
-    partial class KnowledgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260408211238_AddChunkVectorContentHash")]
+    partial class AddChunkVectorContentHash
     {
         /// <summary>
-        /// Configures the Entity Framework Core model for the KnowledgeDbContext, including PostgreSQL extensions, table mappings, columns, keys, indexes, and relationships.
-        /// </summary>
-        /// <summary>
-        /// Configures the Entity Framework Core model for KnowledgeDbContext.
+        /// Configures the EF Core target model that represents the database schema after applying the AddChunkVectorContentHash migration.
         /// </summary>
         /// <remarks>
-        /// Defines model-wide annotations and PostgreSQL extensions, and configures entity mappings, columns, keys, indexes, computed columns, and relationships used by the context.
-        /// </remarks>
-        /// <param name="modelBuilder">The ModelBuilder used to construct entity mappings and model configuration.</param>
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// Defines entity mappings, columns, keys, indexes, relationships, PostgreSQL-specific annotations (including the `vector` extension and identity column strategy),
+        /// computed columns, JSONB/tsvector/pgvector column types, and cascade delete behaviors used by the KnowledgeDbContext migration snapshot.
+        /// <summary>
+        /// Configures the EF Core model to match the database schema produced by the AddChunkVectorContentHash migration.
+        /// </summary>
+        /// <param name="modelBuilder">The model builder used to declare entities, properties, keys, indexes, and relationships for the target schema.</param>
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.2")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -178,8 +180,7 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("container_id");
 
                     b.Property<string>("ContentHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasColumnType("text")
                         .HasColumnName("content_hash");
 
                     b.Property<int?>("Dimensions")
@@ -210,10 +211,6 @@ namespace Connapse.Storage.Migrations
 
                     b.HasIndex("ModelId")
                         .HasDatabaseName("idx_chunk_vectors_model_id");
-
-                    b.HasIndex("ContentHash", "ModelId", "Dimensions")
-                        .HasDatabaseName("idx_chunk_vectors_cache_lookup")
-                        .HasFilter("\"content_hash\" IS NOT NULL AND \"dimensions\" IS NOT NULL");
 
                     b.ToTable("chunk_vectors", (string)null);
                 });

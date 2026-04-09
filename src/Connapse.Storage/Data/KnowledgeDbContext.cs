@@ -184,6 +184,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         });
     }
 
+    /// <summary>
+    /// Configures EF Core mappings for ChunkEntity and maps it to the "chunks" table.
+    /// </summary>
+    /// <remarks>
+    /// Defines column mappings (including a stored tsvector computed column "search_vector"), indexes on DocumentId and ContainerId, a GIN index for full-text search on SearchVector, and a cascade delete relationship to DocumentEntity.
+    /// </remarks>
     private static void ConfigureChunks(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ChunkEntity>(entity =>
@@ -270,6 +276,17 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.ModelId)
                 .HasColumnName("model_id")
                 .IsRequired();
+
+            entity.Property(e => e.ContentHash)
+                .HasColumnName("content_hash")
+                .HasMaxLength(64);
+
+            entity.Property(e => e.Dimensions)
+                .HasColumnName("dimensions");
+
+            entity.HasIndex(e => new { e.ContentHash, e.ModelId, e.Dimensions })
+                .HasDatabaseName("idx_chunk_vectors_cache_lookup")
+                .HasFilter("\"content_hash\" IS NOT NULL AND \"dimensions\" IS NOT NULL");
 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
