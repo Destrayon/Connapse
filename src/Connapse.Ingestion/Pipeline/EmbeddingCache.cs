@@ -23,12 +23,16 @@ public class EmbeddingCache(KnowledgeDbContext context)
     {
         var hashes = chunkContents.Select(ComputeHash).ToList();
 
-        var cached = await context.ChunkVectors
+        var rows = await context.ChunkVectors
             .Where(cv => hashes.Contains(cv.ContentHash!)
                          && cv.ModelId == modelId
                          && cv.Dimensions == dimensions)
             .Select(cv => new { cv.ContentHash, cv.Embedding })
-            .ToDictionaryAsync(cv => cv.ContentHash!, cv => cv.Embedding.Memory.ToArray(), ct);
+            .ToListAsync(ct);
+
+        var cached = rows
+            .GroupBy(cv => cv.ContentHash!)
+            .ToDictionary(g => g.Key, g => g.First().Embedding.Memory.ToArray());
 
         return hashes.Select(h => cached.TryGetValue(h, out var v) ? v : null).ToList();
     }
