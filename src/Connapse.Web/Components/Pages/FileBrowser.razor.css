@@ -70,7 +70,7 @@
 .drop-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(139, 92, 246, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
     border: 2px dashed var(--accent);
     border-radius: 10px;
     z-index: 10;
@@ -183,7 +183,7 @@
 .file-row {
     cursor: pointer;
     transition: background-color 0.1s;
-    border-bottom: 1px solid rgba(42, 42, 62, 0.4);
+    border-bottom: 1px solid color-mix(in srgb, var(--bs-border-color) 60%, transparent);
 }
 
 .file-row:last-child {
@@ -255,11 +255,11 @@ th.col-check::before {
 }
 
 .row-selected {
-    background: rgba(139, 92, 246, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .row-selected:hover {
-    background: rgba(139, 92, 246, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* ===== Selection Toolbar ===== */
@@ -270,7 +270,7 @@ th.col-check::before {
     gap: 0.75rem;
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--bs-border-color);
-    background: rgba(139, 92, 246, 0.06);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .selection-count {
@@ -307,7 +307,7 @@ th.col-check::before {
     z-index: 1030;
     display: flex;
     flex-direction: column;
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    box-shadow: -4px 0 20px var(--shadow-md);
 }
 
 .detail-panel-header {
@@ -335,7 +335,7 @@ th.col-check::before {
     flex-direction: column;
     gap: 0.15rem;
     padding: 0.6rem 0;
-    border-bottom: 1px solid rgba(42, 42, 62, 0.3);
+    border-bottom: 1px solid color-mix(in srgb, var(--bs-border-color) 45%, transparent);
 }
 
 .detail-row:last-child {
@@ -376,7 +376,7 @@ th.col-check::before {
 .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--shadow-overlay);
     z-index: 1040;
 }
 
