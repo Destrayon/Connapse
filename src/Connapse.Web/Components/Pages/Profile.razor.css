@@ -9,7 +9,7 @@
 }
 
 .provider-connected {
-    border-color: rgba(34, 197, 94, 0.3);
+    border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
 }
 
 ::deep .card-footer {

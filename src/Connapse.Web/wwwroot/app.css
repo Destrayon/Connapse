@@ -1,33 +1,76 @@
-/* ===== Connapse Dark Theme with Purple Accents ===== */
+/* ===== Connapse Theme System ===== */
+/* Tier 1: Primitive palette — change these to rebrand */
 
-:root, [data-bs-theme="dark"] {
+:root {
+    --palette-accent-600: #7c3aed;
+    --palette-accent-500: #8b5cf6;
+    --palette-accent-400: #a78bfa;
+    --palette-accent-300: #c4b5fd;
+
+    --palette-surface-950: #0c0c14;
+    --palette-surface-900: #13111c;
+    --palette-surface-850: #151520;
+    --palette-surface-800: #1a1a28;
+    --palette-surface-700: #222236;
+    --palette-surface-600: #252538;
+    --palette-surface-border: #2a2a3e;
+    --palette-surface-muted: #8b89a0;
+
+    --palette-text-primary: #e4e2ee;
+    --palette-text-nav: #b0aec0;
+
+    --palette-error: #ef4444;
+    --palette-success: #22c55e;
+
+    --palette-reconnect-btn: #6b9ed2;
+    --palette-reconnect-btn-hover: #3b6ea2;
+    --palette-reconnect-ring: #0087ff;
+
+    --palette-star-from: #bc8cff;
+    --palette-star-to: #7c3aed;
+}
+
+/* Tier 2: Semantic tokens — components reference these */
+
+[data-bs-theme="dark"] {
     /* Bootstrap primary overrides */
-    --bs-primary: #8b5cf6;
+    --bs-primary: var(--palette-accent-500);
     --bs-primary-rgb: 139, 92, 246;
-    --bs-link-color: #a78bfa;
+    --bs-link-color: var(--palette-accent-400);
     --bs-link-color-rgb: 167, 139, 250;
-    --bs-link-hover-color: #c4b5fd;
+    --bs-link-hover-color: var(--palette-accent-300);
     --bs-link-hover-color-rgb: 196, 181, 253;
 
     /* Body */
-    --bs-body-bg: #0c0c14;
-    --bs-body-color: #e4e2ee;
+    --bs-body-bg: var(--palette-surface-950);
+    --bs-body-color: var(--palette-text-primary);
 
     /* Surfaces */
-    --bs-secondary-bg: #1a1a28;
-    --bs-tertiary-bg: #151520;
-    --bs-border-color: #2a2a3e;
+    --bs-secondary-bg: var(--palette-surface-800);
+    --bs-tertiary-bg: var(--palette-surface-850);
+    --bs-border-color: var(--palette-surface-border);
 
     /* Custom theme tokens */
-    --surface: #1a1a28;
-    --surface-hover: #222236;
-    --surface-elevated: #252538;
-    --accent: #8b5cf6;
-    --accent-hover: #a78bfa;
-    --accent-subtle: rgba(139, 92, 246, 0.10);
-    --accent-muted: rgba(139, 92, 246, 0.25);
-    --text-muted: #8b89a0;
-    --sidebar-bg: #13111c;
+    --surface: var(--palette-surface-800);
+    --surface-hover: var(--palette-surface-700);
+    --surface-elevated: var(--palette-surface-600);
+    --accent: var(--palette-accent-500);
+    --accent-hover: var(--palette-accent-400);
+    --accent-subtle: color-mix(in srgb, var(--accent) 10%, transparent);
+    --accent-muted: color-mix(in srgb, var(--accent) 25%, transparent);
+    --text-muted: var(--palette-surface-muted);
+    --text-nav: var(--palette-text-nav);
+    --sidebar-bg: var(--palette-surface-900);
+
+    /* Semantic colors */
+    --color-error: var(--palette-error);
+    --color-success: var(--palette-success);
+
+    /* Shadows */
+    --shadow-sm: rgba(0, 0, 0, 0.2);
+    --shadow-md: rgba(0, 0, 0, 0.3);
+    --shadow-lg: rgba(0, 0, 0, 0.4);
+    --shadow-overlay: rgba(0, 0, 0, 0.6);
 }
 
 html, body {
@@ -49,8 +92,8 @@ a:hover, .btn-link:hover {
     --bs-btn-border-color: var(--accent);
     --bs-btn-hover-bg: var(--accent-hover);
     --bs-btn-hover-border-color: var(--accent-hover);
-    --bs-btn-active-bg: #7c3aed;
-    --bs-btn-active-border-color: #7c3aed;
+    --bs-btn-active-bg: var(--palette-accent-600);
+    --bs-btn-active-border-color: var(--palette-accent-600);
     --bs-btn-disabled-bg: var(--accent);
     --bs-btn-disabled-border-color: var(--accent);
     --bs-btn-disabled-opacity: 0.5;
@@ -138,15 +181,15 @@ h1:focus {
 /* ===== Validation ===== */
 
 .valid.modified:not([type=checkbox]) {
-    outline: 1px solid #22c55e;
+    outline: 1px solid var(--color-success);
 }
 
 .invalid {
-    outline: 1px solid #ef4444;
+    outline: 1px solid var(--color-error);
 }
 
 .validation-message {
-    color: #ef4444;
+    color: var(--color-error);
 }
 
 /* ===== Error Boundary ===== */

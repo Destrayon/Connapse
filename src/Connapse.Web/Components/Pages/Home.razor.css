@@ -113,7 +113,7 @@
     font-weight: 500;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
-    background: rgba(139, 92, 246, 0.15);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
     color: var(--accent);
     margin-bottom: 0.5rem;
     letter-spacing: 0.02em;
@@ -146,7 +146,7 @@
 .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--shadow-overlay);
     z-index: 1040;
 }
 

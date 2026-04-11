@@ -62,7 +62,7 @@
                         </div>
                         @if (awsIdentity is not null)
                         {
-                            <span class="badge rounded-pill" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);">
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
                                 <span class="bi-check-circle-fill me-1"></span>Connected
                             </span>
                         }
@@ -83,7 +83,7 @@
                         <div class="rounded-3 p-3 mb-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
                             <p class="small mb-2">Open the link below and enter this code:</p>
                             <div class="d-flex align-items-center justify-content-center mb-2">
-                                <code style="font-size: 1.4rem; letter-spacing: 0.15em; padding: 0.5rem 1rem; background: rgba(0,0,0,0.2); border-radius: 0.5rem;">
+                                <code style="font-size: 1.4rem; letter-spacing: 0.15em; padding: 0.5rem 1rem; background: var(--shadow-sm); border-radius: 0.5rem;">
                                     @awsDeviceAuth.UserCode
                                 </code>
                             </div>
@@ -195,7 +195,7 @@
                         </div>
                         @if (azureIdentity is not null)
                         {
-                            <span class="badge rounded-pill" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3);">
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
                                 <span class="bi-check-circle-fill me-1"></span>Connected
                             </span>
                         }

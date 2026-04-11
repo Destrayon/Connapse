@@ -88,7 +88,7 @@
 }
 
 .source-badge {
-    background: rgba(139, 92, 246, 0.2);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
     color: var(--accent-hover);
     padding: 0.25rem 0.75rem;
     border-radius: 4px;

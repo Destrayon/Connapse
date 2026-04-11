@@ -12,7 +12,7 @@
 }
 
 .navbar-toggler:checked {
-    background-color: rgba(139, 92, 246, 0.3);
+    background-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .top-row {
@@ -52,7 +52,7 @@
 }
 
 .nav-item ::deep .nav-link {
-    color: #b0aec0;
+    color: var(--text-nav);
     background: none;
     border: none;
     border-radius: 6px;
