@@ -284,6 +284,16 @@ app.MapRazorComponents<App>()
 // Used by integration tests to replace Task.Delay(2000) startup waits.
 app.MapGet("/health", () => Results.Ok());
 
+// Server info — lets CLI detect whether it's talking to Cloud or self-hosted
+app.MapGet("/api/v1/info", () => Results.Json(new
+{
+    edition = "self-hosted",
+    version = typeof(Program).Assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion ?? "0.0.0",
+    features = new[] { "mcp", "connectors", "agents" },
+})).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
+
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
 var api = app.MapGroup("").DisableAntiforgery()
