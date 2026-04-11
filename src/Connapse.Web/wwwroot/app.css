@@ -25,6 +25,9 @@
     --palette-reconnect-btn: #6b9ed2;
     --palette-reconnect-btn-hover: #3b6ea2;
     --palette-reconnect-ring: #0087ff;
+
+    --palette-star-from: #bc8cff;
+    --palette-star-to: #7c3aed;
 }
 
 /* Tier 2: Semantic tokens — components reference these */
