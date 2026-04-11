@@ -292,7 +292,7 @@ app.MapGet("/api/v1/info", () => Results.Json(new
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
         ?.InformationalVersion ?? "0.0.0",
     features = new[] { "mcp", "connectors", "agents" },
-})).AllowAnonymous();
+})).AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy);
 
 // Map API endpoints — antiforgery is disabled for all API routes because they
 // authenticate via JWT / PAT bearer tokens, not browser form submissions.
