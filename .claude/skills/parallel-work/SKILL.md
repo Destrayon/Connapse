@@ -190,8 +190,7 @@ src/
 ├── Connapse.Identity/     # Auth: Identity, PAT, JWT, RBAC
 ├── Connapse.Ingestion/    # Document parsing, chunking, embedding
 ├── Connapse.Search/       # Vector search, hybrid search, reranking
-├── Connapse.Storage/      # Vector DB, document store, connectors
-└── Connapse.CLI/          # Command-line interface
+└── Connapse.Storage/      # Vector DB, document store, connectors
 ```
 
 ## When Done

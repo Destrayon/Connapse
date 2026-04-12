@@ -167,9 +167,10 @@ Focus on:
 - All endpoint files (`Connapse.Web/Endpoints/*.cs`) — find undocumented endpoints, required params, auth attributes
 - Blazor pages (`Connapse.Web/Components/Pages/**/*.razor`) — find undocumented pages
 - MCP tools (`Connapse.Web/Mcp/McpTools.cs`) — find undocumented tools
-- CLI commands (`Connapse.CLI/`) — identify all commands and flags
 - Auth and identity (`Connapse.Identity/`) — registration flow, role checks, token lifecycle
 - Program.cs — middleware, env-specific behavior, admin seeding logic
+
+The `connapse` CLI lives in a separate repo (https://github.com/Destrayon/connapse-cli) and has its own release gatekeeper — it is not in scope for this server release.
 
 Produce a **code-vs-docs diff**: features in code but not docs, features in docs but questionable in code, deployment paths not tested.
 
