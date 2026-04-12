@@ -10,102 +10,6 @@ permissions:
   packages: write   # needed to push Docker images to ghcr.io
 
 jobs:
-  build-cli:
-    name: Build CLI (${{ matrix.rid }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - rid: win-x64
-            os: windows-latest
-            artifact: connapse.exe
-          - rid: linux-x64
-            os: ubuntu-latest
-            artifact: connapse
-          - rid: osx-x64
-            os: macos-latest
-            artifact: connapse
-          - rid: osx-arm64
-            os: macos-latest
-            artifact: connapse
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Publish CLI (${{ matrix.rid }})
-        run: >
-          dotnet publish src/Connapse.CLI/Connapse.CLI.csproj
-          --configuration Release
-          --runtime ${{ matrix.rid }}
-          --self-contained true
-          -p:PublishSingleFile=true
-          -p:PublishTrimmed=true
-          -p:EnableCompressionInSingleFile=true
-          --output publish/${{ matrix.rid }}
-
-      - name: Rename binary (non-Windows)
-        if: matrix.rid != 'win-x64'
-        run: mv publish/${{ matrix.rid }}/connapse publish/${{ matrix.rid }}/connapse-cli-${{ matrix.rid }}
-
-      - name: Rename binary (Windows)
-        if: matrix.rid == 'win-x64'
-        run: Rename-Item publish/${{ matrix.rid }}/connapse.exe connapse-cli-${{ matrix.rid }}.exe
-        shell: pwsh
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: connapse-cli-${{ matrix.rid }}
-          path: publish/${{ matrix.rid }}/connapse-cli-${{ matrix.rid }}*
-          retention-days: 1
-
-  publish-nuget:
-    name: Publish NuGet global tool
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Pack NuGet tool
-        run: >
-          dotnet pack src/Connapse.CLI/Connapse.CLI.csproj
-          --configuration Release
-          -p:Version=${{ steps.version.outputs.VERSION }}
-          --output nupkgs
-
-      - name: Upload nupkg artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: connapse-nupkg
-          path: nupkgs/*.nupkg
-          retention-days: 1
-
-      - name: Push to NuGet.org
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "NUGET_API_KEY not set — skipping NuGet publish"
-            exit 0
-          fi
-          dotnet nuget push nupkgs/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
-
   build-docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest
@@ -164,14 +68,13 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-cli, publish-nuget, package-release]
+    needs: [package-release]
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: connapse-*
-          # Matches: connapse-cli-*, connapse-docker, connapse-nupkg
           merge-multiple: true
           path: release-assets
 
@@ -195,31 +98,11 @@ jobs:
 
             **Docker image**: `ghcr.io/destrayon/connapse:${{ github.ref_name }}`
 
-            ## CLI binary (no .NET required)
+            ## Connapse CLI
 
-            Download the binary for your platform and add it to your PATH:
-            - **Windows**: `connapse-cli-win-x64.exe`
-            - **Linux**: `connapse-cli-linux-x64`
-            - **macOS (Intel)**: `connapse-cli-osx-x64`
-            - **macOS (Apple Silicon)**: `connapse-cli-osx-arm64`
-
-            ```bash
-            # Linux / macOS
-            chmod +x connapse-cli-linux-x64
-            sudo mv connapse-cli-linux-x64 /usr/local/bin/connapse
-            ```
-
-            ## .NET Global Tool (requires .NET 10 SDK)
-            ```bash
-            dotnet tool install -g Connapse.CLI --version ${{ github.ref_name }}
-            ```
-
-            ## Getting started
-            ```bash
-            connapse auth login        # authenticate with your Connapse server
-            connapse search "query"    # search your knowledge base
-            connapse --help            # see all commands
-            ```
+            The command-line client has moved to its own repository and
+            versioning cadence. See [connapse-cli](https://github.com/Destrayon/connapse-cli)
+            for install instructions and release downloads.
           files: release-assets/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
