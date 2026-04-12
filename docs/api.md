@@ -1164,97 +1164,18 @@ Failures:
 
 ## CLI
 
-The `connapse` CLI is a self-contained tool for managing Connapse from the command line.
+The `connapse` command-line client lives in its own repository: [Destrayon/connapse-cli](https://github.com/Destrayon/connapse-cli). Install via:
 
-### Installation
-
-**Option A: .NET Global Tool** (requires .NET 10):
 ```bash
 dotnet tool install -g Connapse.CLI
+# or: download a binary from https://github.com/Destrayon/connapse-cli/releases/latest
 ```
 
-**Option B: Native Binary** (no .NET required):
-Download the self-contained binary for your platform from [GitHub Releases](https://github.com/Destrayon/Connapse/releases):
-- `connapse-cli-win-x64.exe`
-- `connapse-cli-linux-x64`
-- `connapse-cli-osx-x64`
-- `connapse-cli-osx-arm64`
-
-Binaries are published automatically on version tags via GitHub Actions.
-
----
-
-### Authentication Commands
-
-Before using other CLI commands, authenticate to store credentials locally (`~/.connapse/credentials.json`).
+See the [connapse-cli README](https://github.com/Destrayon/connapse-cli#readme) for the full command reference and authentication flow.
 
 ```bash
-# Log in — opens browser for OAuth 2.1 PKCE flow
-connapse auth login [--url https://your-server.com]
-
-# Log in — headless/SSH fallback (email + password prompt)
-connapse auth login --url https://your-server.com --no-browser
-
-# Log out — removes stored credentials
-connapse auth logout
-
-# Show current identity
-connapse auth whoami
-
-# Create a named PAT (displayed once)
-connapse auth pat create "CI Token" [--expires 2027-01-01]
-
-# List all your PATs
-connapse auth pat list
-
-# Revoke a PAT by ID
-connapse auth pat revoke <pat-guid>
-```
-
-**Login flow**: `connapse auth login` opens a browser to the Connapse OAuth consent page (`/oauth/authorize`) using PKCE (RFC 7636). A local loopback listener on a random port receives the authorization code callback, which is exchanged for a JWT access token + refresh token via `POST /oauth/token`. Tokens are stored locally and auto-injected into all subsequent API requests as `Authorization: Bearer`. The CLI automatically refreshes expired tokens using the stored refresh token.
-
-**Headless fallback**: `connapse auth login --no-browser` prompts for email + password, calls `POST /api/v1/auth/token`, and stores the JWT directly. No refresh token is available in this mode.
-
----
-
-### Container Commands
-
-```bash
-# Create a container
-connapse container create <name> [--description "..."]
-
-# List all containers
-connapse container list
-
-# Delete an empty container
-connapse container delete <name>
-
-# Show container statistics
-connapse container stats <name>
-```
-
----
-
-### File Commands
-
-```bash
-# Upload a file or folder into a container
-connapse upload <path> --container <name> [--destination /folder/] [--strategy Semantic]
-
-# List files and folders in a container
-connapse files list --container <name> [--path <folder>]
-
-# Get the full text content of a file
-connapse files get --container <name> --file <id-or-path>
-
-# Delete a file by ID
-connapse files delete --container <name> --file <id>
-
-# Search within a container
-connapse search "<query>" --container <name> [--mode Hybrid] [--top 10] [--path /folder/] [--min-score 0.5]
-
-# Reindex a container
-connapse reindex --container <name> [--force] [--no-detect-changes]
+connapse auth login --server https://your-server
+connapse --help
 ```
 
 ---

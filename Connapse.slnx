@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
-    <Project Path="src/Connapse.CLI/Connapse.CLI.csproj" />
     <Project Path="src/Connapse.Core/Connapse.Core.csproj" />
     <Project Path="src/Connapse.Identity/Connapse.Identity.csproj" />
     <Project Path="src/Connapse.Ingestion/Connapse.Ingestion.csproj" />

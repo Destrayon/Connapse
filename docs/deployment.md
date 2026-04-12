@@ -266,12 +266,11 @@ dotnet format
 
 ### CLI Setup (Development)
 
-```bash
-# Authenticate against your local dev server
-connapse auth login --url https://localhost:5001
+Install the standalone [connapse-cli](https://github.com/Destrayon/connapse-cli) and point it at your local dev server:
 
-# Or run directly from source
-dotnet run --project src/Connapse.CLI -- auth login --url https://localhost:5001
+```bash
+dotnet tool install -g Connapse.CLI
+connapse auth login --server https://localhost:5001
 ```
 
 ---

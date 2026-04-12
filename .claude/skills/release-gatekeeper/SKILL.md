@@ -1,6 +1,6 @@
 ---
 name: release-gatekeeper
-description: "End-to-end release validation for Connapse — the 'final boss' before any version ships. Downloads the latest alpha from GitHub Releases, deploys an isolated Docker instance (separate from production), installs the CLI without touching the existing install, then systematically tests every feature: UI via Playwright, API via curl/REST, CLI commands, MCP tools, search quality, security testing, boundary conditions, and adversarial inputs. Produces a structured go/no-go release decision with evidence. Use this skill whenever someone says: release test, release validation, release gatekeeper, ready to ship, final QA, pre-release check, validate alpha, test the release, ship it, go/no-go, release candidate testing, end-to-end release test, or wants to verify a Connapse build is ready for public release."
+description: "End-to-end release validation for Connapse — the 'final boss' before any version ships. Downloads the latest alpha from GitHub Releases, deploys an isolated Docker instance (separate from production), then systematically tests every feature: UI via Playwright, API via curl/REST, MCP tools, search quality, security testing, boundary conditions, and adversarial inputs. If the release under test also bundles the standalone connapse-cli, adds CLI install + API/CLI parity gates. Produces a structured go/no-go release decision with evidence. Use this skill whenever someone says: release test, release validation, release gatekeeper, ready to ship, final QA, pre-release check, validate alpha, test the release, ship it, go/no-go, release candidate testing, end-to-end release test, or wants to verify a Connapse build is ready for public release."
 ---
 
 # Release Gatekeeper
@@ -117,7 +117,7 @@ Or use Python scripts for anything involving JSON request bodies.
 ## Reference Files
 
 Read these based on your current phase:
-- `references/setup-guide.md` — Docker isolation, CLI installation (including credential pre-seeding for non-interactive CLI testing), teardown
+- `references/setup-guide.md` — Docker isolation, teardown, and CLI installation + credential pre-seeding (only relevant on bundled releases)
 - `references/test-checklist.md` — Functional test matrix with scoring weights and mutation testing patterns
 - `references/api-surface.md` — Known API surface baseline (compare against what you discover)
 - `references/security-tests.md` — **74 security test cases** across auth bypass, IDOR, injection, file upload, CORS, rate limiting, MCP security
@@ -167,9 +167,15 @@ Focus on:
 - All endpoint files (`Connapse.Web/Endpoints/*.cs`) — find undocumented endpoints, required params, auth attributes
 - Blazor pages (`Connapse.Web/Components/Pages/**/*.razor`) — find undocumented pages
 - MCP tools (`Connapse.Web/Mcp/McpTools.cs`) — find undocumented tools
-- CLI commands (`Connapse.CLI/`) — identify all commands and flags
 - Auth and identity (`Connapse.Identity/`) — registration flow, role checks, token lifecycle
 - Program.cs — middleware, env-specific behavior, admin seeding logic
+
+**Server-only vs bundled releases.** The `connapse` CLI lives in its own repo (https://github.com/Destrayon/connapse-cli) with its own release cadence. Decide at the start of the run which mode you're in:
+
+- **Server-only release** (default — no CLI assets attached to the GitHub release): skip Phase 2 entirely; drop CLI from the Phase 3 testing surfaces; use the server-only scoring table in Phase 6 (Critical Path weight becomes 35%, no API/CLI Parity row).
+- **Bundled release** (rare — the release notes or assets include CLI binaries): run every phase as written, including CLI install, CLI smoke-tests, and API/CLI parity scoring.
+
+State the mode explicitly in the run log before Phase 0.
 
 Produce a **code-vs-docs diff**: features in code but not docs, features in docs but questionable in code, deployment paths not tested.
 
@@ -195,9 +201,11 @@ Follow `references/setup-guide.md`. Test two deployment paths:
    ```
    Document any missing headers as early findings.
 
-### Phase 2: Install CLI (Isolated)
+### Phase 2: Install CLI (Isolated) — BUNDLED RELEASES ONLY
 
-Download the native binary from the GitHub release. **Use credential pre-seeding** (documented in `references/setup-guide.md`) to enable non-interactive CLI testing:
+**Skip this entire phase for server-only releases** (the default). The CLI has its own repository (https://github.com/Destrayon/connapse-cli) and its own release gatekeeper. Only run Phase 2 when the Connapse server release under test explicitly bundles CLI binaries.
+
+If this is a bundled release, download the native binary from the GitHub release. **Use credential pre-seeding** (documented in `references/setup-guide.md`) to enable non-interactive CLI testing:
 1. Get a PAT via the API (use Python urllib, not curl with jq)
 2. Set `USERPROFILE` to an isolated directory
 3. Write `credentials.json` to the isolated `~/.connapse/` path
@@ -209,13 +217,13 @@ Download the native binary from the GitHub release. **Use credential pre-seeding
 
 Work through `references/test-checklist.md` systematically. For each test:
 1. State what you're testing and why
-2. Execute via the appropriate surface (UI, API, CLI, MCP)
+2. Execute via the appropriate surface (UI, API, MCP — plus CLI on bundled releases)
 3. **Capture the full response body** as evidence (not just the status code)
 4. **Add a negative counterpart** — verify the system rejects invalid input
 5. **Cross-validate** — if API says 201, verify the resource exists via a separate GET
 6. Record pass/fail with confidence score (1.0 = verified with evidence, 0.5 = ambiguous, 0.0 = failed)
 
-**Testing surfaces:** API (curl or Python urllib), UI (Playwright snapshots preferred over screenshots — 27K vs 114K tokens), CLI (isolated binary with pre-seeded credentials), MCP (Connapse MCP tools or REST endpoint).
+**Testing surfaces:** API (curl or Python urllib), UI (Playwright snapshots preferred over screenshots — 27K vs 114K tokens), MCP (Connapse MCP tools or REST endpoint). **Bundled releases only:** also test CLI via the isolated binary with pre-seeded credentials from Phase 2.
 
 **Test ordering:** Auth → Containers → Files → Search → Bulk Ops → Users → Agents → Settings → Connectors → New features → Cross-surface consistency → Error handling → Documentation accuracy.
 
@@ -321,7 +329,19 @@ Use **confidence-weighted scoring** instead of simple pass/fail:
 | 0.25 | Likely failing but inconclusive |
 | 0.0 | Definitively failed |
 
-**Scoring categories:**
+**Scoring categories (server-only release — default):**
+
+| Category | Weight |
+|----------|--------|
+| Critical Path (upload → search → results) | 35% |
+| Security | 20% |
+| Data Integrity | 15% |
+| Setup & Install | 10% |
+| Error Handling & Boundaries | 10% |
+| Documentation Accuracy | 5% |
+| Performance | 5% |
+
+**Scoring categories (bundled release — CLI assets attached):**
 
 | Category | Weight |
 |----------|--------|
@@ -365,12 +385,13 @@ Present your verdict:
 **Overall Score**: {score}%
 
 ## Score Breakdown
+*(Server-only release shape below. For a bundled release, use Critical Path 25% and insert `| API/CLI Parity | 10% | {x}% | {conf} | {y}% |` — see Phase 6.)*
+
 | Category | Weight | Score | Confidence | Weighted |
 |---|---|---|---|---|
-| Critical Path | 25% | {x}% | {conf} | {y}% |
+| Critical Path | 35% | {x}% | {conf} | {y}% |
 | Security | 20% | {x}% | {conf} | {y}% |
 | Data Integrity | 15% | {x}% | {conf} | {y}% |
-| API/CLI Parity | 10% | {x}% | {conf} | {y}% |
 | Setup & Install | 10% | {x}% | {conf} | {y}% |
 | Error Handling & Boundaries | 10% | {x}% | {conf} | {y}% |
 | Documentation Accuracy | 5% | {x}% | {conf} | {y}% |
@@ -401,7 +422,7 @@ All test artifacts saved to: {workspace_path}
 
 Ask the user before teardown. Then:
 1. `docker compose -p connapse-e2e-test down -v`
-2. Remove test CLI binary
+2. Remove test CLI binary (bundled releases only)
 3. Verify production is still running
 4. Keep workspace for review
 

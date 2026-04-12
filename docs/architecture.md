@@ -70,8 +70,10 @@ src/
 ├── Connapse.Ingestion/    # Document parsing, chunking, pipeline orchestration
 ├── Connapse.Search/       # Vector search, keyword search, hybrid fusion
 ├── Connapse.Storage/      # Database, vector store, object storage, settings
-├── Connapse.Agents/       # (Planned) Agent orchestration, tools, memory
-└── Connapse.CLI/          # Command-line interface (auth, container mgmt, upload, search)
+└── Connapse.Agents/       # (Planned) Agent orchestration, tools, memory
+
+# The `connapse` CLI lives in a separate repository:
+# https://github.com/Destrayon/connapse-cli
 
 tests/
 ├── Connapse.Core.Tests/           # Unit tests (parsers, chunkers, fusion, search)
@@ -101,12 +103,9 @@ Storage → Core
        → AWSSDK.S3, AWSSDK.SSOAdmin, AWSSDK.SSOOIDC
        → Azure.Storage.Blobs, Azure.Identity
        → OpenAI, Azure.AI.OpenAI, Anthropic
-
-CLI → Core
-   (no longer references Identity, Ingestion, Search, or Storage — uses HTTP API only)
 ```
 
-**Principle**: Core has no dependencies. All projects reference Core. Cross-layer dependencies flow downward or laterally, never upward. `Connapse.CLI` is a thin HTTP client and does not reference domain projects directly.
+**Principle**: Core has no dependencies. All projects reference Core. Cross-layer dependencies flow downward or laterally, never upward.
 
 ## Core Abstractions
 

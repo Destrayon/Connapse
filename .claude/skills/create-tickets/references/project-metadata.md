@@ -63,8 +63,7 @@ src/
 ├── Connapse.Ingestion/    # Document parsing, chunking, embedding pipeline
 ├── Connapse.Search/       # Vector search, hybrid search, reranking
 ├── Connapse.Agents/       # Agent orchestration, tool definitions, memory
-├── Connapse.Storage/      # Vector DB, document store, connectors, cloud providers
-└── Connapse.CLI/          # Command-line interface
+└── Connapse.Storage/      # Vector DB, document store, connectors, cloud providers
 ```
 
 ## Branch Naming Convention

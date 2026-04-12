@@ -60,11 +60,9 @@ Connapse.Web          (Blazor Server + Minimal API endpoints + MCP server)
 ├── Connapse.Storage  (PostgreSQL/pgvector, EF Core, connectors, embedding/LLM providers)
 ├── Connapse.Agents   (Agent orchestration)
 └── Connapse.Core     (Domain models, interfaces, settings records — zero dependencies)
-
-Connapse.CLI          (HTTP client only — no direct layer references)
 ```
 
-Dependencies flow downward. `Core` has zero external dependencies. All projects reference `Core`. `CLI` talks only via REST API.
+Dependencies flow downward. `Core` has zero external dependencies. All projects reference `Core`. The `connapse` CLI lives in a separate repository (https://github.com/Destrayon/connapse-cli) and talks to this server only via the REST API.
 
 ### Key Patterns
 
@@ -81,12 +79,13 @@ Dependencies flow downward. `Core` has zero external dependencies. All projects 
 - Partial IVFFlat indexes per `model_id`, managed by `VectorColumnManager`
 - Search filters by `model_id` and casts query vector to matching dimensions
 
-### Four Access Surfaces
+### Access Surfaces
 
 1. **Blazor Server UI** — interactive components at `/`
 2. **REST API** — Minimal API endpoints at `/api/...`
 3. **MCP Server** — at `/mcp` via ModelContextProtocol SDK
-4. **CLI** — `Connapse.CLI` (dotnet global tool or native binary)
+
+The standalone [connapse-cli](https://github.com/Destrayon/connapse-cli) is an additional client that talks to this server over the REST API.
 
 ## Code Conventions
 
