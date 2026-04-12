@@ -107,7 +107,7 @@ dotnet test --filter "Category=Unit"
 
 ### Command-line client
 
-The `connapse` CLI is published separately at [Destrayon/connapse-cli](https://github.com/Destrayon/connapse-cli). It works against both this self-hosted server and Connapse Cloud.
+The `connapse` CLI is published separately at [Destrayon/connapse-cli](https://github.com/Destrayon/connapse-cli).
 
 Install:
 

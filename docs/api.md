@@ -1171,7 +1171,7 @@ dotnet tool install -g Connapse.CLI
 # or: download a binary from https://github.com/Destrayon/connapse-cli/releases/latest
 ```
 
-It works against both self-hosted Connapse and Connapse Cloud. See the [connapse-cli README](https://github.com/Destrayon/connapse-cli#readme) for the full command reference and authentication flow.
+See the [connapse-cli README](https://github.com/Destrayon/connapse-cli#readme) for the full command reference and authentication flow.
 
 ```bash
 connapse auth login --server https://your-server
