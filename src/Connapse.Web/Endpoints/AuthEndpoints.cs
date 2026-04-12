@@ -84,6 +84,33 @@ public static class AuthEndpoints
         .WithDescription("Exchange a refresh token for a new JWT access token and refresh token")
         .AllowAnonymous();
 
+        // GET /api/v1/auth/me — return identity for the currently authenticated caller
+        group.MapGet("/me", async (
+            HttpContext httpContext,
+            [FromServices] UserManager<ConnapseUser> userManager,
+            CancellationToken ct) =>
+        {
+            var userId = GetUserId(httpContext);
+            if (userId is null)
+                return Results.Unauthorized();
+
+            var user = await userManager.FindByIdAsync(userId.Value.ToString());
+            if (user is null)
+                return Results.Unauthorized();
+
+            var roles = await userManager.GetRolesAsync(user);
+
+            return Results.Ok(new MeResponse(
+                user.Id,
+                user.Email ?? "",
+                user.DisplayName,
+                roles.ToList(),
+                user.CreatedAt));
+        })
+        .WithName("GetMe")
+        .WithDescription("Return the authenticated caller's identity (id, email, display name, roles).")
+        .RequireAuthorization();
+
         // GET /api/v1/auth/pats — list the authenticated user's PATs
         group.MapGet("/pats", async (
             HttpContext httpContext,

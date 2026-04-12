@@ -40,6 +40,13 @@ public record UserListItem(
     DateTime CreatedAt,
     DateTime? LastLoginAt);
 
+public record MeResponse(
+    Guid Id,
+    string Email,
+    string? DisplayName,
+    IReadOnlyList<string> Roles,
+    DateTime CreatedAt);
+
 public record AssignRolesRequest(IReadOnlyList<string> Roles);
 
 public record CreateAgentRequest(string Name, string? Description = null);
