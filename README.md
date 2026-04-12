@@ -105,43 +105,29 @@ dotnet test
 dotnet test --filter "Category=Unit"
 ```
 
-### Using the CLI
+### Command-line client
 
-Install the CLI (choose one option):
+The `connapse` CLI is published separately at [Destrayon/connapse-cli](https://github.com/Destrayon/connapse-cli). It works against both this self-hosted server and Connapse Cloud.
+
+Install:
 
 ```bash
-# Option A: .NET Global Tool (requires .NET 10)
 dotnet tool install -g Connapse.CLI
-
-# Option B: Download native binary from GitHub Releases (no .NET required)
-# https://github.com/Destrayon/Connapse/releases
+# or: download a binary from https://github.com/Destrayon/connapse-cli/releases/latest
 ```
 
-Basic usage:
+Get started:
 
 ```bash
-# Authenticate first
-connapse auth login --url https://localhost:5001
-
-# Create a container (project)
-connapse container create my-project --description "My knowledge base"
-
-# Upload files
-connapse upload ./documents --container my-project
-
-# Search
-connapse search "your query" --container my-project
-
-# Update to latest release (--pre to include alpha/pre-release builds)
-connapse update
-connapse update --pre
+connapse auth login --server https://localhost:5001
+connapse --help
 ```
 
 ### Using with Claude (MCP)
 
 Connapse includes a Model Context Protocol (MCP) server for integration with Claude and any MCP client.
 
-**Setup**: Create an agent API key via the web UI (Settings → Agent API Keys) or CLI (`connapse auth agent-key create`), then add the config snippet for your client:
+**Setup**: Create an agent API key via the web UI (Settings → Agent API Keys), then add the config snippet for your client:
 
 <details>
 <summary><strong>Claude Code (CLI)</strong></summary>
