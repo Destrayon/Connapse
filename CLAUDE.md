@@ -96,6 +96,7 @@ The standalone [connapse-cli](https://github.com/Destrayon/connapse-cli) is an a
 - Parameterized SQL queries only (never string interpolation)
 - Don't use `var` for primitive types
 - Don't use `dynamic`
+- When logging user-controlled values (search queries, request bodies, headers, client-supplied IDs), wrap them with `LogSanitizer.Sanitize(...)` from `Connapse.Core.Utilities` to prevent CodeQL `cs/log-forging` alerts
 
 ## Commit Messages
 
