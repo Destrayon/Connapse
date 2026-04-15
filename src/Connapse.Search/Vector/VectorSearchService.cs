@@ -2,6 +2,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Vector;
 
@@ -87,7 +88,7 @@ public class VectorSearchService
 
         _logger.LogInformation(
             "Vector search for query '{Query}' returned {Count} results (topK={TopK}, minScore={MinScore})",
-            query,
+            Sanitize(query),
             hits.Count,
             options.TopK,
             options.MinScore);

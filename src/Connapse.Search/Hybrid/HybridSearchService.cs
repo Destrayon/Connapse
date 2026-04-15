@@ -6,6 +6,7 @@ using Connapse.Search.Vector;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Hybrid;
 
@@ -80,7 +81,7 @@ public class HybridSearchService : IKnowledgeSearch
         _logger.LogInformation(
             "Starting {Mode} search for query: '{Query}' (topK={TopK})",
             mode,
-            query,
+            Sanitize(query),
             options.TopK);
 
         // Create a scope to get search services

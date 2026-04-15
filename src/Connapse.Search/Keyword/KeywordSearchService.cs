@@ -2,6 +2,7 @@ using Connapse.Core;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Keyword;
 
@@ -113,7 +114,7 @@ public class KeywordSearchService
 
         _logger.LogInformation(
             "Keyword search for query '{Query}' returned {Count} results (topK={TopK})",
-            query,
+            Sanitize(query),
             hits.Count,
             options.TopK);
 
