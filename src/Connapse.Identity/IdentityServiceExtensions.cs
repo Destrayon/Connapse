@@ -139,9 +139,7 @@ public static class IdentityServiceExtensions
                     if (context.Request.Path.StartsWithSegments("/mcp"))
                     {
                         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
-                        context.Response.Headers.WWWAuthenticate =
-                            $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                        context.Response.Headers.WWWAuthenticate = BuildMcpChallenge(context.HttpContext);
                         return Task.CompletedTask;
                     }
 
@@ -205,9 +203,7 @@ public static class IdentityServiceExtensions
                     {
                         if (context.Request.Path.StartsWithSegments("/mcp"))
                         {
-                            var baseUrl = $"{context.Request.Scheme}://{context.Request.Host}";
-                            context.Response.Headers.WWWAuthenticate =
-                                $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource\"";
+                            context.Response.Headers.WWWAuthenticate = BuildMcpChallenge(context.HttpContext);
                             context.HandleResponse();
                             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         }
@@ -246,6 +242,20 @@ public static class IdentityServiceExtensions
                 policy.Requirements.Add(new ScopeRequirement("agent:ingest")));
 
         return services;
+    }
+
+    // Builds the WWW-Authenticate challenge that 401 responses return for /mcp.
+    // RFC 9728 §3.1: the resource metadata URL for a protected resource at
+    // "/foo/mcp" is "/.well-known/oauth-protected-resource/foo/mcp". Using the
+    // request's PathBase+Path preserves any prefix a host has mounted the MCP
+    // endpoint under (e.g. a tenant slug inserted upstream by a rewrite
+    // middleware), without the submodule having to know the prefix exists.
+    private static string BuildMcpChallenge(HttpContext context)
+    {
+        var request = context.Request;
+        var baseUrl = $"{request.Scheme}://{request.Host}";
+        var resourcePath = request.PathBase.Add(request.Path).ToString();
+        return $"Bearer resource_metadata=\"{baseUrl}/.well-known/oauth-protected-resource{resourcePath}\"";
     }
 
     private static void EnsureJwtSecret(IConfiguration configuration)
