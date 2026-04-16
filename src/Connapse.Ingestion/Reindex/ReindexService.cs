@@ -95,7 +95,7 @@ public class ReindexService : IReindexService
     {
         _logger.LogInformation(
             "Starting reindex operation: ContainerId={ContainerId}, Force={Force}, DetectSettingsChanges={DetectSettingsChanges}",
-            options.ContainerId,
+            Sanitize(options.ContainerId?.ToString()),
             options.Force,
             options.DetectSettingsChanges);
 
