@@ -25,6 +25,32 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
         json.RootElement.GetProperty("scopes_supported").GetArrayLength().Should().Be(2);
     }
 
+    /// <summary>
+    /// RFC 9728 §3.1: clients may discover PRM by inserting
+    /// "/.well-known/oauth-protected-resource" between host and path. RFC 9728
+    /// §3.3 then requires the "resource" claim in the document to equal the
+    /// protected resource identifier. Strict MCP clients (Claude Code among
+    /// them) reject the document if this doesn't match the URL they are
+    /// actually trying to access.
+    /// </summary>
+    [Theory]
+    [InlineData("/mcp")]
+    [InlineData("/khastra/mcp")]
+    [InlineData("/some/deep/nested/path")]
+    public async Task ProtectedResourceMetadata_PathSuffixed_ResourceMatchesRequestedPath(string resourcePath)
+    {
+        using var client = fixture.Factory.CreateClient();
+
+        var response = await client.GetAsync($"/.well-known/oauth-protected-resource{resourcePath}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonDocument>();
+        var resource = json!.RootElement.GetProperty("resource").GetString();
+        resource.Should().NotBeNullOrWhiteSpace();
+        resource.Should().EndWith(resourcePath, "the resource claim must equal the URL the client discovered metadata for");
+        json.RootElement.GetProperty("authorization_servers").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
     [Fact]
     public async Task AuthorizationServerMetadata_ReturnsValidJson()
     {
@@ -165,6 +191,10 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
         var wwwAuth = response.Headers.WwwAuthenticate.ToString();
         wwwAuth.Should().Contain("Bearer");
         wwwAuth.Should().Contain("resource_metadata");
-        wwwAuth.Should().Contain(".well-known/oauth-protected-resource");
+        // The challenge must point at the path-suffixed PRM URL for the
+        // actual resource (/mcp), not the bare /.well-known endpoint. This is
+        // what lets strict MCP clients resolve metadata whose "resource"
+        // claim matches the URL they are trying to access.
+        wwwAuth.Should().Contain(".well-known/oauth-protected-resource/mcp");
     }
 }

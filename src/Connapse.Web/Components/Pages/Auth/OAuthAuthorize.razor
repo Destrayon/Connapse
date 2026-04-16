@@ -241,11 +241,19 @@
             return false;
         }
 
-        // RFC 8707: validate resource parameter matches this server
+        // RFC 8707: the `resource` parameter is the canonical URI of the
+        // protected resource the client intends to access. For MCP that is
+        // the MCP endpoint URL (e.g. https://host/mcp or https://host/<prefix>/mcp),
+        // not the bare origin — matching the `resource` claim we advertise in
+        // /.well-known/oauth-protected-resource. Validate by comparing
+        // scheme+authority so any path served by this host is accepted;
+        // rejecting on path equality would break as soon as the endpoint is
+        // mounted under any prefix (tenant slug, reverse-proxy path, etc.).
         if (!string.IsNullOrWhiteSpace(Resource))
         {
-            var baseUrl = $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}";
-            if (!string.Equals(Resource.TrimEnd('/'), baseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+            if (!Uri.TryCreate(Resource, UriKind.Absolute, out var resourceUri) ||
+                !string.Equals(resourceUri.Scheme, HttpContext.Request.Scheme, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(resourceUri.Authority, HttpContext.Request.Host.Value, StringComparison.OrdinalIgnoreCase))
             {
                 error = "The resource parameter does not match this server.";
                 return false;

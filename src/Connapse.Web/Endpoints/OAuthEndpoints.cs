@@ -16,17 +16,20 @@ public static class OAuthEndpoints
     {
         // -- Discovery --
 
+        // RFC 9728 §3.1: the Protected Resource Metadata discovery URL for a
+        // resource whose identifier is "https://host/foo/bar" is
+        // "https://host/.well-known/oauth-protected-resource/foo/bar". The
+        // catch-all route below echoes whichever path the client used to
+        // discover the metadata back into the "resource" claim, which RFC 9728
+        // §3.3 requires to equal the protected resource's identifier. Strict
+        // MCP clients (Claude Code among them) reject the document when this
+        // doesn't match the URL they are trying to reach, which is why the
+        // bare endpoint alone is not sufficient for multi-path deployments.
         app.MapGet("/.well-known/oauth-protected-resource", (HttpContext ctx) =>
-        {
-            var baseUrl = GetBaseUrl(ctx);
-            return Results.Json(new
-            {
-                resource = baseUrl,
-                authorization_servers = new[] { baseUrl },
-                scopes_supported = new[] { "knowledge:read", "knowledge:write" },
-                bearer_methods_supported = new[] { "header" },
-            });
-        }).AllowAnonymous();
+            BuildProtectedResourceMetadata(ctx, resourcePath: null)).AllowAnonymous();
+
+        app.MapGet("/.well-known/oauth-protected-resource/{**resourcePath}", (HttpContext ctx, string resourcePath) =>
+            BuildProtectedResourceMetadata(ctx, resourcePath)).AllowAnonymous();
 
         app.MapGet("/.well-known/oauth-authorization-server", (HttpContext ctx) =>
         {
@@ -251,6 +254,23 @@ public static class OAuthEndpoints
     {
         var request = ctx.Request;
         return $"{request.Scheme}://{request.Host}";
+    }
+
+    private static IResult BuildProtectedResourceMetadata(HttpContext ctx, string? resourcePath)
+    {
+        var baseUrl = GetBaseUrl(ctx);
+        var normalizedPath = string.IsNullOrEmpty(resourcePath)
+            ? string.Empty
+            : "/" + resourcePath.TrimStart('/');
+        var resource = baseUrl + normalizedPath;
+
+        return Results.Json(new
+        {
+            resource,
+            authorization_servers = new[] { baseUrl },
+            scopes_supported = new[] { "knowledge:read", "knowledge:write" },
+            bearer_methods_supported = new[] { "header" },
+        });
     }
 
     // OAuth 2.1 requires application/x-www-form-urlencoded (RFC 6749 §3.2)
