@@ -227,8 +227,9 @@ public static class IdentityServiceExtensions
                             _ => [],
                         };
                         var request = context.HttpContext.Request;
+                        var audList = audiences as IList<string> ?? audiences.ToList();
 
-                        foreach (var audience in audiences)
+                        foreach (var audience in audList)
                         {
                             if (string.Equals(audience, jwtSettings.Audience, StringComparison.Ordinal))
                                 return Task.CompletedTask;
@@ -241,6 +242,15 @@ public static class IdentityServiceExtensions
                             }
                         }
 
+                        var diagLogger = context.HttpContext.RequestServices
+                            .GetRequiredService<ILoggerFactory>()
+                            .CreateLogger("JwtAud.Validate");
+                        diagLogger.LogWarning(
+                            "JWT audience mismatch at {Scheme}://{Host}{PathBase}{Path}: token auds=[{Audiences}] static='{StaticAud}'",
+                            request.Scheme, request.Host.Value, request.PathBase, request.Path,
+                            string.Join(", ", audList),
+                            jwtSettings.Audience);
+
                         context.Fail("Audience does not match this server.");
                         return Task.CompletedTask;
                     },
@@ -248,7 +258,17 @@ public static class IdentityServiceExtensions
                     {
                         if (context.Request.Path.StartsWithSegments("/mcp"))
                         {
-                            context.Response.Headers.WWWAuthenticate = BuildMcpChallenge(context.HttpContext);
+                            var challenge = BuildMcpChallenge(context.HttpContext);
+                            var challengeLogger = context.HttpContext.RequestServices
+                                .GetRequiredService<ILoggerFactory>()
+                                .CreateLogger("JwtAud.Challenge");
+                            challengeLogger.LogInformation(
+                                "MCP 401 challenge at {Scheme}://{Host}{PathBase}{Path}: {Challenge} (authFailure={Reason})",
+                                context.Request.Scheme, context.Request.Host.Value,
+                                context.Request.PathBase, context.Request.Path,
+                                challenge,
+                                context.AuthenticateFailure?.Message ?? "<no-token>");
+                            context.Response.Headers.WWWAuthenticate = challenge;
                             context.HandleResponse();
                             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         }
