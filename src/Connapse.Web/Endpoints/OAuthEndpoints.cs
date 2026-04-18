@@ -230,9 +230,12 @@ public static class OAuthEndpoints
         // RFC 8707: an incoming `resource` at refresh time must match what the
         // original token was bound to. Clients may omit it to request the same
         // resource (common with MCP clients that only send it at authorize).
+        // If the client sends a resource but the stored token isn't bound to
+        // one (pre-migration or legacy /api flow), reject — otherwise we'd
+        // silently issue a token with the static audience, which is exactly
+        // the mismatch strict clients discard.
         if (!string.IsNullOrWhiteSpace(resourceParam) &&
-            oldRefreshEntity?.Resource is not null &&
-            !string.Equals(resourceParam, oldRefreshEntity.Resource, StringComparison.Ordinal))
+            !string.Equals(resourceParam, oldRefreshEntity?.Resource, StringComparison.Ordinal))
         {
             return Results.Json(new { error = "invalid_target" }, statusCode: 400);
         }

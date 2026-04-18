@@ -155,8 +155,13 @@ public class JwtTokenService(
             IssuerSigningKeys = GetValidationKeys(settings),
             ValidateIssuer = true,
             ValidIssuer = settings.Issuer,
-            ValidateAudience = true,
-            ValidAudience = settings.Audience,
+            // Audience is not validated here — this helper is standalone
+            // and has no HTTP request context, so it can't apply the
+            // RFC 8707 canonical-URI scheme+authority check that the
+            // JwtBearer middleware performs for API/MCP requests. Callers
+            // that need per-deployment audience checks must go through
+            // the auth pipeline.
+            ValidateAudience = false,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
         };
