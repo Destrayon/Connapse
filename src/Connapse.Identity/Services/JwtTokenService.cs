@@ -17,13 +17,13 @@ public class JwtTokenService(
     ConnapseIdentityDbContext dbContext,
     ILogger<JwtTokenService> logger) : ITokenService
 {
-    public string GenerateAccessToken(IEnumerable<Claim> claims, string? audience = null)
+    public string GenerateAccessToken(IEnumerable<Claim> claims, string? audience = null, string? issuer = null)
     {
         var settings = jwtSettings.CurrentValue;
         var credentials = GetSigningCredentials(settings);
 
         var token = new JwtSecurityToken(
-            issuer: settings.Issuer,
+            issuer: issuer ?? settings.Issuer,
             audience: audience ?? settings.Audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(settings.AccessTokenLifetimeMinutes),
@@ -36,11 +36,12 @@ public class JwtTokenService(
         IEnumerable<Claim> claims,
         Guid userId,
         string? audience = null,
+        string? issuer = null,
         CancellationToken cancellationToken = default)
     {
         var settings = jwtSettings.CurrentValue;
 
-        var accessToken = GenerateAccessToken(claims, audience);
+        var accessToken = GenerateAccessToken(claims, audience, issuer);
         var refreshToken = GenerateRefreshToken();
         var refreshTokenHash = ComputeSha256Hash(refreshToken);
 
@@ -63,6 +64,7 @@ public class JwtTokenService(
 
     public async Task<TokenResponse?> RefreshTokenAsync(
         string refreshToken,
+        string? issuer = null,
         CancellationToken cancellationToken = default)
     {
         var tokenHash = ComputeSha256Hash(refreshToken);
@@ -123,8 +125,10 @@ public class JwtTokenService(
         // Carry the RFC 8707 resource binding through the refresh chain so the
         // new access token keeps the same `aud` the MCP client originally asked
         // for. Without this, refreshed tokens would fall back to the static
-        // server audience and the MCP client would reject them.
-        var accessToken = GenerateAccessToken(claims, existingToken.Resource);
+        // server audience and the MCP client would reject them. The `iss` claim
+        // is bound to the current request's scheme+authority (passed in by the
+        // caller) so it matches the AS metadata document per RFC 9068 §2.2.
+        var accessToken = GenerateAccessToken(claims, existingToken.Resource, issuer);
 
         var newRefreshTokenEntity = new RefreshTokenEntity
         {

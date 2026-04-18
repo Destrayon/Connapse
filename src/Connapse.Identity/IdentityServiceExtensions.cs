@@ -178,8 +178,14 @@ public static class IdentityServiceExtensions
                 {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKeys = validationKeys,
-                    ValidateIssuer = true,
-                    ValidIssuer = jwtSettings.Issuer,
+                    // Issuer is validated in OnTokenValidated below alongside the
+                    // audience. The token's `iss` is bound to the request's
+                    // scheme+host at mint time (RFC 9068 §2.2 / RFC 8414), which
+                    // the static JwtSettings.Issuer string can't express when a
+                    // deployment is reached via multiple hostnames or mounted
+                    // behind a reverse-proxy prefix. The signing-key check plus
+                    // the canonical-URI aud check below are sufficient.
+                    ValidateIssuer = false,
                     // Audience is validated in OnTokenValidated below — that
                     // handler has access to the current request's scheme+host,
                     // which is required to accept RFC 8707 resource-bound
