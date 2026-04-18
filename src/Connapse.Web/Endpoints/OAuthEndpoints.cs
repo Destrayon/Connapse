@@ -76,7 +76,6 @@ public static class OAuthEndpoints
             [FromServices] ITokenService tokenService,
             [FromServices] UserManager<ConnapseUser> userManager,
             [FromServices] ConnapseIdentityDbContext dbContext,
-            [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             var form = await ctx.Request.ReadFormAsync(ct);
@@ -85,7 +84,7 @@ public static class OAuthEndpoints
             return grantType switch
             {
                 "authorization_code" => await HandleAuthorizationCodeGrant(
-                    ctx, form, authCodeService, tokenService, userManager, dbContext, loggerFactory, ct),
+                    ctx, form, authCodeService, tokenService, userManager, dbContext, ct),
                 "refresh_token" => await HandleRefreshTokenGrant(
                     ctx, form, tokenService, dbContext, ct),
                 _ => Results.Json(new { error = "unsupported_grant_type" }, statusCode: 400),
@@ -140,10 +139,8 @@ public static class OAuthEndpoints
         ITokenService tokenService,
         UserManager<ConnapseUser> userManager,
         ConnapseIdentityDbContext dbContext,
-        ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
-        var logger = loggerFactory.CreateLogger("OAuth.Token");
         var code = form["code"].ToString();
         var redirectUri = form["redirect_uri"].ToString();
         var clientId = form["client_id"].ToString();
@@ -183,13 +180,6 @@ public static class OAuthEndpoints
         // the token's `iss` to the same value at mint time. Without this, spec-compliant
         // MCP clients silently discard the token because `iss` won't match AS metadata.
         var issuer = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
-
-        logger.LogInformation(
-            "Token mint: resourceParam='{ResourceParam}' storedResource='{StoredResource}' audienceIssued='{Audience}' issuerIssued='{Issuer}'",
-            string.IsNullOrEmpty(resourceParam) ? "<empty>" : resourceParam,
-            exchangeResult.Resource ?? "<null>",
-            audience ?? "<null-will-fall-back-to-static>",
-            issuer);
 
         var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
         if (user is null)

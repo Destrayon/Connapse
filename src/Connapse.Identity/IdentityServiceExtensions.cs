@@ -264,17 +264,7 @@ public static class IdentityServiceExtensions
                     {
                         if (context.Request.Path.StartsWithSegments("/mcp"))
                         {
-                            var challenge = BuildMcpChallenge(context.HttpContext);
-                            var challengeLogger = context.HttpContext.RequestServices
-                                .GetRequiredService<ILoggerFactory>()
-                                .CreateLogger("JwtAud.Challenge");
-                            challengeLogger.LogInformation(
-                                "MCP 401 challenge at {Scheme}://{Host}{PathBase}{Path}: {Challenge} (authFailure={Reason})",
-                                context.Request.Scheme, context.Request.Host.Value,
-                                context.Request.PathBase, context.Request.Path,
-                                challenge,
-                                context.AuthenticateFailure?.Message ?? "<no-token>");
-                            context.Response.Headers.WWWAuthenticate = challenge;
+                            context.Response.Headers.WWWAuthenticate = BuildMcpChallenge(context.HttpContext);
                             context.HandleResponse();
                             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                         }
