@@ -216,8 +216,16 @@ public static class IdentityServiceExtensions
                     //     rewrites happen after authentication.
                     OnTokenValidated = context =>
                     {
-                        var token = context.SecurityToken as System.IdentityModel.Tokens.Jwt.JwtSecurityToken;
-                        var audiences = token?.Audiences ?? [];
+                        // Read audiences from whichever handler validated the
+                        // token — .NET 8+ defaults to JsonWebTokenHandler
+                        // (produces JsonWebToken) but JwtBearer can still be
+                        // configured to use the legacy JwtSecurityTokenHandler.
+                        IEnumerable<string> audiences = context.SecurityToken switch
+                        {
+                            Microsoft.IdentityModel.JsonWebTokens.JsonWebToken j => j.Audiences,
+                            System.IdentityModel.Tokens.Jwt.JwtSecurityToken j => j.Audiences,
+                            _ => [],
+                        };
                         var request = context.HttpContext.Request;
 
                         foreach (var audience in audiences)
