@@ -43,7 +43,7 @@ public static class AuthEndpoints
 
             var roles = await userManager.GetRolesAsync(user);
             var claims = BuildClaims(user, roles);
-            var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, ct);
+            var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, cancellationToken: ct);
 
             user.LastLoginAt = DateTime.UtcNow;
             await userManager.UpdateAsync(user);

@@ -20,6 +20,7 @@ public class OAuthAuthCodeService(
         string codeChallenge,
         string redirectUri,
         string scope,
+        string? resource = null,
         CancellationToken ct = default)
     {
         var rawCode = GenerateCode();
@@ -33,6 +34,7 @@ public class OAuthAuthCodeService(
             CodeChallenge = codeChallenge,
             RedirectUri = redirectUri,
             Scope = scope,
+            Resource = resource,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.Add(CodeExpiry),
         };
@@ -101,7 +103,7 @@ public class OAuthAuthCodeService(
 
         logger.LogInformation("OAuth code exchange succeeded for user {UserId}, client {ClientId}", entity.UserId, LogSanitizer.Sanitize(clientId));
 
-        return new OAuthCodeExchangeResult(entity.UserId, entity.Scope, entity.User.Email ?? entity.User.UserName ?? "");
+        return new OAuthCodeExchangeResult(entity.UserId, entity.Scope, entity.User.Email ?? entity.User.UserName ?? "", entity.Resource);
     }
 
     private static string GenerateCode()
@@ -123,4 +125,4 @@ public class OAuthAuthCodeService(
     }
 }
 
-public record OAuthCodeExchangeResult(Guid UserId, string Scope, string UserEmail);
+public record OAuthCodeExchangeResult(Guid UserId, string Scope, string UserEmail, string? Resource);

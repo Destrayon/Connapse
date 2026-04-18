@@ -208,7 +208,8 @@
         var effectiveScope = string.IsNullOrWhiteSpace(Scope) ? "knowledge:read knowledge:write" : Scope;
 
         var rawCode = await OAuthAuthCodeService.CreateAsync(
-            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope);
+            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope,
+            string.IsNullOrWhiteSpace(Resource) ? null : Resource);
 
         var callbackUrl = string.IsNullOrWhiteSpace(State)
             ? $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}"
