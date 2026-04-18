@@ -180,8 +180,11 @@ public static class IdentityServiceExtensions
                     IssuerSigningKeys = validationKeys,
                     ValidateIssuer = true,
                     ValidIssuer = jwtSettings.Issuer,
-                    ValidateAudience = true,
-                    ValidAudience = jwtSettings.Audience,
+                    // Audience is validated in OnTokenValidated below — that
+                    // handler has access to the current request's scheme+host,
+                    // which is required to accept RFC 8707 resource-bound
+                    // tokens whose `aud` is a URL for this server.
+                    ValidateAudience = false,
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromMinutes(1),
                 };
@@ -197,6 +200,48 @@ public static class IdentityServiceExtensions
                         {
                             context.Token = accessToken;
                         }
+                        return Task.CompletedTask;
+                    },
+                    // RFC 8707 / MCP §Token Audience Binding. Accept two
+                    // audience shapes:
+                    //  1. The static server audience (legacy /api flows that
+                    //     don't use RFC 8707).
+                    //  2. Any absolute-URI audience whose scheme+authority
+                    //     matches the current request — this is the canonical
+                    //     URI form required by RFC 8707 §2, and the only way
+                    //     a multi-tenant deployment can accept resource-bound
+                    //     tokens for whichever prefix the MCP endpoint is
+                    //     mounted under (tenant slug, reverse-proxy prefix).
+                    //     Path is not required to match, because PathBase
+                    //     rewrites happen after authentication.
+                    OnTokenValidated = context =>
+                    {
+                        // Read audiences from whichever handler validated the
+                        // token — .NET 8+ defaults to JsonWebTokenHandler
+                        // (produces JsonWebToken) but JwtBearer can still be
+                        // configured to use the legacy JwtSecurityTokenHandler.
+                        IEnumerable<string> audiences = context.SecurityToken switch
+                        {
+                            Microsoft.IdentityModel.JsonWebTokens.JsonWebToken j => j.Audiences,
+                            System.IdentityModel.Tokens.Jwt.JwtSecurityToken j => j.Audiences,
+                            _ => [],
+                        };
+                        var request = context.HttpContext.Request;
+
+                        foreach (var audience in audiences)
+                        {
+                            if (string.Equals(audience, jwtSettings.Audience, StringComparison.Ordinal))
+                                return Task.CompletedTask;
+
+                            if (Uri.TryCreate(audience, UriKind.Absolute, out var aud) &&
+                                string.Equals(aud.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(aud.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return Task.CompletedTask;
+                            }
+                        }
+
+                        context.Fail("Audience does not match this server.");
                         return Task.CompletedTask;
                     },
                     OnChallenge = context =>

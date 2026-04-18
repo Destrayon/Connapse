@@ -84,9 +84,9 @@ public static class OAuthEndpoints
             return grantType switch
             {
                 "authorization_code" => await HandleAuthorizationCodeGrant(
-                    form, authCodeService, tokenService, userManager, dbContext, ct),
+                    ctx, form, authCodeService, tokenService, userManager, dbContext, ct),
                 "refresh_token" => await HandleRefreshTokenGrant(
-                    form, tokenService, dbContext, ct),
+                    ctx, form, tokenService, dbContext, ct),
                 _ => Results.Json(new { error = "unsupported_grant_type" }, statusCode: 400),
             };
         })
@@ -133,6 +133,7 @@ public static class OAuthEndpoints
     }
 
     private static async Task<IResult> HandleAuthorizationCodeGrant(
+        HttpContext ctx,
         IFormCollection form,
         OAuthAuthCodeService authCodeService,
         ITokenService tokenService,
@@ -144,6 +145,7 @@ public static class OAuthEndpoints
         var redirectUri = form["redirect_uri"].ToString();
         var clientId = form["client_id"].ToString();
         var codeVerifier = form["code_verifier"].ToString();
+        var resourceParam = form["resource"].ToString();
 
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(redirectUri) ||
             string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(codeVerifier))
@@ -155,21 +157,40 @@ public static class OAuthEndpoints
         if (exchangeResult is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
 
+        // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
+        // `resource` parameter at the token endpoint, it MUST match the value
+        // it presented at the authorization endpoint. Mismatches mean the
+        // client is requesting a token for a different audience than the user
+        // consented to — reject as invalid_target.
+        if (!string.IsNullOrWhiteSpace(resourceParam) &&
+            !string.Equals(resourceParam, exchangeResult.Resource, StringComparison.Ordinal))
+        {
+            return Results.Json(new { error = "invalid_target" }, statusCode: 400);
+        }
+
+        // Bind the access token's `aud` claim to the resource the client asked
+        // for so that MCP clients can verify the token was issued for their
+        // intended resource. If no resource was provided (legacy / non-MCP
+        // clients), fall back to the static server audience.
+        var audience = exchangeResult.Resource;
+
         var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
         if (user is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
 
         var roles = await userManager.GetRolesAsync(user);
         var claims = BuildClaims(user, roles, exchangeResult.Scope, clientId);
-        var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, ct);
+        var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, audience, ct);
 
-        // Tag the refresh token with the client_id
+        // Tag the refresh token with the client_id and the resource so refresh
+        // cycles keep the same `aud` binding.
         var refreshTokenHash = ComputeSha256Hex(tokenResponse.RefreshToken);
         var refreshEntity = await dbContext.RefreshTokens
             .FirstOrDefaultAsync(r => r.TokenHash == refreshTokenHash, ct);
         if (refreshEntity is not null)
         {
             refreshEntity.ClientId = clientId;
+            refreshEntity.Resource = exchangeResult.Resource;
             await dbContext.SaveChangesAsync(ct);
         }
 
@@ -184,6 +205,7 @@ public static class OAuthEndpoints
     }
 
     private static async Task<IResult> HandleRefreshTokenGrant(
+        HttpContext ctx,
         IFormCollection form,
         ITokenService tokenService,
         ConnapseIdentityDbContext dbContext,
@@ -191,10 +213,11 @@ public static class OAuthEndpoints
     {
         var refreshToken = form["refresh_token"].ToString();
         var clientId = form["client_id"].ToString();
+        var resourceParam = form["resource"].ToString();
         if (string.IsNullOrEmpty(refreshToken))
             return Results.Json(new { error = "invalid_request" }, statusCode: 400);
 
-        // Look up the old refresh token to validate client_id and propagate it
+        // Look up the old refresh token to validate client_id/resource and propagate them
         var oldTokenHash = ComputeSha256Hex(refreshToken);
         var oldRefreshEntity = await dbContext.RefreshTokens
             .FirstOrDefaultAsync(r => r.TokenHash == oldTokenHash, ct);
@@ -204,11 +227,25 @@ public static class OAuthEndpoints
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
         }
 
+        // RFC 8707: an incoming `resource` at refresh time must match what the
+        // original token was bound to. Clients may omit it to request the same
+        // resource (common with MCP clients that only send it at authorize).
+        // If the client sends a resource but the stored token isn't bound to
+        // one (pre-migration or legacy /api flow), reject — otherwise we'd
+        // silently issue a token with the static audience, which is exactly
+        // the mismatch strict clients discard.
+        if (!string.IsNullOrWhiteSpace(resourceParam) &&
+            !string.Equals(resourceParam, oldRefreshEntity?.Resource, StringComparison.Ordinal))
+        {
+            return Results.Json(new { error = "invalid_target" }, statusCode: 400);
+        }
+
         var tokenResponse = await tokenService.RefreshTokenAsync(refreshToken, ct);
         if (tokenResponse is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
 
-        // Tag the new refresh token with client_id
+        // Tag the new refresh token with client_id (Resource is already
+        // carried forward inside JwtTokenService.RefreshTokenAsync).
         if (!string.IsNullOrEmpty(clientId))
         {
             var newTokenHash = ComputeSha256Hex(tokenResponse.RefreshToken);

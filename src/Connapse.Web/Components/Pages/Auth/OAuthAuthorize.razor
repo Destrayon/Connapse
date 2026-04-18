@@ -64,7 +64,15 @@
             <strong>Settings &rsaquo; Access Tokens</strong>.
         </p>
 
-        <form method="post" @formname="oauth-authorize" data-enhance="true">
+        @* No data-enhance: the post redirects to a cross-origin OAuth client
+           callback (e.g. claude.ai). Blazor enhanced nav wraps forceLoad
+           redirects in /_framework/opaque-redirect, which re-encodes the target
+           URL through a DataProtection token — that extra hop mangles the
+           cross-origin callback for strict OAuth clients. A plain form POST
+           lets NavigationManager.NavigateTo(..., forceLoad: true) emit a real
+           302 Location header to the external redirect_uri, as OAuth 2.1
+           expects. *@
+        <form method="post" @formname="oauth-authorize">
             <AntiforgeryToken />
             <input type="hidden" name="Form.ResponseType" value="@ResponseType" />
             <input type="hidden" name="Form.ClientId" value="@ClientId" />
@@ -200,7 +208,8 @@
         var effectiveScope = string.IsNullOrWhiteSpace(Scope) ? "knowledge:read knowledge:write" : Scope;
 
         var rawCode = await OAuthAuthCodeService.CreateAsync(
-            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope);
+            userId, ClientId!, CodeChallenge!, RedirectUri!, effectiveScope,
+            string.IsNullOrWhiteSpace(Resource) ? null : Resource);
 
         var callbackUrl = string.IsNullOrWhiteSpace(State)
             ? $"{RedirectUri}?code={Uri.EscapeDataString(rawCode)}"

@@ -9,6 +9,12 @@ public class RefreshTokenEntity
     public DateTime? RevokedAt { get; set; }
     public string? ReplacedByTokenHash { get; set; }
     public string? ClientId { get; set; }
+
+    // RFC 8707 resource indicator carried through the refresh chain so that
+    // refreshed access tokens keep the same `aud` binding the MCP client
+    // originally asked for at /oauth/authorize.
+    public string? Resource { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     // Navigation properties

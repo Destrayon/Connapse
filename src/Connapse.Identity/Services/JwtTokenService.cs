@@ -17,14 +17,14 @@ public class JwtTokenService(
     ConnapseIdentityDbContext dbContext,
     ILogger<JwtTokenService> logger) : ITokenService
 {
-    public string GenerateAccessToken(IEnumerable<Claim> claims)
+    public string GenerateAccessToken(IEnumerable<Claim> claims, string? audience = null)
     {
         var settings = jwtSettings.CurrentValue;
         var credentials = GetSigningCredentials(settings);
 
         var token = new JwtSecurityToken(
             issuer: settings.Issuer,
-            audience: settings.Audience,
+            audience: audience ?? settings.Audience,
             claims: claims,
             expires: DateTime.UtcNow.AddMinutes(settings.AccessTokenLifetimeMinutes),
             signingCredentials: credentials);
@@ -35,11 +35,12 @@ public class JwtTokenService(
     public async Task<TokenResponse> GenerateTokenPairAsync(
         IEnumerable<Claim> claims,
         Guid userId,
+        string? audience = null,
         CancellationToken cancellationToken = default)
     {
         var settings = jwtSettings.CurrentValue;
 
-        var accessToken = GenerateAccessToken(claims);
+        var accessToken = GenerateAccessToken(claims, audience);
         var refreshToken = GenerateRefreshToken();
         var refreshTokenHash = ComputeSha256Hash(refreshToken);
 
@@ -119,12 +120,18 @@ public class JwtTokenService(
             claims.Add(new Claim(ClaimTypes.Role, role));
         }
 
-        var accessToken = GenerateAccessToken(claims);
+        // Carry the RFC 8707 resource binding through the refresh chain so the
+        // new access token keeps the same `aud` the MCP client originally asked
+        // for. Without this, refreshed tokens would fall back to the static
+        // server audience and the MCP client would reject them.
+        var accessToken = GenerateAccessToken(claims, existingToken.Resource);
 
         var newRefreshTokenEntity = new RefreshTokenEntity
         {
             UserId = existingToken.UserId,
             TokenHash = newRefreshTokenHash,
+            ClientId = existingToken.ClientId,
+            Resource = existingToken.Resource,
             ExpiresAt = DateTime.UtcNow.AddDays(settings.RefreshTokenLifetimeDays),
             CreatedAt = DateTime.UtcNow,
         };
@@ -148,8 +155,13 @@ public class JwtTokenService(
             IssuerSigningKeys = GetValidationKeys(settings),
             ValidateIssuer = true,
             ValidIssuer = settings.Issuer,
-            ValidateAudience = true,
-            ValidAudience = settings.Audience,
+            // Audience is not validated here — this helper is standalone
+            // and has no HTTP request context, so it can't apply the
+            // RFC 8707 canonical-URI scheme+authority check that the
+            // JwtBearer middleware performs for API/MCP requests. Callers
+            // that need per-deployment audience checks must go through
+            // the auth pipeline.
+            ValidateAudience = false,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
         };
