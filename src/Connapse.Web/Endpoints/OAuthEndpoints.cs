@@ -174,13 +174,20 @@ public static class OAuthEndpoints
         // clients), fall back to the static server audience.
         var audience = exchangeResult.Resource;
 
+        // RFC 9068 §2.2 / RFC 8414: the `iss` claim must equal the authorization
+        // server's issuer identifier advertised in /.well-known/oauth-authorization-server.
+        // That document computes `issuer` from the request's scheme+host, so we bind
+        // the token's `iss` to the same value at mint time. Without this, spec-compliant
+        // MCP clients silently discard the token because `iss` won't match AS metadata.
+        var issuer = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+
         var user = await userManager.FindByIdAsync(exchangeResult.UserId.ToString());
         if (user is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
 
         var roles = await userManager.GetRolesAsync(user);
         var claims = BuildClaims(user, roles, exchangeResult.Scope, clientId);
-        var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, audience, ct);
+        var tokenResponse = await tokenService.GenerateTokenPairAsync(claims, user.Id, audience, issuer, ct);
 
         // Tag the refresh token with the client_id and the resource so refresh
         // cycles keep the same `aud` binding.
@@ -240,7 +247,12 @@ public static class OAuthEndpoints
             return Results.Json(new { error = "invalid_target" }, statusCode: 400);
         }
 
-        var tokenResponse = await tokenService.RefreshTokenAsync(refreshToken, ct);
+        // Bind the refreshed access token's `iss` to the current request's
+        // scheme+host (same rule as at initial mint) so it matches the AS
+        // metadata document per RFC 9068 §2.2.
+        var issuer = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+
+        var tokenResponse = await tokenService.RefreshTokenAsync(refreshToken, issuer, ct);
         if (tokenResponse is null)
             return Results.Json(new { error = "invalid_grant" }, statusCode: 400);
 

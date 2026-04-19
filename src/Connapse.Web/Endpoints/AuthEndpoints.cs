@@ -73,7 +73,7 @@ public static class AuthEndpoints
                 return Results.Json(new { error = "OAuth tokens must use /oauth/token endpoint" },
                     statusCode: StatusCodes.Status400BadRequest);
 
-            var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, ct);
+            var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, cancellationToken: ct);
             if (tokenResponse is null)
                 return Results.Json(new { error = "Invalid or expired refresh token" },
                     statusCode: StatusCodes.Status401Unauthorized);

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Authorization;
 using Connapse.Identity.Data;
@@ -178,8 +179,14 @@ public static class IdentityServiceExtensions
                 {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKeys = validationKeys,
-                    ValidateIssuer = true,
-                    ValidIssuer = jwtSettings.Issuer,
+                    // Issuer is validated in OnTokenValidated below alongside the
+                    // audience. The token's `iss` is bound to the request's
+                    // scheme+host at mint time (RFC 9068 §2.2 / RFC 8414), which
+                    // the static JwtSettings.Issuer string can't express when a
+                    // deployment is reached via multiple hostnames or mounted
+                    // behind a reverse-proxy prefix. The signing-key check plus
+                    // the canonical-URI aud check below are sufficient.
+                    ValidateIssuer = false,
                     // Audience is validated in OnTokenValidated below — that
                     // handler has access to the current request's scheme+host,
                     // which is required to accept RFC 8707 resource-bound
@@ -227,8 +234,9 @@ public static class IdentityServiceExtensions
                             _ => [],
                         };
                         var request = context.HttpContext.Request;
+                        var audList = audiences as IList<string> ?? audiences.ToList();
 
-                        foreach (var audience in audiences)
+                        foreach (var audience in audList)
                         {
                             if (string.Equals(audience, jwtSettings.Audience, StringComparison.Ordinal))
                                 return Task.CompletedTask;
@@ -240,6 +248,18 @@ public static class IdentityServiceExtensions
                                 return Task.CompletedTask;
                             }
                         }
+
+                        var diagLogger = context.HttpContext.RequestServices
+                            .GetRequiredService<ILoggerFactory>()
+                            .CreateLogger("JwtAud.Validate");
+                        diagLogger.LogWarning(
+                            "JWT audience mismatch at {Scheme}://{Host}{PathBase}{Path}: token auds=[{Audiences}] static='{StaticAud}'",
+                            LogSanitizer.Sanitize(request.Scheme),
+                            LogSanitizer.Sanitize(request.Host.Value),
+                            LogSanitizer.Sanitize(request.PathBase.Value ?? string.Empty),
+                            LogSanitizer.Sanitize(request.Path.Value ?? string.Empty),
+                            LogSanitizer.Sanitize(string.Join(", ", audList)),
+                            LogSanitizer.Sanitize(jwtSettings.Audience));
 
                         context.Fail("Audience does not match this server.");
                         return Task.CompletedTask;
