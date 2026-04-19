@@ -18,6 +18,7 @@ public class OAuthClientService(
         string clientName,
         List<string> redirectUris,
         string applicationType,
+        string? registeredFromIp = null,
         CancellationToken ct = default)
     {
         ValidateRedirectUris(redirectUris, applicationType);
@@ -30,13 +31,18 @@ public class OAuthClientService(
             ClientName = clientName,
             RedirectUris = JsonSerializer.Serialize(redirectUris),
             ApplicationType = applicationType,
+            RegisteredFromIp = registeredFromIp,
             CreatedAt = DateTime.UtcNow,
         };
 
         dbContext.OAuthClients.Add(entity);
         await dbContext.SaveChangesAsync(ct);
 
-        logger.LogInformation("OAuth client registered: {ClientId} ({ClientName})", clientId, LogSanitizer.Sanitize(clientName));
+        logger.LogInformation(
+            "OAuth client registered: {ClientId} ({ClientName}) from {Ip}",
+            clientId,
+            LogSanitizer.Sanitize(clientName),
+            LogSanitizer.Sanitize(registeredFromIp ?? "unknown"));
 
         return new OAuthClientInfo(clientId, clientName, redirectUris, applicationType);
     }

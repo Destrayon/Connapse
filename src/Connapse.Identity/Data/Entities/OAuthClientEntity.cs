@@ -8,5 +8,6 @@ public class OAuthClientEntity
     public string ClientName { get; set; } = "";
     public string RedirectUris { get; set; } = "[]";
     public string ApplicationType { get; set; } = "native";
+    public string? RegisteredFromIp { get; set; }
     public DateTime CreatedAt { get; set; }
 }

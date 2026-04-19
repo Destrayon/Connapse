@@ -508,6 +508,10 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasMaxLength(16)
                 .IsRequired();
 
+            entity.Property(e => e.RegisteredFromIp)
+                .HasColumnName("registered_from_ip")
+                .HasMaxLength(45);
+
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasDefaultValueSql("now()");
