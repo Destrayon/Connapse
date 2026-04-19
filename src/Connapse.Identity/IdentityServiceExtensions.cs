@@ -254,7 +254,7 @@ public static class IdentityServiceExtensions
                             .CreateLogger("JwtAud.Validate");
                         diagLogger.LogWarning(
                             "JWT audience mismatch at {Scheme}://{Host}{PathBase}{Path}: token auds=[{Audiences}] static='{StaticAud}'",
-                            request.Scheme,
+                            LogSanitizer.Sanitize(request.Scheme),
                             LogSanitizer.Sanitize(request.Host.Value),
                             LogSanitizer.Sanitize(request.PathBase.Value ?? string.Empty),
                             LogSanitizer.Sanitize(request.Path.Value ?? string.Empty),
