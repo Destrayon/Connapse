@@ -49,6 +49,32 @@ public class OAuthClientServiceTests
     }
 
     [Fact]
+    public async Task RegisterAsync_WithIp_PersistsIp()
+    {
+        using var db = CreateDbContext();
+        var sut = CreateService(db);
+
+        await sut.RegisterAsync(
+            "Test Client", ["http://127.0.0.1:3000/callback"], "native", "203.0.113.42");
+
+        var entity = await db.OAuthClients.SingleAsync();
+        entity.RegisteredFromIp.Should().Be("203.0.113.42");
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WithoutIp_PersistsNullIp()
+    {
+        using var db = CreateDbContext();
+        var sut = CreateService(db);
+
+        await sut.RegisterAsync(
+            "Test Client", ["http://127.0.0.1:3000/callback"], "native");
+
+        var entity = await db.OAuthClients.SingleAsync();
+        entity.RegisteredFromIp.Should().BeNull();
+    }
+
+    [Fact]
     public async Task RegisterAsync_InvalidRedirectUri_Throws()
     {
         using var db = CreateDbContext();

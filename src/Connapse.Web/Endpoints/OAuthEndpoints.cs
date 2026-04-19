@@ -98,6 +98,7 @@ public static class OAuthEndpoints
         // -- Dynamic Client Registration --
 
         app.MapPost("/oauth/register", async (
+            HttpContext ctx,
             [FromBody] ClientRegistrationRequest request,
             [FromServices] OAuthClientService clientService,
             CancellationToken ct) =>
@@ -108,6 +109,7 @@ public static class OAuthEndpoints
                     request.ClientName,
                     request.RedirectUris,
                     request.ApplicationType ?? "web",
+                    ctx.Connection.RemoteIpAddress?.ToString(),
                     ct);
 
                 return Results.Json(new
