@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Authentication;
 using Connapse.Identity.Authorization;
 using Connapse.Identity.Data;
@@ -253,9 +254,12 @@ public static class IdentityServiceExtensions
                             .CreateLogger("JwtAud.Validate");
                         diagLogger.LogWarning(
                             "JWT audience mismatch at {Scheme}://{Host}{PathBase}{Path}: token auds=[{Audiences}] static='{StaticAud}'",
-                            request.Scheme, request.Host.Value, request.PathBase, request.Path,
-                            string.Join(", ", audList),
-                            jwtSettings.Audience);
+                            request.Scheme,
+                            LogSanitizer.Sanitize(request.Host.Value),
+                            LogSanitizer.Sanitize(request.PathBase.Value ?? string.Empty),
+                            LogSanitizer.Sanitize(request.Path.Value ?? string.Empty),
+                            LogSanitizer.Sanitize(string.Join(", ", audList)),
+                            LogSanitizer.Sanitize(jwtSettings.Audience));
 
                         context.Fail("Audience does not match this server.");
                         return Task.CompletedTask;
