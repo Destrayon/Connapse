@@ -8,8 +8,11 @@ public interface ISentenceSegmenter
 {
     /// <summary>
     /// Splits <paramref name="text"/> into sentences in document order. Empty
-    /// input yields an empty list. Sentence text is returned verbatim — no
-    /// trimming, no normalization — so callers can compute offsets if needed.
+    /// or whitespace-only input yields an empty list. Implementations may
+    /// normalize whitespace inside or around sentences (e.g., trimming or
+    /// collapsing internal whitespace) — callers that need byte-exact source
+    /// offsets must locate sentence boundaries via <c>IndexOf</c> rather than
+    /// rely on the returned strings being verbatim slices.
     /// </summary>
     IReadOnlyList<string> Split(string text);
 }

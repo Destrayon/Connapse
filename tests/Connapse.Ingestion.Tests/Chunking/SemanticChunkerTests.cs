@@ -599,6 +599,71 @@ public class SemanticChunkerTests
     }
 
     [Fact]
+    public async Task ChunkAsync_BreakpointMethod_Gradient_SplitsAtGradientPeak_NotEveryHighDistance()
+    {
+        // Regression: ComputeBreakpointThreshold for "Gradient" returns a threshold
+        // derived from the *gradient series* (forward-differences of distances), not
+        // the distance series itself. The previous splits loop compared *distances*
+        // against that gradient threshold — different units. On a smooth-distance
+        // document with one step-up, the gradient threshold could be small while
+        // every post-step distance value exceeded it, producing pathological
+        // over-segmentation. The fix returns both threshold AND breakpoint array
+        // and iterates the breakpoint array.
+        //
+        // Construction: 8 sentences arranged on a unit circle so adjacent cosine
+        // similarities (and therefore distances) are precisely controlled. Distances
+        // chosen so the *gradient* peaks uniquely at index 4 (the post-step value),
+        // while distance values 4, 5, 6 are all "high". The fix produces a single
+        // split at sentence boundary 4→5; the bug splits at 4→5, 5→6, 6→7.
+        string content = "Sentence one body. Sentence two body. Sentence three body. " +
+                         "Sentence four body. Sentence five body. Sentence six body. " +
+                         "Sentence seven body. Sentence eight body.";
+
+        // Target distances: gentle ramp [0.01, 0.02, 0.03, 0.04] then step to
+        // [0.40, 0.60, 0.62]. Gradient peaks uniquely at index 4 (0.28).
+        double[] targetDistances = new double[] { 0.01, 0.02, 0.03, 0.04, 0.40, 0.60, 0.62 };
+        var embeddings = new float[8][];
+        double cumulativeAngle = 0;
+        embeddings[0] = new float[] { 1.0f, 0.0f, 0.0f };
+        for (int i = 0; i < targetDistances.Length; i++)
+        {
+            // cos(delta) = 1 - distance[i]  =>  delta = acos(1 - distance[i])
+            double cosSim = 1.0 - targetDistances[i];
+            double deltaAngle = Math.Acos(cosSim);
+            cumulativeAngle += deltaAngle;
+            embeddings[i + 1] = new float[]
+            {
+                (float)Math.Cos(cumulativeAngle),
+                (float)Math.Sin(cumulativeAngle),
+                0.0f
+            };
+        }
+        SetupExplicitEmbeddings(embeddings);
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            // Default buffer 1 is fine — the chunker uses our explicit embeddings
+            // verbatim regardless of the buffered texts it would otherwise generate.
+            SemanticBreakpointMethod = "Gradient",
+            SemanticBreakpointAmount = 95
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        // Expect exactly two chunks: sentences 1-5 and sentences 6-8.
+        // (Pre-fix: 4 chunks, splitting at every "high" distance.)
+        result.Should().HaveCount(2,
+            "Gradient mode must iterate the gradient series, not distances — " +
+            "a single gradient-peak should produce a single split, not one per high distance");
+        result[0].Content.Should().Contain("Sentence one")
+            .And.Contain("Sentence five");
+        result[1].Content.Should().Contain("Sentence six")
+            .And.Contain("Sentence eight");
+    }
+
+    [Fact]
     public async Task ChunkAsync_BreakpointMethod_PercentileHigh_ProducesFewerOrEqualChunksThanLow()
     {
         // Six sentences with several mid-range distances. Higher percentile = fewer splits.

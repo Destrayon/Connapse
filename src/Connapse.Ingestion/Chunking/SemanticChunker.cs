@@ -109,20 +109,29 @@ public class SemanticChunker(
         // (at least 5 distances). Below that, fall back to SemanticThreshold (operates
         // on distance — preserves the legacy small-doc behavior since cos similarity
         // 0.5 == cos distance 0.5 when the legacy default was used).
-        double effectiveDistanceThreshold = settings.SemanticThreshold;
+        //
+        // ComputeBreakpointThreshold also returns the *array* the threshold was
+        // derived from. For Percentile / StdDev / IQR this is the distance series
+        // itself; for Gradient it's the gradient series — different units from the
+        // distances, so the splits loop must iterate the gradient array (not
+        // distances) when comparing against a gradient-derived threshold.
+        double effectiveThreshold = settings.SemanticThreshold;
+        IReadOnlyList<float> breakpointArray = distances;
         if (distances.Count >= 5)
         {
-            effectiveDistanceThreshold = ComputeBreakpointThreshold(
+            (effectiveThreshold, breakpointArray) = ComputeBreakpointThreshold(
                 distances,
                 settings.SemanticBreakpointMethod,
                 settings.SemanticBreakpointAmount);
         }
 
-        // Find split points: split where distance EXCEEDS threshold.
+        // Find split points: split where the breakpoint-array value EXCEEDS threshold.
+        // breakpointArray.Count == distances.Count for every method, so `i + 1` still
+        // maps cleanly to a sentence boundary.
         var splitIndices = new List<int> { 0 };
-        for (int i = 0; i < distances.Count; i++)
+        for (int i = 0; i < breakpointArray.Count; i++)
         {
-            if (distances[i] > effectiveDistanceThreshold)
+            if (breakpointArray[i] > effectiveThreshold)
                 splitIndices.Add(i + 1);
         }
         splitIndices.Add(sentences.Count);
@@ -318,13 +327,19 @@ public class SemanticChunker(
     /// Computes the adaptive breakpoint threshold over <paramref name="distances"/>
     /// using the configured <paramref name="method"/>. Mirrors LangChain
     /// SemanticChunker's _calculate_breakpoint_threshold.
+    ///
+    /// Returns both the threshold AND the array the threshold was derived from
+    /// (and which the splits loop must iterate). For Percentile / StdDev / IQR
+    /// this is the distance series itself; for Gradient it's the gradient series
+    /// — comparing distances against a gradient-derived threshold mixes units and
+    /// produces pathological over-segmentation on smooth distance series.
     /// </summary>
-    private static double ComputeBreakpointThreshold(
+    private static (double Threshold, IReadOnlyList<float> BreakpointArray) ComputeBreakpointThreshold(
         IReadOnlyList<float> distances,
         string method,
         double amount)
     {
-        if (distances.Count == 0) return 0;
+        if (distances.Count == 0) return (0, distances);
 
         switch (method?.Trim() ?? "Percentile")
         {
@@ -336,7 +351,7 @@ public class SemanticChunker(
                 double sumSq = 0;
                 foreach (float d in distances) sumSq += (d - mean) * (d - mean);
                 double std = Math.Sqrt(sumSq / distances.Count);
-                return mean + amount * std;
+                return (mean + amount * std, distances);
             }
             case "InterQuartile":
             {
@@ -347,26 +362,29 @@ public class SemanticChunker(
                 double q1 = Percentile(sorted, 25);
                 double q3 = Percentile(sorted, 75);
                 double iqr = q3 - q1;
-                return mean + amount * iqr;
+                return (mean + amount * iqr, distances);
             }
             case "Gradient":
             {
                 // Forward-difference gradient over the distance series, then take
                 // the Nth percentile of the gradient — splits where distance is
-                // changing fastest, not where it's highest.
-                if (distances.Count < 2) return 0;
+                // changing fastest, not where it's highest. The splits loop iterates
+                // the gradient series (returned here) rather than distances, since
+                // the threshold is in gradient units.
+                if (distances.Count < 2) return (0, distances);
                 float[] grad = new float[distances.Count];
                 grad[0] = distances[1] - distances[0];
                 grad[distances.Count - 1] = distances[distances.Count - 1] - distances[distances.Count - 2];
                 for (int i = 1; i < distances.Count - 1; i++)
                     grad[i] = (distances[i + 1] - distances[i - 1]) / 2f;
-                return Percentile(grad.OrderBy(g => g).ToArray(), amount);
+                double threshold = Percentile(grad.OrderBy(g => g).ToArray(), amount);
+                return (threshold, grad);
             }
             case "Percentile":
             default:
             {
                 float[] sorted = distances.OrderBy(d => d).ToArray();
-                return Percentile(sorted, amount);
+                return (Percentile(sorted, amount), distances);
             }
         }
     }
