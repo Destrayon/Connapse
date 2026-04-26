@@ -2,7 +2,7 @@ namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// Counts tokens using a real tokenizer (BPE/tiktoken). Replaces the legacy
-/// chars-times-0.25 heuristic in <c>Connapse.Ingestion.Utilities.TokenCounter</c>.
+/// chars-times-0.25 heuristic that earlier versions of Connapse used.
 /// </summary>
 public interface ITokenCounter
 {
