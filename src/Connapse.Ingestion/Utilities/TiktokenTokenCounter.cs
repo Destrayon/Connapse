@@ -18,13 +18,13 @@ public class TiktokenTokenCounter : ITokenCounter
 
     public int CountTokens(string text)
     {
-        if (string.IsNullOrEmpty(text)) return 0;
+        if (string.IsNullOrWhiteSpace(text)) return 0;
         return _tokenizer.CountTokens(text);
     }
 
     public int GetIndexAtTokenCount(string text, int tokenCount)
     {
-        if (string.IsNullOrEmpty(text) || tokenCount <= 0) return 0;
+        if (string.IsNullOrWhiteSpace(text) || tokenCount <= 0) return 0;
         return _tokenizer.GetIndexByTokenCount(text, tokenCount, out _, out _);
     }
 }
