@@ -41,7 +41,10 @@ public static class ServiceCollectionExtensions
 
         // Register chunking strategies
         services.AddSingleton<IChunkingStrategy, FixedSizeChunker>();
-        services.AddSingleton<IChunkingStrategy, RecursiveChunker>();
+        // Register RecursiveChunker as both itself and IChunkingStrategy so SemanticChunker
+        // can take a concrete dependency on it for oversize-fallback sub-splitting.
+        services.AddSingleton<RecursiveChunker>();
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<RecursiveChunker>());
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
         // Register ingestion queue (singleton for shared state)

@@ -17,7 +17,11 @@ public class SemanticChunkerTests
     {
         _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _embeddingProvider.Dimensions.Returns(3);
-        _chunker = new SemanticChunker(_embeddingProvider, new TiktokenTokenCounter(), new PragmaticSentenceSegmenter());
+        _chunker = new SemanticChunker(
+            _embeddingProvider,
+            new TiktokenTokenCounter(),
+            new PragmaticSentenceSegmenter(),
+            new RecursiveChunker(new TiktokenTokenCounter()));
     }
 
     /// <summary>
@@ -209,10 +213,14 @@ public class SemanticChunkerTests
     }
 
     [Fact]
-    public async Task ChunkAsync_AllChunksBelowMinSize_ReturnsFallbackWholeContent()
+    public async Task ChunkAsync_AllChunksBelowMinSize_MergesIntoSingleChunk()
     {
         // Three short sentences — Pragmatic segmenter splits these into 3, but each is too
-        // small to satisfy MinChunkSize, so the fallback path returns the whole content.
+        // small to satisfy MinChunkSize. Merge-forward post-pass coalesces them into a single
+        // chunk that contains all the text. (Previous behavior was a separate fallback path
+        // that returned the whole content with a mean-pooled embedding — superseded by
+        // merge-forward which discards embeddings since the merged span no longer maps cleanly
+        // to a sentence-embedding range.)
         var content = "Apple. Banana. Cherry. ";
 
         SetupExplicitEmbeddings(new[]
@@ -227,11 +235,12 @@ public class SemanticChunkerTests
 
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
-        // Safety net: returns whole content as one chunk when everything is filtered
+        // Merge-forward collapses all three small chunks into one — content is preserved.
         result.Should().ContainSingle();
-        result[0].Content.Should().Be(content.Trim());
+        result[0].Content.Should().Contain("Apple").And.Contain("Banana").And.Contain("Cherry");
         result[0].ChunkIndex.Should().Be(0);
-        result[0].PrecomputedEmbedding.Should().NotBeNull();
+        // Merged chunks no longer carry a precomputed embedding — pipeline will re-embed.
+        result[0].PrecomputedEmbedding.Should().BeNull();
     }
 
     [Fact]
@@ -625,14 +634,17 @@ public class SemanticChunkerTests
     }
 
     [Fact]
-    public async Task ChunkAsync_FallbackChunk_HasMeanPooledEmbedding()
+    public async Task ChunkAsync_AllSentencesHighlySimilar_GroupsIntoSingleMeanPooledChunk()
     {
-        // All chunks filtered by MinChunkSize -> fallback returns whole content with mean-pooled embedding
+        // When all sentences are highly similar, the per-pair distances are all below the
+        // threshold so no splits fire and the per-segment loop emits a SINGLE chunk that
+        // mean-pools every sentence's embedding. Verifies the precomputed-embedding path
+        // survives the refactor.
         var content = "Apple. Banana. Cherry. ";
 
         var emb1 = new float[] { 3.0f, 0.0f, 0.0f };
-        var emb2 = new float[] { 0.0f, 6.0f, 0.0f };
-        var emb3 = new float[] { 0.0f, 0.0f, 9.0f };
+        var emb2 = new float[] { 3.0f, 0.001f, 0.0f }; // almost identical
+        var emb3 = new float[] { 3.0f, 0.0f, 0.001f };
         SetupExplicitEmbeddings(new[] { emb1, emb2, emb3 });
 
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
@@ -641,11 +653,76 @@ public class SemanticChunkerTests
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
         result.Should().ContainSingle();
-        var embedding = result[0].PrecomputedEmbedding;
+        result[0].Content.Should().Contain("Apple").And.Contain("Banana").And.Contain("Cherry");
+        // Single pre-merge chunk -> mean-pooled embedding survives (merge-forward only fires
+        // when there are 2+ raw chunks).
+        float[]? embedding = result[0].PrecomputedEmbedding;
         embedding.Should().NotBeNull();
-        // Mean of [3,0,0], [0,6,0], [0,0,9] = [1,2,3]
-        embedding![0].Should().BeApproximately(1.0f, 0.01f);
-        embedding[1].Should().BeApproximately(2.0f, 0.01f);
-        embedding[2].Should().BeApproximately(3.0f, 0.01f);
+        embedding![0].Should().BeApproximately(3.0f, 0.01f);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_OffsetsRoundTripWithSourceText()
+    {
+        // Multi-sentence document — every emitted chunk's recorded offsets must point
+        // at a substring of `content` that, after Trim(), exactly equals the chunk's Content.
+        // This regression-tests the IndexOf-from-currentOffset bug: when a sentence is
+        // re-emitted slightly differently from a verbatim source slice (e.g., trailing
+        // whitespace stripped by Trim()), IndexOf used to return -1 and we silently
+        // fell back to the previous offset, producing drift. The hint-based search fixes it.
+        var content = "First sentence about cats. Second sentence about dogs. " +
+                      "Third sentence about birds. Fourth sentence about fish. " +
+                      "Fifth sentence about reptiles. Sixth sentence about insects. " +
+                      "Seventh sentence about mammals. Eighth sentence about amphibians.";
+        SetupEmbeddings(8, highSimilarity: false);
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1 };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        foreach (ChunkInfo c in result)
+        {
+            c.StartOffset.Should().BeGreaterThanOrEqualTo(0);
+            c.EndOffset.Should().BeLessThanOrEqualTo(content.Length,
+                "endOffset must never exceed the source length");
+            c.EndOffset.Should().BeGreaterThan(c.StartOffset);
+
+            string slice = content.Substring(c.StartOffset, c.EndOffset - c.StartOffset);
+            slice.Trim().Should().Be(c.Content,
+                "the substring at the recorded offsets should equal the chunk's content");
+        }
+    }
+
+    [Fact]
+    public async Task ChunkAsync_DoesNotSilentlyDropContentBelowMinChunkSize()
+    {
+        // Three sentences: small "marker" sentence sandwiched between two large ones.
+        // Embeddings are arranged so the segmenter always splits at every boundary
+        // (orthogonal vectors -> high distance everywhere). Pre-merge we get three
+        // chunks; the small "marker" one is below MinChunkSize and used to be
+        // silently dropped. With merge-forward it must be merged into a neighbour.
+        string longA = string.Join(" ", Enumerable.Repeat("alpha", 30)) + ".";
+        string tinyB = "marker.";
+        string longC = string.Join(" ", Enumerable.Repeat("charlie", 30)) + ".";
+        string content = longA + " " + tinyB + " " + longC;
+
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.0f, 0.0f, 1.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = 5 };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        bool markerPresent = result.Any(c => c.Content.Contains("marker"));
+        markerPresent.Should().BeTrue(
+            "MinChunkSize must not silently drop document content; " +
+            "small segments must be merged into a neighbour, not discarded");
     }
 }

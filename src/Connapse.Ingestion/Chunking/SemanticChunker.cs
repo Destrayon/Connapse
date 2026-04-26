@@ -10,11 +10,16 @@ namespace Connapse.Ingestion.Chunking;
 /// As a by-product of computing sentence embeddings for boundary detection, this chunker
 /// also attaches a mean-pooled embedding to each produced ChunkInfo. IngestionPipeline
 /// detects this and skips the second embedding pass, halving the number of Ollama calls.
+///
+/// Oversize semantic groups are sub-split via <see cref="RecursiveChunker"/> so they
+/// still respect structural boundaries (paragraphs / newlines / sentences / words)
+/// rather than being cleaved at arbitrary character positions.
 /// </summary>
 public class SemanticChunker(
     IEmbeddingProvider embeddingProvider,
     ITokenCounter tokenCounter,
-    ISentenceSegmenter sentenceSegmenter) : IChunkingStrategy
+    ISentenceSegmenter sentenceSegmenter,
+    RecursiveChunker recursiveChunker) : IChunkingStrategy
 {
     public string Name => "Semantic";
 
@@ -24,12 +29,12 @@ public class SemanticChunker(
         CancellationToken cancellationToken = default)
     {
         var chunks = new List<ChunkInfo>();
-        var content = parsedDocument.Content;
+        string content = parsedDocument.Content;
 
         if (string.IsNullOrWhiteSpace(content))
             return chunks;
 
-        var sentences = SplitIntoSentences(content);
+        List<string> sentences = SplitIntoSentences(content);
 
         if (sentences.Count == 0)
             return chunks;
@@ -68,7 +73,7 @@ public class SemanticChunker(
         // Embed the context-windowed sentences in ONE batch.
         // These embeddings serve double duty: boundary detection here, and chunk
         // storage via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
-        var embeddings = await embeddingProvider.EmbedBatchAsync(
+        IReadOnlyList<float[]> embeddings = await embeddingProvider.EmbedBatchAsync(
             combinedTexts,
             cancellationToken);
 
@@ -77,6 +82,27 @@ public class SemanticChunker(
         for (int i = 0; i < embeddings.Count - 1; i++)
         {
             distances.Add(1f - CosineSimilarity(embeddings[i], embeddings[i + 1]));
+        }
+
+        // Empty-distances guard: <=1 sentence (or all sentences identical) — return
+        // the whole content as one chunk and bail. This avoids walking the per-segment
+        // loop with a degenerate splitIndices = [0, sentences.Count].
+        if (distances.Count == 0)
+        {
+            int tc = tokenCounter.CountTokens(content);
+            chunks.Add(new ChunkInfo(
+                Content: content.Trim(),
+                ChunkIndex: 0,
+                TokenCount: tc,
+                StartOffset: 0,
+                EndOffset: content.Length,
+                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
+                {
+                    ["ChunkingStrategy"] = Name,
+                    ["ChunkIndex"] = "0"
+                },
+                PrecomputedEmbedding: embeddings.Count > 0 ? MeanPool(embeddings, 0, embeddings.Count) : null));
+            return chunks;
         }
 
         // Pick threshold: pluggable method on distances when we have enough data
@@ -101,79 +127,87 @@ public class SemanticChunker(
         }
         splitIndices.Add(sentences.Count);
 
-        // Create chunks from split points
-        int chunkIndex = 0;
-        int currentOffset = 0;
+        // Build raw chunks. Use a search hint when locating each chunk text in the source
+        // (LangChain pattern): back the search up by a token-budget-worth of characters
+        // before the previous end so we can still find chunks whose text differs slightly
+        // from a verbatim source slice (e.g., trailing whitespace stripped by Trim()).
+        // No in-loop MinChunkSize filter — small chunks are merged forward in a post-pass
+        // so document content is never silently dropped.
+        var rawChunks = new List<RawChunk>();
+        int prevStart = 0;
+        int prevLen = 0;
 
         for (int i = 0; i < splitIndices.Count - 1; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var start = splitIndices[i];
-            var end = splitIndices[i + 1];
+            int start = splitIndices[i];
+            int end = splitIndices[i + 1];
 
-            var chunkSentences = sentences.GetRange(start, end - start);
-            var chunkText = string.Join(" ", chunkSentences);
+            List<string> chunkSentences = sentences.GetRange(start, end - start);
+            string chunkText = string.Join(" ", chunkSentences);
             int tokenCount = tokenCounter.CountTokens(chunkText);
+
+            int searchBackup = Math.Min(prevLen, 256);
+            int hint = Math.Max(0, prevStart + prevLen - searchBackup);
+            int startOffset = content.IndexOf(chunkText, hint, StringComparison.Ordinal);
+            if (startOffset < 0) startOffset = hint; // best-effort fallback
 
             if (tokenCount > settings.MaxChunkSize)
             {
-                // Over-size: split further. Sub-chunks don't have a clean sentence-embedding
-                // mapping, so PrecomputedEmbedding is left null and pipeline embeds them normally.
-                var subChunks = SplitLargeChunk(chunkText, settings.MaxChunkSize, settings.MinChunkSize, tokenCounter);
-                foreach (var subChunk in subChunks)
+                // Oversize semantic group: delegate to RecursiveChunker for hierarchical
+                // sub-splitting (paragraphs → newlines → sentences → words). Sub-chunks
+                // don't have a clean sentence-embedding mapping, so PrecomputedEmbedding
+                // is left null and the pipeline embeds them normally.
+                var syntheticDoc = new ParsedDocument(
+                    chunkText,
+                    parsedDocument.Metadata,
+                    parsedDocument.Warnings);
+
+                IReadOnlyList<ChunkInfo> sub = await recursiveChunker.ChunkAsync(
+                    syntheticDoc,
+                    settings,
+                    cancellationToken);
+
+                foreach (ChunkInfo s in sub)
                 {
-                    int subTokenCount = tokenCounter.CountTokens(subChunk);
-                    if (subTokenCount >= settings.MinChunkSize)
-                    {
-                        int startOffset = content.IndexOf(subChunk, currentOffset, StringComparison.Ordinal);
-                        if (startOffset == -1) startOffset = currentOffset;
-
-                        chunks.Add(new ChunkInfo(
-                            Content: subChunk.Trim(),
-                            ChunkIndex: chunkIndex++,
-                            TokenCount: subTokenCount,
-                            StartOffset: startOffset,
-                            EndOffset: startOffset + subChunk.Length,
-                            Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
-                            {
-                                ["ChunkingStrategy"] = Name,
-                                ["ChunkIndex"] = chunkIndex.ToString()
-                            }));
-
-                        currentOffset = startOffset + subChunk.Length;
-                    }
+                    int subLen = s.EndOffset - s.StartOffset;
+                    rawChunks.Add(new RawChunk(
+                        Text: content.Substring(startOffset + s.StartOffset, subLen),
+                        Offset: startOffset + s.StartOffset,
+                        Tokens: s.TokenCount,
+                        Embedding: null));
                 }
             }
-            else if (tokenCount >= settings.MinChunkSize)
+            else
             {
-                int startOffset = content.IndexOf(chunkText, currentOffset, StringComparison.Ordinal);
-                if (startOffset == -1) startOffset = currentOffset;
-
                 // Mean-pool the sentence embeddings for this chunk's sentences.
                 // This gives a good approximate chunk embedding without an extra API call.
-                var precomputed = MeanPool(embeddings, start, end);
-
-                chunks.Add(new ChunkInfo(
-                    Content: chunkText.Trim(),
-                    ChunkIndex: chunkIndex++,
-                    TokenCount: tokenCount,
-                    StartOffset: startOffset,
-                    EndOffset: startOffset + chunkText.Length,
-                    Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
-                    {
-                        ["ChunkingStrategy"] = Name,
-                        ["ChunkIndex"] = chunkIndex.ToString()
-                    },
-                    PrecomputedEmbedding: precomputed));
-
-                currentOffset = startOffset + chunkText.Length;
+                float[] precomputed = MeanPool(embeddings, start, end);
+                rawChunks.Add(new RawChunk(
+                    Text: chunkText,
+                    Offset: startOffset,
+                    Tokens: tokenCount,
+                    Embedding: precomputed));
             }
+
+            prevStart = startOffset;
+            prevLen = chunkText.Length;
         }
 
-        // Safety net: if every segment was filtered out (all too small), return the whole
-        // content as one chunk with the mean of all sentence embeddings.
-        if (chunks.Count == 0)
+        // Post-pass: merge any chunk below MinChunkSize into the preceding chunk
+        // (or following, if it's the first). Re-slices the merged span from the
+        // source so any whitespace/separator between merged chunks is preserved.
+        List<RawChunk> merged = MergeForwardSmallChunks(
+            rawChunks,
+            settings.MinChunkSize,
+            tokenCounter,
+            content);
+
+        // Safety net: if everything was filtered/dropped (shouldn't happen with merge-forward,
+        // but guards against pathological inputs), return the whole content as one chunk
+        // with the mean of all sentence embeddings.
+        if (merged.Count == 0)
         {
             int tc = tokenCounter.CountTokens(content);
             chunks.Add(new ChunkInfo(
@@ -188,6 +222,31 @@ public class SemanticChunker(
                     ["ChunkIndex"] = "0"
                 },
                 PrecomputedEmbedding: MeanPool(embeddings, 0, embeddings.Count)));
+            return chunks;
+        }
+
+        int chunkIndex = 0;
+        foreach (RawChunk c in merged)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string trimmed = c.Text.Trim();
+            if (trimmed.Length == 0) continue;
+
+            chunks.Add(new ChunkInfo(
+                Content: trimmed,
+                ChunkIndex: chunkIndex,
+                TokenCount: c.Tokens,
+                StartOffset: c.Offset,
+                EndOffset: c.Offset + c.Text.Length,
+                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
+                {
+                    ["ChunkingStrategy"] = Name,
+                    ["ChunkIndex"] = chunkIndex.ToString()
+                },
+                PrecomputedEmbedding: c.Embedding));
+
+            chunkIndex++;
         }
 
         return chunks;
@@ -200,13 +259,13 @@ public class SemanticChunker(
     /// </summary>
     private static float[] MeanPool(IReadOnlyList<float[]> embeddings, int start, int end)
     {
-        var count = end - start;
-        var dims = embeddings[start].Length;
-        var result = new float[dims];
+        int count = end - start;
+        int dims = embeddings[start].Length;
+        float[] result = new float[dims];
 
         for (int i = start; i < end; i++)
         {
-            var emb = embeddings[i];
+            float[] emb = embeddings[i];
             for (int d = 0; d < dims; d++)
                 result[d] += emb[d];
         }
@@ -325,22 +384,56 @@ public class SemanticChunker(
         return sortedAscending[lower] * (1 - frac) + sortedAscending[upper] * frac;
     }
 
-    private static List<string> SplitLargeChunk(string text, int maxTokens, int minTokens, ITokenCounter counter)
+    /// <summary>
+    /// Post-pass: any chunk smaller than <paramref name="minTokens"/> is merged into
+    /// the preceding chunk (or following, if it's the first). Never silently dropped.
+    /// Re-slices the merged span from <paramref name="content"/> so any whitespace or
+    /// separator chars between the merged chunks are preserved (so offsets still
+    /// round-trip with the source). Discards any precomputed embedding from the
+    /// participating chunks since the merged span no longer corresponds to a clean
+    /// sentence-embedding mapping — the pipeline will re-embed.
+    /// </summary>
+    private static List<RawChunk> MergeForwardSmallChunks(
+        List<RawChunk> input,
+        int minTokens,
+        ITokenCounter counter,
+        string content)
     {
-        var result = new List<string>();
-        int chunkSize = counter.GetIndexAtTokenCount(text, maxTokens);
-        // Defensive: tiktoken can return 0 when text is shorter than maxTokens; treat as a single full-length chunk.
-        if (chunkSize <= 0) chunkSize = text.Length;
+        if (input.Count <= 1 || minTokens <= 0) return input;
 
-        for (int i = 0; i < text.Length; i += chunkSize)
+        var output = new List<RawChunk>();
+        foreach (RawChunk c in input)
         {
-            int length = Math.Min(chunkSize, text.Length - i);
-            string chunk = text.Substring(i, length);
-
-            if (counter.CountTokens(chunk) >= minTokens)
-                result.Add(chunk);
+            if (c.Tokens >= minTokens || output.Count == 0)
+            {
+                output.Add(c);
+            }
+            else
+            {
+                RawChunk prev = output[^1];
+                int smallEnd = c.Offset + c.Text.Length;
+                string mergedText = content.Substring(prev.Offset, smallEnd - prev.Offset);
+                int mergedTokens = counter.CountTokens(mergedText);
+                output[^1] = new RawChunk(mergedText, prev.Offset, mergedTokens, null);
+            }
         }
 
-        return result;
+        if (output.Count >= 2)
+        {
+            if (output[0].Tokens < minTokens)
+            {
+                RawChunk first = output[0];
+                RawChunk next = output[1];
+                int nextEnd = next.Offset + next.Text.Length;
+                string mergedText = content.Substring(first.Offset, nextEnd - first.Offset);
+                int mergedTokens = counter.CountTokens(mergedText);
+                output[1] = new RawChunk(mergedText, first.Offset, mergedTokens, null);
+                output.RemoveAt(0);
+            }
+        }
+
+        return output;
     }
+
+    private record RawChunk(string Text, int Offset, int Tokens, float[]? Embedding);
 }
