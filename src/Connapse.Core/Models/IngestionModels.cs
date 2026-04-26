@@ -38,4 +38,4 @@ public record IngestionProgressUpdate(
 
 public enum IngestionPhase { Parsing, Chunking, Embedding, Storing, Complete }
 
-public enum ChunkingStrategy { Semantic, FixedSize, Recursive, DocumentAware }
+public enum ChunkingStrategy { Semantic, FixedSize, Recursive, DocumentAware, SentenceWindow }
