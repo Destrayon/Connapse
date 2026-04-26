@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RecursiveChunker>();
         services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<RecursiveChunker>());
         services.AddSingleton<IChunkingStrategy, SentenceAwareFixedSizeChunker>();
+        services.AddSingleton<IChunkingStrategy, DocumentAwareChunker>();
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
         // Register ingestion queue (singleton for shared state)
