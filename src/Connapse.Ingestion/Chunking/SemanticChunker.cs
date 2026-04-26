@@ -11,7 +11,10 @@ namespace Connapse.Ingestion.Chunking;
 /// also attaches a mean-pooled embedding to each produced ChunkInfo. IngestionPipeline
 /// detects this and skips the second embedding pass, halving the number of Ollama calls.
 /// </summary>
-public class SemanticChunker(IEmbeddingProvider embeddingProvider, ITokenCounter tokenCounter) : IChunkingStrategy
+public class SemanticChunker(
+    IEmbeddingProvider embeddingProvider,
+    ITokenCounter tokenCounter,
+    ISentenceSegmenter sentenceSegmenter) : IChunkingStrategy
 {
     public string Name => "Semantic";
 
@@ -200,20 +203,16 @@ public class SemanticChunker(IEmbeddingProvider embeddingProvider, ITokenCounter
         return result;
     }
 
-    private static List<string> SplitIntoSentences(string text)
+    private List<string> SplitIntoSentences(string text)
     {
-        var sentences = new List<string>();
-
-        var splits = text.Split([". ", ".\n", "! ", "!\n", "? ", "?\n"],
-            StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var split in splits)
+        IReadOnlyList<string> raw = sentenceSegmenter.Split(text);
+        var sentences = new List<string>(raw.Count);
+        foreach (string s in raw)
         {
-            var trimmed = split.Trim();
+            string trimmed = s.Trim();
             if (!string.IsNullOrWhiteSpace(trimmed))
                 sentences.Add(trimmed);
         }
-
         return sentences;
     }
 

@@ -17,7 +17,7 @@ public class SemanticChunkerTests
     {
         _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _embeddingProvider.Dimensions.Returns(3);
-        _chunker = new SemanticChunker(_embeddingProvider, new TiktokenTokenCounter());
+        _chunker = new SemanticChunker(_embeddingProvider, new TiktokenTokenCounter(), new PragmaticSentenceSegmenter());
     }
 
     /// <summary>
@@ -211,8 +211,9 @@ public class SemanticChunkerTests
     [Fact]
     public async Task ChunkAsync_AllChunksBelowMinSize_ReturnsFallbackWholeContent()
     {
-        // All segments too small individually
-        var content = "A. B. C. ";
+        // Three short sentences — Pragmatic segmenter splits these into 3, but each is too
+        // small to satisfy MinChunkSize, so the fallback path returns the whole content.
+        var content = "Apple. Banana. Cherry. ";
 
         SetupExplicitEmbeddings(new[]
         {
@@ -457,7 +458,7 @@ public class SemanticChunkerTests
     public async Task ChunkAsync_FallbackChunk_HasMeanPooledEmbedding()
     {
         // All chunks filtered by MinChunkSize -> fallback returns whole content with mean-pooled embedding
-        var content = "A. B. C. ";
+        var content = "Apple. Banana. Cherry. ";
 
         var emb1 = new float[] { 3.0f, 0.0f, 0.0f };
         var emb2 = new float[] { 0.0f, 6.0f, 0.0f };

@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
     {
         services.AddSingleton<ITokenCounter, TiktokenTokenCounter>();
+        services.AddSingleton<ISentenceSegmenter, PragmaticSentenceSegmenter>();
 
         // Register document parsers
         services.AddSingleton<IDocumentParser, TextParser>();
