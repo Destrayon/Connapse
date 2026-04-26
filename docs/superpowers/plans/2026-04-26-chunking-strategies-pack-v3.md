@@ -20,7 +20,7 @@
 - `src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs` — `IChunkingStrategy` impl emitting one chunk per sentence
 - `tests/Connapse.Ingestion.Tests/Chunking/DocumentAwareChunkerTests.cs`
 - `tests/Connapse.Ingestion.Tests/Chunking/SentenceWindowChunkerTests.cs`
-- `tests/Connapse.Search.Tests/Hybrid/SentenceWindowSubstitutionTests.cs` (or sibling test file in the existing `Connapse.Search.Tests` project — verify the project's test layout during Task 6)
+- `tests/Connapse.Core.Tests/Search/SentenceWindowSubstitutionTests.cs` (placed alongside existing search tests; `Connapse.Search` already exposes internals to `Connapse.Core.Tests`)
 
 **Modify:**
 - `src/Connapse.Ingestion/Connapse.Ingestion.csproj` — add `Markdig` 1.1.3 PackageReference

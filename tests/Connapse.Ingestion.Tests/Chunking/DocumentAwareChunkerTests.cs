@@ -165,9 +165,13 @@ public class DocumentAwareChunkerTests
 
         var result = await _chunker.ChunkAsync(doc, settings);
 
-        // Fence must appear intact in the output.
-        string allContent = string.Concat(result.Select(c => c.Content));
-        allContent.Should().Contain("```");
+        // The fence (open + body + close) must live entirely inside ONE chunk.
+        // Concatenating chunk contents and checking for "```" anywhere would also
+        // pass if the chunker split the fence across two chunks — exactly the
+        // regression this test is meant to catch.
+        result.Should().Contain(c =>
+            c.Content.Contains("```\nlong long long") &&
+            c.Content.TrimEnd().EndsWith("```"));
     }
 
     [Fact]

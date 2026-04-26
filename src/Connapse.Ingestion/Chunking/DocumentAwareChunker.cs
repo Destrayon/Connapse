@@ -132,6 +132,28 @@ public class DocumentAwareChunker(ITokenCounter tokenCounter, RecursiveChunker r
         MarkdownSection section,
         bool offsetEstimated)
     {
+        // Snap offsets past leading/trailing whitespace in `text` so the trimmed
+        // Content round-trips with content[StartOffset..EndOffset]. Sections after
+        // a heading typically begin with "\n\n", and without snapping the recorded
+        // span includes that whitespace while Content is trimmed — silent
+        // mismatch for citation/highlight consumers.
+        // When offsetEstimated is already true (the breadcrumb-prepend path),
+        // there's no verbatim source slice to round-trip against, so we skip.
+        int adjustedStart = startOffset;
+        int adjustedEnd = endOffset;
+        if (!offsetEstimated && text.Length > 0)
+        {
+            int leadingWs = 0;
+            while (leadingWs < text.Length && char.IsWhiteSpace(text[leadingWs]))
+                leadingWs++;
+            int trailingWs = 0;
+            while (trailingWs < text.Length - leadingWs
+                && char.IsWhiteSpace(text[text.Length - 1 - trailingWs]))
+                trailingWs++;
+            adjustedStart += leadingWs;
+            adjustedEnd -= trailingWs;
+        }
+
         var metadata = new Dictionary<string, string>(parsedDocument.Metadata)
         {
             ["ChunkingStrategy"] = Name,
@@ -153,8 +175,8 @@ public class DocumentAwareChunker(ITokenCounter tokenCounter, RecursiveChunker r
             Content: text.Trim(),
             ChunkIndex: chunkIndex,
             TokenCount: tokenCount,
-            StartOffset: startOffset,
-            EndOffset: endOffset,
+            StartOffset: adjustedStart,
+            EndOffset: adjustedEnd,
             Metadata: metadata);
     }
 }

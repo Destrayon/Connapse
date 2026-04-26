@@ -43,8 +43,13 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
             int idx = content.IndexOf(trimmed, cursor, StringComparison.Ordinal);
             if (idx < 0) { idx = cursor; anyOffsetEstimated = true; }
 
-            spans.Add((trimmed, idx, tokenCounter.CountTokens(trimmed)));
-            cursor = idx + trimmed.Length;
+            // Clamp startOffset to a valid bound — cursor can drift past content.Length
+            // if the segmenter ever expands a sentence beyond its source slice.
+            int clampedIdx = Math.Min(Math.Max(idx, 0), content.Length);
+            if (clampedIdx != idx) anyOffsetEstimated = true;
+
+            spans.Add((trimmed, clampedIdx, tokenCounter.CountTokens(trimmed)));
+            cursor = clampedIdx + trimmed.Length;
         }
 
         int windowSize = Math.Max(0, settings.SentenceWindowSize);
@@ -73,12 +78,15 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
             if (anyOffsetEstimated)
                 metadata["OffsetEstimated"] = "true";
 
+            // Clamp EndOffset so consumers can safely substring even when the
+            // segmenter normalized the sentence to be longer than its source slice.
+            int endOffset = Math.Min(content.Length, sentenceOffset + sentenceText.Length);
             chunks.Add(new ChunkInfo(
                 Content: sentenceText,
                 ChunkIndex: i,
                 TokenCount: sentenceTokens,
                 StartOffset: sentenceOffset,
-                EndOffset: sentenceOffset + sentenceText.Length,
+                EndOffset: endOffset,
                 Metadata: metadata));
         }
 

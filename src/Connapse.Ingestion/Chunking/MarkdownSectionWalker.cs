@@ -71,12 +71,10 @@ internal static class MarkdownSectionWalker
 
     public static bool HasMarkdownStructure(MarkdownDocument doc)
     {
-        foreach (Block block in doc)
-        {
-            if (block is HeadingBlock) return true;
-            if (block is FencedCodeBlock) return true;
-        }
-        return false;
+        // Descendants (not just top-level) so fenced code inside lists/blockquotes
+        // is detected, e.g. a `bash` fence inside a `Setup steps:` bullet item.
+        return doc.Descendants<HeadingBlock>().Any()
+            || doc.Descendants<FencedCodeBlock>().Any();
     }
 
     private static MarkdownSection BuildSection(
