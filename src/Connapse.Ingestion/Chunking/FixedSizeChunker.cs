@@ -87,8 +87,17 @@ public class FixedSizeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
                 break;
             }
 
-            // Calculate overlap position
-            int overlapChars = tokenCounter.GetIndexAtTokenCount(chunkText, overlap);
+            // Calculate trailing overlap position. GetIndexAtTokenCount returns the
+            // char index after the LEADING N tokens, so the trailing overlap is the
+            // total chunk length minus the index after (totalTokens - overlap)
+            // leading tokens. Without this, mixed-width tokens (CJK, code) skew the
+            // overlap window because the leading-N-tokens char count differs from
+            // the trailing-N-tokens char count.
+            int totalTokens = tokenCounter.CountTokens(chunkText);
+            int overlapStartIdx = totalTokens > overlap
+                ? tokenCounter.GetIndexAtTokenCount(chunkText, totalTokens - overlap)
+                : 0;
+            int overlapChars = chunkText.Length - overlapStartIdx;
             currentPosition = endPosition - overlapChars;
 
             // Ensure we're making progress

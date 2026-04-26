@@ -106,16 +106,18 @@ public class SemanticChunker(
         }
 
         // Pick threshold: pluggable method on distances when we have enough data
-        // (at least 5 distances). Below that, fall back to SemanticThreshold (operates
-        // on distance — preserves the legacy small-doc behavior since cos similarity
-        // 0.5 == cos distance 0.5 when the legacy default was used).
+        // (at least 5 distances). Below that, fall back to SemanticThreshold.
+        // Convert the legacy similarity-based threshold to a distance threshold so
+        // users who tuned SemanticThreshold under the old similarity convention
+        // don't see silently inverted behavior: split where (1 - sim) > (1 - threshold)
+        // is equivalent to the legacy split where sim < threshold.
         //
         // ComputeBreakpointThreshold also returns the *array* the threshold was
         // derived from. For Percentile / StdDev / IQR this is the distance series
         // itself; for Gradient it's the gradient series — different units from the
         // distances, so the splits loop must iterate the gradient array (not
         // distances) when comparing against a gradient-derived threshold.
-        double effectiveThreshold = settings.SemanticThreshold;
+        double effectiveThreshold = 1.0 - settings.SemanticThreshold;
         IReadOnlyList<float> breakpointArray = distances;
         if (distances.Count >= 5)
         {
@@ -180,10 +182,17 @@ public class SemanticChunker(
 
                 foreach (ChunkInfo s in sub)
                 {
+                    // Guard the source slice: when the IndexOf hint fallback fires
+                    // (line ~163) startOffset can land near content.Length, and
+                    // startOffset + s.StartOffset + subLen may exceed the buffer.
                     int subLen = s.EndOffset - s.StartOffset;
+                    int absStart = startOffset + s.StartOffset;
+                    if (absStart < 0 || absStart >= content.Length) continue;
+                    subLen = Math.Min(subLen, content.Length - absStart);
+                    if (subLen <= 0) continue;
                     rawChunks.Add(new RawChunk(
-                        Text: content.Substring(startOffset + s.StartOffset, subLen),
-                        Offset: startOffset + s.StartOffset,
+                        Text: content.Substring(absStart, subLen),
+                        Offset: absStart,
                         Tokens: s.TokenCount,
                         Embedding: null));
                 }

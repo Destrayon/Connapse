@@ -31,20 +31,23 @@ public class SentenceAwareFixedSizeChunker(
         IReadOnlyList<string> rawSentences = sentenceSegmenter.Split(content);
         if (rawSentences.Count == 0)
         {
-            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0));
+            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0, offsetEstimated: false));
             return chunks;
         }
 
         // Locate every sentence's source offset (moving cursor; fallback to cursor if
         // the segmenter normalized whitespace and the sentence isn't a verbatim slice).
+        // If any sentence's offset had to be estimated (IndexOf miss), every emitted
+        // chunk in this run gets a metadata flag so downstream consumers can spot it.
         var sentenceSpans = new List<(string Text, int Offset, int Tokens)>();
         int cursor = 0;
+        bool anyOffsetEstimated = false;
         foreach (string s in rawSentences)
         {
             string trimmed = s.Trim();
             if (trimmed.Length == 0) continue;
             int idx = content.IndexOf(trimmed, cursor, StringComparison.Ordinal);
-            if (idx < 0) idx = cursor;
+            if (idx < 0) { idx = cursor; anyOffsetEstimated = true; }
             sentenceSpans.Add((trimmed, idx, tokenCounter.CountTokens(trimmed)));
             cursor = idx + trimmed.Length;
         }
@@ -105,14 +108,14 @@ public class SentenceAwareFixedSizeChunker(
         var merged = MergeForwardSmallChunks(rawChunks, settings.MinChunkSize, content);
         if (merged.Count == 0)
         {
-            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0));
+            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0, anyOffsetEstimated));
             return chunks;
         }
 
         int chunkIndex = 0;
         foreach ((int start, int end) span in merged)
         {
-            chunks.Add(BuildChunk(parsedDocument, content, span.start, span.end, chunkIndex++));
+            chunks.Add(BuildChunk(parsedDocument, content, span.start, span.end, chunkIndex++, anyOffsetEstimated));
         }
 
         return chunks;
@@ -123,7 +126,8 @@ public class SentenceAwareFixedSizeChunker(
         string content,
         int start,
         int end,
-        int chunkIndex)
+        int chunkIndex,
+        bool offsetEstimated)
     {
         string text = content.Substring(start, end - start);
         int tokens = tokenCounter.CountTokens(text);
@@ -132,6 +136,8 @@ public class SentenceAwareFixedSizeChunker(
             ["ChunkingStrategy"] = Name,
             ["ChunkIndex"] = chunkIndex.ToString()
         };
+        if (offsetEstimated)
+            metadata["OffsetEstimated"] = "true";
         return new ChunkInfo(
             Content: text.Trim(),
             ChunkIndex: chunkIndex,
