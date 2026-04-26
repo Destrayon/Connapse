@@ -78,7 +78,7 @@ public record EmbeddingSettings
 public record ChunkingSettings
 {
     /// <summary>
-    /// Chunking strategy: FixedSize | Recursive | Semantic | DocumentAware
+    /// Chunking strategy: Semantic | FixedSize | Recursive | DocumentAware | SentenceWindow
     /// </summary>
     public string Strategy { get; set; } = "Semantic";
 
@@ -96,7 +96,9 @@ public record ChunkingSettings
     /// Minimum chunk size in tokens (default: 100). Behavior depends on strategy:
     /// RecursiveChunker, SemanticChunker, and SentenceAwareFixedSizeChunker merge
     /// sub-min chunks into a neighbour. FixedSizeChunker may still filter the last
-    /// sub-min chunk (tracked as a parity follow-up).
+    /// sub-min chunk (tracked as a parity follow-up). SentenceWindowChunker
+    /// intentionally bypasses MinChunkSize — its chunks are designed to be
+    /// sentence-sized; the wider window text lives in metadata.
     /// </summary>
     public int MinChunkSize { get; set; } = 100;
 
@@ -136,6 +138,21 @@ public record ChunkingSettings
     /// </summary>
     public string[] RecursiveSeparators { get; set; } = ["\n\n", "\n", ". ", " "];
 
+    /// <summary>
+    /// For DocumentAware (Markdown) chunking: prepend the header breadcrumb
+    /// (e.g., "Engineering > Deploy > Rollback") to the chunk body before
+    /// embedding. Default true — biggest single retrieval-quality win at
+    /// ~10-30 token tax per chunk. Sets Metadata["OffsetEstimated"]="true"
+    /// since prepended text isn't source-verbatim.
+    /// </summary>
+    public bool PrependHeaderPath { get; set; } = true;
+
+    /// <summary>
+    /// For SentenceWindow chunking: number of sentences on each side of the
+    /// indexed sentence to include in Metadata["window"] (total window = 2N+1).
+    /// Default 3 matches LlamaIndex's SentenceWindowNodeParser default.
+    /// </summary>
+    public int SentenceWindowSize { get; set; } = 3;
 }
 
 /// <summary>
@@ -224,6 +241,14 @@ public record SearchSettings
     /// before re-embedding completes.
     /// </summary>
     public bool EnableCrossModelSearch { get; set; } = false;
+
+    /// <summary>
+    /// When a search hit's metadata carries a "window" key (set by
+    /// SentenceWindowChunker), substitute Content with the window text after
+    /// reranking, before TopK truncation. Default true. Reranker still scores
+    /// against the precise sentence; the wider window is for the answer-time LLM.
+    /// </summary>
+    public bool SentenceWindowSubstituteOnSearch { get; set; } = true;
 }
 
 /// <summary>
