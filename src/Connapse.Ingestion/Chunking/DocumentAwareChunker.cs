@@ -92,20 +92,33 @@ public class DocumentAwareChunker(ITokenCounter tokenCounter, RecursiveChunker r
                 // budget when the slice begins with separator whitespace (e.g. "\n\n").
                 // Re-counting on the trimmed body keeps each emitted chunk within budget.
                 string trimmed = s.Content;
-                int subTokens = tokenCounter.CountTokens(trimmed);
+
+                // Symmetry with the direct-emit path above: when PrependHeaderPath is set,
+                // every chunk emitted from this section carries the breadcrumb. Oversize
+                // sections benefit MOST from the breadcrumb (each piece needs hierarchical
+                // context), so skipping the prepend here was an unintended asymmetry.
+                bool prepend = settings.PrependHeaderPath && section.HeaderPath.Length > 0;
+                string subText = prepend
+                    ? $"{section.HeaderPath}\n\n{trimmed}"
+                    : trimmed;
+                int subTokens = tokenCounter.CountTokens(subText);
 
                 chunks.Add(BuildChunk(
                     parsedDocument,
-                    trimmed,
+                    subText,
                     chunkIndex++,
                     subTokens,
                     startOffset: absStart,
                     endOffset: absStart + subLen,
                     section,
-                    offsetEstimated: false));
+                    offsetEstimated: prepend));
             }
         }
 
+        // No MergeForwardSmallChunks post-pass: section bodies are at semantic (heading)
+        // boundaries. Merging tiny sub-min sections would glue across heading lines,
+        // defeating the breadcrumb metadata. SentenceWindowChunker bypasses for the same
+        // reason at finer granularity (intentionally tiny chunks).
         return chunks;
     }
 

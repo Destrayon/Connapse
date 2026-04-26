@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -500,7 +501,16 @@ public class ReindexService : IReindexService
             return (false, null, null);
         }
 
-        var currentKey = $"{currentSettings.Strategy}:{currentSettings.MaxChunkSize}:{currentSettings.Overlap}";
+        // Resolve the current strategy through the same auto-router used by IngestionPipeline
+        // when it writes IndexedWith:ChunkingStrategy. Without this, a .md file ingested with
+        // a configured Strategy != DocumentAware stores "DocumentAware" (resolved) but the
+        // raw "Recursive" (or other) currentSettings.Strategy here would always mismatch,
+        // causing a permanent reindex loop.
+        string resolvedStrategy = IngestionPipelineStrategyResolver.Resolve(
+            fallbackStrategy: currentSettings.Strategy,
+            fileName: doc.FileName);
+
+        var currentKey = $"{resolvedStrategy}:{currentSettings.MaxChunkSize}:{currentSettings.Overlap}";
         var storedKey = $"{storedStrategy}:{storedMaxSize}:{storedOverlap}";
 
         return (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase),

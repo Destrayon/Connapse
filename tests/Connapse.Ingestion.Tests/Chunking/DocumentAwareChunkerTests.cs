@@ -104,7 +104,13 @@ public class DocumentAwareChunkerTests
         string longBody = string.Join(" ", Enumerable.Repeat("filler", 500));
         string content = $"# Big\n\n{longBody}";
         var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
-        var settings = new ChunkingSettings { MaxChunkSize = 50, MinChunkSize = 1, Overlap = 0 };
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 50,
+            MinChunkSize = 1,
+            Overlap = 0,
+            PrependHeaderPath = false  // exercise raw-body path; prepend asserted in dedicated test
+        };
 
         var result = await _chunker.ChunkAsync(doc, settings);
 
@@ -114,6 +120,34 @@ public class DocumentAwareChunkerTests
             c.Metadata.Should().ContainKey("HeaderPath");
             c.Metadata["HeaderPath"].Should().Be("Big");
             c.TokenCount.Should().BeLessThanOrEqualTo(settings.MaxChunkSize);
+        });
+    }
+
+    [Fact]
+    public async Task ChunkAsync_OversizeSection_PrependsHeaderPathToSubChunks()
+    {
+        // Regression: previously only short sections received the breadcrumb when
+        // PrependHeaderPath = true; oversize sections delegated to the recursive
+        // chunker emitted bare body slices. Now consistent across both paths.
+        string longBody = string.Join(" ", Enumerable.Repeat("filler", 500));
+        string content = $"# Engineering\n\n## Deploy\n\n{longBody}";
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 50,
+            MinChunkSize = 1,
+            Overlap = 0,
+            PrependHeaderPath = true
+        };
+
+        var result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Should().AllSatisfy(c =>
+        {
+            c.Content.Should().StartWith("Engineering > Deploy");
+            c.Metadata.Should().ContainKey("OffsetEstimated");
+            c.Metadata["OffsetEstimated"].Should().Be("true");
         });
     }
 

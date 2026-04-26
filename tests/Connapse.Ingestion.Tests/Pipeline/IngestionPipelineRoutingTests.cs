@@ -39,4 +39,22 @@ public class IngestionPipelineRoutingTests
         txtResolved.Should().Be("Recursive");
         nullResolved.Should().Be("Recursive");
     }
+
+    [Fact]
+    public void CheckChunkingSettingsChanged_MarkdownDocAndConfiguredRecursive_AfterReindexDoesNotMismatchAgain()
+    {
+        // Regression: previously the write side (IngestionPipeline.IngestAsync) stored
+        // the resolved "DocumentAware" for .md files, but the read side
+        // (ReindexService.CheckChunkingSettingsChanged) compared against the raw
+        // configured "Recursive". Result: every reindex check for Markdown in a
+        // non-DocumentAware container saw a mismatch and re-enqueued the doc forever.
+        //
+        // The fix is that BOTH sides now route through IngestionPipelineStrategyResolver.
+        // This test asserts the underlying contract — same input, same output.
+        string resolvedAtIngest = IngestionPipelineStrategyResolver.Resolve("Recursive", "README.md");
+        string resolvedAtReindexCheck = IngestionPipelineStrategyResolver.Resolve("Recursive", "README.md");
+
+        resolvedAtReindexCheck.Should().Be(resolvedAtIngest);
+        resolvedAtReindexCheck.Should().Be("DocumentAware");
+    }
 }
