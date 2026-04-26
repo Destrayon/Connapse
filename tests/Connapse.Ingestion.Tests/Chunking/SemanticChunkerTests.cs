@@ -455,6 +455,176 @@ public class SemanticChunkerTests
     }
 
     [Fact]
+    public async Task ChunkAsync_BufferSize_AffectsEmbeddedTexts()
+    {
+        // Buffer size 0 = each sentence embedded alone; buffer size 1 = with neighbours.
+        // We verify by capturing the texts passed to EmbedBatchAsync.
+        var content = "First. Second. Third. ";
+
+        IEnumerable<string>? capturedZero = null;
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                capturedZero = ci.Arg<IEnumerable<string>>().ToArray();
+                var texts = ((IEnumerable<string>)capturedZero).ToArray();
+                return Task.FromResult<IReadOnlyList<float[]>>(
+                    texts.Select((_, i) => new float[] { 1f, 0.1f * i, 0f }).ToList());
+            });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 0
+        });
+
+        var bufferZeroTexts = capturedZero!.ToArray();
+
+        IEnumerable<string>? capturedOne = null;
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                capturedOne = ci.Arg<IEnumerable<string>>().ToArray();
+                var texts = ((IEnumerable<string>)capturedOne).ToArray();
+                return Task.FromResult<IReadOnlyList<float[]>>(
+                    texts.Select((_, i) => new float[] { 1f, 0.1f * i, 0f }).ToList());
+            });
+
+        await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 1
+        });
+
+        var bufferOneTexts = capturedOne!.ToArray();
+
+        // Buffer 0 should embed each sentence alone — middle text is just "Second."
+        bufferZeroTexts[1].Should().Be("Second.");
+        // Buffer 1 should embed middle sentence with neighbours — "First. Second. Third."
+        bufferOneTexts[1].Should().Contain("First.").And.Contain("Second.").And.Contain("Third.");
+        // The two configurations produce different embedded texts
+        bufferZeroTexts.Should().NotBeEquivalentTo(bufferOneTexts);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_StandardDeviation_ProducesValidChunks()
+    {
+        // 6 sentences -> 5 distances. Use mixed embeddings so std-dev calculation has variation.
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "StandardDeviation",
+            SemanticBreakpointAmount = 1.0
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_InterQuartile_ProducesValidChunks()
+    {
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "InterQuartile",
+            SemanticBreakpointAmount = 1.5
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_Gradient_ProducesValidChunks()
+    {
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Gradient",
+            SemanticBreakpointAmount = 95
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_PercentileHigh_ProducesFewerOrEqualChunksThanLow()
+    {
+        // Six sentences with several mid-range distances. Higher percentile = fewer splits.
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        var embeddings = new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.7f, 0.7f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.0f, 0.7f, 0.7f },
+            new float[] { 0.0f, 0.0f, 1.0f },
+            new float[] { 0.7f, 0.0f, 0.7f }
+        };
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+
+        SetupExplicitEmbeddings(embeddings);
+        var lowResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 50
+        });
+
+        SetupExplicitEmbeddings(embeddings);
+        var highResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 95
+        });
+
+        // Higher percentile = stricter threshold = fewer (or equal) splits.
+        highResult.Count.Should().BeLessThanOrEqualTo(lowResult.Count);
+    }
+
+    [Fact]
     public async Task ChunkAsync_FallbackChunk_HasMeanPooledEmbedding()
     {
         // All chunks filtered by MinChunkSize -> fallback returns whole content with mean-pooled embedding

@@ -53,36 +53,50 @@ public class SemanticChunker(
             return chunks;
         }
 
-        // Embed all sentences in ONE batch request.
-        // These embeddings serve double duty: boundary detection here, and chunk storage
-        // via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
+        // Build context-aware "combined" texts for embedding: buffer_size sentences
+        // before + the sentence itself + buffer_size after. The chunk is still the
+        // original sentence; the embedding just sees more context. Default buffer is 1.
+        int bufferSize = Math.Max(0, settings.SemanticBufferSize);
+        string[] combinedTexts = new string[sentences.Count];
+        for (int i = 0; i < sentences.Count; i++)
+        {
+            int startIdx = Math.Max(0, i - bufferSize);
+            int endIdx = Math.Min(sentences.Count - 1, i + bufferSize);
+            combinedTexts[i] = string.Join(" ", sentences.GetRange(startIdx, endIdx - startIdx + 1));
+        }
+
+        // Embed the context-windowed sentences in ONE batch.
+        // These embeddings serve double duty: boundary detection here, and chunk
+        // storage via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
         var embeddings = await embeddingProvider.EmbedBatchAsync(
-            sentences.ToArray(),
+            combinedTexts,
             cancellationToken);
 
-        // Calculate similarity between adjacent sentences
-        var similarities = new List<float>();
+        // Compute adjacent-pair *distances* (1 - cosine similarity).
+        var distances = new List<float>();
         for (int i = 0; i < embeddings.Count - 1; i++)
         {
-            similarities.Add(CosineSimilarity(embeddings[i], embeddings[i + 1]));
+            distances.Add(1f - CosineSimilarity(embeddings[i], embeddings[i + 1]));
         }
 
-        // Use the 80th-percentile of all pairwise distances as the adaptive split threshold.
-        // This outperforms a fixed constant because the threshold adjusts to the document's
-        // own semantic density rather than a hard-coded value.
-        var effectiveThreshold = settings.SemanticThreshold;
-        if (similarities.Count >= 5)
+        // Pick threshold: pluggable method on distances when we have enough data
+        // (at least 5 distances). Below that, fall back to SemanticThreshold (operates
+        // on distance — preserves the legacy small-doc behavior since cos similarity
+        // 0.5 == cos distance 0.5 when the legacy default was used).
+        double effectiveDistanceThreshold = settings.SemanticThreshold;
+        if (distances.Count >= 5)
         {
-            var sortedDistances = similarities.OrderBy(s => s).ToList();
-            var p80Index = (int)Math.Floor(0.80 * sortedDistances.Count);
-            effectiveThreshold = sortedDistances[Math.Min(p80Index, sortedDistances.Count - 1)];
+            effectiveDistanceThreshold = ComputeBreakpointThreshold(
+                distances,
+                settings.SemanticBreakpointMethod,
+                settings.SemanticBreakpointAmount);
         }
 
-        // Find split points where similarity drops below threshold
+        // Find split points: split where distance EXCEEDS threshold.
         var splitIndices = new List<int> { 0 };
-        for (int i = 0; i < similarities.Count; i++)
+        for (int i = 0; i < distances.Count; i++)
         {
-            if (similarities[i] < effectiveThreshold)
+            if (distances[i] > effectiveDistanceThreshold)
                 splitIndices.Add(i + 1);
         }
         splitIndices.Add(sentences.Count);
@@ -239,6 +253,76 @@ public class SemanticChunker(
             return 0;
 
         return dotProduct / (magnitudeA * magnitudeB);
+    }
+
+    /// <summary>
+    /// Computes the adaptive breakpoint threshold over <paramref name="distances"/>
+    /// using the configured <paramref name="method"/>. Mirrors LangChain
+    /// SemanticChunker's _calculate_breakpoint_threshold.
+    /// </summary>
+    private static double ComputeBreakpointThreshold(
+        IReadOnlyList<float> distances,
+        string method,
+        double amount)
+    {
+        if (distances.Count == 0) return 0;
+
+        switch (method?.Trim() ?? "Percentile")
+        {
+            case "StandardDeviation":
+            {
+                double mean = 0;
+                foreach (float d in distances) mean += d;
+                mean /= distances.Count;
+                double sumSq = 0;
+                foreach (float d in distances) sumSq += (d - mean) * (d - mean);
+                double std = Math.Sqrt(sumSq / distances.Count);
+                return mean + amount * std;
+            }
+            case "InterQuartile":
+            {
+                float[] sorted = distances.OrderBy(d => d).ToArray();
+                double mean = 0;
+                foreach (float d in sorted) mean += d;
+                mean /= sorted.Length;
+                double q1 = Percentile(sorted, 25);
+                double q3 = Percentile(sorted, 75);
+                double iqr = q3 - q1;
+                return mean + amount * iqr;
+            }
+            case "Gradient":
+            {
+                // Forward-difference gradient over the distance series, then take
+                // the Nth percentile of the gradient — splits where distance is
+                // changing fastest, not where it's highest.
+                if (distances.Count < 2) return 0;
+                float[] grad = new float[distances.Count];
+                grad[0] = distances[1] - distances[0];
+                grad[distances.Count - 1] = distances[distances.Count - 1] - distances[distances.Count - 2];
+                for (int i = 1; i < distances.Count - 1; i++)
+                    grad[i] = (distances[i + 1] - distances[i - 1]) / 2f;
+                return Percentile(grad.OrderBy(g => g).ToArray(), amount);
+            }
+            case "Percentile":
+            default:
+            {
+                float[] sorted = distances.OrderBy(d => d).ToArray();
+                return Percentile(sorted, amount);
+            }
+        }
+    }
+
+    private static double Percentile(float[] sortedAscending, double percentile)
+    {
+        if (sortedAscending.Length == 0) return 0;
+        if (percentile <= 0) return sortedAscending[0];
+        if (percentile >= 100) return sortedAscending[^1];
+        double rank = percentile / 100d * (sortedAscending.Length - 1);
+        int lower = (int)Math.Floor(rank);
+        int upper = (int)Math.Ceiling(rank);
+        if (lower == upper) return sortedAscending[lower];
+        double frac = rank - lower;
+        return sortedAscending[lower] * (1 - frac) + sortedAscending[upper] * frac;
     }
 
     private static List<string> SplitLargeChunk(string text, int maxTokens, int minTokens, ITokenCounter counter)
