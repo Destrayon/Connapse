@@ -10,6 +10,23 @@ using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Hybrid;
 
+internal static class SentenceWindowSubstitution
+{
+    public static IReadOnlyList<SearchHit> SubstituteIfEnabled(
+        IReadOnlyList<SearchHit> hits,
+        bool substituteOnSearch)
+    {
+        if (!substituteOnSearch) return hits;
+
+        return hits.Select(h =>
+            h.Metadata is not null
+            && h.Metadata.TryGetValue("window", out string? w)
+            && !string.IsNullOrWhiteSpace(w)
+                ? h with { Content = w }
+                : h).ToList();
+    }
+}
+
 /// <summary>
 /// Hybrid search service that combines vector and keyword search with configurable reranking.
 /// Implements IKnowledgeSearch as the main search entry point.
@@ -134,7 +151,12 @@ public class HybridSearchService : IKnowledgeSearch
         if (searchSettings.AutoCut)
             filtered = ApplyAutoCut(filtered);
 
-        var finalHits = filtered.Take(options.TopK).ToList();
+        // Substitute SentenceWindow chunks' Content with their wider window text
+        // before returning. Reranker has already scored against the precise sentence.
+        IReadOnlyList<SearchHit> substituted = SentenceWindowSubstitution
+            .SubstituteIfEnabled(filtered, searchSettings.SentenceWindowSubstituteOnSearch);
+
+        var finalHits = substituted.Take(options.TopK).ToList();
 
         stopwatch.Stop();
 
