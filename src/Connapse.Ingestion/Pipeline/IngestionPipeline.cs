@@ -137,8 +137,14 @@ public class IngestionPipeline : IKnowledgeIngester
             var chunkSettings = _chunkingSettings.CurrentValue;
             var embedSettings = _embeddingSettings.CurrentValue;
 
-            // Store chunking settings used
-            metadata[MetadataKeyChunkingStrategy] = options.Strategy.ToString();
+            // Store chunking settings used.
+            // IMPORTANT: record the resolved strategy name (what ChunkDocumentAsync will actually
+            // dispatch to via the auto-router), NOT the raw user-configured option. Otherwise a
+            // .md file ingested with options.Strategy=Recursive would store "Recursive" while
+            // DocumentAware actually ran — breaking reindex-detection and misleading consumers.
+            metadata[MetadataKeyChunkingStrategy] = IngestionPipelineStrategyResolver.Resolve(
+                fallbackStrategy: options.Strategy.ToString(),
+                fileName: options.FileName);
             metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
             metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
 
@@ -217,7 +223,7 @@ public class IngestionPipeline : IKnowledgeIngester
             warnings.AddRange(parsedDocument.Warnings);
 
             // Chunk document
-            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, ct);
+            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
 
             if (chunks.Count == 0)
             {
@@ -421,7 +427,7 @@ public class IngestionPipeline : IKnowledgeIngester
 
         // Chunk
         yield return new IngestionProgress(IngestionPhase.Chunking, 0, "Chunking document");
-        var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, ct);
+        var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
         yield return new IngestionProgress(IngestionPhase.Chunking, 100, $"{chunks.Count} chunks created");
 
         // Embed
@@ -460,12 +466,15 @@ public class IngestionPipeline : IKnowledgeIngester
     private async Task<IReadOnlyList<ChunkInfo>> ChunkDocumentAsync(
         ParsedDocument parsedDocument,
         ChunkingStrategy strategyType,
+        string? fileName,
         CancellationToken ct)
     {
-        var settings = _chunkingSettings.CurrentValue;
-        var strategyName = strategyType.ToString();
+        ChunkingSettings settings = _chunkingSettings.CurrentValue;
+        string strategyName = IngestionPipelineStrategyResolver.Resolve(
+            fallbackStrategy: strategyType.ToString(),
+            fileName: fileName);
 
-        var strategy = _chunkingStrategies.FirstOrDefault(s =>
+        IChunkingStrategy? strategy = _chunkingStrategies.FirstOrDefault(s =>
             s.Name.Equals(strategyName, StringComparison.OrdinalIgnoreCase));
 
         if (strategy == null)
@@ -505,5 +514,20 @@ public class IngestionPipeline : IKnowledgeIngester
         content.Position = 0;
 
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+}
+
+internal static class IngestionPipelineStrategyResolver
+{
+    private static readonly HashSet<string> MarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".md", ".markdown", ".mdx"
+    };
+
+    public static string Resolve(string fallbackStrategy, string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
+        string ext = System.IO.Path.GetExtension(fileName);
+        return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
     }
 }
