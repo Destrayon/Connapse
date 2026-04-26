@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Ingestion.Tests.Chunking;
@@ -8,7 +9,7 @@ namespace Connapse.Ingestion.Tests.Chunking;
 [Trait("Category", "Unit")]
 public class FixedSizeChunkerTests
 {
-    private readonly FixedSizeChunker _chunker = new();
+    private readonly FixedSizeChunker _chunker = new(new TiktokenTokenCounter());
 
     [Fact]
     public void Name_ReturnsFixedSize()
@@ -82,7 +83,7 @@ public class FixedSizeChunkerTests
     {
         var content = "First sentence. Second sentence. Third sentence. Fourth sentence. Fifth sentence.";
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
-        var settings = new ChunkingSettings { MaxChunkSize = 15, Overlap = 5, MinChunkSize = 5 };
+        var settings = new ChunkingSettings { MaxChunkSize = 8, Overlap = 5, MinChunkSize = 5 };
 
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 

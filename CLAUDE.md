@@ -109,6 +109,10 @@ Types: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `perf:`, `chore:`
 
 `feature/<issue>-desc`, `fix/<issue>-desc`, `refactor/<issue>-desc`, `docs/<issue>-desc`
 
+## GitHub Issues — File Before Implementing
+
+Before starting any new feature, fix, or non-trivial change, file a GitHub issue first. The branch name (`feature/<issue>-desc`, `fix/<issue>-desc`) and PR description (`Closes #<issue>`) both reference it. Do not begin implementation work — even setting up branches or worktrees — until the issue exists. Trivial in-place edits (typo fixes, single-line doc tweaks) are exempt.
+
 ## Knowledge Base (Connapse MCP)
 
 If the Connapse MCP server is available, use it as your primary source of project context before relying on assumptions or general knowledge.

@@ -93,7 +93,10 @@ public record ChunkingSettings
     public int Overlap { get; set; } = 50;
 
     /// <summary>
-    /// Minimum chunk size in tokens (default: 100).
+    /// Minimum chunk size in tokens (default: 100). Behavior depends on strategy:
+    /// RecursiveChunker, SemanticChunker, and SentenceAwareFixedSizeChunker merge
+    /// sub-min chunks into a neighbour. FixedSizeChunker may still filter the last
+    /// sub-min chunk (tracked as a parity follow-up).
     /// </summary>
     public int MinChunkSize { get; set; } = 100;
 
@@ -101,6 +104,32 @@ public record ChunkingSettings
     /// For Semantic chunking: similarity threshold for splitting (0.0-1.0, default: 0.5).
     /// </summary>
     public double SemanticThreshold { get; set; } = 0.5;
+
+    /// <summary>
+    /// For Semantic chunking: number of sentences on each side included in each
+    /// sentence's embedded context window. Default 1 (so each sentence is embedded
+    /// with one sentence of context on each side — a 3-sentence window). Smooths
+    /// noise on short or stylistically-different individual sentences.
+    /// </summary>
+    public int SemanticBufferSize { get; set; } = 1;
+
+    /// <summary>
+    /// For Semantic chunking: method used to compute the adaptive breakpoint
+    /// threshold from observed pairwise *distances* (1 - cosine similarity).
+    /// Percentile splits where distance > Nth percentile (default N=95).
+    /// StandardDeviation splits at mean + N*σ. InterQuartile at mean + N*IQR.
+    /// Gradient splits where distance is changing fastest (useful for highly
+    /// correlated domains where absolute distances stay low — legal/medical).
+    /// </summary>
+    public string SemanticBreakpointMethod { get; set; } = "Percentile";
+
+    /// <summary>
+    /// For Semantic chunking: parameter for the breakpoint method. For
+    /// Percentile and Gradient, this is the percentile (0-100; default 95 matches
+    /// LangChain). For StandardDeviation, the σ multiplier (default 3).
+    /// For InterQuartile, the IQR multiplier (default 1.5).
+    /// </summary>
+    public double SemanticBreakpointAmount { get; set; } = 95;
 
     /// <summary>
     /// For Recursive chunking: separators in order of preference.

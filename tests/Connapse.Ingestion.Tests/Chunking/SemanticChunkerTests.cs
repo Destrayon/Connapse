@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Utilities;
 using FluentAssertions;
 using NSubstitute;
 
@@ -16,7 +17,11 @@ public class SemanticChunkerTests
     {
         _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _embeddingProvider.Dimensions.Returns(3);
-        _chunker = new SemanticChunker(_embeddingProvider);
+        _chunker = new SemanticChunker(
+            _embeddingProvider,
+            new TiktokenTokenCounter(),
+            new PragmaticSentenceSegmenter(),
+            new RecursiveChunker(new TiktokenTokenCounter()));
     }
 
     /// <summary>
@@ -208,10 +213,15 @@ public class SemanticChunkerTests
     }
 
     [Fact]
-    public async Task ChunkAsync_AllChunksBelowMinSize_ReturnsFallbackWholeContent()
+    public async Task ChunkAsync_AllChunksBelowMinSize_MergesIntoSingleChunk()
     {
-        // All segments too small individually
-        var content = "A. B. C. ";
+        // Three short sentences — Pragmatic segmenter splits these into 3, but each is too
+        // small to satisfy MinChunkSize. Merge-forward post-pass coalesces them into a single
+        // chunk that contains all the text. (Previous behavior was a separate fallback path
+        // that returned the whole content with a mean-pooled embedding — superseded by
+        // merge-forward which discards embeddings since the merged span no longer maps cleanly
+        // to a sentence-embedding range.)
+        var content = "Apple. Banana. Cherry. ";
 
         SetupExplicitEmbeddings(new[]
         {
@@ -225,11 +235,12 @@ public class SemanticChunkerTests
 
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
-        // Safety net: returns whole content as one chunk when everything is filtered
+        // Merge-forward collapses all three small chunks into one — content is preserved.
         result.Should().ContainSingle();
-        result[0].Content.Should().Be(content.Trim());
+        result[0].Content.Should().Contain("Apple").And.Contain("Banana").And.Contain("Cherry");
         result[0].ChunkIndex.Should().Be(0);
-        result[0].PrecomputedEmbedding.Should().NotBeNull();
+        // Merged chunks no longer carry a precomputed embedding — pipeline will re-embed.
+        result[0].PrecomputedEmbedding.Should().BeNull();
     }
 
     [Fact]
@@ -453,14 +464,252 @@ public class SemanticChunkerTests
     }
 
     [Fact]
-    public async Task ChunkAsync_FallbackChunk_HasMeanPooledEmbedding()
+    public async Task ChunkAsync_BufferSize_AffectsEmbeddedTexts()
     {
-        // All chunks filtered by MinChunkSize -> fallback returns whole content with mean-pooled embedding
-        var content = "A. B. C. ";
+        // Buffer size 0 = each sentence embedded alone; buffer size 1 = with neighbours.
+        // We verify by capturing the texts passed to EmbedBatchAsync.
+        var content = "First. Second. Third. ";
+
+        IEnumerable<string>? capturedZero = null;
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                capturedZero = ci.Arg<IEnumerable<string>>().ToArray();
+                var texts = ((IEnumerable<string>)capturedZero).ToArray();
+                return Task.FromResult<IReadOnlyList<float[]>>(
+                    texts.Select((_, i) => new float[] { 1f, 0.1f * i, 0f }).ToList());
+            });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 0
+        });
+
+        var bufferZeroTexts = capturedZero!.ToArray();
+
+        IEnumerable<string>? capturedOne = null;
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                capturedOne = ci.Arg<IEnumerable<string>>().ToArray();
+                var texts = ((IEnumerable<string>)capturedOne).ToArray();
+                return Task.FromResult<IReadOnlyList<float[]>>(
+                    texts.Select((_, i) => new float[] { 1f, 0.1f * i, 0f }).ToList());
+            });
+
+        await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1, SemanticBufferSize = 1
+        });
+
+        var bufferOneTexts = capturedOne!.ToArray();
+
+        // Buffer 0 should embed each sentence alone — middle text is just "Second."
+        bufferZeroTexts[1].Should().Be("Second.");
+        // Buffer 1 should embed middle sentence with neighbours — "First. Second. Third."
+        bufferOneTexts[1].Should().Contain("First.").And.Contain("Second.").And.Contain("Third.");
+        // The two configurations produce different embedded texts
+        bufferZeroTexts.Should().NotBeEquivalentTo(bufferOneTexts);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_StandardDeviation_ProducesValidChunks()
+    {
+        // 6 sentences -> 5 distances. Use mixed embeddings so std-dev calculation has variation.
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "StandardDeviation",
+            SemanticBreakpointAmount = 1.0
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_InterQuartile_ProducesValidChunks()
+    {
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "InterQuartile",
+            SemanticBreakpointAmount = 1.5
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_Gradient_ProducesValidChunks()
+    {
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.95f, 0.31f, 0.0f },
+            new float[] { 0.90f, 0.43f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.31f, 0.95f, 0.0f },
+            new float[] { 0.43f, 0.90f, 0.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Gradient",
+            SemanticBreakpointAmount = 95
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount > 0);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_Gradient_SplitsAtGradientPeak_NotEveryHighDistance()
+    {
+        // Regression: ComputeBreakpointThreshold for "Gradient" returns a threshold
+        // derived from the *gradient series* (forward-differences of distances), not
+        // the distance series itself. The previous splits loop compared *distances*
+        // against that gradient threshold — different units. On a smooth-distance
+        // document with one step-up, the gradient threshold could be small while
+        // every post-step distance value exceeded it, producing pathological
+        // over-segmentation. The fix returns both threshold AND breakpoint array
+        // and iterates the breakpoint array.
+        //
+        // Construction: 8 sentences arranged on a unit circle so adjacent cosine
+        // similarities (and therefore distances) are precisely controlled. Distances
+        // chosen so the *gradient* peaks uniquely at index 4 (the post-step value),
+        // while distance values 4, 5, 6 are all "high". The fix produces a single
+        // split at sentence boundary 4→5; the bug splits at 4→5, 5→6, 6→7.
+        string content = "Sentence one body. Sentence two body. Sentence three body. " +
+                         "Sentence four body. Sentence five body. Sentence six body. " +
+                         "Sentence seven body. Sentence eight body.";
+
+        // Target distances: gentle ramp [0.01, 0.02, 0.03, 0.04] then step to
+        // [0.40, 0.60, 0.62]. Gradient peaks uniquely at index 4 (0.28).
+        double[] targetDistances = new double[] { 0.01, 0.02, 0.03, 0.04, 0.40, 0.60, 0.62 };
+        var embeddings = new float[8][];
+        double cumulativeAngle = 0;
+        embeddings[0] = new float[] { 1.0f, 0.0f, 0.0f };
+        for (int i = 0; i < targetDistances.Length; i++)
+        {
+            // cos(delta) = 1 - distance[i]  =>  delta = acos(1 - distance[i])
+            double cosSim = 1.0 - targetDistances[i];
+            double deltaAngle = Math.Acos(cosSim);
+            cumulativeAngle += deltaAngle;
+            embeddings[i + 1] = new float[]
+            {
+                (float)Math.Cos(cumulativeAngle),
+                (float)Math.Sin(cumulativeAngle),
+                0.0f
+            };
+        }
+        SetupExplicitEmbeddings(embeddings);
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            // Default buffer 1 is fine — the chunker uses our explicit embeddings
+            // verbatim regardless of the buffered texts it would otherwise generate.
+            SemanticBreakpointMethod = "Gradient",
+            SemanticBreakpointAmount = 95
+        };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        // Expect exactly two chunks: sentences 1-5 and sentences 6-8.
+        // (Pre-fix: 4 chunks, splitting at every "high" distance.)
+        result.Should().HaveCount(2,
+            "Gradient mode must iterate the gradient series, not distances — " +
+            "a single gradient-peak should produce a single split, not one per high distance");
+        result[0].Content.Should().Contain("Sentence one")
+            .And.Contain("Sentence five");
+        result[1].Content.Should().Contain("Sentence six")
+            .And.Contain("Sentence eight");
+    }
+
+    [Fact]
+    public async Task ChunkAsync_BreakpointMethod_PercentileHigh_ProducesFewerOrEqualChunksThanLow()
+    {
+        // Six sentences with several mid-range distances. Higher percentile = fewer splits.
+        var content = "Alpha here. Beta here. Gamma here. Delta here. Epsilon here. Zeta here. ";
+        var embeddings = new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.7f, 0.7f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.0f, 0.7f, 0.7f },
+            new float[] { 0.0f, 0.0f, 1.0f },
+            new float[] { 0.7f, 0.0f, 0.7f }
+        };
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+
+        SetupExplicitEmbeddings(embeddings);
+        var lowResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 50
+        });
+
+        SetupExplicitEmbeddings(embeddings);
+        var highResult = await _chunker.ChunkAsync(parsedDoc, new ChunkingSettings
+        {
+            MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1,
+            SemanticBreakpointMethod = "Percentile", SemanticBreakpointAmount = 95
+        });
+
+        // Higher percentile = stricter threshold = fewer (or equal) splits.
+        highResult.Count.Should().BeLessThanOrEqualTo(lowResult.Count);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_AllSentencesHighlySimilar_GroupsIntoSingleMeanPooledChunk()
+    {
+        // When all sentences are highly similar, the per-pair distances are all below the
+        // threshold so no splits fire and the per-segment loop emits a SINGLE chunk that
+        // mean-pools every sentence's embedding. Verifies the precomputed-embedding path
+        // survives the refactor.
+        var content = "Apple. Banana. Cherry. ";
 
         var emb1 = new float[] { 3.0f, 0.0f, 0.0f };
-        var emb2 = new float[] { 0.0f, 6.0f, 0.0f };
-        var emb3 = new float[] { 0.0f, 0.0f, 9.0f };
+        var emb2 = new float[] { 3.0f, 0.001f, 0.0f }; // almost identical
+        var emb3 = new float[] { 3.0f, 0.0f, 0.001f };
         SetupExplicitEmbeddings(new[] { emb1, emb2, emb3 });
 
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
@@ -469,11 +718,76 @@ public class SemanticChunkerTests
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
         result.Should().ContainSingle();
-        var embedding = result[0].PrecomputedEmbedding;
+        result[0].Content.Should().Contain("Apple").And.Contain("Banana").And.Contain("Cherry");
+        // Single pre-merge chunk -> mean-pooled embedding survives (merge-forward only fires
+        // when there are 2+ raw chunks).
+        float[]? embedding = result[0].PrecomputedEmbedding;
         embedding.Should().NotBeNull();
-        // Mean of [3,0,0], [0,6,0], [0,0,9] = [1,2,3]
-        embedding![0].Should().BeApproximately(1.0f, 0.01f);
-        embedding[1].Should().BeApproximately(2.0f, 0.01f);
-        embedding[2].Should().BeApproximately(3.0f, 0.01f);
+        embedding![0].Should().BeApproximately(3.0f, 0.01f);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_OffsetsRoundTripWithSourceText()
+    {
+        // Multi-sentence document — every emitted chunk's recorded offsets must point
+        // at a substring of `content` that, after Trim(), exactly equals the chunk's Content.
+        // This regression-tests the IndexOf-from-currentOffset bug: when a sentence is
+        // re-emitted slightly differently from a verbatim source slice (e.g., trailing
+        // whitespace stripped by Trim()), IndexOf used to return -1 and we silently
+        // fell back to the previous offset, producing drift. The hint-based search fixes it.
+        var content = "First sentence about cats. Second sentence about dogs. " +
+                      "Third sentence about birds. Fourth sentence about fish. " +
+                      "Fifth sentence about reptiles. Sixth sentence about insects. " +
+                      "Seventh sentence about mammals. Eighth sentence about amphibians.";
+        SetupEmbeddings(8, highSimilarity: false);
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = 1 };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        result.Should().NotBeEmpty();
+        foreach (ChunkInfo c in result)
+        {
+            c.StartOffset.Should().BeGreaterThanOrEqualTo(0);
+            c.EndOffset.Should().BeLessThanOrEqualTo(content.Length,
+                "endOffset must never exceed the source length");
+            c.EndOffset.Should().BeGreaterThan(c.StartOffset);
+
+            string slice = content.Substring(c.StartOffset, c.EndOffset - c.StartOffset);
+            slice.Trim().Should().Be(c.Content,
+                "the substring at the recorded offsets should equal the chunk's content");
+        }
+    }
+
+    [Fact]
+    public async Task ChunkAsync_DoesNotSilentlyDropContentBelowMinChunkSize()
+    {
+        // Three sentences: small "marker" sentence sandwiched between two large ones.
+        // Embeddings are arranged so the segmenter always splits at every boundary
+        // (orthogonal vectors -> high distance everywhere). Pre-merge we get three
+        // chunks; the small "marker" one is below MinChunkSize and used to be
+        // silently dropped. With merge-forward it must be merged into a neighbour.
+        string longA = string.Join(" ", Enumerable.Repeat("alpha", 30)) + ".";
+        string tinyB = "marker.";
+        string longC = string.Join(" ", Enumerable.Repeat("charlie", 30)) + ".";
+        string content = longA + " " + tinyB + " " + longC;
+
+        SetupExplicitEmbeddings(new[]
+        {
+            new float[] { 1.0f, 0.0f, 0.0f },
+            new float[] { 0.0f, 1.0f, 0.0f },
+            new float[] { 0.0f, 0.0f, 1.0f }
+        });
+
+        var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 500, Overlap = 0, MinChunkSize = 5 };
+
+        var result = await _chunker.ChunkAsync(parsedDoc, settings);
+
+        bool markerPresent = result.Any(c => c.Content.Contains("marker"));
+        markerPresent.Should().BeTrue(
+            "MinChunkSize must not silently drop document content; " +
+            "small segments must be merged into a neighbour, not discarded");
     }
 }

@@ -3,6 +3,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
+using Connapse.Ingestion.Utilities;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,6 +30,9 @@ public static class ServiceCollectionExtensions
     /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
     {
+        services.AddSingleton<ITokenCounter, TiktokenTokenCounter>();
+        services.AddSingleton<ISentenceSegmenter, PragmaticSentenceSegmenter>();
+
         // Register document parsers
         services.AddSingleton<IDocumentParser, TextParser>();
         services.AddSingleton<IDocumentParser, PdfParser>();
@@ -37,7 +41,11 @@ public static class ServiceCollectionExtensions
 
         // Register chunking strategies
         services.AddSingleton<IChunkingStrategy, FixedSizeChunker>();
-        services.AddSingleton<IChunkingStrategy, RecursiveChunker>();
+        // Register RecursiveChunker as both itself and IChunkingStrategy so SemanticChunker
+        // can take a concrete dependency on it for oversize-fallback sub-splitting.
+        services.AddSingleton<RecursiveChunker>();
+        services.AddSingleton<IChunkingStrategy>(sp => sp.GetRequiredService<RecursiveChunker>());
+        services.AddSingleton<IChunkingStrategy, SentenceAwareFixedSizeChunker>();
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
         // Register ingestion queue (singleton for shared state)
