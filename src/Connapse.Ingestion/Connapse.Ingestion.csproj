@@ -22,4 +22,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Connapse.Ingestion.Tests" />
+  </ItemGroup>
+
 </Project>
