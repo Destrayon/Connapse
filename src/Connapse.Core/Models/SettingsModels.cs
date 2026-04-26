@@ -96,7 +96,9 @@ public record ChunkingSettings
     /// Minimum chunk size in tokens (default: 100). Behavior depends on strategy:
     /// RecursiveChunker, SemanticChunker, and SentenceAwareFixedSizeChunker merge
     /// sub-min chunks into a neighbour. FixedSizeChunker may still filter the last
-    /// sub-min chunk (tracked as a parity follow-up).
+    /// sub-min chunk (tracked as a parity follow-up). SentenceWindowChunker
+    /// intentionally bypasses MinChunkSize — its chunks are designed to be
+    /// sentence-sized; the wider window text lives in metadata.
     /// </summary>
     public int MinChunkSize { get; set; } = 100;
 
