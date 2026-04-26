@@ -93,7 +93,8 @@ public record ChunkingSettings
     public int Overlap { get; set; } = 50;
 
     /// <summary>
-    /// Minimum chunk size in tokens (default: 100).
+    /// Minimum chunk size in tokens (default: 100). Chunks smaller than this are
+    /// merged into a neighbour rather than emitted alone — they are NEVER discarded.
     /// </summary>
     public int MinChunkSize { get; set; } = 100;
 
