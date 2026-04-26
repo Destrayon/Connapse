@@ -1,14 +1,16 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Ingestion.Utilities;
 
 namespace Connapse.Ingestion.Chunking;
 
 /// <summary>
-/// Splits text recursively using hierarchical separators (paragraphs → sentences → words).
-/// Preserves document structure better than fixed-size chunking.
+/// Recursive splitter (paragraphs → newlines → sentences → words → chars).
+/// Merge loop follows LangChain's _merge_splits: overlap is preserved by popping
+/// from the head of the running buffer until the next split fits, never by
+/// discarding the buffer. Offsets are tracked at split granularity so chunk
+/// (start, end) round-trips exactly with the source text.
 /// </summary>
-public class RecursiveChunker : IChunkingStrategy
+public class RecursiveChunker(ITokenCounter tokenCounter) : IChunkingStrategy
 {
     public string Name => "Recursive";
 
@@ -18,204 +20,237 @@ public class RecursiveChunker : IChunkingStrategy
         CancellationToken cancellationToken = default)
     {
         var chunks = new List<ChunkInfo>();
-        var content = parsedDocument.Content;
+        string content = parsedDocument.Content;
 
         if (string.IsNullOrWhiteSpace(content))
-        {
             return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
-        }
 
-        var separators = settings.RecursiveSeparators;
-        if (separators == null || separators.Length == 0)
-        {
-            separators = ["\n\n", "\n", ". ", " "];
-        }
+        string[] separators = settings.RecursiveSeparators is { Length: > 0 } provided
+            ? provided
+            : ["\n\n", "\n", ". ", " "];
 
-        // Split content recursively
-        var textChunks = SplitTextRecursive(
+        List<(string Text, int Offset)> rawChunks = SplitRecursive(
             content,
+            baseOffset: 0,
             separators,
             settings.MaxChunkSize,
-            settings.Overlap);
+            settings.Overlap,
+            tokenCounter,
+            cancellationToken);
+
+        List<(string Text, int Offset)> merged = MergeForwardSmallChunks(
+            rawChunks,
+            settings.MinChunkSize,
+            tokenCounter,
+            content);
+
+        if (merged.Count == 0)
+        {
+            merged.Add((content, 0));
+        }
 
         int chunkIndex = 0;
-        int currentOffset = 0;
-
-        foreach (var chunkText in textChunks)
+        foreach ((string text, int offset) in merged)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var tokenCount = TokenCounter.EstimateTokenCount(chunkText);
+            int tokens = tokenCounter.CountTokens(text);
+            string trimmed = text.Trim();
+            if (trimmed.Length == 0) continue;
 
-            // Only create chunk if it meets minimum size
-            if (tokenCount >= settings.MinChunkSize)
+            var chunkMetadata = new Dictionary<string, string>(parsedDocument.Metadata)
             {
-                // Find actual position in original content
-                // Ensure currentOffset is within valid bounds
-                currentOffset = Math.Min(currentOffset, content.Length);
+                ["ChunkingStrategy"] = Name,
+                ["ChunkIndex"] = chunkIndex.ToString()
+            };
 
-                int startOffset = currentOffset < content.Length
-                    ? content.IndexOf(chunkText, currentOffset, StringComparison.Ordinal)
-                    : -1;
-
-                if (startOffset == -1) startOffset = currentOffset;
-
-                int endOffset = startOffset + chunkText.Length;
-
-                var chunkMetadata = new Dictionary<string, string>(parsedDocument.Metadata)
-                {
-                    ["ChunkingStrategy"] = Name,
-                    ["ChunkIndex"] = chunkIndex.ToString()
-                };
-
-                chunks.Add(new ChunkInfo(
-                    Content: chunkText.Trim(),
-                    ChunkIndex: chunkIndex,
-                    TokenCount: tokenCount,
-                    StartOffset: startOffset,
-                    EndOffset: endOffset,
-                    Metadata: chunkMetadata));
-
-                chunkIndex++;
-                currentOffset = endOffset;
-            }
-        }
-
-        // Safety net: MinChunkSize prevents micro-fragments from large documents, but must
-        // never discard the entire content of a small document. If every segment was filtered
-        // out, return the whole content as a single chunk.
-        if (chunks.Count == 0)
-        {
-            var tc = TokenCounter.EstimateTokenCount(content);
             chunks.Add(new ChunkInfo(
-                Content: content.Trim(),
-                ChunkIndex: 0,
-                TokenCount: tc,
-                StartOffset: 0,
-                EndOffset: content.Length,
-                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
-                {
-                    ["ChunkingStrategy"] = Name,
-                    ["ChunkIndex"] = "0"
-                }));
+                Content: trimmed,
+                ChunkIndex: chunkIndex,
+                TokenCount: tokens,
+                StartOffset: offset,
+                EndOffset: offset + text.Length,
+                Metadata: chunkMetadata));
+
+            chunkIndex++;
         }
 
         return Task.FromResult<IReadOnlyList<ChunkInfo>>(chunks);
     }
 
     /// <summary>
-    /// Recursively splits text using different separators, trying to keep chunks under maxTokens.
+    /// Splits <paramref name="text"/> recursively through <paramref name="separators"/>
+    /// until each chunk fits in <paramref name="maxTokens"/>. Each returned tuple is
+    /// (chunk text, chunk's offset within the original document).
     /// </summary>
-    private static List<string> SplitTextRecursive(
+    private static List<(string Text, int Offset)> SplitRecursive(
         string text,
+        int baseOffset,
         string[] separators,
         int maxTokens,
-        int overlapTokens)
+        int overlapTokens,
+        ITokenCounter counter,
+        CancellationToken ct)
     {
-        var result = new List<string>();
+        ct.ThrowIfCancellationRequested();
 
-        // Base case: text is small enough
-        var tokenCount = TokenCounter.EstimateTokenCount(text);
-        if (tokenCount <= maxTokens)
+        var output = new List<(string Text, int Offset)>();
+
+        if (counter.CountTokens(text) <= maxTokens)
         {
-            result.Add(text);
-            return result;
+            output.Add((text, baseOffset));
+            return output;
         }
 
-        // Try each separator in order
-        foreach (var separator in separators)
+        int activeIdx = -1;
+        string? activeSep = null;
+        for (int i = 0; i < separators.Length; i++)
         {
-            if (text.Contains(separator))
+            if (text.Contains(separators[i], StringComparison.Ordinal))
             {
-                var splits = text.Split(new[] { separator }, StringSplitOptions.None);
-
-                // Rebuild chunks, combining splits until we hit maxTokens
-                var currentChunk = new System.Text.StringBuilder();
-
-                foreach (var split in splits)
-                {
-                    var testChunk = currentChunk.Length == 0
-                        ? split
-                        : currentChunk.ToString() + separator + split;
-
-                    if (TokenCounter.EstimateTokenCount(testChunk) <= maxTokens)
-                    {
-                        currentChunk.Clear();
-                        currentChunk.Append(testChunk);
-                    }
-                    else
-                    {
-                        // Current chunk is full, save it
-                        if (currentChunk.Length > 0)
-                        {
-                            var chunkText = currentChunk.ToString();
-                            result.Add(chunkText);
-
-                            // Start new chunk with overlap from previous
-                            currentChunk.Clear();
-                            if (overlapTokens > 0 && !string.IsNullOrEmpty(chunkText))
-                            {
-                                var overlapText = GetOverlapText(chunkText, overlapTokens);
-                                currentChunk.Append(overlapText);
-                                if (currentChunk.Length > 0 && !string.IsNullOrWhiteSpace(split))
-                                {
-                                    currentChunk.Append(separator);
-                                }
-                            }
-                        }
-
-                        // Add current split
-                        currentChunk.Append(split);
-
-                        // If even a single split is too large, we need to recurse with next separator
-                        if (TokenCounter.EstimateTokenCount(currentChunk.ToString()) > maxTokens && split.Length > 0)
-                        {
-                            var subsplits = SplitTextRecursive(split, separators[(Array.IndexOf(separators, separator) + 1)..], maxTokens, overlapTokens);
-                            foreach (var subsplit in subsplits)
-                            {
-                                result.Add(subsplit);
-                            }
-                            currentChunk.Clear();
-                        }
-                    }
-                }
-
-                // Add any remaining text
-                if (currentChunk.Length > 0)
-                {
-                    result.Add(currentChunk.ToString());
-                }
-
-                return result;
+                activeIdx = i;
+                activeSep = separators[i];
+                break;
             }
         }
 
-        // No separator found, split by character count as fallback
-        int chunkSize = TokenCounter.GetCharacterPositionForTokens(text, maxTokens);
-        for (int i = 0; i < text.Length; i += chunkSize)
+        if (activeSep is null)
         {
-            int length = Math.Min(chunkSize, text.Length - i);
-            result.Add(text.Substring(i, length));
+            int chunkChars = counter.GetIndexAtTokenCount(text, maxTokens);
+            if (chunkChars <= 0) chunkChars = text.Length;
+            for (int i = 0; i < text.Length; i += chunkChars)
+            {
+                int len = Math.Min(chunkChars, text.Length - i);
+                output.Add((text.Substring(i, len), baseOffset + i));
+            }
+            return output;
         }
 
-        return result;
+        var splits = new List<(string Text, int Offset)>();
+        int searchStart = 0;
+        while (true)
+        {
+            int sepIdx = text.IndexOf(activeSep, searchStart, StringComparison.Ordinal);
+            if (sepIdx < 0)
+            {
+                if (searchStart < text.Length)
+                    splits.Add((text.Substring(searchStart), baseOffset + searchStart));
+                break;
+            }
+            splits.Add((text.Substring(searchStart, sepIdx - searchStart), baseOffset + searchStart));
+            searchStart = sepIdx + activeSep.Length;
+        }
+
+        var current = new List<(string Text, int Offset)>();
+
+        string Joined() => string.Join(activeSep, current.Select(c => c.Text));
+        int JoinedTokens() => current.Count == 0 ? 0 : counter.CountTokens(Joined());
+
+        void Flush()
+        {
+            if (current.Count == 0) return;
+            output.Add((Joined(), current[0].Offset));
+        }
+
+        int TokensWith((string Text, int Offset) candidate)
+        {
+            if (current.Count == 0) return counter.CountTokens(candidate.Text);
+            string probe = Joined() + activeSep + candidate.Text;
+            return counter.CountTokens(probe);
+        }
+
+        foreach ((string Text, int Offset) split in splits)
+        {
+            int splitTokens = counter.CountTokens(split.Text);
+
+            if (splitTokens > maxTokens)
+            {
+                if (current.Count > 0) { Flush(); current.Clear(); }
+                if (activeIdx + 1 < separators.Length)
+                {
+                    var sub = SplitRecursive(
+                        split.Text,
+                        split.Offset,
+                        separators[(activeIdx + 1)..],
+                        maxTokens,
+                        overlapTokens,
+                        counter,
+                        ct);
+                    output.AddRange(sub);
+                }
+                else
+                {
+                    int chunkChars = counter.GetIndexAtTokenCount(split.Text, maxTokens);
+                    if (chunkChars <= 0) chunkChars = split.Text.Length;
+                    for (int i = 0; i < split.Text.Length; i += chunkChars)
+                    {
+                        int len = Math.Min(chunkChars, split.Text.Length - i);
+                        output.Add((split.Text.Substring(i, len), split.Offset + i));
+                    }
+                }
+                continue;
+            }
+
+            if (current.Count > 0 && TokensWith(split) > maxTokens)
+            {
+                Flush();
+                while (current.Count > 0
+                    && (JoinedTokens() > overlapTokens || TokensWith(split) > maxTokens))
+                {
+                    current.RemoveAt(0);
+                }
+            }
+
+            current.Add((split.Text, split.Offset));
+        }
+
+        if (current.Count > 0) Flush();
+        return output;
     }
 
     /// <summary>
-    /// Extracts the last N tokens from text for overlap.
+    /// Post-pass: any chunk smaller than <paramref name="minTokens"/> is merged into
+    /// the preceding chunk (or following, if it's the first). Never silently dropped.
     /// </summary>
-    private static string GetOverlapText(string text, int overlapTokens)
+    private static List<(string Text, int Offset)> MergeForwardSmallChunks(
+        List<(string Text, int Offset)> input,
+        int minTokens,
+        ITokenCounter counter,
+        string content)
     {
-        if (string.IsNullOrEmpty(text) || overlapTokens <= 0)
-            return string.Empty;
+        if (input.Count <= 1 || minTokens <= 0) return input;
 
-        // Estimate characters needed for overlap tokens
-        int overlapChars = TokenCounter.GetCharacterPositionForTokens(text, overlapTokens);
+        var output = new List<(string Text, int Offset)>();
+        foreach ((string Text, int Offset) c in input)
+        {
+            int tokens = counter.CountTokens(c.Text);
+            if (tokens >= minTokens || output.Count == 0)
+            {
+                output.Add((c.Text, c.Offset));
+            }
+            else
+            {
+                (string _, int prevOffset) = output[^1];
+                int smallEnd = c.Offset + c.Text.Length;
+                string mergedText = content.Substring(prevOffset, smallEnd - prevOffset);
+                output[^1] = (mergedText, prevOffset);
+            }
+        }
 
-        if (overlapChars >= text.Length)
-            return text;
+        if (output.Count >= 2)
+        {
+            int firstTokens = counter.CountTokens(output[0].Text);
+            if (firstTokens < minTokens)
+            {
+                (string _, int firstOffset) = output[0];
+                (string _, int nextOffset) = output[1];
+                int nextEnd = nextOffset + output[1].Text.Length;
+                string mergedText = content.Substring(firstOffset, nextEnd - firstOffset);
+                output[1] = (mergedText, firstOffset);
+                output.RemoveAt(0);
+            }
+        }
 
-        // Take the last overlapChars characters
-        return text.Substring(text.Length - overlapChars);
+        return output;
     }
 }

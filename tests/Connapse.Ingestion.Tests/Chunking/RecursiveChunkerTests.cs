@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Ingestion.Tests.Chunking;
@@ -8,7 +9,7 @@ namespace Connapse.Ingestion.Tests.Chunking;
 [Trait("Category", "Unit")]
 public class RecursiveChunkerTests
 {
-    private readonly RecursiveChunker _chunker = new();
+    private readonly RecursiveChunker _chunker = new(new TiktokenTokenCounter());
 
     [Fact]
     public void Name_ReturnsRecursive()
@@ -165,9 +166,9 @@ public class RecursiveChunkerTests
         var parsedDoc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
         var settings = new ChunkingSettings
         {
-            MaxChunkSize = 15,
-            Overlap = 5,
-            MinChunkSize = 5,
+            MaxChunkSize = 8,
+            Overlap = 3,
+            MinChunkSize = 1,
             RecursiveSeparators = new[] { ". ", " " }
         };
 
@@ -258,5 +259,154 @@ public class RecursiveChunkerTests
         var result = await _chunker.ChunkAsync(parsedDoc, settings);
 
         result.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task ChunkAsync_AdjacentChunksShareOverlap_WhenChunksAreMultiUnit()
+    {
+        string content = string.Join(" ",
+            Enumerable.Range(1, 12).Select(i => $"Item {i} is short."));
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 20,
+            Overlap = 8,
+            MinChunkSize = 1,
+            RecursiveSeparators = new[] { ". ", " " }
+        };
+
+        var result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(1, "test inputs should force multi-chunk output");
+        for (int i = 0; i < result.Count - 1; i++)
+        {
+            string prev = result[i].Content;
+            string next = result[i + 1].Content;
+
+            bool found = false;
+            int maxLen = Math.Min(prev.Length, next.Length);
+            for (int len = maxLen; len >= 6; len--)
+            {
+                string suffix = prev.Substring(prev.Length - len);
+                if (next.StartsWith(suffix, StringComparison.Ordinal))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            found.Should().BeTrue(
+                $"chunks {i}->{i + 1} should share overlap text. " +
+                $"prev tail='...{prev.Substring(Math.Max(0, prev.Length - 30))}' | " +
+                $"next head='{next.Substring(0, Math.Min(next.Length, 30))}...'");
+        }
+    }
+
+    [Fact]
+    public async Task ChunkAsync_DoesNotSilentlyDropContentBetweenLargeChunks()
+    {
+        string longA = string.Join(" ", Enumerable.Repeat("alpha", 30));
+        string tinyB = "x marker.";
+        string longC = string.Join(" ", Enumerable.Repeat("charlie", 30));
+        string content = longA + "\n\n" + tinyB + "\n\n" + longC;
+
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 30,
+            Overlap = 0,
+            MinChunkSize = 5,
+            RecursiveSeparators = new[] { "\n\n", "\n", ". ", " " }
+        };
+
+        var result = await _chunker.ChunkAsync(doc, settings);
+
+        bool tinyPresent = result.Any(c => c.Content.Contains("marker"));
+        tinyPresent.Should().BeTrue(
+            "MinChunkSize must not silently drop document content; " +
+            "small segments must be merged into a neighbour, not discarded");
+    }
+
+    [Fact]
+    public async Task ChunkAsync_OffsetsRoundTripWithSourceText()
+    {
+        string content = string.Join("\n\n",
+            Enumerable.Range(1, 8).Select(i => $"Paragraph number {i} with some words."));
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 10,
+            Overlap = 3,
+            MinChunkSize = 1,
+            RecursiveSeparators = new[] { "\n\n", "\n", ". ", " " }
+        };
+
+        var result = await _chunker.ChunkAsync(doc, settings);
+
+        foreach (ChunkInfo c in result)
+        {
+            c.StartOffset.Should().BeGreaterThanOrEqualTo(0);
+            c.EndOffset.Should().BeLessThanOrEqualTo(content.Length,
+                "endOffset must never exceed the source length");
+            c.EndOffset.Should().BeGreaterThan(c.StartOffset);
+
+            string slice = content.Substring(c.StartOffset, c.EndOffset - c.StartOffset);
+            slice.Trim().Should().Be(c.Content,
+                "the substring at the recorded offsets should equal the chunk's content");
+        }
+    }
+
+    [Fact]
+    public async Task ChunkAsync_OffsetsRoundTripEvenWhenMergeForwardFires()
+    {
+        // A counter that pretends "x marker." is 0 tokens, so it falls below MinChunkSize=5
+        // and triggers MergeForwardSmallChunks. All other text gets its real tiktoken count.
+        // MaxChunkSize is small enough that the splitter actually splits at "\n\n" rather
+        // than swallowing the whole document into a single pre-merge chunk.
+        var stubCounter = new MergeForwardOffsetStubCounter();
+        var chunker = new RecursiveChunker(stubCounter);
+
+        string content =
+            "Paragraph one with several distinct words.\n\n" +
+            "x marker.\n\n" +
+            "Paragraph three with several distinct words.";
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings
+        {
+            MaxChunkSize = 8,
+            Overlap = 0,
+            MinChunkSize = 5,
+            RecursiveSeparators = new[] { "\n\n", "\n", ". ", " " }
+        };
+
+        var result = await chunker.ChunkAsync(doc, settings);
+
+        bool tinyMerged = result.Any(c => c.Content.Contains("marker"));
+        tinyMerged.Should().BeTrue("the small chunk should have been merged into a neighbour, not dropped");
+
+        foreach (ChunkInfo c in result)
+        {
+            c.StartOffset.Should().BeGreaterThanOrEqualTo(0);
+            c.EndOffset.Should().BeLessThanOrEqualTo(content.Length);
+            string slice = content.Substring(c.StartOffset, c.EndOffset - c.StartOffset);
+            slice.Trim().Should().Be(c.Content,
+                "round-trip must hold even when MergeForward fires (separator must be re-included from source)");
+        }
+    }
+
+    private sealed class MergeForwardOffsetStubCounter : ITokenCounter
+    {
+        private readonly TiktokenTokenCounter _real = new();
+
+        public int CountTokens(string text)
+        {
+            // Only the lone "x marker." segment reads as 0 tokens, so the
+            // recursive splitter still splits the whole document at \n\n.
+            if (text == "x marker.") return 0;
+            return _real.CountTokens(text ?? string.Empty);
+        }
+
+        public int GetIndexAtTokenCount(string text, int tokenCount)
+            => _real.GetIndexAtTokenCount(text, tokenCount);
     }
 }
