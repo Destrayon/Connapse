@@ -92,8 +92,12 @@ public class SentenceAwareFixedSizeChunker(
             {
                 Flush();
                 // Pop from head until overlap fits OR there's room for the next sentence.
+                // The join cost between the buffer's tail and the incoming sentence is
+                // always 1 token whenever the buffer is non-empty — using
+                // `buffer.Count > 1 ? 1 : 0` would underestimate when buffer has exactly
+                // one element and let the resulting chunk exceed MaxChunkSize by 1 token.
                 while (total > settings.Overlap
-                    || (buffer.Count > 0 && total + sentence.tokens + (buffer.Count > 1 ? 1 : 0) > settings.MaxChunkSize))
+                    || (buffer.Count > 0 && total + sentence.tokens + 1 > settings.MaxChunkSize))
                 {
                     if (buffer.Count == 0) break;
                     total -= buffer[0].Tokens + (buffer.Count > 1 ? 1 : 0);
@@ -129,7 +133,15 @@ public class SentenceAwareFixedSizeChunker(
         int chunkIndex,
         bool offsetEstimated)
     {
-        string text = content.Substring(start, end - start);
+        // Snap offsets to the non-whitespace span so Content round-trips exactly with
+        // the recorded (StartOffset, EndOffset) — needed when the RecursiveChunker
+        // fallback path returns sub-chunk offsets that don't already land on
+        // non-whitespace.
+        int s = start;
+        int e = end;
+        while (s < e && char.IsWhiteSpace(content[s])) s++;
+        while (e > s && char.IsWhiteSpace(content[e - 1])) e--;
+        string text = content.Substring(s, e - s);
         int tokens = tokenCounter.CountTokens(text);
         var metadata = new Dictionary<string, string>(parsedDocument.Metadata)
         {
@@ -139,11 +151,11 @@ public class SentenceAwareFixedSizeChunker(
         if (offsetEstimated)
             metadata["OffsetEstimated"] = "true";
         return new ChunkInfo(
-            Content: text.Trim(),
+            Content: text,
             ChunkIndex: chunkIndex,
             TokenCount: tokens,
-            StartOffset: start,
-            EndOffset: end,
+            StartOffset: s,
+            EndOffset: e,
             Metadata: metadata);
     }
 

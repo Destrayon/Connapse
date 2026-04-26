@@ -162,7 +162,13 @@ public class SemanticChunker(
             int searchBackup = Math.Min(prevLen, 256);
             int hint = Math.Max(0, prevStart + prevLen - searchBackup);
             int startOffset = content.IndexOf(chunkText, hint, StringComparison.Ordinal);
-            if (startOffset < 0) startOffset = hint; // best-effort fallback
+            bool offsetExact = startOffset >= 0;
+            if (!offsetExact)
+            {
+                // Clamp so Offset + chunkText.Length never exceeds content.Length;
+                // EndOffset still round-trips into a valid range even on fallback.
+                startOffset = Math.Min(hint, Math.Max(0, content.Length - chunkText.Length));
+            }
 
             if (tokenCount > settings.MaxChunkSize)
             {
@@ -194,7 +200,8 @@ public class SemanticChunker(
                         Text: content.Substring(absStart, subLen),
                         Offset: absStart,
                         Tokens: s.TokenCount,
-                        Embedding: null));
+                        Embedding: null,
+                        OffsetEstimated: !offsetExact));
                 }
             }
             else
@@ -206,7 +213,8 @@ public class SemanticChunker(
                     Text: chunkText,
                     Offset: startOffset,
                     Tokens: tokenCount,
-                    Embedding: precomputed));
+                    Embedding: precomputed,
+                    OffsetEstimated: !offsetExact));
             }
 
             prevStart = startOffset;
@@ -251,17 +259,21 @@ public class SemanticChunker(
             string trimmed = c.Text.Trim();
             if (trimmed.Length == 0) continue;
 
+            var metadata = new Dictionary<string, string>(parsedDocument.Metadata)
+            {
+                ["ChunkingStrategy"] = Name,
+                ["ChunkIndex"] = chunkIndex.ToString()
+            };
+            if (c.OffsetEstimated)
+                metadata["OffsetEstimated"] = "true";
+
             chunks.Add(new ChunkInfo(
                 Content: trimmed,
                 ChunkIndex: chunkIndex,
                 TokenCount: c.Tokens,
                 StartOffset: c.Offset,
                 EndOffset: c.Offset + c.Text.Length,
-                Metadata: new Dictionary<string, string>(parsedDocument.Metadata)
-                {
-                    ["ChunkingStrategy"] = Name,
-                    ["ChunkIndex"] = chunkIndex.ToString()
-                },
+                Metadata: metadata,
                 PrecomputedEmbedding: c.Embedding));
 
             chunkIndex++;
@@ -439,9 +451,16 @@ public class SemanticChunker(
             {
                 RawChunk prev = output[^1];
                 int smallEnd = c.Offset + c.Text.Length;
-                string mergedText = content.Substring(prev.Offset, smallEnd - prev.Offset);
+                int sliceLen = smallEnd - prev.Offset;
+                bool sliceValid = prev.Offset >= 0
+                    && sliceLen > 0
+                    && prev.Offset + sliceLen <= content.Length;
+                string mergedText = sliceValid
+                    ? content.Substring(prev.Offset, sliceLen)
+                    : prev.Text + " " + c.Text;
                 int mergedTokens = counter.CountTokens(mergedText);
-                output[^1] = new RawChunk(mergedText, prev.Offset, mergedTokens, null);
+                bool mergedEstimated = prev.OffsetEstimated || c.OffsetEstimated || !sliceValid;
+                output[^1] = new RawChunk(mergedText, prev.Offset, mergedTokens, null, mergedEstimated);
             }
         }
 
@@ -452,9 +471,16 @@ public class SemanticChunker(
                 RawChunk first = output[0];
                 RawChunk next = output[1];
                 int nextEnd = next.Offset + next.Text.Length;
-                string mergedText = content.Substring(first.Offset, nextEnd - first.Offset);
+                int sliceLen = nextEnd - first.Offset;
+                bool sliceValid = first.Offset >= 0
+                    && sliceLen > 0
+                    && first.Offset + sliceLen <= content.Length;
+                string mergedText = sliceValid
+                    ? content.Substring(first.Offset, sliceLen)
+                    : first.Text + " " + next.Text;
                 int mergedTokens = counter.CountTokens(mergedText);
-                output[1] = new RawChunk(mergedText, first.Offset, mergedTokens, null);
+                bool mergedEstimated = first.OffsetEstimated || next.OffsetEstimated || !sliceValid;
+                output[1] = new RawChunk(mergedText, first.Offset, mergedTokens, null, mergedEstimated);
                 output.RemoveAt(0);
             }
         }
@@ -462,5 +488,5 @@ public class SemanticChunker(
         return output;
     }
 
-    private record RawChunk(string Text, int Offset, int Tokens, float[]? Embedding);
+    private record RawChunk(string Text, int Offset, int Tokens, float[]? Embedding, bool OffsetEstimated = false);
 }
