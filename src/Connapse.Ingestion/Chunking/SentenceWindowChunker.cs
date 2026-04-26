@@ -49,7 +49,13 @@ public class SentenceWindowChunker(ITokenCounter tokenCounter, ISentenceSegmente
             if (clampedIdx != idx) anyOffsetEstimated = true;
 
             spans.Add((trimmed, clampedIdx, tokenCounter.CountTokens(trimmed)));
-            cursor = clampedIdx + trimmed.Length;
+            // Clamp cursor advancement too: clampedIdx + trimmed.Length can exceed
+            // content.Length when the segmenter returns a sentence longer than its
+            // source slice (or when clampedIdx == content.Length). Without this,
+            // the next IndexOf would throw ArgumentOutOfRangeException.
+            int nextCursor = clampedIdx + trimmed.Length;
+            if (nextCursor > content.Length) anyOffsetEstimated = true;
+            cursor = Math.Min(nextCursor, content.Length);
         }
 
         int windowSize = Math.Max(0, settings.SentenceWindowSize);
