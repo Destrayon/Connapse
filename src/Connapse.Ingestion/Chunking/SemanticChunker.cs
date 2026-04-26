@@ -1,6 +1,5 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Ingestion.Utilities;
 
 namespace Connapse.Ingestion.Chunking;
 
@@ -12,16 +11,9 @@ namespace Connapse.Ingestion.Chunking;
 /// also attaches a mean-pooled embedding to each produced ChunkInfo. IngestionPipeline
 /// detects this and skips the second embedding pass, halving the number of Ollama calls.
 /// </summary>
-public class SemanticChunker : IChunkingStrategy
+public class SemanticChunker(IEmbeddingProvider embeddingProvider, ITokenCounter tokenCounter) : IChunkingStrategy
 {
-    private readonly IEmbeddingProvider _embeddingProvider;
-
     public string Name => "Semantic";
-
-    public SemanticChunker(IEmbeddingProvider embeddingProvider)
-    {
-        _embeddingProvider = embeddingProvider;
-    }
 
     public async Task<IReadOnlyList<ChunkInfo>> ChunkAsync(
         ParsedDocument parsedDocument,
@@ -43,7 +35,7 @@ public class SemanticChunker : IChunkingStrategy
         {
             // No embeddings needed to make a boundary decision for a single sentence.
             // Leave PrecomputedEmbedding null — pipeline will embed it normally.
-            var tokenCount = TokenCounter.EstimateTokenCount(sentences[0]);
+            int tokenCount = tokenCounter.CountTokens(sentences[0]);
             chunks.Add(new ChunkInfo(
                 Content: sentences[0].Trim(),
                 ChunkIndex: 0,
@@ -61,7 +53,7 @@ public class SemanticChunker : IChunkingStrategy
         // Embed all sentences in ONE batch request.
         // These embeddings serve double duty: boundary detection here, and chunk storage
         // via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
-        var embeddings = await _embeddingProvider.EmbedBatchAsync(
+        var embeddings = await embeddingProvider.EmbedBatchAsync(
             sentences.ToArray(),
             cancellationToken);
 
@@ -105,16 +97,16 @@ public class SemanticChunker : IChunkingStrategy
 
             var chunkSentences = sentences.GetRange(start, end - start);
             var chunkText = string.Join(" ", chunkSentences);
-            var tokenCount = TokenCounter.EstimateTokenCount(chunkText);
+            int tokenCount = tokenCounter.CountTokens(chunkText);
 
             if (tokenCount > settings.MaxChunkSize)
             {
                 // Over-size: split further. Sub-chunks don't have a clean sentence-embedding
                 // mapping, so PrecomputedEmbedding is left null and pipeline embeds them normally.
-                var subChunks = SplitLargeChunk(chunkText, settings.MaxChunkSize, settings.MinChunkSize);
+                var subChunks = SplitLargeChunk(chunkText, settings.MaxChunkSize, settings.MinChunkSize, tokenCounter);
                 foreach (var subChunk in subChunks)
                 {
-                    var subTokenCount = TokenCounter.EstimateTokenCount(subChunk);
+                    int subTokenCount = tokenCounter.CountTokens(subChunk);
                     if (subTokenCount >= settings.MinChunkSize)
                     {
                         int startOffset = content.IndexOf(subChunk, currentOffset, StringComparison.Ordinal);
@@ -166,7 +158,7 @@ public class SemanticChunker : IChunkingStrategy
         // content as one chunk with the mean of all sentence embeddings.
         if (chunks.Count == 0)
         {
-            var tc = TokenCounter.EstimateTokenCount(content);
+            int tc = tokenCounter.CountTokens(content);
             chunks.Add(new ChunkInfo(
                 Content: content.Trim(),
                 ChunkIndex: 0,
@@ -250,17 +242,19 @@ public class SemanticChunker : IChunkingStrategy
         return dotProduct / (magnitudeA * magnitudeB);
     }
 
-    private static List<string> SplitLargeChunk(string text, int maxTokens, int minTokens)
+    private static List<string> SplitLargeChunk(string text, int maxTokens, int minTokens, ITokenCounter counter)
     {
         var result = new List<string>();
-        int chunkSize = TokenCounter.GetCharacterPositionForTokens(text, maxTokens);
+        int chunkSize = counter.GetIndexAtTokenCount(text, maxTokens);
+        // Defensive: tiktoken can return 0 when text is shorter than maxTokens; treat as a single full-length chunk.
+        if (chunkSize <= 0) chunkSize = text.Length;
 
         for (int i = 0; i < text.Length; i += chunkSize)
         {
             int length = Math.Min(chunkSize, text.Length - i);
-            var chunk = text.Substring(i, length);
+            string chunk = text.Substring(i, length);
 
-            if (TokenCounter.EstimateTokenCount(chunk) >= minTokens)
+            if (counter.CountTokens(chunk) >= minTokens)
                 result.Add(chunk);
         }
 

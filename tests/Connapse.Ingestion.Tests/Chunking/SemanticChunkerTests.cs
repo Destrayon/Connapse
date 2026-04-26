@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Chunking;
+using Connapse.Ingestion.Utilities;
 using FluentAssertions;
 using NSubstitute;
 
@@ -16,7 +17,7 @@ public class SemanticChunkerTests
     {
         _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _embeddingProvider.Dimensions.Returns(3);
-        _chunker = new SemanticChunker(_embeddingProvider);
+        _chunker = new SemanticChunker(_embeddingProvider, new TiktokenTokenCounter());
     }
 
     /// <summary>
