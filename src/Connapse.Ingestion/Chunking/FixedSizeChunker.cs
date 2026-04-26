@@ -1,13 +1,12 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Ingestion.Utilities;
 
 namespace Connapse.Ingestion.Chunking;
 
 /// <summary>
 /// Splits text into fixed-size chunks based on token count with configurable overlap.
 /// </summary>
-public class FixedSizeChunker : IChunkingStrategy
+public class FixedSizeChunker(ITokenCounter tokenCounter) : IChunkingStrategy
 {
     public string Name => "FixedSize";
 
@@ -41,7 +40,7 @@ public class FixedSizeChunker : IChunkingStrategy
             cancellationToken.ThrowIfCancellationRequested();
 
             // Find the end position for this chunk (targeting maxChunkSize tokens)
-            int targetChars = TokenCounter.GetCharacterPositionForTokens(
+            int targetChars = tokenCounter.GetIndexAtTokenCount(
                 content[currentPosition..],
                 maxChunkSize);
 
@@ -60,7 +59,7 @@ public class FixedSizeChunker : IChunkingStrategy
 
             // Extract the chunk
             var chunkText = content[currentPosition..endPosition];
-            var tokenCount = TokenCounter.EstimateTokenCount(chunkText);
+            var tokenCount = tokenCounter.CountTokens(chunkText);
 
             // Only create chunk if it meets minimum size or is the last chunk
             if (tokenCount >= settings.MinChunkSize || endPosition >= content.Length)
@@ -89,7 +88,7 @@ public class FixedSizeChunker : IChunkingStrategy
             }
 
             // Calculate overlap position
-            int overlapChars = TokenCounter.GetCharacterPositionForTokens(chunkText, overlap);
+            int overlapChars = tokenCounter.GetIndexAtTokenCount(chunkText, overlap);
             currentPosition = endPosition - overlapChars;
 
             // Ensure we're making progress

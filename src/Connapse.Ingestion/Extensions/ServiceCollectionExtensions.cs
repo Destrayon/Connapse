@@ -3,6 +3,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
+using Connapse.Ingestion.Utilities;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,6 +30,8 @@ public static class ServiceCollectionExtensions
     /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
     {
+        services.AddSingleton<ITokenCounter, TiktokenTokenCounter>();
+
         // Register document parsers
         services.AddSingleton<IDocumentParser, TextParser>();
         services.AddSingleton<IDocumentParser, PdfParser>();
