@@ -1,0 +1,61 @@
+@inherits LayoutComponentBase
+@using Connapse.Web.Services
+@inject IProfileMenuProvider MenuProvider
+
+<div class="page">
+    <div class="sidebar">
+        <div class="top-row ps-3 navbar navbar-dark">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="@_backUrl">
+                    <img src="connapse-logo.svg" alt="Connapse" class="navbar-logo" />
+                </a>
+            </div>
+        </div>
+
+        <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+        <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+            <nav class="nav flex-column">
+                <div class="nav-item px-3">
+                    <a class="nav-link profile-back-link" href="@_backUrl">
+                        <span class="nav-icon bi-chevron-left" aria-hidden="true"></span> Back to Connapse
+                    </a>
+                </div>
+
+                <div class="nav-separator"></div>
+
+                @foreach (var item in _items)
+                {
+                    <div class="nav-item px-3" @key="item.Key">
+                        <NavLink class="nav-link" href="@item.Href" Match="NavLinkMatch.All">
+                            <span class="nav-icon @item.Icon" aria-hidden="true"></span> @item.Label
+                        </NavLink>
+                    </div>
+                }
+            </nav>
+        </div>
+    </div>
+
+    <main>
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">&#x2715;</span>
+</div>
+
+@code {
+    private IReadOnlyList<ProfileMenuItem> _items = [];
+    private string _backUrl = "/";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _items = await MenuProvider.GetItemsAsync();
+        _backUrl = MenuProvider.BackUrl;
+    }
+}

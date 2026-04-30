@@ -73,6 +73,10 @@ builder.Services.AddHttpClient("BlazorClient");
 // notifications without creating a server-to-server SignalR client connection.
 builder.Services.AddSingleton<IngestionProgressNotifier>();
 
+// Profile-context sidebar menu. Default returns Profile + Integrations.
+// Downstream apps (e.g. multi-tenant Cloud) override via services.Replace().
+builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
+
 // In-process event bus so FileBrowser can receive real-time file-list changes
 // (add/delete) triggered by ConnectorWatcherService without polling.
 builder.Services.AddSingleton<FileBrowserChangeNotifier>();
