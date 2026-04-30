@@ -13,5 +13,6 @@
     <Project Path="tests/Connapse.Identity.Tests/Connapse.Identity.Tests.csproj" />
     <Project Path="tests/Connapse.Ingestion.Tests/Connapse.Ingestion.Tests.csproj" />
     <Project Path="tests/Connapse.Integration.Tests/Connapse.Integration.Tests.csproj" />
+    <Project Path="tests/Connapse.Web.Tests/Connapse.Web.Tests.csproj" />
   </Folder>
 </Solution>
