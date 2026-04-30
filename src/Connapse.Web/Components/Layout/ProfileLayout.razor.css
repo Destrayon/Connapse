@@ -1,0 +1,9 @@
+.profile-back-link {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.profile-back-link:hover {
+    color: var(--bs-body-color);
+    background-color: var(--shadow-sm);
+}
