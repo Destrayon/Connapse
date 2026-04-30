@@ -3,6 +3,7 @@ using FluentAssertions;
 
 namespace Connapse.Web.Tests.Services;
 
+[Trait("Category", "Unit")]
 public class DefaultProfileMenuProviderTests
 {
     [Fact]
