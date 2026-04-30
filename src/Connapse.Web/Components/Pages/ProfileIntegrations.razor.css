@@ -1,0 +1,17 @@
+.provider-card {
+    border: 1px solid var(--bs-border-color);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.provider-card:hover {
+    border-color: var(--provider-color, var(--bs-border-color));
+    box-shadow: 0 0 0 1px rgba(var(--provider-color, 0), 0.1);
+}
+
+.provider-connected {
+    border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+}
+
+::deep .card-footer {
+    background: transparent;
+}

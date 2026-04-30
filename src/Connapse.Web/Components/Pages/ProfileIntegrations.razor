@@ -1,0 +1,421 @@
+@page "/profile/integrations"
+@layout ProfileLayout
+@attribute [Authorize]
+@using Connapse.Core
+@using Connapse.Identity.Services
+@using Connapse.Web.Components.Layout
+@inject ICloudIdentityService CloudIdentityService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Integrations - Connapse</PageTitle>
+
+<div class="container-fluid py-4" style="max-width: 900px;">
+    <!-- Page heading -->
+    <div class="d-flex align-items-center mb-4">
+        <span class="bi-plug-fill me-2 text-accent" style="font-size: 1.5rem;"></span>
+        <h1 class="h3 mb-0">Integrations</h1>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
+            @statusMessage
+            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- Cloud Identities Section -->
+    <div class="mb-3 d-flex align-items-center">
+        <span class="bi-cloud-fill me-2 text-accent"></span>
+        <h2 class="h5 mb-0">Cloud Identities</h2>
+    </div>
+    <p class="text-muted small mb-4">
+        Link your cloud provider accounts to access S3 and Azure Blob Storage containers with your own permissions.
+        Only identity metadata is stored — no access keys or tokens.
+    </p>
+
+    <div class="row g-3">
+        <!-- AWS Card -->
+        <div class="col-md-6">
+            <div class="card h-100 provider-card @(awsIdentity is not null ? "provider-connected" : "")"
+                 style="--provider-color: #f59e0b;">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                             style="width: 40px; height: 40px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25);">
+                            <span class="bi-cloud" style="font-size: 1.1rem; color: #f59e0b;"></span>
+                        </div>
+                        <div class="ms-3 flex-grow-1">
+                            <strong>Amazon Web Services</strong>
+                        </div>
+                        @if (awsIdentity is not null)
+                        {
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
+                                <span class="bi-check-circle-fill me-1"></span>Connected
+                            </span>
+                        }
+                    </div>
+
+                    @if (!awsSsoConfigured)
+                    {
+                        <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <small class="d-flex align-items-start" style="color: #fbbf24;">
+                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+                                <span>AWS SSO is not configured. An admin must set the IAM Identity Center Issuer URL and Region in settings.</span>
+                            </small>
+                        </div>
+                    }
+                    else if (awsDeviceAuth is not null)
+                    {
+                        <!-- Device Authorization in progress -->
+                        <div class="rounded-3 p-3 mb-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <p class="small mb-2">Open the link below and enter this code:</p>
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <code style="font-size: 1.4rem; letter-spacing: 0.15em; padding: 0.5rem 1rem; background: var(--shadow-sm); border-radius: 0.5rem;">
+                                    @awsDeviceAuth.UserCode
+                                </code>
+                            </div>
+                            <div class="text-center">
+                                <a href="@awsDeviceAuth.VerificationUriComplete" target="_blank" rel="noopener noreferrer" class="small">
+                                    <span class="bi-box-arrow-up-right me-1"></span>Open AWS Sign-in
+                                </a>
+                            </div>
+                            <div class="text-center mt-2">
+                                <small class="text-muted">
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                    Waiting for authentication...
+                                </small>
+                            </div>
+                        </div>
+                    }
+                    else if (awsIdentity is not null)
+                    {
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            @if (!string.IsNullOrEmpty(awsIdentity.Data.DisplayName))
+                            {
+                                <div>
+                                    <small class="text-muted d-block">Display Name</small>
+                                    <span class="small">@awsIdentity.Data.DisplayName</span>
+                                </div>
+                            }
+                            <div>
+                                <small class="text-muted d-block">Account ID</small>
+                                <span class="font-monospace small">@(awsIdentity.Data.AccountId ?? "—")</span>
+                            </div>
+                            <div>
+                                <small class="text-muted d-block">AWS Accounts</small>
+                                <span class="font-monospace small text-break">@(awsIdentity.Data.PrincipalArn ?? "—")</span>
+                            </div>
+                            <div class="d-flex gap-4">
+                                <div>
+                                    <small class="text-muted d-block">Connected</small>
+                                    <small>@awsIdentity.CreatedAt.ToString("MMM dd, yyyy")</small>
+                                </div>
+                                @if (awsIdentity.LastUsedAt is not null)
+                                {
+                                    <div>
+                                        <small class="text-muted d-block">Last used</small>
+                                        <small>@awsIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mb-0">
+                            Sign in with your AWS IAM Identity Center account to access S3 containers with your own permissions.
+                        </p>
+                    }
+                </div>
+                @if (awsSsoConfigured)
+                {
+                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                        @if (awsDeviceAuth is not null)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAwsDeviceAuth">
+                                Cancel
+                            </button>
+                        }
+                        else if (awsIdentity is not null)
+                        {
+                            @if (confirmDisconnectProvider == CloudProvider.AWS)
+                            {
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DisconnectAsync(CloudProvider.AWS)" disabled="@isProcessing">
+                                        Confirm Disconnect
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectProvider = null">
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectProvider = CloudProvider.AWS" disabled="@isProcessing">
+                                    <span class="bi-x-circle me-1"></span>Disconnect
+                                </button>
+                            }
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="StartAwsDeviceAuthAsync" disabled="@isProcessing">
+                                <span class="bi-link-45deg me-1"></span>Sign in with AWS
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Azure Card -->
+        <div class="col-md-6">
+            <div class="card h-100 provider-card @(azureIdentity is not null ? "provider-connected" : "")"
+                 style="--provider-color: #38bdf8;">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                             style="width: 40px; height: 40px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25);">
+                            <span class="bi-cloud" style="font-size: 1.1rem; color: #38bdf8;"></span>
+                        </div>
+                        <div class="ms-3 flex-grow-1">
+                            <strong>Microsoft Azure</strong>
+                        </div>
+                        @if (azureIdentity is not null)
+                        {
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
+                                <span class="bi-check-circle-fill me-1"></span>Connected
+                            </span>
+                        }
+                    </div>
+
+                    @if (!azureAdConfigured)
+                    {
+                        <div class="rounded-3 p-3" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2);">
+                            <small class="d-flex align-items-start" style="color: #7dd3fc;">
+                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+                                <span>Azure AD is not configured. An admin must set the ClientId and TenantId in settings.</span>
+                            </small>
+                        </div>
+                    }
+                    else if (azureIdentity is not null)
+                    {
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            @if (!string.IsNullOrEmpty(azureIdentity.Data.DisplayName))
+                            {
+                                <div>
+                                    <small class="text-muted d-block">Display Name</small>
+                                    <span class="small">@azureIdentity.Data.DisplayName</span>
+                                </div>
+                            }
+                            <div>
+                                <small class="text-muted d-block">Tenant ID</small>
+                                <span class="font-monospace small">@(azureIdentity.Data.TenantId ?? "—")</span>
+                            </div>
+                            <div>
+                                <small class="text-muted d-block">Object ID</small>
+                                <span class="font-monospace small">@(azureIdentity.Data.ObjectId ?? "—")</span>
+                            </div>
+                            <div class="d-flex gap-4">
+                                <div>
+                                    <small class="text-muted d-block">Connected</small>
+                                    <small>@azureIdentity.CreatedAt.ToString("MMM dd, yyyy")</small>
+                                </div>
+                                @if (azureIdentity.LastUsedAt is not null)
+                                {
+                                    <div>
+                                        <small class="text-muted d-block">Last used</small>
+                                        <small>@azureIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mb-0">
+                            Connect your Azure identity to access Blob Storage containers with your own RBAC permissions.
+                        </p>
+                    }
+                </div>
+                <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                    @if (azureIdentity is not null)
+                    {
+                        @if (confirmDisconnectProvider == CloudProvider.Azure)
+                        {
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-danger" @onclick="() => DisconnectAsync(CloudProvider.Azure)" disabled="@isProcessing">
+                                    Confirm Disconnect
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectProvider = null">
+                                    Cancel
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectProvider = CloudProvider.Azure" disabled="@isProcessing">
+                                <span class="bi-x-circle me-1"></span>Disconnect
+                            </button>
+                        }
+                    }
+                    else if (azureAdConfigured)
+                    {
+                        <button class="btn btn-sm btn-primary" @onclick="ConnectAzureAsync" disabled="@isProcessing">
+                            <span class="bi-link-45deg me-1"></span>Connect Azure
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private Guid currentUserId;
+    private bool isProcessing;
+    private string? statusMessage;
+    private bool statusSuccess;
+    private CloudProvider? confirmDisconnectProvider;
+
+    private CloudIdentityDto? awsIdentity;
+    private CloudIdentityDto? azureIdentity;
+    private bool awsSsoConfigured;
+    private bool azureAdConfigured;
+
+    // Device auth flow state
+    private AwsDeviceAuthStartResult? awsDeviceAuth;
+    private CancellationTokenSource? pollCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        var userIdStr = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userIdStr is not null)
+            Guid.TryParse(userIdStr, out currentUserId);
+
+        awsSsoConfigured = CloudIdentityService.IsAwsSsoConfigured();
+        azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
+
+        await LoadIdentitiesAsync();
+    }
+
+    private async Task LoadIdentitiesAsync()
+    {
+        var identities = await CloudIdentityService.ListAsync(currentUserId);
+        awsIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.AWS);
+        azureIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.Azure);
+    }
+
+    private void ConnectAzureAsync()
+    {
+        Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
+    }
+
+    private async Task StartAwsDeviceAuthAsync()
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            awsDeviceAuth = await CloudIdentityService.StartAwsDeviceAuthAsync();
+            _ = PollForAwsCompletionAsync(awsDeviceAuth.DeviceCode);
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to start AWS sign-in: {ex.Message}";
+            statusSuccess = false;
+            awsDeviceAuth = null;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task PollForAwsCompletionAsync(string deviceCode)
+    {
+        pollCts?.Cancel();
+        pollCts = new CancellationTokenSource();
+        var ct = pollCts.Token;
+        var interval = awsDeviceAuth?.IntervalSeconds ?? 5;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(interval), ct);
+
+                var identity = await CloudIdentityService.PollAwsDeviceAuthAsync(currentUserId, deviceCode, ct);
+                if (identity is not null)
+                {
+                    awsIdentity = identity;
+                    awsDeviceAuth = null;
+                    statusMessage = "AWS identity connected successfully.";
+                    statusSuccess = true;
+                    await InvokeAsync(StateHasChanged);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancelled or component disposed
+        }
+        catch (Exception ex)
+        {
+            awsDeviceAuth = null;
+            statusMessage = $"AWS sign-in failed: {ex.Message}";
+            statusSuccess = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void CancelAwsDeviceAuth()
+    {
+        pollCts?.Cancel();
+        awsDeviceAuth = null;
+    }
+
+    private async Task DisconnectAsync(CloudProvider provider)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmDisconnectProvider = null;
+        try
+        {
+            var deleted = await CloudIdentityService.DisconnectAsync(currentUserId, provider);
+            if (deleted)
+            {
+                statusMessage = $"{provider} identity disconnected.";
+                statusSuccess = true;
+                await LoadIdentitiesAsync();
+            }
+            else
+            {
+                statusMessage = $"No {provider} identity found.";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Failed to disconnect: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        pollCts?.Cancel();
+        pollCts?.Dispose();
+    }
+}
