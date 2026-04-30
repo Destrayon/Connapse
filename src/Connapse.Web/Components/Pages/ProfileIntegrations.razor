@@ -7,6 +7,7 @@
 @inject ICloudIdentityService CloudIdentityService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
+@inject ILogger<ProfileIntegrations> Logger
 @rendermode InteractiveServer
 @implements IDisposable
 
@@ -328,7 +329,8 @@
         }
         catch (Exception ex)
         {
-            statusMessage = $"Failed to start AWS sign-in: {ex.Message}";
+            Logger.LogError(ex, "Failed to start AWS device auth for user {UserId}", currentUserId);
+            statusMessage = "Failed to start AWS sign-in. Please try again.";
             statusSuccess = false;
             awsDeviceAuth = null;
         }
@@ -369,8 +371,9 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "AWS device auth polling failed for user {UserId}", currentUserId);
             awsDeviceAuth = null;
-            statusMessage = $"AWS sign-in failed: {ex.Message}";
+            statusMessage = "AWS sign-in failed. Please try again.";
             statusSuccess = false;
             await InvokeAsync(StateHasChanged);
         }
@@ -404,7 +407,8 @@
         }
         catch (Exception ex)
         {
-            statusMessage = $"Failed to disconnect: {ex.Message}";
+            Logger.LogError(ex, "Failed to disconnect {Provider} identity for user {UserId}", provider, currentUserId);
+            statusMessage = "Failed to disconnect. Please try again.";
             statusSuccess = false;
         }
         finally
