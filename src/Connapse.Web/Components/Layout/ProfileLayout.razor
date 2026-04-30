@@ -1,7 +1,6 @@
 @inherits LayoutComponentBase
 @using Connapse.Web.Services
 @inject IProfileMenuProvider MenuProvider
-@inject NavigationManager Navigation
 
 <div class="page">
     <div class="sidebar">
@@ -27,7 +26,7 @@
 
                 @foreach (var item in _items)
                 {
-                    <div class="nav-item px-3">
+                    <div class="nav-item px-3" @key="item.Key">
                         <NavLink class="nav-link" href="@item.Href" Match="NavLinkMatch.All">
                             <span class="nav-icon @item.Icon" aria-hidden="true"></span> @item.Label
                         </NavLink>
