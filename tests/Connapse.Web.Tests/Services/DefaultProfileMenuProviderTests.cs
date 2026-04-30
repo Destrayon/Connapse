@@ -27,4 +27,12 @@ public class DefaultProfileMenuProviderTests
 
         provider.BackUrl.Should().Be("/");
     }
+
+    [Fact]
+    public void LogoUrl_IsConnapseLogo()
+    {
+        IProfileMenuProvider provider = new DefaultProfileMenuProvider();
+
+        provider.LogoUrl.Should().Be("connapse-logo.svg");
+    }
 }
