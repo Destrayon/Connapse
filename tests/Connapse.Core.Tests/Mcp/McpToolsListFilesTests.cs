@@ -182,6 +182,79 @@ public class McpToolsListFilesTests
         result.Should().Contain($"[FILE] notes.md (1,024 bytes) ID: {docId}");
     }
 
+    [Fact]
+    public async Task ListFiles_OutputBeginsWithTipPointingAtSearchKnowledge()
+    {
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document>
+            {
+                MakeDocument("/notes.md", "notes.md")
+            });
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+
+        result.Should().StartWith("TIP:");
+        result.Should().Contain("search_knowledge");
+    }
+
+    [Fact]
+    public async Task ListFiles_LargeListingReturnsSoftErrorByDefault()
+    {
+        var docs = Enumerable.Range(0, McpTools.ListFilesSoftLimit + 5)
+            .Select(i => MakeDocument($"/file{i}.txt", $"file{i}.txt"))
+            .ToList();
+
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(docs);
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+
+        result.Should().StartWith("Error:");
+        result.Should().Contain("search_knowledge");
+        result.Should().Contain("confirmLarge");
+        result.Should().NotContain("[FILE]");
+    }
+
+    [Fact]
+    public async Task ListFiles_ConfirmLargeBypassesSoftError()
+    {
+        var docs = Enumerable.Range(0, McpTools.ListFilesSoftLimit + 5)
+            .Select(i => MakeDocument($"/file{i}.txt", $"file{i}.txt"))
+            .ToList();
+
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(docs);
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: null, confirmLarge: true);
+
+        result.Should().NotStartWith("Error:");
+        result.Should().Contain("[FILE] file0.txt");
+        result.Should().Contain($"[FILE] file{McpTools.ListFilesSoftLimit + 4}.txt");
+    }
+
+    [Fact]
+    public async Task ListFiles_LimitTruncatesLargeListing()
+    {
+        var docs = Enumerable.Range(0, McpTools.ListFilesSoftLimit + 5)
+            .Select(i => MakeDocument($"/file{i:D3}.txt", $"file{i:D3}.txt"))
+            .ToList();
+
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(docs);
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: 5);
+
+        result.Should().NotStartWith("Error:");
+        result.Should().Contain("[FILE] file000.txt");
+        result.Should().Contain("[FILE] file004.txt");
+        result.Should().NotContain("[FILE] file005.txt");
+        result.Should().Contain("more entries truncated");
+    }
+
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),
         Name: "test",

@@ -14,6 +14,11 @@ namespace Connapse.Web.Mcp;
 [McpServerToolType]
 public class McpTools
 {
+    // Threshold above which `list_files` returns a soft error steering the agent to
+    // `search_knowledge`. The agent can override with `confirmLarge: true` or paginate with `limit`.
+    internal const int ListFilesSoftLimit = 50;
+
+
     [McpServerTool(Name = "container_create"),
      Description("Create a new container for organizing documents. Use when setting up a new knowledge domain or project.")]
     public static async Task<string> ContainerCreate(
@@ -38,7 +43,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
-     Description("List all containers with document counts. Use to discover available knowledge bases before searching.")]
+     Description("ENTRY POINT for Connapse: lists every container with its description and document count. Call this FIRST when you don't know which container holds the answer — read the descriptions, pick the most relevant container, then call `search_knowledge` with that container's ID or name.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
         CancellationToken ct = default)
@@ -49,7 +54,8 @@ public class McpTools
         if (containers.Count == 0)
             return "No containers found.";
 
-        var text = $"Found {containers.Count} container(s):\n\n";
+        var text = "TIP: To answer a question, pick the container whose description best matches the topic, then call `search_knowledge(query=\"...\", containerId=\"<name>\")`. Do NOT enumerate files with `list_files` to find an answer — `search_knowledge` returns the relevant passages directly.\n\n";
+        text += $"Found {containers.Count} container(s):\n\n";
         foreach (var c in containers)
         {
             text += $"- {c.Name} ({c.DocumentCount} files)";
@@ -91,7 +97,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
-     Description("Search a container using semantic, keyword, or hybrid mode. Returns ranked document chunks with scores. Use when answering questions from stored knowledge.")]
+     Description("PREFERRED tool for question-answering, research, and any content lookup. Returns the most relevant passages from a container with citations, scores, and document IDs — call this FIRST instead of enumerating files. Default mode is Hybrid (semantic + keyword), which works well without tuning. If the first query returns thin results, refine the query and call again rather than falling back to `list_files`.")]
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
         [Description("The search query text")] string query,
@@ -172,11 +178,13 @@ public class McpTools
     }
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
-     Description("List files and folders at a path within a container. Use to browse container contents before retrieving documents.")]
+     Description("INVENTORY ONLY. DO NOT use this to answer questions about file contents — call `search_knowledge` instead, which returns relevant passages directly. Use `list_files` only when the user explicitly asks for a file inventory, asks what filenames exist, or has named a specific filename they want to find. Returns folder entries and document IDs but NOT file contents. Large containers will return a soft error directing you to `search_knowledge`.")]
     public static async Task<string> ListFiles(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
         [Description("Folder path to list (default: root '/')")] string? path = null,
+        [Description($"Maximum number of entries to return. When set, large listings are truncated instead of returning a soft error. Recommended: 25.")] int? limit = null,
+        [Description("Set to true to confirm you intentionally want the full listing of a large folder. Without this, listings exceeding the soft limit return an error directing you to `search_knowledge`.")] bool? confirmLarge = null,
         CancellationToken ct = default)
     {
         var folderPath = path ?? "/";
@@ -222,27 +230,48 @@ public class McpTools
             }
         }
 
-        var text = $"Contents of {normalizedPath}:\n\n";
+        // Direct-child files (the only docs that actually render at this level)
+        var directChildDocs = documents
+            .Where(d => string.Equals(PathUtilities.GetParentPath(d.Path), normalizedPath, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var visibleEntries = folderNames.Count + directChildDocs.Count;
+
+        // Soft-error path: refuse to dump large listings unless agent explicitly opts in.
+        // Teaches the agent to reach for `search_knowledge` instead of enumeration.
+        if (visibleEntries > ListFilesSoftLimit && confirmLarge != true && !limit.HasValue)
+        {
+            return $"Error: '{normalizedPath}' contains {visibleEntries} entries, which exceeds the soft listing limit of {ListFilesSoftLimit}. " +
+                   $"For question-answering, call `search_knowledge(query=\"...\", containerId=\"{containerId}\")` instead — it returns the relevant passages directly. " +
+                   $"If you genuinely need the full inventory, retry with `confirmLarge: true`, or paginate with `limit: 25`.";
+        }
+
+        var text = $"TIP: This listing contains {directChildDocs.Count} file(s) and {folderNames.Count} folder(s) at this level but NO file contents. To answer questions about what these files contain, call `search_knowledge(query=\"...\", containerId=\"{containerId}\")` instead — it returns the relevant passages directly without you having to read each file. Use this listing only if the user explicitly asked for an inventory or named a specific filename.\n\n";
+        text += $"Contents of {normalizedPath}:\n\n";
         var hasEntries = false;
+        var rendered = 0;
+        var effectiveLimit = limit ?? int.MaxValue;
 
         foreach (var folderName in folderNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
         {
+            if (rendered >= effectiveLimit) break;
             text += $"[DIR]  {folderName}/\n";
             hasEntries = true;
+            rendered++;
         }
 
-        foreach (var doc in documents)
+        foreach (var doc in directChildDocs)
         {
-            var docParent = PathUtilities.GetParentPath(doc.Path);
-            if (!string.Equals(docParent, normalizedPath, StringComparison.OrdinalIgnoreCase))
-                continue;
-
+            if (rendered >= effectiveLimit) break;
             text += $"[FILE] {doc.FileName} ({doc.SizeBytes:N0} bytes) ID: {doc.Id}\n";
             hasEntries = true;
+            rendered++;
         }
 
         if (!hasEntries)
             text += "(empty)\n";
+        else if (rendered < visibleEntries)
+            text += $"\n... {visibleEntries - rendered} more entries truncated (limit={effectiveLimit}). Call `search_knowledge` for content questions, or re-run with a higher `limit`.";
 
         return text.TrimEnd();
     }
@@ -544,7 +573,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
-     Description("Retrieve a document's full text by ID or path. Returns extracted text for binary formats (PDF, DOCX, PPTX).")]
+     Description("Retrieve a single document's FULL text. Use only when `search_knowledge` has returned a specific `DocumentId` you need to read in entirety, or when the user has named an exact file. For question-answering, prefer `search_knowledge` — it returns the relevant passages with citations and is far cheaper in tokens than reading whole documents.")]
     public static async Task<string> GetDocument(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,

@@ -97,6 +97,15 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
         .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "0.0.0";
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
+    options.ServerInstructions =
+        "Connapse is a retrieval-augmented knowledge base. For ANY question-answering or " +
+        "research task over container contents, call `search_knowledge` FIRST — it returns " +
+        "the relevant ranked passages directly with citations. " +
+        "Use `list_files` ONLY when the user explicitly asks for a file inventory or names " +
+        "a specific filename to look up. Use `get_document` ONLY after `search_knowledge` " +
+        "returns a `DocumentId` you need to read in full. " +
+        "Enumerating files and reading them one by one to answer content questions will " +
+        "exceed context and produce worse answers than a single `search_knowledge` call.";
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
