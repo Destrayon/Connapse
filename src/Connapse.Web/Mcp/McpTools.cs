@@ -235,7 +235,7 @@ public class McpTools
             .Where(d => string.Equals(PathUtilities.GetParentPath(d.Path), normalizedPath, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var visibleEntries = folderNames.Count + directChildDocs.Count;
+        int visibleEntries = folderNames.Count + directChildDocs.Count;
 
         // Soft-error path: refuse to dump large listings unless agent explicitly opts in.
         // Teaches the agent to reach for `search_knowledge` instead of enumeration.
@@ -248,9 +248,9 @@ public class McpTools
 
         var text = $"TIP: This listing contains {directChildDocs.Count} file(s) and {folderNames.Count} folder(s) at this level but NO file contents. To answer questions about what these files contain, call `search_knowledge(query=\"...\", containerId=\"{containerId}\")` instead — it returns the relevant passages directly without you having to read each file. Use this listing only if the user explicitly asked for an inventory or named a specific filename.\n\n";
         text += $"Contents of {normalizedPath}:\n\n";
-        var hasEntries = false;
-        var rendered = 0;
-        var effectiveLimit = limit ?? int.MaxValue;
+        bool hasEntries = false;
+        int rendered = 0;
+        int effectiveLimit = limit ?? int.MaxValue;
 
         foreach (var folderName in folderNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
         {
