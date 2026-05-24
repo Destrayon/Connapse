@@ -183,8 +183,32 @@ public class McpToolsListFilesTests
     }
 
     [Fact]
-    public async Task ListFiles_OutputBeginsWithTipPointingAtSearchKnowledge()
+    public async Task ListFiles_RootWithMultipleEntriesBeginsWithTrimmedTip()
     {
+        // Two direct-child files at root — TIP must emit (path == "/" and entries > 1)
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document>
+            {
+                MakeDocument("/notes.md", "notes.md"),
+                MakeDocument("/readme.md", "readme.md")
+            });
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
+
+        result.Should().StartWith("TIP:");
+        result.Should().Contain("search_knowledge");
+        result.Should().Contain("folder/file names only");
+
+        // Trimmed TIP should NOT contain the v1 phrasings that ServerInstructions now covers.
+        result.Should().NotContain("Use this listing only if the user explicitly asked");
+        result.Should().NotContain("contains 2 file(s) and 0 folder(s)");
+    }
+
+    [Fact]
+    public async Task ListFiles_SingleEntryRootListingHasNoTip()
+    {
+        // Single direct-child at root — no routing decision to nudge
         _documentStore
             .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new List<Document>
@@ -194,8 +218,27 @@ public class McpToolsListFilesTests
 
         var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/");
 
-        result.Should().StartWith("TIP:");
-        result.Should().Contain("search_knowledge");
+        result.Should().NotStartWith("TIP:");
+        result.Should().Contain("[FILE] notes.md");
+    }
+
+    [Fact]
+    public async Task ListFiles_SubFolderListingHasNoTip()
+    {
+        // Multi-entry listing at a sub-folder — already targeted, no need to re-route
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document>
+            {
+                MakeDocument("/docs/readme.md", "readme.md"),
+                MakeDocument("/docs/install.md", "install.md")
+            });
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/docs/");
+
+        result.Should().NotStartWith("TIP:");
+        result.Should().Contain("[FILE] readme.md");
+        result.Should().Contain("[FILE] install.md");
     }
 
     [Fact]

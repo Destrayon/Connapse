@@ -253,7 +253,14 @@ public class McpTools
                    $"If you genuinely need the full inventory, retry with `confirmLarge: true`, or paginate with `limit: 25`.";
         }
 
-        var text = $"TIP: This listing contains {directChildDocs.Count} file(s) and {folderNames.Count} folder(s) at this level but NO file contents. To answer questions about what these files contain, call `search_knowledge(query=\"...\", containerId=\"{containerId}\")` instead — it returns the relevant passages directly without you having to read each file. Use this listing only if the user explicitly asked for an inventory or named a specific filename.\n\n";
+        // Conditional TIP: only emit when at the container root with multiple entries —
+        // the case where agent-wandering is the failure mode. Sub-folder listings and
+        // single-entry listings are usually intentional targeting; TIP would be wasted.
+        var text = "";
+        if (normalizedPath == "/" && visibleEntries > 1)
+        {
+            text = $"TIP: This lists folder/file names only — for file contents, call `search_knowledge(query=\"...\", containerId=\"{containerId}\")`.\n\n";
+        }
         text += $"Contents of {normalizedPath}:\n\n";
         bool hasEntries = false;
         int rendered = 0;
