@@ -34,7 +34,24 @@ public class McpToolsContainerListTests
     }
 
     [Fact]
-    public async Task ContainerList_OutputBeginsWithTipPointingAtSearchKnowledge()
+    public async Task ContainerList_SingleContainerReturnsNoTip()
+    {
+        _containerStore
+            .ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Container>
+            {
+                MakeContainer("only-one", "The only container", 7)
+            });
+
+        var result = await McpTools.ContainerList(_services);
+
+        result.Should().NotStartWith("TIP:");
+        result.Should().StartWith("Found 1 container(s):");
+        result.Should().Contain("- only-one (7 files) — The only container");
+    }
+
+    [Fact]
+    public async Task ContainerList_MultipleContainersBeginWithTrimmedTip()
     {
         _containerStore
             .ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -48,6 +65,12 @@ public class McpToolsContainerListTests
 
         result.Should().StartWith("TIP:");
         result.Should().Contain("search_knowledge");
+        result.Should().Contain("Pick the container whose description best matches the topic");
+
+        // Trimmed TIP should NOT contain the v1 "Do NOT enumerate files" phrasing —
+        // ServerInstructions Rule 3 covers that now.
+        result.Should().NotContain("Do NOT enumerate files");
+
         result.Should().Contain("- docs (12 files) — Product documentation");
         result.Should().Contain("- research (5 files) — Customer research");
     }

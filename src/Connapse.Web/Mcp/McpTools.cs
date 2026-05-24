@@ -54,7 +54,14 @@ public class McpTools
         if (containers.Count == 0)
             return "No containers found.";
 
-        var text = "TIP: To answer a question, pick the container whose description best matches the topic, then call `search_knowledge(query=\"...\", containerId=\"<name>\")`. Do NOT enumerate files with `list_files` to find an answer — `search_knowledge` returns the relevant passages directly.\n\n";
+        // Conditional TIP: only emit when there's an actual routing decision to make
+        // (i.e., more than one container). For a single container the agent has no
+        // choice; the TIP would be wasted output tokens.
+        var text = "";
+        if (containers.Count > 1)
+        {
+            text = "TIP: Pick the container whose description best matches the topic, then call `search_knowledge(query=\"...\", containerId=\"<name>\")`.\n\n";
+        }
         text += $"Found {containers.Count} container(s):\n\n";
         foreach (var c in containers)
         {
