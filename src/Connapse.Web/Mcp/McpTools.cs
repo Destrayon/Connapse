@@ -194,6 +194,13 @@ public class McpTools
         [Description("Set to true to confirm you intentionally want the full listing of a large folder. Without this, listings exceeding the soft limit return an error directing you to `search_knowledge`.")] bool? confirmLarge = null,
         CancellationToken ct = default)
     {
+        // Validate `limit` upfront. A non-positive value would otherwise bypass the
+        // soft-error guard (`!limit.HasValue` is false when limit is set) and the
+        // rendering loop would short-circuit at `rendered >= effectiveLimit`,
+        // producing misleading "(empty)" output for non-empty folders.
+        if (limit.HasValue && limit.Value <= 0)
+            return "Error: 'limit' must be greater than 0.";
+
         var folderPath = path ?? "/";
 
         var containerStore = services.GetRequiredService<IContainerStore>();

@@ -241,6 +241,31 @@ public class McpToolsListFilesTests
         result.Should().Contain("[FILE] install.md");
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(-100)]
+    public async Task ListFiles_NonPositiveLimitReturnsValidationError(int badLimit)
+    {
+        // limit <= 0 would otherwise bypass the soft-error path (limit.HasValue is true)
+        // and render every entry as truncated, producing misleading "(empty)" output
+        // for non-empty folders. Guard upfront.
+        var docs = Enumerable.Range(0, McpTools.ListFilesSoftLimit + 5)
+            .Select(i => MakeDocument($"/file{i}.txt", $"file{i}.txt"))
+            .ToList();
+
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(docs);
+
+        var result = await McpTools.ListFiles(_services, ContainerId.ToString(), "/", limit: badLimit);
+
+        result.Should().StartWith("Error:");
+        result.Should().Contain("limit");
+        result.Should().NotContain("[FILE]");
+        result.Should().NotContain("(empty)");
+    }
+
     [Fact]
     public async Task ListFiles_LargeListingReturnsSoftErrorByDefault()
     {
