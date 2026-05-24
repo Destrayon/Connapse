@@ -8,16 +8,35 @@ namespace Connapse.Web.Mcp;
 public static class McpServerConfig
 {
     /// <summary>
-    /// ServerInstructions delivered to MCP clients on connect. Tells the agent how
-    /// to route across container_list / search_knowledge / list_files / get_document.
+    /// ServerInstructions delivered to MCP clients on connect. Numbered disjoint
+    /// conditional rules — designed for literally-compliant reasoning models
+    /// (e.g., Claude Opus 4.7) per the v2 spec.
     /// </summary>
     public const string McpServerInstructions =
-        "Connapse is a retrieval-augmented knowledge base. For ANY question-answering or " +
-        "research task over container contents, call `search_knowledge` FIRST — it returns " +
-        "the relevant ranked passages directly with citations. " +
-        "Use `list_files` ONLY when the user explicitly asks for a file inventory or names " +
-        "a specific filename to look up. Use `get_document` ONLY after `search_knowledge` " +
-        "returns a `DocumentId` you need to read in full. " +
-        "Enumerating files and reading them one by one to answer content questions will " +
-        "exceed context and produce worse answers than a single `search_knowledge` call.";
+        """
+        Connapse is a retrieval-augmented knowledge base with four primary tools:
+        `container_list`, `search_knowledge`, `list_files`, and `get_document`.
+
+        Routing rules for question-answering:
+
+        1. If the user's question (or the prior conversation) names a specific
+           container, call `search_knowledge` directly on that container.
+           Do NOT call `container_list` first — the container is already known.
+
+        2. Only call `container_list` when the relevant container is genuinely
+           unknown and cannot be inferred from context. After it returns, call
+           `search_knowledge` on the chosen container.
+
+        3. Use `list_files` only for inventory questions ("what files are in X?",
+           "list the docs under /folder"). Never use `list_files` as a substitute
+           for `search_knowledge` when the user is asking about file CONTENT.
+
+        4. Use `get_document` only when `search_knowledge` has returned a specific
+           `DocumentId` you need to read in full, or when the user named an exact
+           file by path.
+
+        Enumerating files and reading them one by one to answer content questions
+        will exceed context and produce worse answers than a single
+        `search_knowledge` call.
+        """;
 }
