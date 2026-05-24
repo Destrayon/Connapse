@@ -43,7 +43,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
-     Description("ENTRY POINT for Connapse: lists every container with its description and document count. Call this FIRST when you don't know which container holds the answer — read the descriptions, pick the most relevant container, then call `search_knowledge` with that container's ID or name.")]
+     Description("Lists all containers with their descriptions and document counts. Use to discover what containers exist when the target is unknown; if the user already named a container, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
         CancellationToken ct = default)
@@ -97,7 +97,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
-     Description("PREFERRED tool for question-answering, research, and any content lookup. Returns the most relevant passages from a container with citations, scores, and document IDs — call this FIRST instead of enumerating files. Default mode is Hybrid (semantic + keyword), which works well without tuning. If the first query returns thin results, refine the query and call again rather than falling back to `list_files`.")]
+     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
         [Description("The search query text")] string query,
@@ -178,7 +178,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
-     Description("INVENTORY ONLY. DO NOT use this to answer questions about file contents — call `search_knowledge` instead, which returns relevant passages directly. Use `list_files` only when the user explicitly asks for a file inventory, asks what filenames exist, or has named a specific filename they want to find. Returns folder entries and document IDs but NOT file contents. Large containers will return a soft error directing you to `search_knowledge`.")]
+     Description("Lists folder entries and document IDs at a path within a container (does NOT return file contents — for content questions, use `search_knowledge`). Intended for inventory requests such as 'what files exist in X' or when the user named a specific filename. Large listings return a soft error directing you to `search_knowledge`; override with `confirmLarge: true` or paginate with `limit`.")]
     public static async Task<string> ListFiles(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -573,7 +573,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
-     Description("Retrieve a single document's FULL text. Use only when `search_knowledge` has returned a specific `DocumentId` you need to read in entirety, or when the user has named an exact file. For question-answering, prefer `search_knowledge` — it returns the relevant passages with citations and is far cheaper in tokens than reading whole documents.")]
+     Description("Retrieve a single document's full text by ID or path. Returns extracted text for binary formats (PDF, DOCX, PPTX). Intended for use after `search_knowledge` returns a `DocumentId` worth reading in entirety, or when the user has named an exact file.")]
     public static async Task<string> GetDocument(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
