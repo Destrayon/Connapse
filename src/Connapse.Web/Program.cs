@@ -101,6 +101,7 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
         .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "0.0.0";
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
+    options.ServerInstructions = Connapse.Web.Mcp.McpServerConfig.McpServerInstructions;
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
