@@ -100,7 +100,7 @@ public class OpenAiLlmProvider : ILlmProvider
         {
             _logger.LogError(ex, "OpenAI streaming failed (status {Status})", ex.Status);
             throw new InvalidOperationException(
-                $"OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}.", ex);
+                $"OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}. Verify your API key and model '{model}' are correct.", ex);
         }
 
         await foreach (var update in updates)
