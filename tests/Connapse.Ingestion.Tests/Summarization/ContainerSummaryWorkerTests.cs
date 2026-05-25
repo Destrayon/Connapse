@@ -122,7 +122,7 @@ public class ContainerSummaryWorkerTests
         documentStore.ListAsync(containerId, null, 0, 10_000, Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<Document>)[doc]);
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(new SummarySettings());
+            .Returns(new SummarySettings { Enabled = true });
 
         // Use a real ServiceProvider so CreateAsyncScope() works correctly.
         ServiceCollection services = new();
@@ -185,7 +185,7 @@ public class ContainerSummaryWorkerTests
             .Returns((IReadOnlyList<DocumentWithSummary>)
                 [new DocumentWithSummary(Guid.Parse(docId), "some summary", [0.1f, 0.2f])]);
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(new SummarySettings()); // no override — falls back to global ILlmProvider
+            .Returns(new SummarySettings { Enabled = true }); // no LLM override — falls back to global ILlmProvider
         llmProvider.Provider.Returns("Ollama");
         llmProvider.ModelId.Returns("llama3.2");
         llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(),
@@ -224,5 +224,57 @@ public class ContainerSummaryWorkerTests
             Arg.Any<DateTime?>(),
             Arg.Any<string?>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProcessContainerAsync_WhenSummarySettingsDisabled_SkipsBeforeFetchingDocs()
+    {
+        Guid containerId = Guid.NewGuid();
+
+        Container container = new(
+            Id: containerId.ToString(),
+            Name: "Test Container",
+            Description: null,
+            ConnectorType: ConnectorType.ManagedStorage,
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow);
+
+        IContainerStore containerStore = Substitute.For<IContainerStore>();
+        IDocumentStore documentStore = Substitute.For<IDocumentStore>();
+        IDocumentSummaryEmbeddingProvider embeddingProvider =
+            Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        IContainerSettingsResolver settingsResolver = Substitute.For<IContainerSettingsResolver>();
+
+        containerStore.GetAsync(containerId, Arg.Any<CancellationToken>()).Returns(container);
+        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(new SummarySettings { Enabled = false });
+
+        // Note: ITokenCounter and SummaryLlmResolver are intentionally NOT registered. If the
+        // Enabled-gate short-circuit fails, scope resolution will throw, which fails the test.
+        ServiceCollection services = new();
+        services.AddSingleton(containerStore);
+        services.AddSingleton(documentStore);
+        services.AddSingleton(embeddingProvider);
+        services.AddSingleton<IContainerSettingsResolver>(settingsResolver);
+        await using ServiceProvider provider = services.BuildServiceProvider();
+        IServiceScopeFactory scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
+
+        IContainerSummaryQueue queue = Substitute.For<IContainerSummaryQueue>();
+        ContainerSummaryWorker worker = new(
+            queue,
+            scopeFactory,
+            NullLogger<ContainerSummaryWorker>.Instance);
+
+        worker.SetDirtyForTest(containerId, 30);
+
+        await worker.ProcessContainerAsync(containerId, "test_trigger", CancellationToken.None);
+
+        // documentStore.ListAsync was never called — short-circuit happened before doc fetch
+        await documentStore.DidNotReceive().ListAsync(
+            Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+        // And UpdateSummaryAsync was never called — no rollup write
+        await containerStore.DidNotReceiveWithAnyArgs()
+            .UpdateSummaryAsync(default, default, default, default, default);
     }
 }
