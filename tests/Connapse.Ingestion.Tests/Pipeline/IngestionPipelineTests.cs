@@ -36,6 +36,7 @@ public class IngestionPipelineTests
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly IPerDocSummarizer _summarizer;
+    private readonly IContainerSummaryQueue _dirtyQueue;
     private readonly ILogger<IngestionPipeline> _logger;
 
     public IngestionPipelineTests()
@@ -48,6 +49,7 @@ public class IngestionPipelineTests
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
                 Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new PerDocSummarizationResult(Skipped: true, SkipReason: "no_provider_configured"));
+        _dirtyQueue = Substitute.For<IContainerSummaryQueue>();
         _logger = NullLogger<IngestionPipeline>.Instance;
 
         _parser = Substitute.For<IDocumentParser>();
@@ -96,6 +98,7 @@ public class IngestionPipelineTests
             _embeddingSettings,
             new EmbeddingCache(dbContext),
             _summarizer,
+            _dirtyQueue,
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()

@@ -30,6 +30,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly EmbeddingCache _embeddingCache;
     private readonly IPerDocSummarizer _summarizer;
+    private readonly IContainerSummaryQueue _dirtyQueue;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -55,6 +56,7 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <param name="embeddingSettings">Runtime monitor providing current embedding configuration.</param>
     /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
     /// <param name="summarizer">Per-document summarizer called after chunks and vectors are persisted.</param>
+    /// <param name="dirtyQueue">Queue for posting container summary dirty events.</param>
     /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -67,6 +69,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         EmbeddingCache embeddingCache,
         IPerDocSummarizer summarizer,
+        IContainerSummaryQueue dirtyQueue,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -79,6 +82,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _embeddingSettings = embeddingSettings;
         _embeddingCache = embeddingCache;
         _summarizer = summarizer;
+        _dirtyQueue = dirtyQueue;
         _logger = logger;
     }
 
@@ -393,6 +397,12 @@ public class IngestionPipeline : IKnowledgeIngester
                         summaryResult.InputTokens,
                         summaryResult.OutputTokens,
                         summaryResult.CostEstimateUsd);
+
+                    // Post dirty event to trigger container summary regen
+                    // Only when summary was actually generated (not skipped due to content hash match)
+                    await _dirtyQueue.EnqueueAsync(
+                        new ContainerSummaryDirtyEvent(containerId, documentEntity.Id),
+                        ct);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

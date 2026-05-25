@@ -54,6 +54,9 @@ public static class ServiceCollectionExtensions
         // Register ingestion queue (singleton for shared state)
         services.AddSingleton<IIngestionQueue, IngestionQueue>(sp => new IngestionQueue(capacity: 1000));
 
+        // Register container summary queue (singleton for shared state)
+        services.AddSingleton<IContainerSummaryQueue, ContainerSummaryQueue>();
+
         // Register embedding cache
         services.AddScoped<EmbeddingCache>();
 
