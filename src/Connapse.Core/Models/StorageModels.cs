@@ -23,7 +23,9 @@ public record Container(
     DateTime UpdatedAt,
     int DocumentCount = 0,
     ContainerSettingsOverrides? SettingsOverrides = null,
-    string? ConnectorConfig = null);
+    string? ConnectorConfig = null,
+    string? Summary = null,
+    DateTime? SummaryGeneratedAt = null);
 
 public record CreateContainerRequest(
     string Name,
@@ -41,7 +43,10 @@ public record Document(
     string Path,
     long SizeBytes,
     DateTime CreatedAt,
-    Dictionary<string, string> Metadata);
+    Dictionary<string, string> Metadata,
+    string? Summary = null,
+    DateTime? SummaryGeneratedAt = null,
+    string? SummaryContentHash = null);
 
 public record StoreResult(string DocumentId, int Generation);
 
