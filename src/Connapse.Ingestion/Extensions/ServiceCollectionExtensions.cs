@@ -73,6 +73,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IDocumentStore>(),
             sp.GetRequiredService<ITokenCounter>()));
 
+        // Register container rollup summarizer — same nullable-provider pattern.
+        services.AddScoped<IContainerSummarizer>(sp => new ContainerSummarizer(
+            sp.GetService<ILlmProvider>(),
+            sp.GetRequiredService<ITokenCounter>()));
+
         // Register background worker
         services.AddHostedService<IngestionWorker>();
 
