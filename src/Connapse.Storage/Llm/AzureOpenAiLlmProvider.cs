@@ -14,7 +14,7 @@ namespace Connapse.Storage.Llm;
 /// </summary>
 public class AzureOpenAiLlmProvider : ILlmProvider
 {
-    private readonly ChatClient _client;
+    private readonly AzureOpenAIClient _client;
     private readonly ILogger<AzureOpenAiLlmProvider> _logger;
     private readonly LlmSettings _settings;
 
@@ -35,13 +35,8 @@ public class AzureOpenAiLlmProvider : ILlmProvider
             throw new InvalidOperationException(
                 "Azure OpenAI API key is required. Configure it in Settings > LLM > API Key.");
 
-        var deploymentName = !string.IsNullOrWhiteSpace(_settings.AzureDeploymentName)
-            ? _settings.AzureDeploymentName
-            : _settings.Model;
-
         var credential = new ApiKeyCredential(apiKey);
-        var azureClient = new AzureOpenAIClient(new Uri(endpoint), credential);
-        _client = azureClient.GetChatClient(deploymentName);
+        _client = new AzureOpenAIClient(new Uri(endpoint), credential);
     }
 
     public string Provider => "AzureOpenAI";
@@ -49,19 +44,31 @@ public class AzureOpenAiLlmProvider : ILlmProvider
         ? _settings.AzureDeploymentName
         : _settings.Model;
 
+    /// <summary>
+    /// Resolves the Azure deployment name to use for a request. Per-request
+    /// <see cref="LlmCompletionOptions.Model"/> overrides the configured
+    /// <see cref="LlmSettings.AzureDeploymentName"/>, falling back to
+    /// <see cref="LlmSettings.Model"/>. Callers using the override are
+    /// responsible for ensuring the named deployment exists on the Azure resource.
+    /// </summary>
+    internal string ResolveModel(LlmCompletionOptions? options)
+        => options?.Model ?? _settings.AzureDeploymentName ?? _settings.Model;
+
     public async Task<string> CompleteAsync(
         string systemPrompt,
         string userPrompt,
         LlmCompletionOptions? options = null,
         CancellationToken ct = default)
     {
+        var deployment = ResolveModel(options);
+        var chatClient = _client.GetChatClient(deployment);
         var messages = BuildMessages(systemPrompt, userPrompt);
         var chatOptions = BuildOptions(options);
 
         try
         {
             ClientResult<ChatCompletion> result =
-                await _client.CompleteChatAsync(messages, chatOptions, ct);
+                await chatClient.CompleteChatAsync(messages, chatOptions, ct);
 
             var text = result.Value.Content[0].Text;
             _logger.LogDebug("Azure OpenAI completion: {TokenCount} chars", text.Length);
@@ -72,7 +79,7 @@ public class AzureOpenAiLlmProvider : ILlmProvider
             _logger.LogError(ex, "Azure OpenAI chat completion failed (status {Status})", ex.Status);
             throw new InvalidOperationException(
                 $"Azure OpenAI chat completion failed (HTTP {ex.Status}): {ex.Message}. " +
-                $"Verify your endpoint, API key, and deployment '{ModelId}' are correct.", ex);
+                $"Verify your endpoint, API key, and deployment '{deployment}' are correct.", ex);
         }
     }
 
@@ -82,19 +89,22 @@ public class AzureOpenAiLlmProvider : ILlmProvider
         LlmCompletionOptions? options = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        var deployment = ResolveModel(options);
+        var chatClient = _client.GetChatClient(deployment);
         var messages = BuildMessages(systemPrompt, userPrompt);
         var chatOptions = BuildOptions(options);
 
         AsyncCollectionResult<StreamingChatCompletionUpdate> updates;
         try
         {
-            updates = _client.CompleteChatStreamingAsync(messages, chatOptions, ct);
+            updates = chatClient.CompleteChatStreamingAsync(messages, chatOptions, ct);
         }
         catch (ClientResultException ex)
         {
             _logger.LogError(ex, "Azure OpenAI streaming failed (status {Status})", ex.Status);
             throw new InvalidOperationException(
-                $"Azure OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}.", ex);
+                $"Azure OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}. " +
+                $"Verify your endpoint, API key, and deployment '{deployment}' are correct.", ex);
         }
 
         await foreach (var update in updates)

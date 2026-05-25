@@ -99,4 +99,62 @@ public class AzureOpenAiLlmProviderTests
 
         provider.Provider.Should().Be("AzureOpenAI");
     }
+
+    [Fact]
+    public void ResolveModel_NoOverride_UsesConfiguredDeployment()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "AzureOpenAI",
+            Model = "gpt-4-deployment",
+            AzureEndpoint = "https://test.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureDeploymentName = "gpt-4-deployment"
+        });
+        var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
+        var provider = new AzureOpenAiLlmProvider(settings, logger);
+
+        var resolved = provider.ResolveModel(options: null);
+
+        resolved.Should().Be("gpt-4-deployment");
+    }
+
+    [Fact]
+    public void ResolveModel_WithModelOverride_UsesOverrideAsDeployment()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "AzureOpenAI",
+            Model = "gpt-4-deployment",
+            AzureEndpoint = "https://test.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureDeploymentName = "gpt-4-deployment"
+        });
+        var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
+        var provider = new AzureOpenAiLlmProvider(settings, logger);
+
+        var resolved = provider.ResolveModel(
+            options: new LlmCompletionOptions(Model: "gpt-4o-deployment"));
+
+        resolved.Should().Be("gpt-4o-deployment");
+    }
+
+    [Fact]
+    public void ResolveModel_NoOverrideOrDeployment_FallsBackToModel()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "AzureOpenAI",
+            Model = "gpt-4o",
+            AzureEndpoint = "https://test.openai.azure.com",
+            AzureApiKey = "test-key",
+            AzureDeploymentName = null
+        });
+        var logger = Substitute.For<ILogger<AzureOpenAiLlmProvider>>();
+        var provider = new AzureOpenAiLlmProvider(settings, logger);
+
+        var resolved = provider.ResolveModel(options: null);
+
+        resolved.Should().Be("gpt-4o");
+    }
 }
