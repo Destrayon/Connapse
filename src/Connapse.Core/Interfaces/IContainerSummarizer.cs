@@ -18,5 +18,6 @@ public interface IContainerSummarizer
     Task<ContainerSummarizationResult> GenerateAsync(
         string containerName,
         IReadOnlyList<DocumentWithSummary> docs,
+        SummarySettings settings,
         CancellationToken ct = default);
 }

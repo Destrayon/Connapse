@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Llm;
 
@@ -13,8 +14,12 @@ public sealed class ContainerSummarizer(
     public async Task<ContainerSummarizationResult> GenerateAsync(
         string containerName,
         IReadOnlyList<DocumentWithSummary> docs,
+        SummarySettings settings,
         CancellationToken ct = default)
     {
+        if (!settings.Enabled)
+            return new ContainerSummarizationResult(true, SkipReason: "summaries_disabled");
+
         if (llmProvider is null)
             return new ContainerSummarizationResult(true, SkipReason: "no_provider_configured");
 
@@ -49,15 +54,22 @@ public sealed class ContainerSummarizer(
             totalDocs: docs.Count,
             isClustered: isClustered,
             summaries: renderedSummaries);
-        string systemPrompt = SummaryPrompts.ContainerRollupSystemPrompt;
+
+        string systemPrompt = !string.IsNullOrWhiteSpace(settings.ContainerRollupSystemPrompt)
+            ? settings.ContainerRollupSystemPrompt
+            : SummaryPrompts.ContainerRollupSystemPrompt;
 
         int inputTokens = tokenCounter.CountTokens(systemPrompt) + tokenCounter.CountTokens(userMsg);
 
+        LlmCompletionOptions? options = settings.LlmModel is null
+            ? null
+            : new LlmCompletionOptions(Model: settings.LlmModel);
+
         string responseText = await llmProvider.CompleteAsync(
-            systemPrompt, userMsg, options: null, ct);
+            systemPrompt, userMsg, options, ct);
 
         int outputTokens = tokenCounter.CountTokens(responseText);
-        string model = llmProvider.ModelId;
+        string model = settings.LlmModel ?? llmProvider.ModelId;
 
         return new ContainerSummarizationResult(
             Skipped: false,
