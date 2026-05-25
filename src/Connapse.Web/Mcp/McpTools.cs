@@ -769,6 +769,55 @@ public class McpTools
         return text;
     }
 
+    [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
+     Description("Returns an agent-optimized description of a container: its user-supplied description, auto-generated summary (if available), and document statistics. Use this to understand what a container covers before querying via search_knowledge, or when container_list output is insufficient to choose between containers.")]
+    public static async Task<string> ContainerDescribe(
+        IServiceProvider services,
+        [Description("Container ID (GUID) or name")] string containerId,
+        CancellationToken ct = default)
+    {
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
+
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        if (container is null)
+            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+        var stats = await documentStore.GetContainerStatsAsync(resolvedId.Value, ct);
+
+        var text = $"Container: {container.Name}\n";
+        text += $"ID: {container.Id}\n";
+        text += $"Type: {container.ConnectorType}\n";
+
+        if (!string.IsNullOrWhiteSpace(container.Description))
+            text += $"Description: {container.Description}\n";
+
+        if (!string.IsNullOrWhiteSpace(container.Summary))
+        {
+            text += $"Summary: {container.Summary}\n";
+            text += container.SummaryGeneratedAt.HasValue
+                ? $"Summary generated: {container.SummaryGeneratedAt.Value:u}\n"
+                : "";
+        }
+        else
+        {
+            text += "Summary: (not yet generated)\n";
+        }
+
+        if (stats.ProcessingCount > 0 || stats.FailedCount > 0)
+            text += $"Documents: {stats.DocumentCount} ({stats.ReadyCount} ready, {stats.ProcessingCount} processing, {stats.FailedCount} failed)\n";
+        else
+            text += $"Documents: {stats.DocumentCount}\n";
+
+        text += $"Storage: {FormatBytes(stats.TotalSizeBytes)}\n";
+        text += $"Created: {container.CreatedAt:u}";
+
+        return text;
+    }
+
     private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",
