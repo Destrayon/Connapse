@@ -346,55 +346,53 @@ public record UploadSettings
 /// Per-container summary generation settings.
 /// All fields are optional — null means fall back to the instance-level LlmSettings default.
 /// </summary>
+/// <summary>
+/// Container/document summary generation settings.
+/// Resolution hierarchy (highest wins):
+///   per-container SettingsOverridesJson.summary
+///   → global DB settings table, key="Summary"
+///   → property-initializer defaults below (Enabled=false, others=null)
+/// </summary>
 public record SummarySettings
 {
     /// <summary>
-    /// Override the LLM provider for summary generation (Anthropic / OpenAI / AzureOpenAI / Ollama).
-    /// Null uses the instance-level LlmSettings.Provider value.
+    /// Master toggle. When false, both per-doc summaries and container rollups
+    /// skip with reason "summaries_disabled" and no LLM call is made.
+    /// Default: false (opt-in).
+    /// </summary>
+    public bool Enabled { get; init; } = false;
+
+    /// <summary>
+    /// LLM provider for summary generation (Ollama / OpenAI / AzureOpenAI / Anthropic).
+    /// Null = inherit from instance-level LlmSettings.Provider via SummaryLlmResolver.
     /// </summary>
     public string? LlmProvider { get; init; }
 
     /// <summary>
-    /// Override the model identifier (e.g. "claude-haiku-4-5", "gpt-4.1-nano").
-    /// Ignored in v1; only <see cref="LlmProvider"/> is currently honored.
-    /// Model-level override is deferred to v2.
+    /// Model identifier for summary generation (e.g. "qwen3:14b", "claude-haiku-4-5").
+    /// Null = inherit from instance-level LlmSettings.Model. Wired via
+    /// LlmCompletionOptions.Model per-call override (no provider re-construction).
     /// </summary>
     public string? LlmModel { get; init; }
 
     /// <summary>
-    /// Optional full system-prompt replacement for container roll-up summarization.
-    /// Reserved for future use.
+    /// Override for the per-document system prompt. Null/empty = use
+    /// SummaryPrompts.PerDocSystemPrompt. When non-null, the stored string IS
+    /// the prompt sent to the LLM — no concatenation, no automatic prefixing.
     /// </summary>
-    public string? PromptOverride { get; init; }
+    public string? PerDocSystemPrompt { get; init; }
 
     /// <summary>
-    /// Cap on the number of input tokens fed to the LLM per document summary.
-    /// Reserved for future use.
+    /// Override for the container-rollup system prompt. Same semantics as
+    /// PerDocSystemPrompt; falls back to SummaryPrompts.ContainerRollupSystemPrompt.
+    /// </summary>
+    public string? ContainerRollupSystemPrompt { get; init; }
+
+    /// <summary>
+    /// Max input tokens fed to the per-document LLM call. Null = use default (5_000).
+    /// Maps to characters via a 4-char/token heuristic at the truncation site
+    /// in PerDocSummarizer (replaces the hardcoded MaxInputCharacters = 20_000).
     /// </summary>
     public int? MaxInputTokens { get; init; }
-
-    /// <summary>
-    /// Target output tokens per document summary (default: 100).
-    /// Reserved for future use.
-    /// </summary>
-    public int? PerDocTargetTokens { get; init; }
-
-    /// <summary>
-    /// Target output tokens for the container roll-up summary (default: 500).
-    /// Reserved for future use.
-    /// </summary>
-    public int? ContainerTargetTokens { get; init; }
-
-    /// <summary>
-    /// Dirty-event count threshold before triggering a summary (default: 25).
-    /// Reserved for future use.
-    /// </summary>
-    public int? DebounceCount { get; init; }
-
-    /// <summary>
-    /// Dirty-event time threshold in seconds before triggering a summary (default: 21600 = 6h).
-    /// Reserved for future use.
-    /// </summary>
-    public int? DebounceSeconds { get; init; }
 }
 
