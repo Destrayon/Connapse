@@ -284,25 +284,8 @@ public class IngestionPipelineTests
         await act.Should().NotThrowAsync();
     }
 
-    [Fact]
-    public async Task IngestAsync_CallsSummarizer_WithParsedContent()
-    {
-        // Arrange
-        using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt", ContentType: "text/plain");
-
-        // Act — DB failure expected (InMemory can't handle jsonb), so summarizer may or may not
-        // be called depending on pipeline internals. This test validates the wiring compiles
-        // and the summarizer mock is correctly set up to handle calls.
-        var result = await pipeline.IngestAsync(stream, options);
-
-        // Verify the result is consistent; the summarizer is only reached after a successful
-        // SaveChangesAsync, which the InMemory provider cannot do for this schema.
-        // Full end-to-end assertion (Document.Summary populated) covered by integration tests.
-        result.Should().NotBeNull();
-    }
+    [Fact(Skip = "Summarizer invocation requires a successful SaveChangesAsync, which the InMemory EF Core provider cannot perform for the chunk_vectors/summary jsonb schema. End-to-end Document.Summary assertion is covered by Connapse.Integration.Tests against a real PostgreSQL Testcontainer.")]
+    public Task IngestAsync_CallsSummarizer_WithParsedContent() => Task.CompletedTask;
 
     /// <summary>
     /// Wrapper stream that reports CanSeek = false to test non-seekable stream handling.
