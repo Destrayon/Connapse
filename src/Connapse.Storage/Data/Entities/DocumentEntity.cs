@@ -17,6 +17,11 @@ public class DocumentEntity
     public DateTime? LastIndexedAt { get; set; }
     public Dictionary<string, string> Metadata { get; set; } = new();
 
+    // Per-document summary (input to container summary rollup)
+    public string? Summary { get; set; }
+    public DateTime? SummaryGeneratedAt { get; set; }
+    public string? SummaryContentHash { get; set; } // sha256(doc_text) at time of summary
+
     // Navigation properties
     public ContainerEntity Container { get; set; } = null!;
     public List<ChunkEntity> Chunks { get; set; } = [];

@@ -13,6 +13,11 @@ public class ContainerEntity
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    // Auto-generated container summary (agent-optimized prose for routing)
+    public string? Summary { get; set; }
+    public DateTime? SummaryGeneratedAt { get; set; }
+    public string? SummaryDocSetHash { get; set; } // sha256 of sorted(doc_id||summary_text)
+
     // Navigation properties
     public List<DocumentEntity> Documents { get; set; } = [];
     public List<FolderEntity> Folders { get; set; } = [];
