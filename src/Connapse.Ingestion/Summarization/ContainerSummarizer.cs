@@ -36,9 +36,10 @@ public sealed class ContainerSummarizer(
             MedoidSelector.SelectionResult selection =
                 MedoidSelector.SelectFarthestFirstWithAssignments(input, k.Value);
 
+            Dictionary<Guid, DocumentWithSummary> docsById = docs.ToDictionary(d => d.Id);
             renderedSummaries = selection.Medoids.Select(m =>
             {
-                DocumentWithSummary medoidDoc = docs.First(d => d.Id == m.Id);
+                DocumentWithSummary medoidDoc = docsById[m.Id];
                 return $"(represents {m.ClusterSize} similar docs): {medoidDoc.Summary}";
             });
         }

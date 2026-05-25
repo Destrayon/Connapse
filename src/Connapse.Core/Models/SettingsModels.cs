@@ -356,9 +356,8 @@ public record SummarySettings
 
     /// <summary>
     /// Override the model identifier (e.g. "claude-haiku-4-5", "gpt-4.1-nano").
-    /// Null uses the instance-level LlmSettings.Model value.
-    /// Note: model-level override requires provider-level override support first;
-    /// currently only LlmProvider override is wired through to the worker.
+    /// Ignored in v1; only <see cref="LlmProvider"/> is currently honored.
+    /// Model-level override is deferred to v2.
     /// </summary>
     public string? LlmModel { get; init; }
 

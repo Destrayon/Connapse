@@ -168,6 +168,24 @@ public class McpToolsContainerListTests
         result.Should().Contain("  Summary: Raw system logs.");
     }
 
+    [Fact]
+    public async Task ContainerList_HandlesNumberedListPrefix_CorrectlyExtractsFirstSentence()
+    {
+        _containerStore
+            .ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Container>
+            {
+                MakeContainer("test", "Test container", 3,
+                    summary: "1. Use this container for Apple queries. Covers iPhone units.")
+            });
+
+        var result = await McpTools.ContainerList(_services);
+
+        // Should capture the full first sentence, not just "1."
+        result.Should().Contain("Summary: 1. Use this container for Apple queries.");
+        result.Should().NotContain("Covers iPhone units.");
+    }
+
     private static Container MakeContainer(
         string name,
         string description,

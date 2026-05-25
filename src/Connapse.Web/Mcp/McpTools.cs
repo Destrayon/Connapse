@@ -852,9 +852,23 @@ public class McpTools
     {
         if (string.IsNullOrEmpty(text)) return null;
 
-        int periodIdx = text.IndexOf('.');
-        string firstSentence = periodIdx > 0 && periodIdx < text.Length - 1
-            ? text[..(periodIdx + 1)]
+        // Find first sentence-terminating pattern: period/!/? followed by whitespace or end-of-string,
+        // where the character before the punctuation is not a digit (avoids "1." "2." list prefixes).
+        int sentenceEnd = -1;
+        for (int i = 1; i < text.Length; i++)
+        {
+            char c = text[i];
+            if ((c == '.' || c == '!' || c == '?')
+                && !char.IsDigit(text[i - 1])
+                && (i == text.Length - 1 || char.IsWhiteSpace(text[i + 1])))
+            {
+                sentenceEnd = i;
+                break;
+            }
+        }
+
+        string firstSentence = sentenceEnd > 0
+            ? text[..(sentenceEnd + 1)]
             : text;
 
         return firstSentence.Length > maxChars
