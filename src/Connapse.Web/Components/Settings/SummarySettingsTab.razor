@@ -1,0 +1,213 @@
+@using Connapse.Core
+@using Connapse.Storage.Llm
+
+<div class="settings-tab">
+    <h4 class="mb-3">Summary Generation</h4>
+    <p class="text-muted mb-4">
+        Configure auto-generated per-document and per-container summaries.
+        Per-doc summaries fire at ingestion; container rollups fire on debounce.
+        Disabled means both skip and no LLM call is made.
+    </p>
+
+    <div class="form-check form-switch mb-4">
+        <input class="form-check-input" type="checkbox" id="summaryEnabled"
+               checked="@enabled"
+               @onchange="OnEnabledChanged" />
+        <label class="form-check-label" for="summaryEnabled">
+            <strong>Enable summary generation</strong>
+        </label>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">LLM Provider (override)</label>
+        <select class="form-select" value="@(llmProvider ?? string.Empty)"
+                @onchange="OnProviderChanged">
+            <option value="">Inherit from global LLM</option>
+            <option value="Ollama">Ollama</option>
+            <option value="OpenAI">OpenAI</option>
+            <option value="AzureOpenAI">AzureOpenAI</option>
+            <option value="Anthropic">Anthropic</option>
+        </select>
+        <div class="form-text">Leave as "Inherit" to use the same provider as chat.</div>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">LLM Model (override)</label>
+        <input type="text" class="form-control"
+               value="@(llmModel ?? string.Empty)"
+               placeholder="@(ResolvedModelPlaceholder ?? "Inherit from global LLM")"
+               @oninput="OnModelChanged" />
+        <div class="form-text">Leave blank to inherit. Example: <code>qwen3:14b</code>, <code>claude-haiku-4-5</code>.</div>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Max input tokens per document</label>
+        <input type="number" class="form-control"
+               value="@(maxInputTokens?.ToString() ?? string.Empty)"
+               placeholder="5000 (default)"
+               @oninput="OnMaxInputTokensChanged" />
+        <div class="form-text">Cap on how much of each document the LLM sees. Empty = use default (5000).</div>
+    </div>
+
+    <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label mb-0">Per-document system prompt</label>
+            <button type="button" class="btn btn-link btn-sm p-0"
+                    @onclick="RestorePerDocDefault">Restore default</button>
+        </div>
+        <textarea class="form-control" rows="10"
+                  value="@perDocPromptText"
+                  @oninput="OnPerDocPromptChanged"></textarea>
+        <div class="form-text">
+            @if (IsPerDocAtDefault)
+            {
+                <span>Currently using in-code default. Edit to override.</span>
+            }
+            else
+            {
+                <span class="text-warning">● Modified (override stored)</span>
+            }
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label mb-0">Container rollup system prompt</label>
+            <button type="button" class="btn btn-link btn-sm p-0"
+                    @onclick="RestoreContainerDefault">Restore default</button>
+        </div>
+        <textarea class="form-control" rows="10"
+                  value="@containerPromptText"
+                  @oninput="OnContainerPromptChanged"></textarea>
+        <div class="form-text">
+            @if (IsContainerAtDefault)
+            {
+                <span>Currently using in-code default. Edit to override.</span>
+            }
+            else
+            {
+                <span class="text-warning">● Modified (override stored)</span>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public SummarySettings Settings { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<SummarySettings> SettingsChanged { get; set; }
+
+    [Parameter]
+    public string? ResolvedModelPlaceholder { get; set; }
+
+    // SummarySettings is an init-only record, so we hold edit state in
+    // intermediate fields and reconstruct the record on every change.
+    private bool enabled;
+    private string? llmProvider;
+    private string? llmModel;
+    private int? maxInputTokens;
+    private string perDocPromptText = string.Empty;
+    private string containerPromptText = string.Empty;
+
+    private bool IsPerDocAtDefault =>
+        perDocPromptText.Trim() == SummaryPrompts.PerDocSystemPrompt.Trim();
+
+    private bool IsContainerAtDefault =>
+        containerPromptText.Trim() == SummaryPrompts.ContainerRollupSystemPrompt.Trim();
+
+    protected override void OnParametersSet()
+    {
+        enabled = Settings.Enabled;
+        llmProvider = Settings.LlmProvider;
+        llmModel = Settings.LlmModel;
+        maxInputTokens = Settings.MaxInputTokens;
+        perDocPromptText = !string.IsNullOrWhiteSpace(Settings.PerDocSystemPrompt)
+            ? Settings.PerDocSystemPrompt!
+            : SummaryPrompts.PerDocSystemPrompt;
+        containerPromptText = !string.IsNullOrWhiteSpace(Settings.ContainerRollupSystemPrompt)
+            ? Settings.ContainerRollupSystemPrompt!
+            : SummaryPrompts.ContainerRollupSystemPrompt;
+    }
+
+    private Task OnEnabledChanged(ChangeEventArgs e)
+    {
+        enabled = e.Value is bool b && b;
+        return EmitChanged();
+    }
+
+    private Task OnProviderChanged(ChangeEventArgs e)
+    {
+        string? raw = e.Value as string;
+        llmProvider = string.IsNullOrWhiteSpace(raw) ? null : raw;
+        return EmitChanged();
+    }
+
+    private Task OnModelChanged(ChangeEventArgs e)
+    {
+        string? raw = e.Value as string;
+        llmModel = string.IsNullOrWhiteSpace(raw) ? null : raw;
+        return EmitChanged();
+    }
+
+    private Task OnMaxInputTokensChanged(ChangeEventArgs e)
+    {
+        string? raw = e.Value as string;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            maxInputTokens = null;
+        }
+        else if (int.TryParse(raw, out int parsed))
+        {
+            maxInputTokens = parsed;
+        }
+        return EmitChanged();
+    }
+
+    private Task OnPerDocPromptChanged(ChangeEventArgs e)
+    {
+        perDocPromptText = e.Value as string ?? string.Empty;
+        return EmitChanged();
+    }
+
+    private Task OnContainerPromptChanged(ChangeEventArgs e)
+    {
+        containerPromptText = e.Value as string ?? string.Empty;
+        return EmitChanged();
+    }
+
+    private Task RestorePerDocDefault()
+    {
+        perDocPromptText = SummaryPrompts.PerDocSystemPrompt;
+        return EmitChanged();
+    }
+
+    private Task RestoreContainerDefault()
+    {
+        containerPromptText = SummaryPrompts.ContainerRollupSystemPrompt;
+        return EmitChanged();
+    }
+
+    private Task EmitChanged() => SettingsChanged.InvokeAsync(BuildSettingsFromLocal());
+
+    private SummarySettings BuildSettingsFromLocal()
+    {
+        // Store the textarea content only if it differs from the in-code default —
+        // this keeps users in sync with prompt-default updates we ship later.
+        string? perDoc = IsPerDocAtDefault ? null : perDocPromptText;
+        string? containerRollup = IsContainerAtDefault ? null : containerPromptText;
+
+        return new SummarySettings
+        {
+            Enabled = enabled,
+            LlmProvider = llmProvider,
+            LlmModel = llmModel,
+            MaxInputTokens = maxInputTokens,
+            PerDocSystemPrompt = perDoc,
+            ContainerRollupSystemPrompt = containerRollup
+        };
+    }
+
+    public SummarySettings GetCurrentSettings() => BuildSettingsFromLocal();
+}
