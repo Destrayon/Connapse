@@ -37,6 +37,7 @@ public class IngestionPipelineTests
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly IPerDocSummarizer _summarizer;
     private readonly IContainerSummaryQueue _dirtyQueue;
+    private readonly IContainerSettingsResolver _settingsResolver;
     private readonly ILogger<IngestionPipeline> _logger;
 
     public IngestionPipelineTests()
@@ -47,9 +48,12 @@ public class IngestionPipelineTests
         _summarizer = Substitute.For<IPerDocSummarizer>();
         _summarizer.GenerateAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
-                Arg.Any<string>(), Arg.Any<CancellationToken>())
+                Arg.Any<string>(), Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>())
             .Returns(new PerDocSummarizationResult(Skipped: true, SkipReason: "no_provider_configured"));
         _dirtyQueue = Substitute.For<IContainerSummaryQueue>();
+        _settingsResolver = Substitute.For<IContainerSettingsResolver>();
+        _settingsResolver.GetSummarySettingsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(new SummarySettings());
         _logger = NullLogger<IngestionPipeline>.Instance;
 
         _parser = Substitute.For<IDocumentParser>();
@@ -99,6 +103,7 @@ public class IngestionPipelineTests
             new EmbeddingCache(dbContext),
             _summarizer,
             _dirtyQueue,
+            _settingsResolver,
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()
@@ -268,7 +273,7 @@ public class IngestionPipelineTests
         // Arrange: summarizer throws — ingestion result should still be returned without throwing.
         _summarizer.GenerateAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(),
-                Arg.Any<string>(), Arg.Any<CancellationToken>())
+                Arg.Any<string>(), Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("LLM unavailable"));
 
         using var dbContext = CreateInMemoryContext();
