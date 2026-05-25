@@ -78,8 +78,12 @@ public static class ServiceCollectionExtensions
             sp.GetService<ILlmProvider>(),
             sp.GetRequiredService<ITokenCounter>()));
 
-        // Register background worker
+        // Register document summary embedding helper
+        services.AddScoped<IDocumentSummaryEmbeddingProvider, DocumentSummaryEmbeddingProvider>();
+
+        // Register background workers
         services.AddHostedService<IngestionWorker>();
+        services.AddHostedService<ContainerSummaryWorker>();
 
         return services;
     }

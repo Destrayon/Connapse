@@ -208,6 +208,7 @@ public class PostgresContainerStore(
             overrides,
             entity.ConnectorConfig?.RootElement.GetRawText(),
             entity.Summary,
-            entity.SummaryGeneratedAt);
+            entity.SummaryGeneratedAt,
+            entity.SummaryDocSetHash);
     }
 }

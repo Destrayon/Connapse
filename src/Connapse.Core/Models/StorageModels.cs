@@ -25,7 +25,8 @@ public record Container(
     ContainerSettingsOverrides? SettingsOverrides = null,
     string? ConnectorConfig = null,
     string? Summary = null,
-    DateTime? SummaryGeneratedAt = null);
+    DateTime? SummaryGeneratedAt = null,
+    string? SummaryDocSetHash = null);
 
 public record CreateContainerRequest(
     string Name,
