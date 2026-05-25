@@ -3,6 +3,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
+using Connapse.Ingestion.Summarization;
 using Connapse.Ingestion.Utilities;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +62,13 @@ public static class ServiceCollectionExtensions
 
         // Register reindex service
         services.AddScoped<IReindexService, ReindexService>();
+
+        // Register per-document summarizer — resolves ILlmProvider optionally so the
+        // service is available even when no LLM is configured.
+        services.AddScoped<IPerDocSummarizer>(sp => new PerDocSummarizer(
+            sp.GetService<ILlmProvider>(),
+            sp.GetRequiredService<IDocumentStore>(),
+            sp.GetRequiredService<ITokenCounter>()));
 
         // Register background worker
         services.AddHostedService<IngestionWorker>();
