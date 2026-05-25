@@ -13,6 +13,7 @@
 @inject IOptionsMonitor<UploadSettings> UploadOptions
 @inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IOptionsMonitor<SummarySettings> SummaryOptions
 @rendermode InteractiveServer
 
 <PageTitle>Settings - Connapse</PageTitle>
@@ -82,6 +83,13 @@
                 Azure AD
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "summary" ? "active" : "")"
+                    @onclick='() => activeTab = "summary"'
+                    type="button">
+                Summary
+            </button>
+        </li>
     </ul>
 
     <!-- Tab Content -->
@@ -114,6 +122,13 @@
         {
             <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
+        else if (activeTab == "summary")
+        {
+            <SummarySettingsTab @ref="summaryTabRef"
+                                Settings="summarySettings"
+                                ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
+            <button class="btn btn-primary mt-3" @onclick="SaveSummarySettings">Save Summary Settings</button>
+        }
     </div>
 </div>
 
@@ -129,6 +144,8 @@
     private UploadSettings uploadSettings = new();
     private AwsSsoSettings awsSsoSettings = new();
     private AzureAdSettings azureAdSettings = new();
+    private SummarySettings summarySettings = new();
+    private SummarySettingsTab? summaryTabRef;
 
     protected override async Task OnInitializedAsync()
     {
@@ -140,6 +157,7 @@
         uploadSettings = UploadOptions.CurrentValue;
         awsSsoSettings = AwsSsoOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
+        summarySettings = SummaryOptions.CurrentValue;
     }
 
     private async Task SaveEmbeddingSettings(EmbeddingSettings settings)
@@ -182,6 +200,16 @@
     {
         await SaveSettings("azuread", settings);
         azureAdSettings = settings;
+    }
+
+    private async Task SaveSummarySettings()
+    {
+        if (summaryTabRef is null) return;
+        // Use "Summary" (capital S) to match the category key read by
+        // ContainerSettingsResolver.GetSummarySettingsAsync.
+        var toSave = summaryTabRef.GetCurrentSettings();
+        await SaveSettings("Summary", toSave);
+        summarySettings = toSave;
     }
 
     private async Task SaveSettings<T>(string category, T settings) where T : class
