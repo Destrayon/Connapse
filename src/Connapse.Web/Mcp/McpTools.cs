@@ -68,7 +68,16 @@ public class McpTools
             text += $"- {c.Name} ({c.DocumentCount} files)";
             if (!string.IsNullOrEmpty(c.Description))
                 text += $" — {c.Description}";
-            text += $"\n  ID: {c.Id}\n";
+            text += "\n";
+
+            // Append summary first sentence if available
+            string? firstSentence = TruncateToFirstSentence(c.Summary, maxChars: 120);
+            if (!string.IsNullOrEmpty(firstSentence))
+            {
+                text += $"  Summary: {firstSentence}\n";
+            }
+
+            text += $"  ID: {c.Id}\n";
         }
 
         return text.TrimEnd();
@@ -837,6 +846,20 @@ public class McpTools
 
         var byName = await store.GetByNameAsync(nameOrId.ToLowerInvariant(), ct);
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
+    }
+
+    private static string? TruncateToFirstSentence(string? text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+
+        int periodIdx = text.IndexOf('.');
+        string firstSentence = periodIdx > 0 && periodIdx < text.Length - 1
+            ? text[..(periodIdx + 1)]
+            : text;
+
+        return firstSentence.Length > maxChars
+            ? firstSentence[..maxChars] + "…"
+            : firstSentence;
     }
 
 }
