@@ -1,0 +1,159 @@
+# Connapse-specific OpenGrep rules, picked up automatically by CodeRabbit.
+# See https://docs.coderabbit.ai/tools/opengrep — file lookup order:
+#   opengrep.yml > opengrep.yaml > opengrep.config.yml > opengrep.config.yaml > semgrep.yml
+#
+# Conventions enforced here mirror CLAUDE.md. Severity uses the legacy
+# ERROR/WARNING names (Semgrep maps ERROR → HIGH, WARNING → MEDIUM).
+#
+# Note: the open-source Semgrep CLI's C# parser (<= 1.163) chokes on C# 12+
+# primary constructors (`PartialParsing` errors) and may under-report inside
+# those files. OpenGrep, which CodeRabbit uses, ships an upgraded C# 14
+# parser, so this gap shows up in local dry-runs but not in CodeRabbit's
+# reviews.
+
+rules:
+  # ---------------------------------------------------------------------------
+  # 1. Synchronous blocking on Task — CLAUDE.md: "Async all the way (never
+  #    .Result or .Wait())". Deadlocks in Blazor Server and ASP.NET request
+  #    contexts; wastes a thread-pool thread everywhere else.
+  #
+  #    We deliberately do NOT match the bare `.Result` accessor — too many
+  #    unrelated types have a `.Result` property (search results, parser
+  #    results, etc.). The two patterns below are unambiguous to Task.
+  # ---------------------------------------------------------------------------
+  - id: connapse-no-task-sync-blocking
+    pattern-either:
+      - pattern: $TASK.Wait()
+      - pattern: $TASK.Wait($TIMEOUT)
+      - pattern: $TASK.GetAwaiter().GetResult()
+    message: |
+      Blocking on Task with .Wait() or .GetAwaiter().GetResult() can deadlock in
+      Blazor Server / ASP.NET request contexts and wastes a thread-pool thread
+      everywhere else. Use `await` instead and propagate async up the call stack.
+      Per CLAUDE.md: "Async all the way (never .Result or .Wait())".
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: best-practice
+      technology: [csharp, dotnet, async]
+      references:
+        - https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/
+    paths:
+      include:
+        - "src/**/*.cs"
+      exclude:
+        - "**/bin/**"
+        - "**/obj/**"
+
+  # ---------------------------------------------------------------------------
+  # 2. `dynamic` keyword — CLAUDE.md: "Don't use dynamic". Defeats the type
+  #    system, breaks trimming/AOT, and silently masks refactors.
+  #
+  #    Uses AST-form patterns (not a regex) so we don't false-positive on
+  #    comments like "// dynamic JSON support" or identifiers like
+  #    `EnableDynamicJson`.
+  # ---------------------------------------------------------------------------
+  - id: connapse-no-dynamic-keyword
+    pattern-either:
+      - pattern: |
+          dynamic $X = $E;
+      - pattern: |
+          dynamic $M(...) { ... }
+      - pattern: |
+          dynamic $M(...) => $E;
+    message: |
+      Avoid the `dynamic` keyword — it defeats static typing, breaks trimming/
+      AOT, and silently masks refactor breaks. Use a concrete type, a record,
+      `JsonElement`/`JsonNode`, or generics instead.
+      Per CLAUDE.md: "Don't use dynamic".
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: best-practice
+      technology: [csharp, dotnet]
+    paths:
+      include:
+        - "src/**/*.cs"
+      exclude:
+        - "**/bin/**"
+        - "**/obj/**"
+
+  # ---------------------------------------------------------------------------
+  # 3. Raw SQL with string interpolation — SQL injection risk. EF Core ships
+  #    `FromSqlInterpolated` / `ExecuteSqlInterpolated` which parameterize the
+  #    holes safely. CLAUDE.md: "Parameterized SQL queries only".
+  # ---------------------------------------------------------------------------
+  - id: connapse-no-fromsqlraw-interpolation
+    pattern-either:
+      - pattern: $DB.FromSqlRaw($"...")
+      - pattern: $DB.ExecuteSqlRaw($"...")
+      - pattern: $DB.ExecuteSqlRawAsync($"...")
+      - pattern: $DB.SqlQueryRaw<$T>($"...")
+    message: |
+      String interpolation in raw SQL is a SQL injection vector — the
+      interpolation happens BEFORE the value reaches EF Core, so it is not
+      parameterized. Use FromSqlInterpolated / ExecuteSqlInterpolated /
+      ExecuteSqlInterpolatedAsync instead — those take FormattableString and
+      parameterize the holes safely.
+      Per CLAUDE.md: "Parameterized SQL queries only (never string interpolation)".
+    languages: [csharp]
+    severity: ERROR
+    metadata:
+      category: security
+      technology: [csharp, efcore, sql]
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp:
+        - "A03:2021 - Injection"
+      references:
+        - https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#passing-parameters
+    paths:
+      include:
+        - "src/**/*.cs"
+      exclude:
+        - "**/bin/**"
+        - "**/obj/**"
+
+  # ---------------------------------------------------------------------------
+  # 4. Interpolated strings in logger calls — loses structured-logging
+  #    benefits (no searchable named fields, no de-duplication of message
+  #    templates) AND, for user-controlled values, is the cs/log-forging
+  #    surface. CLAUDE.md says wrap user-controlled values with
+  #    LogSanitizer.Sanitize(...) from Connapse.Core.Utilities.
+  # ---------------------------------------------------------------------------
+  - id: connapse-logger-interpolation
+    pattern-either:
+      - pattern: $LOG.LogTrace($"...")
+      - pattern: $LOG.LogDebug($"...")
+      - pattern: $LOG.LogInformation($"...")
+      - pattern: $LOG.LogWarning($"...")
+      - pattern: $LOG.LogError($"...")
+      - pattern: $LOG.LogCritical($"...")
+    message: |
+      Don't use interpolated strings in logger calls — you lose structured
+      logging (no searchable named fields, no de-duplication of message
+      templates) AND, if any interpolated value is user-controlled, you create
+      a log-forging vector (CodeQL cs/log-forging).
+
+      Use placeholder syntax:
+          _logger.LogInformation("Loaded container {ContainerId}", id);
+
+      For user-controlled values (search queries, request bodies, headers,
+      client-supplied IDs), also wrap with
+          LogSanitizer.Sanitize(value)
+      from Connapse.Core.Utilities.
+    languages: [csharp]
+    severity: WARNING
+    metadata:
+      category: best-practice
+      technology: [csharp, logging]
+      cwe:
+        - "CWE-117: Improper Output Neutralization for Logs"
+      references:
+        - https://learn.microsoft.com/en-us/dotnet/core/extensions/logging?tabs=command-line#log-message-template
+    paths:
+      include:
+        - "src/**/*.cs"
+      exclude:
+        - "**/bin/**"
+        - "**/obj/**"
