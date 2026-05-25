@@ -11,8 +11,7 @@ public sealed record ContainerSummarizationResult(
     int? KClusters = null,
     int InputTokens = 0,
     int OutputTokens = 0,
-    string? Model = null,
-    decimal CostEstimateUsd = 0);
+    string? Model = null);
 
 public interface IContainerSummarizer
 {

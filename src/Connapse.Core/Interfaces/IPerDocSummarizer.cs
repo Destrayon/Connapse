@@ -16,5 +16,4 @@ public sealed record PerDocSummarizationResult(
     string? Summary = null,
     int InputTokens = 0,
     int OutputTokens = 0,
-    string? Model = null,
-    decimal CostEstimateUsd = 0);
+    string? Model = null);

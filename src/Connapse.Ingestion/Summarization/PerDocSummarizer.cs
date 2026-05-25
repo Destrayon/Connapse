@@ -51,7 +51,6 @@ public sealed class PerDocSummarizer(
 
         int outputTokens = tokenCounter.CountTokens(responseText);
         string model = llmProvider.ModelId;
-        decimal cost = ModelPricing.EstimateCostUsd(model, inputTokens, outputTokens);
 
         DateTime now = DateTime.UtcNow;
         await docStore.UpdateSummaryAsync(documentId, responseText, now, contentHash, ct);
@@ -61,8 +60,7 @@ public sealed class PerDocSummarizer(
             Summary: responseText,
             InputTokens: inputTokens,
             OutputTokens: outputTokens,
-            Model: model,
-            CostEstimateUsd: cost);
+            Model: model);
     }
 
     private static string ComputeSha256(string s)

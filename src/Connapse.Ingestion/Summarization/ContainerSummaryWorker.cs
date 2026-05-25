@@ -186,10 +186,10 @@ public sealed class ContainerSummaryWorker(
                 await containerStore.UpdateSummaryAsync(containerId, result.Summary, DateTime.UtcNow, docSetHash, ct);
 
                 logger.LogInformation(
-                    "ContainerRollupCompleted {ContainerId} regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok} usd={Usd}",
+                    "ContainerRollupCompleted {ContainerId} regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok}",
                     LogSanitizer.Sanitize(containerId.ToString()),
                     result.Regime, result.NumDocs, result.KClusters,
-                    result.InputTokens, result.OutputTokens, result.CostEstimateUsd);
+                    result.InputTokens, result.OutputTokens);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

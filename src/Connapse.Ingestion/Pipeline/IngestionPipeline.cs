@@ -391,12 +391,11 @@ public class IngestionPipeline : IKnowledgeIngester
                 else
                 {
                     _logger.LogInformation(
-                        "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens} usd={CostUsd}",
+                        "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
                         LogSanitizer.Sanitize(documentEntity.Id.ToString()),
                         summaryResult.Model,
                         summaryResult.InputTokens,
-                        summaryResult.OutputTokens,
-                        summaryResult.CostEstimateUsd);
+                        summaryResult.OutputTokens);
 
                     // Post dirty event to trigger container summary regen
                     // Only when summary was actually generated (not skipped due to content hash match)

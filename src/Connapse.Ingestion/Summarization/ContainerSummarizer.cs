@@ -58,7 +58,6 @@ public sealed class ContainerSummarizer(
 
         int outputTokens = tokenCounter.CountTokens(responseText);
         string model = llmProvider.ModelId;
-        decimal cost = ModelPricing.EstimateCostUsd(model, inputTokens, outputTokens);
 
         return new ContainerSummarizationResult(
             Skipped: false,
@@ -68,7 +67,6 @@ public sealed class ContainerSummarizer(
             KClusters: k,
             InputTokens: inputTokens,
             OutputTokens: outputTokens,
-            Model: model,
-            CostEstimateUsd: cost);
+            Model: model);
     }
 }
