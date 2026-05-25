@@ -343,10 +343,6 @@ public record UploadSettings
 }
 
 /// <summary>
-/// Per-container summary generation settings.
-/// All fields are optional — null means fall back to the instance-level LlmSettings default.
-/// </summary>
-/// <summary>
 /// Container/document summary generation settings.
 /// Resolution hierarchy (highest wins):
 ///   per-container SettingsOverridesJson.summary
