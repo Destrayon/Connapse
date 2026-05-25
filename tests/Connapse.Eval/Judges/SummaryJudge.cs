@@ -39,8 +39,15 @@ public sealed class SummaryJudge(ILlmProvider judge)
             """;
 
         string responseText = await judge.CompleteAsync(SystemPrompt, prompt, options: null, ct);
-        return JsonSerializer.Deserialize<JudgeResult>(responseText)
-               ?? new JudgeResult(new int[8], 0, "(failed to parse judge response)");
+        try
+        {
+            return JsonSerializer.Deserialize<JudgeResult>(responseText)
+                   ?? new JudgeResult(new int[8], 0, "(failed to parse judge response)");
+        }
+        catch (JsonException)
+        {
+            return new JudgeResult(new int[8], 0, "(failed to parse judge response)");
+        }
     }
 
     public sealed record JudgeResult(int[] Scores, int Total, string Notes);

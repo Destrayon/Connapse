@@ -21,16 +21,16 @@ public sealed class SummaryLlmResolver(
     public ILlmProvider? Resolve(SummarySettings? summarySettings)
     {
         LlmSettings globalSettings = llmOptions.CurrentValue;
-        string effectiveProvider = summarySettings?.LlmProvider ?? globalSettings.Provider;
+        string effectiveProvider = (summarySettings?.LlmProvider ?? globalSettings.Provider).Trim();
 
         // Attempt to resolve the concrete provider type. If the concrete type is not registered
         // (e.g., in test environments), fall back to the ILlmProvider registration.
-        ILlmProvider? resolved = effectiveProvider switch
+        ILlmProvider? resolved = effectiveProvider.ToUpperInvariant() switch
         {
-            "OpenAI" => serviceProvider.GetService<OpenAiLlmProvider>(),
-            "AzureOpenAI" => serviceProvider.GetService<AzureOpenAiLlmProvider>(),
-            "Anthropic" => serviceProvider.GetService<AnthropicLlmProvider>(),
-            "Ollama" => serviceProvider.GetService<OllamaLlmProvider>(),
+            "OPENAI" => serviceProvider.GetService<OpenAiLlmProvider>(),
+            "AZUREOPENAI" => serviceProvider.GetService<AzureOpenAiLlmProvider>(),
+            "ANTHROPIC" => serviceProvider.GetService<AnthropicLlmProvider>(),
+            "OLLAMA" => serviceProvider.GetService<OllamaLlmProvider>(),
             _ => null
         };
 

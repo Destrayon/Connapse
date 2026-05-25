@@ -18,7 +18,21 @@ public sealed class DocumentSummaryEmbeddingProvider(
         List<string> summaries = docsWithSummaries.Select(d => d.Summary!).ToList();
         IReadOnlyList<float[]> embeddings = await embeddingProvider.EmbedBatchAsync(summaries, ct);
 
-        return docsWithSummaries.Zip(embeddings, (d, e) =>
-            new DocumentWithSummary(Guid.Parse(d.Id), d.Summary!, e)).ToList();
+        if (embeddings.Count != docsWithSummaries.Count)
+        {
+            throw new InvalidOperationException(
+                $"Embedding count mismatch. Expected {docsWithSummaries.Count}, got {embeddings.Count}.");
+        }
+
+        List<DocumentWithSummary> result = new(docsWithSummaries.Count);
+        for (int i = 0; i < docsWithSummaries.Count; i++)
+        {
+            if (!Guid.TryParse(docsWithSummaries[i].Id, out Guid id))
+            {
+                continue; // skip malformed ids, don't fail the batch
+            }
+            result.Add(new DocumentWithSummary(id, docsWithSummaries[i].Summary!, embeddings[i]));
+        }
+        return result;
     }
 }

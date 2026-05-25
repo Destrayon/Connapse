@@ -294,13 +294,14 @@ public class IngestionPipelineTests
         var options = new IngestionOptions(FileName: "test.txt", ContentType: "text/plain");
 
         // Act — DB failure expected (InMemory can't handle jsonb), so summarizer may or may not
-        // be called depending on where SaveChangesAsync throws. This test validates the wiring
-        // compiles and the summarizer mock is correctly set up.
-        await pipeline.IngestAsync(stream, options);
+        // be called depending on pipeline internals. This test validates the wiring compiles
+        // and the summarizer mock is correctly set up to handle calls.
+        var result = await pipeline.IngestAsync(stream, options);
 
-        // The summarizer is only reached after a successful SaveChangesAsync, which the InMemory
-        // provider cannot do for this schema. Verify no unexpected exceptions were raised.
+        // Verify the result is consistent; the summarizer is only reached after a successful
+        // SaveChangesAsync, which the InMemory provider cannot do for this schema.
         // Full end-to-end assertion (Document.Summary populated) covered by integration tests.
+        result.Should().NotBeNull();
     }
 
     /// <summary>

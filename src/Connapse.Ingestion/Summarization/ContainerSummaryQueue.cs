@@ -7,8 +7,13 @@ namespace Connapse.Ingestion.Summarization;
 public sealed class ContainerSummaryQueue : IContainerSummaryQueue
 {
     private readonly Channel<ContainerSummaryDirtyEvent> _channel =
-        Channel.CreateUnbounded<ContainerSummaryDirtyEvent>(
-            new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        Channel.CreateBounded<ContainerSummaryDirtyEvent>(
+            new BoundedChannelOptions(capacity: 10_000)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
 
     public ValueTask EnqueueAsync(ContainerSummaryDirtyEvent evt, CancellationToken ct = default) =>
         _channel.Writer.WriteAsync(evt, ct);

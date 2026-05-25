@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
-using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -215,14 +213,8 @@ public sealed class ContainerSummaryWorker(
     {
         IEnumerable<string> parts = docs
             .OrderBy(d => d.Id)
-            .Select(d => $"{d.Id}|{ComputeSha256(d.Summary ?? string.Empty)}");
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", parts)));
-        return Convert.ToHexStringLower(bytes);
+            .Select(d => $"{d.Id}|{HexHash.Sha256(d.Summary ?? string.Empty)}");
+        return HexHash.Sha256(string.Join("\n", parts));
     }
 
-    private static string ComputeSha256(string s)
-    {
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(s));
-        return Convert.ToHexStringLower(bytes);
-    }
 }

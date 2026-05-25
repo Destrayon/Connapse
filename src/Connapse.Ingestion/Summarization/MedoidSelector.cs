@@ -12,6 +12,7 @@ public static class MedoidSelector
         IReadOnlyList<(Guid Id, float[] Embedding)> docs,
         int k)
     {
+        if (k <= 0) return Array.Empty<(Guid Id, float[] Embedding)>();
         if (docs.Count <= k) return docs;
 
         // Initial centroid: mean embedding

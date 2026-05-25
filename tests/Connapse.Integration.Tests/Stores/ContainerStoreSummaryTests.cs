@@ -60,6 +60,7 @@ public class ContainerStoreSummaryTests(SharedWebAppFixture fixture)
         createResponse.EnsureSuccessStatusCode();
 
         var created = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        created.Should().NotBeNull();
         var containerGuid = Guid.Parse(created!.Id);
 
         using var scope = fixture.Factory.Services.CreateScope();

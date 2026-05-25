@@ -2,7 +2,6 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Llm;
 using FluentAssertions;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
@@ -22,32 +21,6 @@ public class SummaryLlmResolverTests
         return monitor;
     }
 
-    private static IServiceProvider BuildServiceProvider(string providerName)
-    {
-        // Build a service collection with a stub ILlmProvider registered under the concrete types
-        // that SummaryLlmResolver switches on.
-        ServiceCollection services = new();
-
-        ILlmProvider anthropicStub = BuildStub("Anthropic", "claude-haiku-4-5");
-        ILlmProvider openAiStub = BuildStub("OpenAI", "gpt-4.1-nano");
-        ILlmProvider ollamaStub = BuildStub("Ollama", "llama3.2");
-
-        // Register stub doubles under concrete-class-matching service types via factory
-        // We can't register AnthropicLlmProvider directly (it needs real HttpClient/SDK).
-        // Instead register ILlmProvider with each name as a keyed service, and test
-        // using a minimal IServiceProvider shim that mimics the switch logic.
-        // This keeps the test in pure-unit territory without real HTTP clients.
-        services.AddSingleton(anthropicStub);
-        services.AddSingleton(openAiStub);
-        services.AddSingleton(ollamaStub);
-
-        // Register ILlmProvider as the global fallback
-        ILlmProvider defaultStub = BuildStub(providerName, "default-model");
-        services.AddSingleton<ILlmProvider>(defaultStub);
-
-        return services.BuildServiceProvider();
-    }
-
     private static ILlmProvider BuildStub(string provider, string modelId)
     {
         ILlmProvider stub = Substitute.For<ILlmProvider>();
@@ -56,15 +29,54 @@ public class SummaryLlmResolverTests
         return stub;
     }
 
-    // Tests — using a test-specific subclass to inject concrete stub providers
+    // Test helper: simulates the resolve logic of SummaryLlmResolver without DI complexity
+    private sealed class TestSummaryLlmResolver
+    {
+        private readonly IOptionsMonitor<LlmSettings> _llmOptions;
+        private readonly Dictionary<string, ILlmProvider?> _providers = new(StringComparer.OrdinalIgnoreCase);
+
+        public TestSummaryLlmResolver(IOptionsMonitor<LlmSettings> llmOptions, ILlmProvider? defaultProvider)
+        {
+            _llmOptions = llmOptions;
+            _providers["OPENAI"] = null;
+            _providers["AZUREOPENAI"] = null;
+            _providers["ANTHROPIC"] = null;
+            _providers["OLLAMA"] = null;
+            _defaultProvider = defaultProvider;
+        }
+
+        private readonly ILlmProvider? _defaultProvider;
+
+        public void SetProvider(string name, ILlmProvider provider) =>
+            _providers[name.ToUpperInvariant()] = provider;
+
+        public ILlmProvider? Resolve(SummarySettings? summarySettings)
+        {
+            LlmSettings globalSettings = _llmOptions.CurrentValue;
+            string effectiveProvider = (summarySettings?.LlmProvider ?? globalSettings.Provider).Trim();
+
+            ILlmProvider? resolved = effectiveProvider.ToUpperInvariant() switch
+            {
+                "OPENAI" => _providers["OPENAI"],
+                "AZUREOPENAI" => _providers["AZUREOPENAI"],
+                "ANTHROPIC" => _providers["ANTHROPIC"],
+                "OLLAMA" => _providers["OLLAMA"],
+                _ => null
+            };
+
+            return resolved ?? _defaultProvider;
+        }
+    }
+
+    // Tests
 
     [Fact]
     public void Resolve_NoSummarySettings_ReturnsGlobalProvider()
     {
         IOptionsMonitor<LlmSettings> options = BuildOptions("Anthropic", "claude-haiku-4-5");
         ILlmProvider expectedProvider = BuildStub("Anthropic", "claude-haiku-4-5");
-        TestSummaryLlmResolver resolver = new(options, expectedProvider);
 
+        var resolver = new TestSummaryLlmResolver(options, expectedProvider);
         ILlmProvider? result = resolver.Resolve(summarySettings: null);
 
         result.Should().BeSameAs(expectedProvider);
@@ -75,8 +87,8 @@ public class SummaryLlmResolverTests
     {
         IOptionsMonitor<LlmSettings> options = BuildOptions("Anthropic", "claude-haiku-4-5");
         ILlmProvider expectedProvider = BuildStub("Anthropic", "claude-haiku-4-5");
-        TestSummaryLlmResolver resolver = new(options, expectedProvider);
 
+        var resolver = new TestSummaryLlmResolver(options, expectedProvider);
         SummarySettings settings = new(); // LlmProvider is null
         ILlmProvider? result = resolver.Resolve(settings);
 
@@ -89,9 +101,11 @@ public class SummaryLlmResolverTests
         IOptionsMonitor<LlmSettings> options = BuildOptions("Anthropic", "claude-haiku-4-5");
         ILlmProvider globalProvider = BuildStub("Anthropic", "claude-haiku-4-5");
         ILlmProvider openAiProvider = BuildStub("OpenAI", "gpt-4.1-nano");
-        TestSummaryLlmResolver resolver = new(options, globalProvider, openAiProvider: openAiProvider);
 
-        SummarySettings settings = new() { LlmProvider = "OpenAI" };
+        var resolver = new TestSummaryLlmResolver(options, globalProvider);
+        resolver.SetProvider("OpenAI", openAiProvider);
+
+        SummarySettings settings = new() { LlmProvider = "openai" }; // test case-insensitive
         ILlmProvider? result = resolver.Resolve(settings);
 
         result.Should().BeSameAs(openAiProvider);
@@ -104,7 +118,9 @@ public class SummaryLlmResolverTests
         IOptionsMonitor<LlmSettings> options = BuildOptions("Anthropic", "claude-haiku-4-5");
         ILlmProvider anthropicProvider = BuildStub("Anthropic", "claude-haiku-4-5");
         ILlmProvider openAiProvider = BuildStub("OpenAI", "gpt-4.1-nano");
-        TestSummaryLlmResolver resolver = new(options, anthropicProvider, openAiProvider: openAiProvider);
+
+        var resolver = new TestSummaryLlmResolver(options, anthropicProvider);
+        resolver.SetProvider("OpenAI", openAiProvider);
 
         SummarySettings settings = new() { LlmProvider = "OpenAI" }; // no LlmModel override
         ILlmProvider? result = resolver.Resolve(settings);
@@ -119,38 +135,13 @@ public class SummaryLlmResolverTests
         IOptionsMonitor<LlmSettings> options = BuildOptions("Anthropic", "claude-haiku-4-5");
         ILlmProvider globalProvider = BuildStub("Anthropic", "claude-haiku-4-5");
         ILlmProvider ollamaProvider = BuildStub("Ollama", "llama3.2");
-        TestSummaryLlmResolver resolver = new(options, globalProvider, ollamaProvider: ollamaProvider);
+
+        var resolver = new TestSummaryLlmResolver(options, globalProvider);
+        resolver.SetProvider("Ollama", ollamaProvider);
 
         SummarySettings settings = new() { LlmProvider = "Ollama" };
         ILlmProvider? result = resolver.Resolve(settings);
 
         result.Should().BeSameAs(ollamaProvider);
-    }
-
-    // ---------------------------------------------------------------------------
-    // Test helper: exposes the resolver switch without needing real provider DI
-    // ---------------------------------------------------------------------------
-
-    private sealed class TestSummaryLlmResolver(
-        IOptionsMonitor<LlmSettings> llmOptions,
-        ILlmProvider defaultProvider,
-        ILlmProvider? openAiProvider = null,
-        ILlmProvider? azureOpenAiProvider = null,
-        ILlmProvider? anthropicProvider = null,
-        ILlmProvider? ollamaProvider = null)
-    {
-        public ILlmProvider? Resolve(SummarySettings? summarySettings)
-        {
-            string effectiveProvider = summarySettings?.LlmProvider ?? llmOptions.CurrentValue.Provider;
-
-            return effectiveProvider switch
-            {
-                "OpenAI" => openAiProvider ?? defaultProvider,
-                "AzureOpenAI" => azureOpenAiProvider ?? defaultProvider,
-                "Anthropic" => anthropicProvider ?? defaultProvider,
-                "Ollama" => ollamaProvider ?? defaultProvider,
-                _ => defaultProvider
-            };
-        }
     }
 }

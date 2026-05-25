@@ -1,6 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Llm;
 
 namespace Connapse.Ingestion.Summarization;
@@ -29,7 +28,7 @@ public sealed class PerDocSummarizer(
             return new PerDocSummarizationResult(Skipped: true, SkipReason: "extraction_empty");
         }
 
-        string contentHash = ComputeSha256(docText);
+        string contentHash = HexHash.Sha256(docText);
 
         Connapse.Core.Document? existing = await docStore.GetAsync(documentId, ct);
         if (existing?.SummaryContentHash == contentHash)
@@ -63,9 +62,4 @@ public sealed class PerDocSummarizer(
             Model: model);
     }
 
-    private static string ComputeSha256(string s)
-    {
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(s));
-        return Convert.ToHexStringLower(bytes);
-    }
 }
