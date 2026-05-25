@@ -188,6 +188,25 @@ public class PostgresDocumentStore : IDocumentStore
         return entity is null ? null : MapToModel(entity);
     }
 
+    public async Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity is null) return;
+
+        entity.Summary = summary;
+        entity.SummaryGeneratedAt = generatedAt;
+        entity.SummaryContentHash = contentHash;
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
@@ -238,6 +257,9 @@ public class PostgresDocumentStore : IDocumentStore
             entity.Path,
             entity.SizeBytes,
             entity.CreatedAt,
-            metadata);
+            metadata,
+            entity.Summary,
+            entity.SummaryGeneratedAt,
+            entity.SummaryContentHash);
     }
 }
