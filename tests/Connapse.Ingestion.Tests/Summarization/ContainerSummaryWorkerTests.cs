@@ -1,9 +1,11 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Summarization;
+using Connapse.Storage.Llm;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
@@ -111,20 +113,28 @@ public class ContainerSummaryWorkerTests
 
         IContainerStore containerStore = Substitute.For<IContainerStore>();
         IDocumentStore documentStore = Substitute.For<IDocumentStore>();
-        IContainerSummarizer summarizer = Substitute.For<IContainerSummarizer>();
         IDocumentSummaryEmbeddingProvider embeddingProvider =
             Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        IContainerSettingsResolver settingsResolver = Substitute.For<IContainerSettingsResolver>();
+        ITokenCounter tokenCounter = Substitute.For<ITokenCounter>();
 
         containerStore.GetAsync(containerId, Arg.Any<CancellationToken>()).Returns(container);
         documentStore.ListAsync(containerId, null, 0, 10_000, Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<Document>)[doc]);
+        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(new SummarySettings());
 
         // Use a real ServiceProvider so CreateAsyncScope() works correctly.
         ServiceCollection services = new();
         services.AddSingleton(containerStore);
         services.AddSingleton(documentStore);
-        services.AddSingleton(summarizer);
         services.AddSingleton(embeddingProvider);
+        services.AddSingleton<IContainerSettingsResolver>(settingsResolver);
+        services.AddSingleton<ITokenCounter>(tokenCounter);
+        // SummaryLlmResolver requires IOptionsMonitor<LlmSettings> — configure with no LLM provider
+        services.Configure<LlmSettings>(_ => { });
+        services.AddOptions();
+        services.AddSingleton<SummaryLlmResolver>();
         await using ServiceProvider provider = services.BuildServiceProvider();
         IServiceScopeFactory scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
 
@@ -138,9 +148,7 @@ public class ContainerSummaryWorkerTests
 
         await worker.ProcessContainerAsync(containerId, "test", CancellationToken.None);
 
-        // Summarizer must NOT be called when hash matches
-        await summarizer.DidNotReceiveWithAnyArgs()
-            .GenerateAsync(default!, default!, default);
+        // UpdateSummaryAsync must NOT be called when hash matches
         await containerStore.DidNotReceiveWithAnyArgs()
             .UpdateSummaryAsync(default, default, default, default, default);
     }
@@ -163,9 +171,11 @@ public class ContainerSummaryWorkerTests
 
         IContainerStore containerStore = Substitute.For<IContainerStore>();
         IDocumentStore documentStore = Substitute.For<IDocumentStore>();
-        IContainerSummarizer summarizer = Substitute.For<IContainerSummarizer>();
         IDocumentSummaryEmbeddingProvider embeddingProvider =
             Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        IContainerSettingsResolver settingsResolver = Substitute.For<IContainerSettingsResolver>();
+        ITokenCounter tokenCounter = Substitute.For<ITokenCounter>();
+        ILlmProvider llmProvider = Substitute.For<ILlmProvider>();
 
         containerStore.GetAsync(containerId, Arg.Any<CancellationToken>()).Returns(container);
         documentStore.ListAsync(containerId, null, 0, 10_000, Arg.Any<CancellationToken>())
@@ -174,16 +184,27 @@ public class ContainerSummaryWorkerTests
             .GetSummaryEmbeddingsAsync(Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<DocumentWithSummary>)
                 [new DocumentWithSummary(Guid.Parse(docId), "some summary", [0.1f, 0.2f])]);
-        summarizer.GenerateAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<DocumentWithSummary>>(),
+        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(new SummarySettings()); // no override — falls back to global ILlmProvider
+        llmProvider.Provider.Returns("Ollama");
+        llmProvider.ModelId.Returns("llama3.2");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new ContainerSummarizationResult(
-                Skipped: false, Summary: "generated summary", Regime: "stuff", NumDocs: 1));
+            .Returns("generated summary");
+        // Token counter returns 0 for all — cost estimation not under test here
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(0);
 
         ServiceCollection services = new();
         services.AddSingleton(containerStore);
         services.AddSingleton(documentStore);
-        services.AddSingleton(summarizer);
         services.AddSingleton(embeddingProvider);
+        services.AddSingleton<IContainerSettingsResolver>(settingsResolver);
+        services.AddSingleton<ITokenCounter>(tokenCounter);
+        // SummaryLlmResolver resolves ILlmProvider from the container for the global fallback path
+        services.AddSingleton<ILlmProvider>(llmProvider);
+        services.Configure<LlmSettings>(_ => { });
+        services.AddOptions();
+        services.AddSingleton<SummaryLlmResolver>();
         await using ServiceProvider provider = services.BuildServiceProvider();
         IServiceScopeFactory scopeFactory = provider.GetRequiredService<IServiceScopeFactory>();
 

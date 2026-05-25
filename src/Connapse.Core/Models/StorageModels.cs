@@ -8,6 +8,7 @@ public record ContainerSettingsOverrides
     public EmbeddingSettings? Embedding { get; init; }
     public SearchSettings? Search { get; init; }
     public UploadSettings? Upload { get; init; }
+    public SummarySettings? Summary { get; init; }
 }
 
 public record ConnectorFile(string Path, long SizeBytes, DateTime LastModified, string? ContentType);

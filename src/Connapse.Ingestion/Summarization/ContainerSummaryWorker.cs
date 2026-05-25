@@ -4,6 +4,7 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Storage.Llm;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -75,12 +76,22 @@ public sealed class ContainerSummaryWorker(
             await using AsyncServiceScope scope = scopeFactory.CreateAsyncScope();
             IContainerStore containerStore = scope.ServiceProvider.GetRequiredService<IContainerStore>();
             IDocumentStore documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-            IContainerSummarizer summarizer = scope.ServiceProvider.GetRequiredService<IContainerSummarizer>();
             IDocumentSummaryEmbeddingProvider embeddingProvider =
                 scope.ServiceProvider.GetRequiredService<IDocumentSummaryEmbeddingProvider>();
 
             Container? container = await containerStore.GetAsync(containerId, ct);
             if (container is null) return;
+
+            // Resolve the LLM provider for this container, applying any per-container override.
+            IContainerSettingsResolver settingsResolver =
+                scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+            SummarySettings summarySettings = await settingsResolver.GetSummarySettingsAsync(containerId, ct);
+
+            SummaryLlmResolver llmResolver = scope.ServiceProvider.GetRequiredService<SummaryLlmResolver>();
+            ILlmProvider? llmProvider = llmResolver.Resolve(summarySettings);
+
+            ITokenCounter tokenCounter = scope.ServiceProvider.GetRequiredService<ITokenCounter>();
+            IContainerSummarizer summarizer = new ContainerSummarizer(llmProvider, tokenCounter);
 
             IReadOnlyList<Document> docs = await documentStore.ListAsync(
                 containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
