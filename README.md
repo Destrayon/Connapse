@@ -417,6 +417,14 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 
 ---
 
+## 📝 Container auto-summaries
+
+Connapse auto-generates an agent-optimized natural-language summary for each container, exposed via the `container_describe` MCP tool and the first line of the `container_list` output. Summaries are generated using the configured `ILlmProvider`; the feature degrades gracefully when no provider is set.
+
+Per-container overrides (LLM provider/model, prompt, debounce thresholds) are configurable via `ContainerSettingsOverrides.Summary`.
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
