@@ -295,6 +295,16 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     }
 });
 
+// Register recurring jobs idempotently at startup. AddOrUpdate is safe to call repeatedly.
+using (var scope = app.Services.CreateScope())
+{
+    var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
+        recurringJobId: "summary-sweep-stale-containers",
+        methodCall: s => s.SweepStaleContainersAsync(default),
+        cronExpression: Cron.Hourly);
+}
+
 app.UseAntiforgery();
 
 app.MapStaticAssets();
