@@ -11,6 +11,10 @@
     <PackageReference Include="Hangfire.PostgreSql" Version="1.20.10" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+    <!-- Override transitive Newtonsoft.Json 11.0.1 from Hangfire.Core to a patched version
+         (GHSA-5crp-9r3c-p9vr — fixed in 13.0.1+). Pinned because Hangfire.Core 1.8.x still
+         declares a very old floor; can drop this when Hangfire updates upstream. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
