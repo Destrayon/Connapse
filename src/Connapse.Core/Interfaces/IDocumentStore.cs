@@ -10,4 +10,10 @@ public interface IDocumentStore
     Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default);
     Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default);
+
+    /// <summary>
+    /// Updates only the IngestionState column. Used by Hangfire job classes
+    /// as they transition through Pending → Indexed → SummaryIndexed → (Failed).
+    /// </summary>
+    Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default);
 }

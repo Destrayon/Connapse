@@ -207,6 +207,23 @@ public class PostgresDocumentStore : IDocumentStore
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity is null) return;
+
+        entity.IngestionState = state;
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
@@ -260,6 +277,7 @@ public class PostgresDocumentStore : IDocumentStore
             metadata,
             entity.Summary,
             entity.SummaryGeneratedAt,
-            entity.SummaryContentHash);
+            entity.SummaryContentHash,
+            entity.IngestionState);
     }
 }

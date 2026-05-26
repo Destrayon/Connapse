@@ -48,7 +48,8 @@ public record Document(
     Dictionary<string, string> Metadata,
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
-    string? SummaryContentHash = null);
+    string? SummaryContentHash = null,
+    IngestionState IngestionState = IngestionState.Pending);
 
 public record StoreResult(string DocumentId, int Generation);
 
