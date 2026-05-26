@@ -20,10 +20,12 @@ public class IngestionJobsTests
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
         var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
 
+        var containerStore = Substitute.For<IContainerStore>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
-            stateBroadcaster, logger);
+            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            settingsResolver, bgClient, stateBroadcaster, logger);
 
         string documentId = Guid.NewGuid().ToString();
         var options = new IngestionOptions(
@@ -76,7 +78,17 @@ public class IngestionJobsTests
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new SummarySettings { Enabled = true }));
 
-        fileSystem.OpenFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        // Container/connector chain: GetAsync → connector → ReadFileAsync
+        var container = new Container(
+            Id: containerId.ToString(),
+            Name: "test",
+            Description: null,
+            ConnectorType: ConnectorType.ManagedStorage,
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow);
+        var connector = Substitute.For<IConnector>();
+        connector.ResolveJobPath(Arg.Any<string>()).Returns(call => call.Arg<string>());
+        connector.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Test content"))));
 
         summarizer.GenerateAsync(
@@ -85,10 +97,15 @@ public class IngestionJobsTests
             .Returns(Task.FromResult(new PerDocSummarizationResult(
                 Skipped: false, Summary: "Test summary", InputTokens: 10, OutputTokens: 5, Model: "test")));
 
+        var containerStore = Substitute.For<IContainerStore>();
+        containerStore.GetAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Container?>(container));
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        connectorFactory.Create(Arg.Any<Container>()).Returns(connector);
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
-            stateBroadcaster, logger);
+            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            settingsResolver, bgClient, stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await docStore.Received(1).UpdateIngestionStateAsync(
@@ -127,10 +144,12 @@ public class IngestionJobsTests
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new SummarySettings { Enabled = false }));
 
+        var containerStore = Substitute.For<IContainerStore>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
-            stateBroadcaster, logger);
+            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            settingsResolver, bgClient, stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await summarizer.DidNotReceive().GenerateAsync(

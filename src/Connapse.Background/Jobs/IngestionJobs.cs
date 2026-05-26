@@ -15,7 +15,8 @@ public sealed class IngestionJobs : IIngestionJobs
 {
     private readonly IKnowledgeIngester _ingester;
     private readonly IDocumentStore _docStore;
-    private readonly IKnowledgeFileSystem _fileSystem;
+    private readonly IContainerStore _containerStore;
+    private readonly IConnectorFactory _connectorFactory;
     private readonly IEnumerable<IDocumentParser> _parsers;
     private readonly IPerDocSummarizer _summarizer;
     private readonly IContainerSettingsResolver _settingsResolver;
@@ -26,7 +27,8 @@ public sealed class IngestionJobs : IIngestionJobs
     public IngestionJobs(
         IKnowledgeIngester ingester,
         IDocumentStore docStore,
-        IKnowledgeFileSystem fileSystem,
+        IContainerStore containerStore,
+        IConnectorFactory connectorFactory,
         IEnumerable<IDocumentParser> parsers,
         IPerDocSummarizer summarizer,
         IContainerSettingsResolver settingsResolver,
@@ -36,7 +38,8 @@ public sealed class IngestionJobs : IIngestionJobs
     {
         _ingester = ingester;
         _docStore = docStore;
-        _fileSystem = fileSystem;
+        _containerStore = containerStore;
+        _connectorFactory = connectorFactory;
         _parsers = parsers;
         _summarizer = summarizer;
         _settingsResolver = settingsResolver;
@@ -109,13 +112,25 @@ public sealed class IngestionJobs : IIngestionJobs
             }
 
             // Re-parse the doc text via the same parser the pipeline used during ingestion.
-            // The pipeline doesn't cache parsed text on the Document record, so we re-read +
-            // re-parse here. This is acceptable because per-doc summarization runs on the
-            // summarization worker pool and LLM latency dominates parse cost.
+            // Read through the container's connector (matching IngestionPipeline.IngestByIdAsync) —
+            // _fileSystem.OpenFileAsync(doc.Path) would miss the container-id prefix that the
+            // ManagedStorage connector adds, so it'd always FileNotFound for managed storage.
             string parsedText;
             try
             {
-                await using Stream stream = await _fileSystem.OpenFileAsync(doc.Path, ct);
+                Container? container = await _containerStore.GetAsync(containerId, ct);
+                if (container is null)
+                {
+                    _logger.LogWarning(
+                        "PerDocSummarySkipped {DocumentId} reason=container_not_found",
+                        LogSanitizer.Sanitize(documentId));
+                    return;
+                }
+
+                IConnector connector = _connectorFactory.Create(container);
+                string jobPath = connector.ResolveJobPath(doc.Path.TrimStart('/'));
+                await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
+
                 string extension = Path.GetExtension(doc.FileName).ToLowerInvariant();
                 IDocumentParser? parser = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
                 if (parser is null)
