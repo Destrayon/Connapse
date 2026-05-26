@@ -47,6 +47,10 @@ public static class HangfireServiceCollectionExtensions
 
         services.AddSingleton<IDashboardAuthorizationFilter, HangfireDashboardAuthFilter>();
 
+        // Job-class registrations — Hangfire activator resolves these via this IServiceProvider.
+        services.AddScoped<Jobs.IIngestionJobs, Jobs.IngestionJobs>();
+        services.AddScoped<Jobs.ISummaryJobs, Jobs.SummaryJobs>();
+
         return services;
     }
 }
