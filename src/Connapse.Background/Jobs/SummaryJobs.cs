@@ -116,7 +116,7 @@ public sealed class SummaryJobs : ISummaryJobs
     }
 
     [Queue(JobQueues.Summarization)]
-    [AutomaticRetry(Attempts = 0)] // Sweeps are recurring; on failure just wait until next hour.
+    [AutomaticRetry(Attempts = 0)] // Sweeps are recurring; on failure just wait until next tick.
     public async Task SweepStaleContainersAsync(CancellationToken ct)
     {
         IReadOnlyList<Guid> staleContainerIds =
@@ -128,14 +128,84 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
-        _logger.LogInformation(
-            "SweepStaleContainers: enqueueing rollup for {Count} stale containers",
-            staleContainerIds.Count);
+        // Containers with in-flight PerDocSummary jobs are still "settling" — skip them
+        // this tick and let the next sweep pick them up once the per-doc burst is done.
+        // This is the debounce mechanism: by waiting for stability instead of triggering
+        // on every per-doc completion, a burst of N uploads converges to 1 rollup.
+        HashSet<Guid> inFlight = GetContainersWithInFlightPerDocJobs();
 
-        foreach (Guid containerId in staleContainerIds)
+        var ready = staleContainerIds.Where(id => !inFlight.Contains(id)).ToList();
+        if (ready.Count == 0)
+        {
+            _logger.LogInformation(
+                "SweepStaleContainers: {Stale} stale, all settling; waiting for next sweep",
+                staleContainerIds.Count);
+            return;
+        }
+
+        _logger.LogInformation(
+            "SweepStaleContainers: enqueueing rollup for {Ready} settled containers ({Settling} still settling)",
+            ready.Count, staleContainerIds.Count - ready.Count);
+
+        foreach (Guid containerId in ready)
         {
             _bgClient.Enqueue<ISummaryJobs>(s => s.RollupContainerAsync(containerId, default));
         }
+    }
+
+    /// <summary>
+    /// Returns the set of container IDs that currently have a PerDocSummaryAsync job
+    /// either enqueued or actively processing. Used by the sweep to wait for a burst
+    /// to settle before triggering a rollup.
+    /// </summary>
+    /// <remarks>
+    /// Walks Hangfire's monitoring API. Best-effort: the per-doc job's containerId is
+    /// derived by looking up the document in the store. If the lookup fails (deleted
+    /// doc, etc.), the job is ignored — worst case we trigger a rollup that the hash
+    /// check then short-circuits.
+    /// </remarks>
+    private HashSet<Guid> GetContainersWithInFlightPerDocJobs()
+    {
+        var result = new HashSet<Guid>();
+        try
+        {
+            var monitor = JobStorage.Current.GetMonitoringApi();
+
+            // Per-doc summary jobs queue onto the "summarization" queue.
+            var enqueued = monitor.EnqueuedJobs(JobQueues.Summarization, 0, 1000);
+            var processing = monitor.ProcessingJobs(0, 1000);
+
+            void AddDocContainerIds<TDto>(IEnumerable<KeyValuePair<string, TDto>> jobs, Func<TDto, Hangfire.Common.Job?> getJob)
+            {
+                foreach (var (_, dto) in jobs)
+                {
+                    var job = getJob(dto);
+                    if (job?.Method.Name != nameof(IIngestionJobs.PerDocSummaryAsync))
+                        continue;
+                    if (job.Args.Count == 0)
+                        continue;
+                    // First arg is documentId (string). Look up its container.
+                    string? documentId = job.Args[0] as string;
+                    if (string.IsNullOrEmpty(documentId))
+                        continue;
+
+                    var doc = _docStore.GetAsync(documentId, CancellationToken.None).GetAwaiter().GetResult();
+                    if (doc is not null && Guid.TryParse(doc.ContainerId, out Guid cid))
+                        result.Add(cid);
+                }
+            }
+
+            AddDocContainerIds(enqueued, dto => dto.Job);
+            AddDocContainerIds(processing, dto => dto.Job);
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: if monitoring API fails, we fall back to "no in-flight jobs"
+            // and trigger rollups. The hash check defense-in-depth still short-circuits
+            // duplicates.
+            _logger.LogWarning(ex, "GetContainersWithInFlightPerDocJobs failed; assuming none");
+        }
+        return result;
     }
 
     /// <summary>

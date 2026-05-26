@@ -304,10 +304,16 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 using (var scope = app.Services.CreateScope())
 {
     var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+    // Every 5 minutes: scan for containers with stale summaries (per-doc summaries newer
+    // than container summary) and enqueue a rollup for those that have settled (no in-flight
+    // PerDocSummary jobs). This replaces per-PerDocSummary scheduling: bursts of N uploads
+    // converge to 1 rollup instead of N. Pattern matches Postgres materialized view refresh
+    // and Algolia derived-index updates — sweep-based, not write-through, for expensive
+    // aggregates over frequently-changing base data.
     recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
         recurringJobId: "summary-sweep-stale-containers",
         methodCall: s => s.SweepStaleContainersAsync(default),
-        cronExpression: Cron.Hourly);
+        cronExpression: "*/5 * * * *");
 }
 
 app.UseAntiforgery();

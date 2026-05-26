@@ -44,7 +44,7 @@ public class IngestionJobsTests
     }
 
     [Fact]
-    public async Task PerDocSummaryAsync_OnSummaryGenerated_TransitionsToSummaryIndexedAndSchedulesRollup()
+    public async Task PerDocSummaryAsync_OnSummaryGenerated_TransitionsToSummaryIndexedAndDoesNotScheduleRollup()
     {
         var ingester = Substitute.For<IKnowledgeIngester>();
         var docStore = Substitute.For<IDocumentStore>();
@@ -111,10 +111,12 @@ public class IngestionJobsTests
         await docStore.Received(1).UpdateIngestionStateAsync(
             documentId, IngestionState.SummaryIndexed, Arg.Any<CancellationToken>());
 
-        // Rollup is scheduled with a delay (ScheduledState).
-        bgClient.Received(1).Create(
+        // Rollup is NOT scheduled per-doc anymore — the recurring SweepStaleContainersAsync
+        // job (every 5 min) coalesces N per-doc completions into 1 rollup once the burst
+        // settles. This avoids the "1 rollup per upload" dashboard noise + LLM waste.
+        bgClient.DidNotReceive().Create(
             Arg.Any<Hangfire.Common.Job>(),
-            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.ScheduledState));
+            Arg.Any<Hangfire.States.IState>());
     }
 
     [Fact]

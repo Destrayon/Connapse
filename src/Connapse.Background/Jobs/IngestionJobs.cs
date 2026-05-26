@@ -176,11 +176,11 @@ public sealed class IngestionJobs : IIngestionJobs
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
                 documentId, IngestionState.SummaryIndexed, ct);
 
-            // Schedule a debounced container rollup. 60s gives a bulk-upload burst time
-            // to converge so a single rollup covers many docs.
-            _bgClient.Schedule<ISummaryJobs>(
-                s => s.RollupContainerAsync(containerId, default),
-                TimeSpan.FromSeconds(60));
+            // Container rollup is triggered by the recurring SweepStaleContainersAsync job
+            // (every 5 minutes) rather than per-doc completion. The sweep coalesces N uploads
+            // into 1 rollup once the per-doc burst has settled (no in-flight summary jobs for
+            // the container), matching what Postgres materialized views and Algolia derived
+            // indexes do for expensive aggregates over frequently-changing base data.
 
             _logger.LogInformation(
                 "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
