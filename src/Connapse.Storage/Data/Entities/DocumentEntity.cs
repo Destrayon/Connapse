@@ -1,3 +1,5 @@
+using Connapse.Core;
+
 namespace Connapse.Storage.Data.Entities;
 
 public class DocumentEntity
@@ -21,6 +23,10 @@ public class DocumentEntity
     public string? Summary { get; set; }
     public DateTime? SummaryGeneratedAt { get; set; }
     public string? SummaryContentHash { get; set; } // sha256(doc_text) at time of summary
+
+    // Multi-stage enrichment lifecycle driving UI status pills.
+    // Distinct from Status (which tracks the ingestion job's lifecycle string).
+    public IngestionState IngestionState { get; set; } = IngestionState.Pending;
 
     // Navigation properties
     public ContainerEntity Container { get; set; } = null!;
