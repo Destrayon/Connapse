@@ -50,3 +50,40 @@ Verify that the auto-generated container summary biases an MCP-connected agent t
 1. Edit the per-doc prompt textarea
 2. Click "Restore default" — verify the textarea repopulates with the in-code default text
 3. Save — verify no override is stored (DB JSON for that container has `summary.perDocSystemPrompt: null` or the field absent)
+
+## v3 — Hangfire migration scenarios
+
+### Scenario: Upload latency
+
+1. Upload a 1MB markdown file to a summary-enabled container
+2. UI should acknowledge upload within ~1 second (Pending pill briefly visible, flips to nothing within seconds)
+3. Per-doc summary lands asynchronously within ~10-30s (depending on LLM)
+4. Container rollup pill appears ~60s after the last per-doc summary, runs ~30s, disappears
+
+### Scenario: Failed-state UI + retry
+
+1. Configure an invalid LLM provider config (broken endpoint URL)
+2. Upload a doc; per-doc summary will fail after 3 retries
+3. Verify red "Failed" pill appears on the document row with a retry button (↻)
+4. Fix the provider config
+5. Click the retry button; verify the doc re-ingests and lands at SummaryIndexed
+
+### Scenario: Hangfire dashboard access
+
+1. Open `/hangfire` while logged in as an admin → see the dashboard
+2. Log out, log in as a non-admin → `/hangfire` returns 403
+3. Verify the dashboard shows: scheduled jobs (rollups in flight), failed jobs (if any), succeeded count, recurring job `summary-sweep-stale-containers`
+
+### Scenario: Regenerate-now button
+
+1. Open a container, switch to the Summary tab in settings
+2. Click "Regenerate summary now"
+3. Container rollup pill appears immediately (without waiting for 60s debounce settle)
+4. Pill disappears when rollup completes; container summary updated
+
+### Scenario: Hourly safety-net sweep
+
+1. In the Hangfire dashboard → Recurring Jobs tab, verify `summary-sweep-stale-containers` is registered with cron `0 * * * *`
+2. Manually trigger it via the dashboard
+3. Verify no errors and no rollups fire if all containers are up-to-date
+4. Make a container's summary stale (e.g. update a doc summary timestamp manually) and trigger the sweep again; a `RollupContainerAsync` for that container should appear in the queue
