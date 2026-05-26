@@ -17,10 +17,24 @@ export function initializeDropZone(dropZoneId, dotNetRef, containerId, basePath)
         const currentPath = await dotNetRef.invokeMethodAsync('GetCurrentPath');
 
         const formData = new FormData();
+        const placeholders = [];
         for (let i = 0; i < files.length; i++) {
             formData.append('files', files[i]);
+            // Build the virtual path the API will assign so post-fetch dedup matches.
+            // Mirrors the server's logic: currentPath ('/' or '/sub/') + file name.
+            const path = (currentPath === '/' ? '/' : currentPath) + files[i].name;
+            placeholders.push({ name: files[i].name, path: path, sizeBytes: files[i].size });
         }
         formData.append('path', currentPath);
+
+        // Eager-UI: insert placeholder rows BEFORE the upload fetch so the user sees
+        // immediate feedback. HandleDropUploadResult dedups by path when the real
+        // DocumentId arrives back from the API.
+        try {
+            await dotNetRef.invokeMethodAsync('AddUploadPlaceholders', JSON.stringify(placeholders));
+        } catch {
+            // Non-fatal — the post-fetch insert still works if this fails.
+        }
 
         try {
             const prefix = basePath || '';

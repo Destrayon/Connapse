@@ -1154,6 +1154,44 @@
     [JSInvokable]
     public string GetCurrentPath() => currentPath;
 
+    /// <summary>
+    /// Optimistic eager insert — JS calls this BEFORE the upload fetch starts so the user
+    /// sees a row immediately with a Pending spinner. HandleDropUploadResult later dedups
+    /// by Path and swaps in the real DocumentId once the API responds.
+    /// </summary>
+    [JSInvokable]
+    public async Task AddUploadPlaceholders(string filesJson)
+    {
+        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(
+            filesJson,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (placeholders is null) return;
+
+        foreach (var p in placeholders)
+        {
+            // Skip if a row already exists for this path (avoids dup with a connector watcher event).
+            if (entries.Any(e => !e.IsFolder && string.Equals(e.Path, p.Path, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var placeholder = new BrowseEntryDto(
+                Name: p.Name,
+                Path: p.Path,
+                IsFolder: false,
+                SizeBytes: p.SizeBytes,
+                LastModified: DateTime.UtcNow,
+                Status: "Uploading",
+                Id: null,
+                IngestionState: Connapse.Core.IngestionState.Pending,
+                ContentType: null);
+
+            var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, p.Name, StringComparison.OrdinalIgnoreCase) > 0);
+            if (insertIdx < 0) insertIdx = entries.Count;
+            entries.Insert(insertIdx, placeholder);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
     [JSInvokable]
     public async Task HandleDropUploadResult(string resultJson)
     {
@@ -1172,7 +1210,9 @@
                     SizeBytes: doc.SizeBytes,
                     LastModified: DateTime.UtcNow,
                     Status: "Queued",
-                    Id: doc.DocumentId);
+                    Id: doc.DocumentId,
+                    IngestionState: Connapse.Core.IngestionState.Pending,
+                    ContentType: null);
 
                 // Deduplicate by ID or path — a cloud sync poll or filesystem watcher may have
                 // already inserted an entry for the same file with a different document ID.
@@ -1194,6 +1234,23 @@
 
                 if (doc.JobId is not null)
                     jobToDocumentId[doc.JobId] = doc.DocumentId;
+
+                // Race-recovery: a Hangfire job that finished BEFORE the placeholder
+                // had its real DocumentId would have pushed IngestionStateChanged that
+                // the SignalR handler dropped (it looks up by Id, the placeholder Id
+                // was null). Re-fetch the current state so the pill doesn't get stuck
+                // on Pending if ingestion completed during the upload round-trip.
+                try
+                {
+                    var fresh = await DocumentStore.GetAsync(doc.DocumentId);
+                    if (fresh is not null)
+                    {
+                        var idx = entries.FindIndex(e => e.Id == doc.DocumentId);
+                        if (idx >= 0)
+                            entries[idx] = entries[idx] with { IngestionState = fresh.IngestionState };
+                    }
+                }
+                catch { /* best-effort */ }
             }
         }
 
@@ -1802,6 +1859,7 @@
     private record BrowseEntryDto(string Name, string Path, bool IsFolder, long? SizeBytes, DateTime? LastModified, string? Status, string? Id, IngestionState? IngestionState = null, string? ContentType = null);
     private record UploadResponseDto(string? BatchId, List<UploadedDocDto> Documents, int TotalCount, int SuccessCount);
     private record UploadedDocDto(string DocumentId, string? JobId, string FileName, long SizeBytes, string Path, string? Error);
+    private record UploadPlaceholderDto(string Name, string Path, long SizeBytes);
     private record BreadcrumbItem(string Name, string Path);
 
 }
