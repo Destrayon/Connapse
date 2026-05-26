@@ -20,6 +20,19 @@ services:
       - "11434:11434"
     networks:
       - frontend
+    # Dev overrides for running larger LLMs locally on an NVIDIA GPU.
+    # The base compose caps ollama at 4G memory (sized for the small embedding
+    # model). Loading a 14B/27B LLM needs ~9-15G peak RAM during load + GPU
+    # passthrough. Requires NVIDIA driver + Docker Desktop WSL2 backend.
+    deploy:
+      resources:
+        limits:
+          memory: 20G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   web:
     environment:

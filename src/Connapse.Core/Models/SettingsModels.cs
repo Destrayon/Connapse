@@ -342,3 +342,59 @@ public record UploadSettings
     public int ParallelWorkers { get; set; } = 4;
 }
 
+/// <summary>
+/// Per-container summary generation settings.
+/// All fields are optional — null means fall back to the instance-level LlmSettings default.
+/// </summary>
+public record SummarySettings
+{
+    /// <summary>
+    /// Override the LLM provider for summary generation (Anthropic / OpenAI / AzureOpenAI / Ollama).
+    /// Null uses the instance-level LlmSettings.Provider value.
+    /// </summary>
+    public string? LlmProvider { get; init; }
+
+    /// <summary>
+    /// Override the model identifier (e.g. "claude-haiku-4-5", "gpt-4.1-nano").
+    /// Ignored in v1; only <see cref="LlmProvider"/> is currently honored.
+    /// Model-level override is deferred to v2.
+    /// </summary>
+    public string? LlmModel { get; init; }
+
+    /// <summary>
+    /// Optional full system-prompt replacement for container roll-up summarization.
+    /// Reserved for future use.
+    /// </summary>
+    public string? PromptOverride { get; init; }
+
+    /// <summary>
+    /// Cap on the number of input tokens fed to the LLM per document summary.
+    /// Reserved for future use.
+    /// </summary>
+    public int? MaxInputTokens { get; init; }
+
+    /// <summary>
+    /// Target output tokens per document summary (default: 100).
+    /// Reserved for future use.
+    /// </summary>
+    public int? PerDocTargetTokens { get; init; }
+
+    /// <summary>
+    /// Target output tokens for the container roll-up summary (default: 500).
+    /// Reserved for future use.
+    /// </summary>
+    public int? ContainerTargetTokens { get; init; }
+
+    /// <summary>
+    /// Dirty-event count threshold before triggering a summary (default: 25).
+    /// Reserved for future use.
+    /// </summary>
+    public int? DebounceCount { get; init; }
+
+    /// <summary>
+    /// Dirty-event time threshold in seconds before triggering a summary (default: 21600 = 6h).
+    /// Reserved for future use.
+    /// </summary>
+    public int? DebounceSeconds { get; init; }
+}
+

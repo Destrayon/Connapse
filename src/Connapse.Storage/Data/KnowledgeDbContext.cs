@@ -69,6 +69,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("updated_at")
                 .HasDefaultValueSql("now()");
 
+            entity.Property(e => e.Summary)
+                .HasColumnName("summary");
+
+            entity.Property(e => e.SummaryGeneratedAt)
+                .HasColumnName("summary_generated_at");
+
+            entity.Property(e => e.SummaryDocSetHash)
+                .HasColumnName("summary_doc_set_hash")
+                .HasMaxLength(64);
+
             entity.HasIndex(e => e.Name)
                 .HasDatabaseName("ix_containers_name")
                 .IsUnique();
@@ -169,6 +179,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("metadata")
                 .HasColumnType("jsonb")
                 .HasDefaultValueSql("'{}'::jsonb");
+
+            entity.Property(e => e.Summary)
+                .HasColumnName("summary");
+
+            entity.Property(e => e.SummaryGeneratedAt)
+                .HasColumnName("summary_generated_at");
+
+            entity.Property(e => e.SummaryContentHash)
+                .HasColumnName("summary_content_hash")
+                .HasMaxLength(64);
 
             entity.HasIndex(e => e.ContainerId)
                 .HasDatabaseName("idx_documents_container_id");

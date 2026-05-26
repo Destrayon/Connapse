@@ -53,6 +53,14 @@ public class ContainerSettingsResolver(
             ?? new UploadSettings();
     }
 
+    public async Task<SummarySettings> GetSummarySettingsAsync(Guid containerId, CancellationToken ct = default)
+    {
+        var overrides = await GetOverridesAsync(containerId, ct);
+        return overrides?.Summary
+            ?? await settingsStore.GetAsync<SummarySettings>("Summary", ct)
+            ?? new SummarySettings();
+    }
+
     private async Task<ContainerSettingsOverrides?> GetOverridesAsync(Guid containerId, CancellationToken ct)
     {
         var doc = await context.Containers

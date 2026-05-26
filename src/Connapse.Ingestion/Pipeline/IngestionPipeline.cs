@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,8 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly EmbeddingCache _embeddingCache;
+    private readonly IPerDocSummarizer _summarizer;
+    private readonly IContainerSummaryQueue _dirtyQueue;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -52,6 +55,8 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <param name="chunkingSettings">Runtime monitor providing current chunking configuration.</param>
     /// <param name="embeddingSettings">Runtime monitor providing current embedding configuration.</param>
     /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
+    /// <param name="summarizer">Per-document summarizer called after chunks and vectors are persisted.</param>
+    /// <param name="dirtyQueue">Queue for posting container summary dirty events.</param>
     /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -63,6 +68,8 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         EmbeddingCache embeddingCache,
+        IPerDocSummarizer summarizer,
+        IContainerSummaryQueue dirtyQueue,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -74,6 +81,8 @@ public class IngestionPipeline : IKnowledgeIngester
         _chunkingSettings = chunkingSettings;
         _embeddingSettings = embeddingSettings;
         _embeddingCache = embeddingCache;
+        _summarizer = summarizer;
+        _dirtyQueue = dirtyQueue;
         _logger = logger;
     }
 
@@ -361,6 +370,45 @@ public class IngestionPipeline : IKnowledgeIngester
             documentEntity.LastIndexedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync(ct);
+
+            // Generate per-document summary — non-fatal; ingestion succeeds regardless.
+            try
+            {
+                PerDocSummarizationResult summaryResult = await _summarizer.GenerateAsync(
+                    documentId: documentEntity.Id.ToString(),
+                    docText: parsedDocument.Content,
+                    mimeType: options.ContentType,
+                    fileName: options.FileName ?? "",
+                    ct: ct);
+
+                if (summaryResult.Skipped)
+                {
+                    _logger.LogInformation(
+                        "PerDocSummarySkipped {DocumentId} {Reason}",
+                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
+                        LogSanitizer.Sanitize(summaryResult.SkipReason ?? ""));
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
+                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
+                        summaryResult.Model,
+                        summaryResult.InputTokens,
+                        summaryResult.OutputTokens);
+
+                    // Post dirty event to trigger container summary regen
+                    // Only when summary was actually generated (not skipped due to content hash match)
+                    await _dirtyQueue.EnqueueAsync(
+                        new ContainerSummaryDirtyEvent(containerId, documentEntity.Id),
+                        ct);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "PerDocSummaryFailed {DocumentId}", LogSanitizer.Sanitize(documentEntity.Id.ToString()));
+                // continue — ingestion succeeds even if summary fails
+            }
 
             stopwatch.Stop();
 

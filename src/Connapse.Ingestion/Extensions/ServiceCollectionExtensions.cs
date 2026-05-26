@@ -3,6 +3,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Ingestion.Reindex;
+using Connapse.Ingestion.Summarization;
 using Connapse.Ingestion.Utilities;
 using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,6 +54,9 @@ public static class ServiceCollectionExtensions
         // Register ingestion queue (singleton for shared state)
         services.AddSingleton<IIngestionQueue, IngestionQueue>(sp => new IngestionQueue(capacity: 1000));
 
+        // Register container summary queue (singleton for shared state)
+        services.AddSingleton<IContainerSummaryQueue, ContainerSummaryQueue>();
+
         // Register embedding cache
         services.AddScoped<EmbeddingCache>();
 
@@ -62,8 +66,24 @@ public static class ServiceCollectionExtensions
         // Register reindex service
         services.AddScoped<IReindexService, ReindexService>();
 
-        // Register background worker
+        // Register per-document summarizer — resolves ILlmProvider optionally so the
+        // service is available even when no LLM is configured.
+        services.AddScoped<IPerDocSummarizer>(sp => new PerDocSummarizer(
+            sp.GetService<ILlmProvider>(),
+            sp.GetRequiredService<IDocumentStore>(),
+            sp.GetRequiredService<ITokenCounter>()));
+
+        // Register container rollup summarizer — same nullable-provider pattern.
+        services.AddScoped<IContainerSummarizer>(sp => new ContainerSummarizer(
+            sp.GetService<ILlmProvider>(),
+            sp.GetRequiredService<ITokenCounter>()));
+
+        // Register document summary embedding helper
+        services.AddScoped<IDocumentSummaryEmbeddingProvider, DocumentSummaryEmbeddingProvider>();
+
+        // Register background workers
         services.AddHostedService<IngestionWorker>();
+        services.AddHostedService<ContainerSummaryWorker>();
 
         return services;
     }

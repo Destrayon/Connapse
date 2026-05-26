@@ -164,6 +164,20 @@ public class PostgresContainerStore(
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (entity is null) return;
+
+        entity.Summary = summary;
+        entity.SummaryGeneratedAt = generatedAt;
+        entity.SummaryDocSetHash = docSetHash;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -192,6 +206,9 @@ public class PostgresContainerStore(
             entity.UpdatedAt,
             documentCount,
             overrides,
-            entity.ConnectorConfig?.RootElement.GetRawText());
+            entity.ConnectorConfig?.RootElement.GetRawText(),
+            entity.Summary,
+            entity.SummaryGeneratedAt,
+            entity.SummaryDocSetHash);
     }
 }

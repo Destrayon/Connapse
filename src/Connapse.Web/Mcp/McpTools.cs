@@ -68,7 +68,16 @@ public class McpTools
             text += $"- {c.Name} ({c.DocumentCount} files)";
             if (!string.IsNullOrEmpty(c.Description))
                 text += $" — {c.Description}";
-            text += $"\n  ID: {c.Id}\n";
+            text += "\n";
+
+            // Append summary first sentence if available
+            string? firstSentence = TruncateToFirstSentence(c.Summary, maxChars: 120);
+            if (!string.IsNullOrEmpty(firstSentence))
+            {
+                text += $"  Summary: {firstSentence}\n";
+            }
+
+            text += $"  ID: {c.Id}\n";
         }
 
         return text.TrimEnd();
@@ -769,6 +778,55 @@ public class McpTools
         return text;
     }
 
+    [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
+     Description("Returns an agent-optimized description of a container: its user-supplied description, auto-generated summary (if available), and document statistics. Use this to understand what a container covers before querying via search_knowledge, or when container_list output is insufficient to choose between containers.")]
+    public static async Task<string> ContainerDescribe(
+        IServiceProvider services,
+        [Description("Container ID (GUID) or name")] string containerId,
+        CancellationToken ct = default)
+    {
+        var containerStore = services.GetRequiredService<IContainerStore>();
+        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
+        if (resolvedId is null)
+            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
+
+        var container = await containerStore.GetAsync(resolvedId.Value, ct);
+        if (container is null)
+            return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
+
+        var documentStore = services.GetRequiredService<IDocumentStore>();
+        var stats = await documentStore.GetContainerStatsAsync(resolvedId.Value, ct);
+
+        var text = $"Container: {container.Name}\n";
+        text += $"ID: {container.Id}\n";
+        text += $"Type: {container.ConnectorType}\n";
+
+        if (!string.IsNullOrWhiteSpace(container.Description))
+            text += $"Description: {container.Description}\n";
+
+        if (!string.IsNullOrWhiteSpace(container.Summary))
+        {
+            text += $"Summary: {container.Summary}\n";
+            text += container.SummaryGeneratedAt.HasValue
+                ? $"Summary generated: {container.SummaryGeneratedAt.Value:u}\n"
+                : "";
+        }
+        else
+        {
+            text += "Summary: (not yet generated)\n";
+        }
+
+        if (stats.ProcessingCount > 0 || stats.FailedCount > 0)
+            text += $"Documents: {stats.DocumentCount} ({stats.ReadyCount} ready, {stats.ProcessingCount} processing, {stats.FailedCount} failed)\n";
+        else
+            text += $"Documents: {stats.DocumentCount}\n";
+
+        text += $"Storage: {FormatBytes(stats.TotalSizeBytes)}\n";
+        text += $"Created: {container.CreatedAt:u}";
+
+        return text;
+    }
+
     private static string FormatBytes(long bytes) => bytes switch
     {
         < 1024 => $"{bytes} B",
@@ -788,6 +846,34 @@ public class McpTools
 
         var byName = await store.GetByNameAsync(nameOrId.ToLowerInvariant(), ct);
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
+    }
+
+    private static string? TruncateToFirstSentence(string? text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+
+        // Find first sentence-terminating pattern: period/!/? followed by whitespace or end-of-string,
+        // where the character before the punctuation is not a digit (avoids "1." "2." list prefixes).
+        int sentenceEnd = -1;
+        for (int i = 1; i < text.Length; i++)
+        {
+            char c = text[i];
+            if ((c == '.' || c == '!' || c == '?')
+                && !char.IsDigit(text[i - 1])
+                && (i == text.Length - 1 || char.IsWhiteSpace(text[i + 1])))
+            {
+                sentenceEnd = i;
+                break;
+            }
+        }
+
+        string firstSentence = sentenceEnd > 0
+            ? text[..(sentenceEnd + 1)]
+            : text;
+
+        return firstSentence.Length > maxChars
+            ? firstSentence[..maxChars] + "…"
+            : firstSentence;
     }
 
 }

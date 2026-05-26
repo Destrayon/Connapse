@@ -6,4 +6,5 @@ public interface IContainerSettingsResolver
     Task<EmbeddingSettings> GetEmbeddingSettingsAsync(Guid containerId, CancellationToken ct = default);
     Task<SearchSettings> GetSearchSettingsAsync(Guid containerId, CancellationToken ct = default);
     Task<UploadSettings> GetUploadSettingsAsync(Guid containerId, CancellationToken ct = default);
+    Task<SummarySettings> GetSummarySettingsAsync(Guid containerId, CancellationToken ct = default);
 }
