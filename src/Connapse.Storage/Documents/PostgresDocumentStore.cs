@@ -224,6 +224,27 @@ public class PostgresDocumentStore : IDocumentStore
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        // Containers where any doc has a newer summary timestamp than the container's own summary,
+        // OR where the container has docs with summaries but no container summary at all.
+        // Mirrors the recovery query in ContainerSummaryWorker so behavior is unchanged after
+        // the Hangfire migration.
+        return await context.Documents
+            .Where(d => d.Summary != null && d.SummaryGeneratedAt != null)
+            .GroupBy(d => d.ContainerId)
+            .Select(g => new { ContainerId = g.Key, LatestDocSummary = g.Max(d => d.SummaryGeneratedAt) })
+            .Join(context.Containers,
+                  x => x.ContainerId,
+                  c => c.Id,
+                  (x, c) => new { x.ContainerId, x.LatestDocSummary, ContainerSummaryAt = c.SummaryGeneratedAt })
+            .Where(x => x.ContainerSummaryAt == null || x.LatestDocSummary > x.ContainerSummaryAt)
+            .Select(x => x.ContainerId)
+            .ToListAsync(ct);
+    }
+
     public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);

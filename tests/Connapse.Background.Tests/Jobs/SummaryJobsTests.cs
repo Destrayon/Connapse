@@ -121,6 +121,34 @@ public class SummaryJobsTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task SweepStaleContainersAsync_EnqueuesRollupForEachStaleContainer()
+    {
+        var containerStore = Substitute.For<IContainerStore>();
+        var docStore = Substitute.For<IDocumentStore>();
+        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
+        var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<SummaryJobs>>();
+
+        var staleIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        docStore.FindContainersWithStaleSummariesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Guid>>(staleIds));
+
+        var jobs = new SummaryJobs(
+            containerStore, docStore, settingsResolver, embeddingProvider,
+            llmResolver, tokenCounter, bgClient, logger);
+
+        await jobs.SweepStaleContainersAsync(CancellationToken.None);
+
+        // One Enqueue per stale container.
+        bgClient.Received(3).Create(
+            Arg.Any<Hangfire.Common.Job>(),
+            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
+    }
+
     private static SummaryLlmResolver CreateLlmResolverSubstitute()
     {
         var optionsMonitor = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<LlmSettings>>();

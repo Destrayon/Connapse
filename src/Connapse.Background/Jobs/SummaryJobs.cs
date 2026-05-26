@@ -115,9 +115,28 @@ public sealed class SummaryJobs : ISummaryJobs
             result.OutputTokens);
     }
 
-    public Task SweepStaleContainersAsync(CancellationToken ct) =>
-        // Implemented in Task 15
-        throw new NotImplementedException("Implemented in Task 15");
+    [Queue(JobQueues.Summarization)]
+    [AutomaticRetry(Attempts = 0)] // Sweeps are recurring; on failure just wait until next hour.
+    public async Task SweepStaleContainersAsync(CancellationToken ct)
+    {
+        IReadOnlyList<Guid> staleContainerIds =
+            await _docStore.FindContainersWithStaleSummariesAsync(ct);
+
+        if (staleContainerIds.Count == 0)
+        {
+            _logger.LogInformation("SweepStaleContainers: no stale containers");
+            return;
+        }
+
+        _logger.LogInformation(
+            "SweepStaleContainers: enqueueing rollup for {Count} stale containers",
+            staleContainerIds.Count);
+
+        foreach (Guid containerId in staleContainerIds)
+        {
+            _bgClient.Enqueue<ISummaryJobs>(s => s.RollupContainerAsync(containerId, default));
+        }
+    }
 
     /// <summary>
     /// Deterministic hash of the (sorted) set of {docId, summary} pairs in this container.
