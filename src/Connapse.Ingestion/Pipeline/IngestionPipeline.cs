@@ -29,8 +29,6 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly EmbeddingCache _embeddingCache;
-    private readonly IPerDocSummarizer _summarizer;
-    private readonly IContainerSettingsResolver _settingsResolver;
     private readonly IContainerStore _containerStore;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentStore _documentStore;
@@ -58,8 +56,6 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <param name="chunkingSettings">Runtime monitor providing current chunking configuration.</param>
     /// <param name="embeddingSettings">Runtime monitor providing current embedding configuration.</param>
     /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
-    /// <param name="summarizer">Per-document summarizer called after chunks and vectors are persisted.</param>
-    /// <param name="settingsResolver">Resolves per-container settings (chunking, embedding, summary, etc.).</param>
     /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -71,8 +67,6 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         EmbeddingCache embeddingCache,
-        IPerDocSummarizer summarizer,
-        IContainerSettingsResolver settingsResolver,
         IContainerStore containerStore,
         IConnectorFactory connectorFactory,
         IDocumentStore documentStore,
@@ -87,8 +81,6 @@ public class IngestionPipeline : IKnowledgeIngester
         _chunkingSettings = chunkingSettings;
         _embeddingSettings = embeddingSettings;
         _embeddingCache = embeddingCache;
-        _summarizer = summarizer;
-        _settingsResolver = settingsResolver;
         _containerStore = containerStore;
         _connectorFactory = connectorFactory;
         _documentStore = documentStore;
@@ -380,44 +372,9 @@ public class IngestionPipeline : IKnowledgeIngester
 
             await _context.SaveChangesAsync(ct);
 
-            // Generate per-document summary — non-fatal; ingestion succeeds regardless.
-            try
-            {
-                SummarySettings summarySettings = await _settingsResolver.GetSummarySettingsAsync(containerId, ct);
-
-                PerDocSummarizationResult summaryResult = await _summarizer.GenerateAsync(
-                    documentId: documentEntity.Id.ToString(),
-                    docText: parsedDocument.Content,
-                    mimeType: options.ContentType,
-                    fileName: options.FileName ?? "",
-                    settings: summarySettings,
-                    ct: ct);
-
-                if (summaryResult.Skipped)
-                {
-                    _logger.LogInformation(
-                        "PerDocSummarySkipped {DocumentId} {Reason}",
-                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
-                        LogSanitizer.Sanitize(summaryResult.SkipReason ?? ""));
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
-                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
-                        summaryResult.Model,
-                        summaryResult.InputTokens,
-                        summaryResult.OutputTokens);
-
-                    // Container-summary rollup is now scheduled by IngestionJobs.PerDocSummaryAsync
-                    // via Hangfire, replacing the previous in-memory ContainerSummaryQueue dispatch.
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "PerDocSummaryFailed {DocumentId}", LogSanitizer.Sanitize(documentEntity.Id.ToString()));
-                // continue — ingestion succeeds even if summary fails
-            }
+            // Per-doc summary and container rollup are scheduled separately as Hangfire jobs
+            // (IngestionJobs.PerDocSummaryAsync → SummaryJobs.RollupContainerAsync) so they
+            // don't block the ingestion path. See Connapse.Background for the wiring.
 
             stopwatch.Stop();
 
