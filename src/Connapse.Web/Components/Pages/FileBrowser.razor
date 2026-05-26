@@ -328,16 +328,20 @@
                         <td class="col-status">
                             @if (!entry.IsFolder)
                             {
-                                <span class="badge @GetStatusBadgeClass(entry.Status ?? "Pending")">@(entry.Status ?? "Pending")</span>
+                                @* Single source of truth: Document.IngestionState (driven by Hangfire
+                                   jobs via IngestionStateChanged SignalR push). The legacy entry.Status
+                                   string field is stale post-Hangfire — HangfireIngestionQueue never
+                                   updates _jobStatuses after enqueue, so the old broadcaster polling
+                                   loop would push "Queued" forever and clobber the real state. *@
                                 @if (entry.IngestionState == Connapse.Core.IngestionState.Pending)
                                 {
-                                    <span class="badge bg-secondary ms-1" title="Ingestion in progress">
+                                    <span class="badge bg-secondary" title="Ingestion in progress">
                                         <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                                     </span>
                                 }
                                 else if (entry.IngestionState == Connapse.Core.IngestionState.Failed)
                                 {
-                                    <span class="badge bg-danger ms-1">Failed</span>
+                                    <span class="badge bg-danger">Failed</span>
                                     <button class="btn btn-sm btn-outline-secondary ms-1"
                                             title="Retry ingestion"
                                             @onclick="() => RetryIngestion(entry)"
