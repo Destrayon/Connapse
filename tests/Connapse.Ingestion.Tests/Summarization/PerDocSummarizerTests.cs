@@ -3,6 +3,7 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Summarization;
+using Connapse.Storage.Llm;
 using FluentAssertions;
 using NSubstitute;
 
@@ -40,7 +41,8 @@ public class PerDocSummarizerTests
             .Returns(MakeDoc(docId, hash, existingSummaryHash: hash));
 
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, docText, "text/plain", "file.txt");
+        SummarySettings settings = new() { Enabled = true };
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, docText, "text/plain", "file.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("content_hash_match");
@@ -65,7 +67,8 @@ public class PerDocSummarizerTests
         tokenCounter.CountTokens(Arg.Any<string>()).Returns(5100, 100); // input total, output
 
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "doc text", "text/plain", "file.txt");
+        SummarySettings settings = new() { Enabled = true };
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "doc text", "text/plain", "file.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeFalse();
         result.Summary.Should().Be("Apple earnings summary");
@@ -86,7 +89,8 @@ public class PerDocSummarizerTests
         string docId = Guid.NewGuid().ToString();
 
         PerDocSummarizer subject = new(llmProvider: null, docStore, tokenCounter);
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "text", "text/plain", "x.txt");
+        SummarySettings settings = new() { Enabled = true };
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "text", "text/plain", "x.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("no_provider_configured");
@@ -101,11 +105,110 @@ public class PerDocSummarizerTests
         ITokenCounter tokenCounter = Substitute.For<ITokenCounter>();
 
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
+        SummarySettings settings = new() { Enabled = true };
         PerDocSummarizationResult result = await subject.GenerateAsync(
-            Guid.NewGuid().ToString(), "  \n\t  ", "text/plain", "empty.txt");
+            Guid.NewGuid().ToString(), "  \n\t  ", "text/plain", "empty.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("extraction_empty");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenEnabledIsFalse_SkipsWithoutCallingProvider()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        var docStore = Substitute.For<IDocumentStore>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        var summarizer = new PerDocSummarizer(llmProvider, docStore, tokenCounter);
+        var settings = new SummarySettings { Enabled = false };
+
+        var result = await summarizer.GenerateAsync(
+            "doc-1", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
+
+        result.Skipped.Should().BeTrue();
+        result.SkipReason.Should().Be("summaries_disabled");
+        await llmProvider.DidNotReceive().CompleteAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithCustomPerDocSystemPrompt_SendsThatPromptToProvider()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("test-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("generated summary"));
+
+        var docStore = Substitute.For<IDocumentStore>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+
+        var summarizer = new PerDocSummarizer(llmProvider, docStore, tokenCounter);
+        string customPrompt = "OVERRIDE SYSTEM PROMPT — must reach the LLM verbatim.";
+        var settings = new SummarySettings
+        {
+            Enabled = true,
+            PerDocSystemPrompt = customPrompt
+        };
+
+        await summarizer.GenerateAsync(
+            "doc-1", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
+
+        await llmProvider.Received(1).CompleteAsync(
+            customPrompt,
+            Arg.Any<string>(),
+            Arg.Any<LlmCompletionOptions?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithLlmModelOverride_PassesModelInOptions()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("default-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("generated"));
+
+        var docStore = Substitute.For<IDocumentStore>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+
+        var summarizer = new PerDocSummarizer(llmProvider, docStore, tokenCounter);
+        var settings = new SummarySettings { Enabled = true, LlmModel = "qwen3:14b" };
+
+        await summarizer.GenerateAsync(
+            "doc-1", "text", "text/plain", "doc.txt", settings, CancellationToken.None);
+
+        await llmProvider.Received(1).CompleteAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Is<LlmCompletionOptions?>(o => o != null && o.Model == "qwen3:14b"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithMaxInputTokens_TruncatesInputToFourTimesTheLimit()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("test-model");
+        string? capturedUserPrompt = null;
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Do<string>(s => capturedUserPrompt = s), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("done"));
+
+        var docStore = Substitute.For<IDocumentStore>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+
+        var summarizer = new PerDocSummarizer(llmProvider, docStore, tokenCounter);
+        string longText = new string('a', 5000);  // 5000 chars
+        var settings = new SummarySettings { Enabled = true, MaxInputTokens = 100 };  // 100 tokens × 4 = 400 chars
+
+        await summarizer.GenerateAsync(
+            "doc-1", longText, "text/plain", "doc.txt", settings, CancellationToken.None);
+
+        capturedUserPrompt.Should().NotBeNull();
+        capturedUserPrompt!.Should().Contain(new string('a', 400));
+        capturedUserPrompt.Should().NotContain(new string('a', 401));
     }
 
     private static string ComputeSha256(string s)

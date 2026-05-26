@@ -32,8 +32,9 @@ public class ContainerSummarizerTests
         tc.CountTokens(Arg.Any<string>()).Returns(3000, 500);
 
         ContainerSummarizer subject = new(llm, tc);
+        SummarySettings settings = new() { Enabled = true };
         ContainerSummarizationResult result =
-            await subject.GenerateAsync("Test Container", MakeDocs(30));
+            await subject.GenerateAsync("Test Container", MakeDocs(30), settings);
 
         result.Regime.Should().Be("stuff");
         result.NumDocs.Should().Be(30);
@@ -54,8 +55,9 @@ public class ContainerSummarizerTests
         tc.CountTokens(Arg.Any<string>()).Returns(3000, 500);
 
         ContainerSummarizer subject = new(llm, tc);
+        SummarySettings settings = new() { Enabled = true };
         ContainerSummarizationResult result =
-            await subject.GenerateAsync("Big Container", MakeDocs(150));
+            await subject.GenerateAsync("Big Container", MakeDocs(150), settings);
 
         result.Regime.Should().Be("cluster");
         result.NumDocs.Should().Be(150);
@@ -68,8 +70,9 @@ public class ContainerSummarizerTests
     {
         ITokenCounter tc = Substitute.For<ITokenCounter>();
         ContainerSummarizer subject = new(llmProvider: null, tc);
+        SummarySettings settings = new() { Enabled = true };
         ContainerSummarizationResult result =
-            await subject.GenerateAsync("Test", MakeDocs(5));
+            await subject.GenerateAsync("Test", MakeDocs(5), settings);
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("no_provider_configured");
     }
@@ -80,9 +83,81 @@ public class ContainerSummarizerTests
         ILlmProvider llm = Substitute.For<ILlmProvider>();
         ITokenCounter tc = Substitute.For<ITokenCounter>();
         ContainerSummarizer subject = new(llm, tc);
+        SummarySettings settings = new() { Enabled = true };
         ContainerSummarizationResult result =
-            await subject.GenerateAsync("Empty", new List<DocumentWithSummary>());
+            await subject.GenerateAsync("Empty", new List<DocumentWithSummary>(), settings);
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("no_documents");
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenEnabledIsFalse_SkipsWithoutCallingProvider()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        var summarizer = new ContainerSummarizer(llmProvider, tokenCounter);
+        var docs = new List<DocumentWithSummary>
+        {
+            new(Guid.NewGuid(), "sum1", new float[] { 0.1f })
+        };
+        var settings = new SummarySettings { Enabled = false };
+
+        var result = await summarizer.GenerateAsync("container", docs, settings, CancellationToken.None);
+
+        result.Skipped.Should().BeTrue();
+        result.SkipReason.Should().Be("summaries_disabled");
+        await llmProvider.DidNotReceive().CompleteAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithCustomContainerRollupSystemPrompt_SendsThatPromptToProvider()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("test-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("rollup"));
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+        var summarizer = new ContainerSummarizer(llmProvider, tokenCounter);
+        var docs = new List<DocumentWithSummary>
+        {
+            new(Guid.NewGuid(), "sum1", new float[] { 0.1f })
+        };
+        string customPrompt = "CONTAINER ROLLUP OVERRIDE — verbatim to LLM.";
+        var settings = new SummarySettings { Enabled = true, ContainerRollupSystemPrompt = customPrompt };
+
+        await summarizer.GenerateAsync("container", docs, settings, CancellationToken.None);
+
+        await llmProvider.Received(1).CompleteAsync(
+            customPrompt,
+            Arg.Any<string>(),
+            Arg.Any<LlmCompletionOptions?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WithLlmModelOverride_PassesModelInOptions()
+    {
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("default-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("rollup"));
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+        var summarizer = new ContainerSummarizer(llmProvider, tokenCounter);
+        var docs = new List<DocumentWithSummary>
+        {
+            new(Guid.NewGuid(), "sum1", new float[] { 0.1f })
+        };
+        var settings = new SummarySettings { Enabled = true, LlmModel = "claude-sonnet-4-6" };
+
+        await summarizer.GenerateAsync("container", docs, settings, CancellationToken.None);
+
+        await llmProvider.Received(1).CompleteAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Is<LlmCompletionOptions?>(o => o != null && o.Model == "claude-sonnet-4-6"),
+            Arg.Any<CancellationToken>());
     }
 }

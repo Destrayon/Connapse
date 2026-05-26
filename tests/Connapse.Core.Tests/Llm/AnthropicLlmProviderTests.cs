@@ -76,4 +76,41 @@ public class AnthropicLlmProviderTests
 
         provider.ModelId.Should().Be("claude-opus-4-20250514");
     }
+
+    [Fact]
+    public void BuildParams_NoOverride_UsesConfiguredModel()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = "claude-haiku-4-5",
+            AnthropicApiKey = "sk-ant-test-key"
+        });
+        var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
+        var provider = new AnthropicLlmProvider(settings, logger);
+
+        var parameters = provider.BuildParams("sys", "usr", options: null);
+
+        parameters.Model.Raw().Should().Be("claude-haiku-4-5");
+    }
+
+    [Fact]
+    public void BuildParams_WithModelOverride_UsesOverrideInsteadOfConfigured()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "Anthropic",
+            Model = "claude-haiku-4-5",
+            AnthropicApiKey = "sk-ant-test-key"
+        });
+        var logger = Substitute.For<ILogger<AnthropicLlmProvider>>();
+        var provider = new AnthropicLlmProvider(settings, logger);
+
+        var parameters = provider.BuildParams(
+            "sys",
+            "usr",
+            options: new LlmCompletionOptions(Model: "claude-sonnet-4-6"));
+
+        parameters.Model.Raw().Should().Be("claude-sonnet-4-6");
+    }
 }

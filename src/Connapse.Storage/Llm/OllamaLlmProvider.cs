@@ -42,7 +42,8 @@ public class OllamaLlmProvider : ILlmProvider
         LlmCompletionOptions? options = null,
         CancellationToken ct = default)
     {
-        var request = BuildRequest(systemPrompt, userPrompt, options, stream: false);
+        var resolvedModel = ResolveModel(options);
+        var request = BuildRequest(systemPrompt, userPrompt, options, resolvedModel, stream: false);
 
         try
         {
@@ -62,7 +63,7 @@ public class OllamaLlmProvider : ILlmProvider
             _logger.LogError(ex, "Failed to connect to Ollama at {BaseUrl}", _httpClient.BaseAddress);
             throw new InvalidOperationException(
                 $"Failed to connect to Ollama at {_httpClient.BaseAddress}. " +
-                $"Ensure Ollama is running and the model '{_settings.Model}' is available.", ex);
+                $"Ensure Ollama is running and the model '{resolvedModel}' is available.", ex);
         }
     }
 
@@ -72,7 +73,8 @@ public class OllamaLlmProvider : ILlmProvider
         LlmCompletionOptions? options = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var request = BuildRequest(systemPrompt, userPrompt, options, stream: true);
+        var resolvedModel = ResolveModel(options);
+        var request = BuildRequest(systemPrompt, userPrompt, options, resolvedModel, stream: true);
 
         HttpResponseMessage response;
         try
@@ -91,7 +93,7 @@ public class OllamaLlmProvider : ILlmProvider
             _logger.LogError(ex, "Failed to connect to Ollama at {BaseUrl}", _httpClient.BaseAddress);
             throw new InvalidOperationException(
                 $"Failed to connect to Ollama at {_httpClient.BaseAddress}. " +
-                $"Ensure Ollama is running and the model '{_settings.Model}' is available.", ex);
+                $"Ensure Ollama is running and the model '{resolvedModel}' is available.", ex);
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -128,7 +130,7 @@ public class OllamaLlmProvider : ILlmProvider
 
     private OllamaChatRequest BuildRequest(
         string systemPrompt, string userPrompt,
-        LlmCompletionOptions? options, bool stream)
+        LlmCompletionOptions? options, string resolvedModel, bool stream)
     {
         var messages = new List<OllamaChatMessage>();
 
@@ -139,7 +141,7 @@ public class OllamaLlmProvider : ILlmProvider
 
         return new OllamaChatRequest
         {
-            Model = _settings.Model,
+            Model = resolvedModel,
             Messages = messages,
             Stream = stream,
             Options = new OllamaChatOptions
@@ -148,6 +150,11 @@ public class OllamaLlmProvider : ILlmProvider
                 NumPredict = options?.MaxTokens ?? _settings.MaxTokens
             }
         };
+    }
+
+    internal string ResolveModel(LlmCompletionOptions? options)
+    {
+        return options?.Model ?? _settings.Model;
     }
 
     // DTOs for Ollama /api/chat

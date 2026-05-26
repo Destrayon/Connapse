@@ -5,7 +5,9 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @using Connapse.Storage.Connectors
+@using Microsoft.Extensions.Options
 @inject IContainerStore ContainerStore
+@inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
 @inject IKnowledgeFileSystem FileSystem
@@ -156,6 +158,13 @@
                             <input type="number" class="form-control form-control-sm" placeholder="Global default (@globalTopK)" @bind="settingsTopK" min="1" max="100" />
                         </div>
                     </div>
+                </div>
+                @* Summary Generation *@
+                <div class="col-12">
+                    <h6 class="text-accent mb-3">Summary Generation</h6>
+                    <SummarySettingsTab @ref="summaryTabRef"
+                                        Settings="summarySettings"
+                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
                 </div>
                 @* UI Permissions — Filesystem containers only *@
                 @if (container?.ConnectorType == ConnectorType.Filesystem)
@@ -549,6 +558,9 @@
     private string settingsSearchMode = "";
     private int? settingsTopK;
     private double? settingsMinScore;
+    // Summary overrides
+    private SummarySettings summarySettings = new();
+    private SummarySettingsTab? summaryTabRef;
     // Global defaults (shown as placeholders)
     private string globalChunkingStrategy = "Semantic";
     private int globalMaxChunkSize = 512;
@@ -1486,6 +1498,10 @@
             settingsTopK = overrides?.Search?.TopK;
             settingsMinScore = overrides?.Search?.MinimumScore;
 
+            // Summary: fall back to resolved (global) value when no per-container override
+            var globalSummary = await SettingsResolver.GetSummarySettingsAsync(containerId);
+            summarySettings = overrides?.Summary ?? globalSummary;
+
             // Filesystem permission toggles
             settingsAllowUpload = filesystemConfig?.AllowUpload ?? true;
             settingsAllowDelete = filesystemConfig?.AllowDelete ?? true;
@@ -1511,6 +1527,7 @@
 
         try
         {
+            var summaryToSave = summaryTabRef?.GetCurrentSettings() ?? summarySettings;
             var overrides = new ContainerSettingsOverrides
             {
                 Chunking = (!string.IsNullOrEmpty(settingsChunkingStrategy) || settingsMaxChunkSize.HasValue || settingsOverlap.HasValue)
@@ -1536,7 +1553,8 @@
                         TopK = settingsTopK ?? globalTopK,
                         MinimumScore = settingsMinScore ?? globalMinScore
                     }
-                    : null
+                    : null,
+                Summary = HasSummaryOverride(summaryToSave) ? summaryToSave : null
             };
 
             await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
@@ -1589,6 +1607,8 @@
             settingsSearchMode = "";
             settingsTopK = null;
             settingsMinScore = null;
+            // Reset summary to resolved (global) value after clearing per-container override
+            summarySettings = await SettingsResolver.GetSummarySettingsAsync(containerId);
             settingsSaved = true;
         }
         catch (Exception ex)
@@ -1600,6 +1620,16 @@
             settingsSaving = false;
         }
     }
+
+    // Treat an "all-default" SummarySettings (Enabled=false + every override null) as no
+    // per-container override, so we don't pollute settings_overrides_json with empty objects.
+    private static bool HasSummaryOverride(SummarySettings s) =>
+        s.Enabled
+        || s.LlmProvider is not null
+        || s.LlmModel is not null
+        || s.PerDocSystemPrompt is not null
+        || s.ContainerRollupSystemPrompt is not null
+        || s.MaxInputTokens is not null;
 
     public async ValueTask DisposeAsync()
     {

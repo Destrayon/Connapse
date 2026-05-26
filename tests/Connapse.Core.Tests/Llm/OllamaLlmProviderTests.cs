@@ -97,6 +97,27 @@ public class OllamaLlmProviderTests
         tokens.Should().BeEquivalentTo(["Hello", " world", "!"]);
     }
 
+    [Fact]
+    public void ResolveModel_NoOverride_UsesConfiguredModel()
+    {
+        var settings = new LlmSettings { Provider = "Ollama", Model = "llama3.2", BaseUrl = "http://localhost:11434" };
+        var handler = new StubHandler("""{"message":{"role":"assistant","content":"hi"},"done":true}""");
+        var provider = CreateProvider(handler, settings);
+
+        provider.ResolveModel(null).Should().Be("llama3.2");
+    }
+
+    [Fact]
+    public void ResolveModel_WithModelOverride_UsesOverride()
+    {
+        var settings = new LlmSettings { Provider = "Ollama", Model = "llama3.2", BaseUrl = "http://localhost:11434" };
+        var handler = new StubHandler("""{"message":{"role":"assistant","content":"hi"},"done":true}""");
+        var provider = CreateProvider(handler, settings);
+
+        var options = new LlmCompletionOptions(Model: "qwen3:14b");
+        provider.ResolveModel(options).Should().Be("qwen3:14b");
+    }
+
     /// <summary>
     /// Minimal HttpMessageHandler stub that returns a canned response.
     /// </summary>

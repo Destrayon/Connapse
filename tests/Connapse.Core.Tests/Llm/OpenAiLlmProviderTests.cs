@@ -107,4 +107,39 @@ public class OpenAiLlmProviderTests
 
         provider.ModelId.Should().Be("gpt-4o-mini");
     }
+
+    [Fact]
+    public void ResolveModel_NoOverride_UsesConfiguredModel()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "OpenAI",
+            Model = "gpt-4.1-nano",
+            OpenAiApiKey = "sk-test-key"
+        });
+        var logger = Substitute.For<ILogger<OpenAiLlmProvider>>();
+        var provider = new OpenAiLlmProvider(settings, logger);
+
+        var resolved = provider.ResolveModel(options: null);
+
+        resolved.Should().Be("gpt-4.1-nano");
+    }
+
+    [Fact]
+    public void ResolveModel_WithModelOverride_UsesOverrideInsteadOfConfigured()
+    {
+        var settings = new TestOptionsSnapshot<LlmSettings>(new LlmSettings
+        {
+            Provider = "OpenAI",
+            Model = "gpt-4.1-nano",
+            OpenAiApiKey = "sk-test-key"
+        });
+        var logger = Substitute.For<ILogger<OpenAiLlmProvider>>();
+        var provider = new OpenAiLlmProvider(settings, logger);
+
+        var resolved = provider.ResolveModel(
+            options: new LlmCompletionOptions(Model: "gpt-4.1-mini"));
+
+        resolved.Should().Be("gpt-4.1-mini");
+    }
 }

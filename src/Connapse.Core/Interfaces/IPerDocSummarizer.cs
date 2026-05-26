@@ -7,6 +7,7 @@ public interface IPerDocSummarizer
         string docText,
         string? mimeType,
         string fileName,
+        SummarySettings settings,
         CancellationToken ct = default);
 }
 

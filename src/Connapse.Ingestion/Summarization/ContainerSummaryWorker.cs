@@ -138,6 +138,15 @@ public sealed class ContainerSummaryWorker(
                     scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
                 SummarySettings summarySettings = await settingsResolver.GetSummarySettingsAsync(containerId, ct);
 
+                // Enabled gate — short-circuit before fetching docs / constructing summarizer.
+                if (!summarySettings.Enabled)
+                {
+                    logger.LogInformation(
+                        "ContainerRollupSkipped {ContainerId} reason=summaries_disabled",
+                        LogSanitizer.Sanitize(containerId.ToString()));
+                    return;
+                }
+
                 SummaryLlmResolver llmResolver = scope.ServiceProvider.GetRequiredService<SummaryLlmResolver>();
                 ILlmProvider? llmProvider = llmResolver.Resolve(summarySettings);
 
@@ -170,7 +179,7 @@ public sealed class ContainerSummaryWorker(
                     await embeddingProvider.GetSummaryEmbeddingsAsync(withSummaries, ct);
 
                 ContainerSummarizationResult result = await summarizer.GenerateAsync(
-                    container.Name, docsWithEmbeddings, ct);
+                    container.Name, docsWithEmbeddings, summarySettings, ct);
 
                 if (result.Skipped)
                 {

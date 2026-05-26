@@ -96,14 +96,15 @@ public class AnthropicLlmProvider : ILlmProvider
         }
     }
 
-    private MessageCreateParams BuildParams(
+    internal MessageCreateParams BuildParams(
         string systemPrompt, string userPrompt, LlmCompletionOptions? options)
     {
         var temperature = options?.Temperature ?? (float)_settings.Temperature;
+        var model = options?.Model ?? _settings.Model;
 
         var parameters = new MessageCreateParams
         {
-            Model = _settings.Model,
+            Model = model,
             MaxTokens = options?.MaxTokens ?? _settings.MaxTokens,
             Temperature = temperature,
             Messages =

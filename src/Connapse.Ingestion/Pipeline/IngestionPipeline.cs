@@ -31,6 +31,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly EmbeddingCache _embeddingCache;
     private readonly IPerDocSummarizer _summarizer;
     private readonly IContainerSummaryQueue _dirtyQueue;
+    private readonly IContainerSettingsResolver _settingsResolver;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -57,6 +58,7 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
     /// <param name="summarizer">Per-document summarizer called after chunks and vectors are persisted.</param>
     /// <param name="dirtyQueue">Queue for posting container summary dirty events.</param>
+    /// <param name="settingsResolver">Resolves per-container settings (chunking, embedding, summary, etc.).</param>
     /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -70,6 +72,7 @@ public class IngestionPipeline : IKnowledgeIngester
         EmbeddingCache embeddingCache,
         IPerDocSummarizer summarizer,
         IContainerSummaryQueue dirtyQueue,
+        IContainerSettingsResolver settingsResolver,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -83,6 +86,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _embeddingCache = embeddingCache;
         _summarizer = summarizer;
         _dirtyQueue = dirtyQueue;
+        _settingsResolver = settingsResolver;
         _logger = logger;
     }
 
@@ -374,11 +378,14 @@ public class IngestionPipeline : IKnowledgeIngester
             // Generate per-document summary — non-fatal; ingestion succeeds regardless.
             try
             {
+                SummarySettings summarySettings = await _settingsResolver.GetSummarySettingsAsync(containerId, ct);
+
                 PerDocSummarizationResult summaryResult = await _summarizer.GenerateAsync(
                     documentId: documentEntity.Id.ToString(),
                     docText: parsedDocument.Content,
                     mimeType: options.ContentType,
                     fileName: options.FileName ?? "",
+                    settings: summarySettings,
                     ct: ct);
 
                 if (summaryResult.Skipped)

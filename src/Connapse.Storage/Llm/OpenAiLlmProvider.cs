@@ -15,7 +15,7 @@ namespace Connapse.Storage.Llm;
 /// </summary>
 public class OpenAiLlmProvider : ILlmProvider
 {
-    private readonly ChatClient _client;
+    private readonly OpenAIClient _client;
     private readonly ILogger<OpenAiLlmProvider> _logger;
     private readonly LlmSettings _settings;
 
@@ -37,17 +37,19 @@ public class OpenAiLlmProvider : ILlmProvider
         if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
         {
             var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
-            var client = new OpenAIClient(credential, options);
-            _client = client.GetChatClient(_settings.Model);
+            _client = new OpenAIClient(credential, options);
         }
         else
         {
-            _client = new ChatClient(_settings.Model, credential);
+            _client = new OpenAIClient(credential);
         }
     }
 
     public string Provider => "OpenAI";
     public string ModelId => _settings.Model;
+
+    internal string ResolveModel(LlmCompletionOptions? options)
+        => options?.Model ?? _settings.Model;
 
     public async Task<string> CompleteAsync(
         string systemPrompt,
@@ -55,13 +57,15 @@ public class OpenAiLlmProvider : ILlmProvider
         LlmCompletionOptions? options = null,
         CancellationToken ct = default)
     {
+        var model = ResolveModel(options);
+        var chatClient = _client.GetChatClient(model);
         var messages = BuildMessages(systemPrompt, userPrompt);
         var chatOptions = BuildOptions(options);
 
         try
         {
             ClientResult<ChatCompletion> result =
-                await _client.CompleteChatAsync(messages, chatOptions, ct);
+                await chatClient.CompleteChatAsync(messages, chatOptions, ct);
 
             var text = result.Value.Content[0].Text;
             _logger.LogDebug("OpenAI completion: {TokenCount} chars", text.Length);
@@ -72,7 +76,7 @@ public class OpenAiLlmProvider : ILlmProvider
             _logger.LogError(ex, "OpenAI chat completion failed (status {Status})", ex.Status);
             throw new InvalidOperationException(
                 $"OpenAI chat completion failed (HTTP {ex.Status}): {ex.Message}. " +
-                $"Verify your API key and model '{_settings.Model}' are correct.", ex);
+                $"Verify your API key and model '{model}' are correct.", ex);
         }
     }
 
@@ -82,19 +86,21 @@ public class OpenAiLlmProvider : ILlmProvider
         LlmCompletionOptions? options = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        var model = ResolveModel(options);
+        var chatClient = _client.GetChatClient(model);
         var messages = BuildMessages(systemPrompt, userPrompt);
         var chatOptions = BuildOptions(options);
 
         AsyncCollectionResult<StreamingChatCompletionUpdate> updates;
         try
         {
-            updates = _client.CompleteChatStreamingAsync(messages, chatOptions, ct);
+            updates = chatClient.CompleteChatStreamingAsync(messages, chatOptions, ct);
         }
         catch (ClientResultException ex)
         {
             _logger.LogError(ex, "OpenAI streaming failed (status {Status})", ex.Status);
             throw new InvalidOperationException(
-                $"OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}.", ex);
+                $"OpenAI streaming failed (HTTP {ex.Status}): {ex.Message}. Verify your API key and model '{model}' are correct.", ex);
         }
 
         await foreach (var update in updates)
