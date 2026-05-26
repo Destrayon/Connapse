@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Connapse.Background;
 using Connapse.Core;
 using Connapse.Identity;
 using Connapse.Identity.Data;
@@ -19,6 +20,7 @@ using Connapse.Web.Hubs;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
 using Connapse.Web.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -140,6 +142,9 @@ builder.Services.AddConnapseStorage(builder.Configuration);
 
 // Add document ingestion pipeline
 builder.Services.AddDocumentIngestion();
+
+// Add Hangfire background-job runtime (PostgreSQL storage + worker pools + dashboard auth)
+builder.Services.AddConnapseHangfire(builder.Configuration);
 
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
@@ -280,6 +285,15 @@ app.UseCors();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
+
+// Hangfire dashboard — gated by HangfireDashboardAuthFilter (defers to "RequireAdmin" policy).
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[]
+    {
+        app.Services.GetRequiredService<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
+    }
+});
 
 app.UseAntiforgery();
 
