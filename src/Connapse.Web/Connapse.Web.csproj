@@ -7,6 +7,7 @@
     <ProjectReference Include="..\Connapse.Agents\Connapse.Agents.csproj" />
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
     <ProjectReference Include="..\Connapse.Identity\Connapse.Identity.csproj" />
+    <ProjectReference Include="..\Connapse.Background\Connapse.Background.csproj" />
   </ItemGroup>
 
   <ItemGroup>
