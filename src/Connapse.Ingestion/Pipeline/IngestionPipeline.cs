@@ -32,6 +32,9 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IPerDocSummarizer _summarizer;
     private readonly IContainerSummaryQueue _dirtyQueue;
     private readonly IContainerSettingsResolver _settingsResolver;
+    private readonly IContainerStore _containerStore;
+    private readonly IConnectorFactory _connectorFactory;
+    private readonly IDocumentStore _documentStore;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -73,6 +76,9 @@ public class IngestionPipeline : IKnowledgeIngester
         IPerDocSummarizer summarizer,
         IContainerSummaryQueue dirtyQueue,
         IContainerSettingsResolver settingsResolver,
+        IContainerStore containerStore,
+        IConnectorFactory connectorFactory,
+        IDocumentStore documentStore,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -87,6 +93,9 @@ public class IngestionPipeline : IKnowledgeIngester
         _summarizer = summarizer;
         _dirtyQueue = dirtyQueue;
         _settingsResolver = settingsResolver;
+        _containerStore = containerStore;
+        _connectorFactory = connectorFactory;
+        _documentStore = documentStore;
         _logger = logger;
     }
 
@@ -466,6 +475,45 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Resolves the source stream for a document via the container's connector and delegates
+    /// to <see cref="IngestAsync(Stream, IngestionOptions, CancellationToken)"/>. Used by the
+    /// Hangfire ingestion job class, which receives only a documentId at invocation time.
+    /// </summary>
+    public async Task<IngestionResult> IngestByIdAsync(
+        string documentId,
+        IngestionOptions options,
+        CancellationToken ct = default)
+    {
+        // Resolve the container ID — prefer options.ContainerId, fall back to looking up the doc.
+        Guid containerId;
+        string virtualPath;
+        if (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cid))
+        {
+            containerId = cid;
+            virtualPath = options.Path ?? options.FileName ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: options must provide Path or FileName for document {documentId}");
+        }
+        else
+        {
+            Document? doc = await _documentStore.GetAsync(documentId, ct)
+                ?? throw new InvalidOperationException(
+                    $"IngestByIdAsync: document {documentId} not found and no ContainerId in options");
+            containerId = Guid.Parse(doc.ContainerId);
+            virtualPath = doc.Path;
+        }
+
+        Container? container = await _containerStore.GetAsync(containerId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: container {containerId} not found for document {documentId}");
+
+        IConnector connector = _connectorFactory.Create(container);
+        string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
+
+        await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
+        return await IngestAsync(stream, options, ct);
     }
 
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(

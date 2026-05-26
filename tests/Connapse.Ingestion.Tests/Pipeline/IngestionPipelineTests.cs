@@ -104,6 +104,9 @@ public class IngestionPipelineTests
             _summarizer,
             _dirtyQueue,
             _settingsResolver,
+            Substitute.For<IContainerStore>(),
+            Substitute.For<IConnectorFactory>(),
+            Substitute.For<IDocumentStore>(),
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()
