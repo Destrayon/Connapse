@@ -128,6 +128,11 @@ public class IngestionProgressBroadcaster : BackgroundService, IIngestionStateBr
     public async Task BroadcastIngestionStateChangedAsync(
         string documentId, IngestionState state, CancellationToken ct = default)
     {
+        // In-process notifier first — Blazor Server components subscribe here
+        // because a server-to-server SignalR client has no auth cookies.
+        _notifier.NotifyStateChanged(documentId, state);
+
+        // SignalR push for any non-circuit clients (e.g. external tooling).
         await _hubContext.Clients.All.SendAsync(
             "IngestionStateChanged",
             new { DocumentId = documentId, State = state.ToString() },

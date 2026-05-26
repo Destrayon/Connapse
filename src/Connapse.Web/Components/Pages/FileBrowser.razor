@@ -336,7 +336,8 @@
                                 @if (entry.IngestionState == Connapse.Core.IngestionState.Pending)
                                 {
                                     <span class="badge bg-secondary" title="Ingestion in progress">
-                                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                        Processing
                                     </span>
                                 }
                                 else if (entry.IngestionState == Connapse.Core.IngestionState.Failed)
@@ -346,6 +347,14 @@
                                             title="Retry ingestion"
                                             @onclick="() => RetryIngestion(entry)"
                                             @onclick:stopPropagation="true">↻</button>
+                                }
+                                else if (entry.IngestionState == Connapse.Core.IngestionState.SummaryIndexed)
+                                {
+                                    <span class="badge bg-success" title="Indexed and summarized — fully ready">Ready</span>
+                                }
+                                else if (entry.IngestionState == Connapse.Core.IngestionState.Indexed)
+                                {
+                                    <span class="badge bg-success" title="Indexed and searchable">Ready</span>
                                 }
                             }
                         </td>
@@ -665,6 +674,7 @@
         // Subscribe to in-process progress notifications instead of creating a
         // server-to-server SignalR client (which has no auth cookies and fails negotiate).
         ProgressNotifier.ProgressReceived += OnProgressReceived;
+        ProgressNotifier.StateChanged += OnStateChanged;
 
         // Subscribe to real-time file-list changes from the filesystem watcher.
         FileChangeNotifier.FileChanged += OnFileChanged;
@@ -726,6 +736,25 @@
     }
 
     private record IngestionStateChangedDto(string DocumentId, string State);
+
+    private async void OnStateChanged(IngestionStateChangedEvent ev)
+    {
+        if (_disposed) return;
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                var idx = entries.FindIndex(e => e.Id == ev.DocumentId);
+                if (idx < 0) return;
+                entries[idx] = entries[idx] with { IngestionState = ev.State };
+                StateHasChanged();
+            });
+        }
+        catch (Exception)
+        {
+            // async void — swallow to keep the Blazor circuit alive
+        }
+    }
 
     private async void OnProgressReceived(IngestionProgressUpdate progress)
     {
@@ -1841,6 +1870,7 @@
     {
         _disposed = true;
         ProgressNotifier.ProgressReceived -= OnProgressReceived;
+        ProgressNotifier.StateChanged -= OnStateChanged;
         FileChangeNotifier.FileChanged -= OnFileChanged;
         if (_hubConnection is not null)
         {
