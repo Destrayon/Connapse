@@ -16,17 +16,10 @@ namespace Connapse.Ingestion.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers all document ingestion services:
-    /// - Document parsers (Text, PDF, Office)
-    /// - Chunking strategies (FixedSize, Recursive, Semantic)
-    /// - Ingestion pipeline and queue
-    /// - Reindex service
-    /// - Background worker
-    /// <summary>
-    /// Registers all services required for document ingestion into the provided DI container.
-    /// </summary>
-    /// <summary>
-    /// Registers services required for document ingestion into the provided service collection.
+    /// Registers services required for document ingestion into the provided service collection:
+    /// parsers, chunking strategies, the ingestion pipeline, the reindex service, and the
+    /// per-document / container summarizers. The <see cref="IIngestionQueue"/> implementation
+    /// is registered separately by <c>AddConnapseHangfire</c> in Connapse.Background.
     /// </summary>
     /// <returns>The same <see cref="IServiceCollection"/> instance with ingestion-related services registered.</returns>
     public static IServiceCollection AddDocumentIngestion(this IServiceCollection services)
@@ -51,12 +44,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IChunkingStrategy, SentenceWindowChunker>();
         services.AddTransient<IChunkingStrategy, SemanticChunker>(); // Transient because it depends on IEmbeddingProvider
 
-        // Register ingestion queue (singleton for shared state)
-        services.AddSingleton<IIngestionQueue, IngestionQueue>(sp => new IngestionQueue(capacity: 1000));
-
-        // Register container summary queue (singleton for shared state)
-        services.AddSingleton<IContainerSummaryQueue, ContainerSummaryQueue>();
-
         // Register embedding cache
         services.AddScoped<EmbeddingCache>();
 
@@ -80,10 +67,6 @@ public static class ServiceCollectionExtensions
 
         // Register document summary embedding helper
         services.AddScoped<IDocumentSummaryEmbeddingProvider, DocumentSummaryEmbeddingProvider>();
-
-        // Register background workers
-        services.AddHostedService<IngestionWorker>();
-        services.AddHostedService<ContainerSummaryWorker>();
 
         return services;
     }
