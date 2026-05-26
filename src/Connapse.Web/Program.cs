@@ -84,7 +84,12 @@ builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
 builder.Services.AddSingleton<FileBrowserChangeNotifier>();
 
 // Add background services
-builder.Services.AddHostedService<IngestionProgressBroadcaster>();
+// Singleton-as-hosted-service so the same instance also serves IIngestionStateBroadcaster
+// for Connapse.Background Hangfire jobs (which can't reference Web directly).
+builder.Services.AddSingleton<IngestionProgressBroadcaster>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionProgressBroadcaster>());
+builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
+    sp.GetRequiredService<IngestionProgressBroadcaster>());
 
 // ConnectorWatcherService: manages FileSystemWatcher instances per Filesystem container.
 // Registered as singleton so endpoints can call StartWatchingContainer() at runtime.

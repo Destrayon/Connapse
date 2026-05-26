@@ -20,8 +20,10 @@ public class IngestionJobsTests
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
         var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
 
+        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient, logger);
+            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
+            stateBroadcaster, logger);
 
         string documentId = Guid.NewGuid().ToString();
         var options = new IngestionOptions(
@@ -83,8 +85,10 @@ public class IngestionJobsTests
             .Returns(Task.FromResult(new PerDocSummarizationResult(
                 Skipped: false, Summary: "Test summary", InputTokens: 10, OutputTokens: 5, Model: "test")));
 
+        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient, logger);
+            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
+            stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await docStore.Received(1).UpdateIngestionStateAsync(
@@ -123,8 +127,10 @@ public class IngestionJobsTests
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new SummarySettings { Enabled = false }));
 
+        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient, logger);
+            ingester, docStore, fileSystem, parsers, summarizer, settingsResolver, bgClient,
+            stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await summarizer.DidNotReceive().GenerateAsync(
