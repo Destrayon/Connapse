@@ -34,6 +34,13 @@
             {
                 <span class="breadcrumb-sep">/</span>
                 <button class="breadcrumb-link" @onclick="NavigateToRoot">@container.Name</button>
+                @if (_isRollupInProgress)
+                {
+                    <span class="badge bg-info ms-2" title="A container rollup summary job is queued or running">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        Updating summary...
+                    </span>
+                }
             }
             @foreach (var crumb in GetBreadcrumbs())
             {
@@ -825,6 +832,60 @@
             }
             catch { /* Will retry on next render */ }
         }
+
+        // Container rollup-in-progress pill — throttled scan of the Hangfire monitoring
+        // API. Cheap to call (in-memory dictionary scan on PostgreSQL storage's
+        // dashboard cache), but still throttled to once per second.
+        if (container is not null && Guid.TryParse(container.Id, out var cid))
+        {
+            bool newState = IsRollupInProgress(cid);
+            if (newState != _isRollupInProgress)
+            {
+                _isRollupInProgress = newState;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    // Tracks the most recent rollup-pill check so we don't hammer the Hangfire monitoring
+    // API on every render. The pill is best-effort UX — being a second stale is fine.
+    private bool _isRollupInProgress;
+    private DateTime _rollupPillLastChecked = DateTime.MinValue;
+    private bool _rollupPillCachedResult;
+
+    private bool IsRollupInProgress(Guid containerId)
+    {
+        if (DateTime.UtcNow - _rollupPillLastChecked < TimeSpan.FromSeconds(1))
+            return _rollupPillCachedResult;
+
+        try
+        {
+            var monitor = Hangfire.JobStorage.Current.GetMonitoringApi();
+            var scheduled = monitor.ScheduledJobs(0, 1000);
+            var processing = monitor.ProcessingJobs(0, 1000);
+
+            bool matchScheduled = scheduled.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
+            bool matchProcessing = processing.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
+
+            _rollupPillCachedResult = matchScheduled || matchProcessing;
+        }
+        catch
+        {
+            // Monitoring API can throw under load; fall back to "not in progress" so the
+            // pill flickers off rather than crashing the render.
+            _rollupPillCachedResult = false;
+        }
+
+        _rollupPillLastChecked = DateTime.UtcNow;
+        return _rollupPillCachedResult;
+    }
+
+    private static bool MatchesRollup(Hangfire.Common.Job? job, Guid containerId)
+    {
+        if (job is null) return false;
+        if (job.Method.Name != nameof(Connapse.Background.Jobs.ISummaryJobs.RollupContainerAsync)) return false;
+        if (job.Args.Count == 0) return false;
+        return job.Args[0] is Guid argGuid && argGuid == containerId;
     }
 
     private async Task LoadContainer()
