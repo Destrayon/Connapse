@@ -172,7 +172,8 @@
                     <h6 class="text-accent mb-3">Summary Generation</h6>
                     <SummarySettingsTab @ref="summaryTabRef"
                                         Settings="summarySettings"
-                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
+                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model"
+                                        ContainerId="@ParseContainerIdOrEmpty()" />
                 </div>
                 @* UI Permissions — Filesystem containers only *@
                 @if (container?.ConnectorType == ConnectorType.Filesystem)
@@ -1758,6 +1759,12 @@
             settingsSaving = false;
         }
     }
+
+    // Defensive parse — the `[Parameter]` ContainerId is a route-bound string, and the
+    // SummarySettingsTab needs a real Guid. Falls back to Empty (which hides the
+    // Regenerate-now button) if the route param is malformed.
+    private Guid ParseContainerIdOrEmpty() =>
+        Guid.TryParse(ContainerId, out var cid) ? cid : Guid.Empty;
 
     // Treat an "all-default" SummarySettings (Enabled=false + every override null) as no
     // per-container override, so we don't pollute settings_overrides_json with empty objects.

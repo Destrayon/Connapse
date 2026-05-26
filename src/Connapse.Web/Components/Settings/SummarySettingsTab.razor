@@ -1,5 +1,7 @@
 @using Connapse.Core
 @using Connapse.Storage.Llm
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
 
 <div class="settings-tab">
     <h4 class="mb-3">Summary Generation</h4>
@@ -90,6 +92,31 @@
             }
         </div>
     </div>
+
+    @* "Regenerate now" only makes sense when scoped to a specific container —
+       the global settings tab passes Guid.Empty and the button stays hidden. *@
+    @if (ContainerId != Guid.Empty)
+    {
+        <hr />
+        <div class="mb-3">
+            <button type="button" class="btn btn-outline-secondary"
+                    @onclick="RegenerateNow"
+                    disabled="@(!enabled || isRegenerating)">
+                @if (isRegenerating)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                }
+                Regenerate summary now
+            </button>
+            <div class="form-text">
+                Skips the 60-second rollup debounce and enqueues an immediate container summary job.
+            </div>
+            @if (regenerateMessage is not null)
+            {
+                <div class="form-text @(regenerateSuccess ? "text-success" : "text-danger")">@regenerateMessage</div>
+            }
+        </div>
+    }
 </div>
 
 @code {
@@ -101,6 +128,17 @@
 
     [Parameter]
     public string? ResolvedModelPlaceholder { get; set; }
+
+    /// <summary>
+    /// Container scope. <see cref="Guid.Empty"/> means "global settings tab" — the
+    /// Regenerate-now button is hidden because there's no specific container to roll up.
+    /// </summary>
+    [Parameter]
+    public Guid ContainerId { get; set; } = Guid.Empty;
+
+    private bool isRegenerating;
+    private string? regenerateMessage;
+    private bool regenerateSuccess;
 
     // SummarySettings is an init-only record, so we hold edit state in
     // intermediate fields and reconstruct the record on every change.
@@ -210,4 +248,41 @@
     }
 
     public SummarySettings GetCurrentSettings() => BuildSettingsFromLocal();
+
+    private async Task RegenerateNow()
+    {
+        if (ContainerId == Guid.Empty) return;
+        if (isRegenerating) return;
+
+        isRegenerating = true;
+        regenerateMessage = null;
+        try
+        {
+            var http = HttpClientFactory.CreateClient("BlazorClient");
+            http.BaseAddress ??= new Uri(Navigation.BaseUri);
+            var response = await http.PostAsync(
+                $"/api/containers/{ContainerId}/summary/regenerate",
+                content: null);
+
+            if (response.IsSuccessStatusCode)
+            {
+                regenerateSuccess = true;
+                regenerateMessage = "Summary rollup enqueued.";
+            }
+            else
+            {
+                regenerateSuccess = false;
+                regenerateMessage = $"Failed to enqueue rollup: {(int)response.StatusCode} {response.ReasonPhrase}";
+            }
+        }
+        catch (Exception ex)
+        {
+            regenerateSuccess = false;
+            regenerateMessage = $"Failed to enqueue rollup: {ex.Message}";
+        }
+        finally
+        {
+            isRegenerating = false;
+        }
+    }
 }
