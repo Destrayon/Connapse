@@ -58,11 +58,13 @@ public sealed class IngestionJobs : IIngestionJobs
             // up the document/container and reads the file through the appropriate connector.
             await _ingester.IngestByIdAsync(documentId, options, ct);
 
-            // Transition state after pipeline success. PerDocSummary continues as a separate
-            // queued job (Onyx-style worker-pool separation).
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Indexed, ct);
+            // Wrap-up uses CancellationToken.None: if the app restarts during these brief
+            // (~50ms) DB/SignalR ops, we still want them to complete — otherwise the UI's
+            // spinner gets stuck even though ingestion finished. Pattern: "best-effort
+            // finalization" — once we've done the real work, commit the resulting state.
+            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Indexed, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
-                documentId, IngestionState.Indexed, ct);
+                documentId, IngestionState.Indexed, CancellationToken.None);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -72,9 +74,9 @@ public sealed class IngestionJobs : IIngestionJobs
             // IElectStateFilter — deferred to a follow-up.
             _logger.LogWarning(ex,
                 "IngestAsync threw {DocumentId}", LogSanitizer.Sanitize(documentId));
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Failed, ct);
+            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Failed, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
-                documentId, IngestionState.Failed, ct);
+                documentId, IngestionState.Failed, CancellationToken.None);
             throw;
         }
     }
@@ -172,9 +174,11 @@ public sealed class IngestionJobs : IIngestionJobs
                 return;
             }
 
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.SummaryIndexed, ct);
+            // Wrap-up uses CancellationToken.None: see comment in IngestAsync — best-effort
+            // finalization so the UI's spinner doesn't stick after a mid-job app restart.
+            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.SummaryIndexed, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
-                documentId, IngestionState.SummaryIndexed, ct);
+                documentId, IngestionState.SummaryIndexed, CancellationToken.None);
 
             // Container rollup is triggered by the recurring SweepStaleContainersAsync job
             // (every 5 minutes) rather than per-doc completion. The sweep coalesces N uploads
@@ -193,9 +197,9 @@ public sealed class IngestionJobs : IIngestionJobs
         {
             _logger.LogWarning(ex,
                 "PerDocSummaryAsync threw {DocumentId}", LogSanitizer.Sanitize(documentId));
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Failed, ct);
+            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Failed, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
-                documentId, IngestionState.Failed, ct);
+                documentId, IngestionState.Failed, CancellationToken.None);
             throw;
         }
     }
