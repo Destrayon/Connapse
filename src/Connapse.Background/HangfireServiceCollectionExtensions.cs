@@ -34,17 +34,27 @@ public static class HangfireServiceCollectionExtensions
                 InvisibilityTimeout = TimeSpan.FromMinutes(30)
             }));
 
-        services.AddHangfireServer(opt =>
+        // BackgroundJobServer startup can be suppressed via Hangfire:DisableServer=true.
+        // Used by integration-test derived factories (WebApplicationFactory.WithWebHostBuilder)
+        // that share the parent fixture's Postgres queue — starting a second BackgroundJobServer
+        // in those derived hosts corrupts Hangfire's STATIC LogProvider on dispose, causing
+        // ObjectDisposedException("LoggerFactory") in the parent fixture's still-running workers.
+        // Production callers leave this unset; only test code sets it.
+        bool disableServer = configuration.GetValue<bool>("Hangfire:DisableServer", defaultValue: false);
+        if (!disableServer)
         {
-            opt.WorkerCount = Environment.ProcessorCount * 2;
-            opt.Queues = new[]
+            services.AddHangfireServer(opt =>
             {
-                Jobs.JobQueues.Ingestion,
-                Jobs.JobQueues.Summarization,
-                Jobs.JobQueues.Default
-            };
-            opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}";
-        });
+                opt.WorkerCount = Environment.ProcessorCount * 2;
+                opt.Queues = new[]
+                {
+                    Jobs.JobQueues.Ingestion,
+                    Jobs.JobQueues.Summarization,
+                    Jobs.JobQueues.Default
+                };
+                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}";
+            });
+        }
 
         services.AddSingleton<IDashboardAuthorizationFilter, HangfireDashboardAuthFilter>();
 
