@@ -10,6 +10,7 @@ namespace Connapse.Storage.Folders;
 
 public class PostgresFolderStore(
     IDbContextFactory<KnowledgeDbContext> factory,
+    IContainerStore containerStore,
     ILogger<PostgresFolderStore> logger) : IFolderStore
 {
     public async Task<Folder> CreateAsync(Guid containerId, string path, CancellationToken ct = default)
@@ -113,6 +114,8 @@ public class PostgresFolderStore(
             .Where(d => d.ContainerId == containerId && d.Path.StartsWith(normalizedPath))
             .ToListAsync(ct);
 
+        bool anyDeletedHadSummary = documentsToDelete.Any(d => !string.IsNullOrEmpty(d.Summary));
+
         if (documentsToDelete.Count > 0)
         {
             context.Documents.RemoveRange(documentsToDelete);
@@ -123,6 +126,14 @@ public class PostgresFolderStore(
 
         context.Folders.RemoveRange(foldersToDelete);
         await context.SaveChangesAsync(ct);
+
+        // If any cascade-deleted doc contributed to the container summary, mark stale so the
+        // next sweep tick triggers a re-rollup. Same reason as PostgresDocumentStore.DeleteAsync
+        // (pure deletes don't otherwise show up in the sweep's "newer doc timestamp" query).
+        if (anyDeletedHadSummary)
+        {
+            await containerStore.MarkSummaryStaleAsync(containerId, ct);
+        }
 
         logger.LogInformation("Deleted folder {Path} and {SubCount} sub-folders in container {ContainerId}",
             normalizedPath, foldersToDelete.Count - 1, containerId);

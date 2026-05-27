@@ -19,13 +19,16 @@ namespace Connapse.Storage.Documents;
 public class PostgresDocumentStore : IDocumentStore
 {
     private readonly IDbContextFactory<KnowledgeDbContext> _factory;
+    private readonly IContainerStore _containerStore;
     private readonly ILogger<PostgresDocumentStore> _logger;
 
     public PostgresDocumentStore(
         IDbContextFactory<KnowledgeDbContext> factory,
+        IContainerStore containerStore,
         ILogger<PostgresDocumentStore> logger)
     {
         _factory = factory;
+        _containerStore = containerStore;
         _logger = logger;
     }
 
@@ -160,8 +163,19 @@ public class PostgresDocumentStore : IDocumentStore
             return;
         }
 
+        bool docHadSummary = !string.IsNullOrEmpty(entity.Summary);
+        Guid containerId = entity.ContainerId;
+
         context.Documents.Remove(entity);
         await context.SaveChangesAsync(ct);
+
+        // If the deleted doc contributed to the container summary, mark the container as
+        // stale so the next sweep tick triggers a re-rollup. Without this, the sweep query
+        // wouldn't detect pure-deletion changes (no doc has a "newer" summary timestamp).
+        if (docHadSummary)
+        {
+            await _containerStore.MarkSummaryStaleAsync(containerId, ct);
+        }
 
         _logger.LogInformation(
             "Deleted document {DocumentId} ({FileName})",
