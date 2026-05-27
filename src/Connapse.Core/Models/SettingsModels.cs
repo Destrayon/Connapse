@@ -325,9 +325,13 @@ public record LlmSettings
     public int MaxTokens { get; set; } = 2000;
 
     /// <summary>
-    /// Request timeout in seconds (default: 60).
+    /// Request timeout in seconds (default: 300). LLM calls — especially container
+    /// rollups with many-doc input prompts on local Ollama models — routinely exceed
+    /// the prior 60s ceiling. 300s matches the EmbeddingSettings default and is well
+    /// under the Hangfire job lock timeout (600s for RollupContainerAsync), so the
+    /// HTTP call fails before the job times out rather than after.
     /// </summary>
-    public int TimeoutSeconds { get; set; } = 60;
+    public int TimeoutSeconds { get; set; } = 300;
 
 }
 
