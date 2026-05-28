@@ -124,3 +124,14 @@ The default container summary method for new installs is `document-clustering`. 
 
 1. In container "qa-hercules-cluster" (from Scenario 2), click "Regenerate summary now" a second time without uploading anything.
 2. **Expected:** Rollup completes quickly. Hangfire dashboard / logs show **zero** `PerDocSummaryAsync` invocations this time (all K medoid docs have cached summaries whose `summary_content_hash` matches the current `content_hash`).
+
+## Ollama concurrency gate — stability under concurrent rollups (#335)
+
+A single local Ollama instance serializes generation internally. When many container rollups are enqueued at once (e.g. the stale-container sweep settling a backlog), unbounded `/api/chat` requests pile into Ollama's internal queue; each queued request's `HttpClient` timeout clock (`LlmSettings.TimeoutSeconds`, 300s default) is already running, so the slowest tail requests exceed it and surface as `TaskCanceledException`. `LlmSettings.MaxConcurrentRequests` (default 1) gates how many completions the app issues to Ollama at once — callers wait in-process before the HTTP call starts, so each request that reaches Ollama runs alone and finishes well within the timeout. Only the Ollama provider is gated; cloud providers (OpenAI/Azure/Anthropic) handle concurrency server-side.
+
+### Scenario: Concurrent rollups don't time out on Ollama
+
+1. With Ollama configured (single instance) and summaries enabled in document-clustering mode, create several small containers (N ≤ 30 docs each, so each rollup uses the "stuff" regime).
+2. Make them all stale at once and let the `summary-sweep-stale-containers` job fire (or trigger it from the Hangfire dashboard), so multiple `RollupContainerAsync` jobs run concurrently.
+3. Tail the logs: `/api/chat` calls should start strictly one at a time — each new call begins only after the previous one returns (`MaxConcurrentRequests = 1`) — and every rollup should complete with **no** `TaskCanceledException`. The first call may be slow (cold model load); subsequent calls are fast.
+4. (Optional) Raise `MaxConcurrentRequests` above 1 only if the Ollama host has GPU/CPU headroom to run that many generations in parallel without any single one exceeding `TimeoutSeconds`. The setting is read once at startup, so changing it requires a restart.
