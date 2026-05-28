@@ -333,6 +333,18 @@ public record LlmSettings
     /// </summary>
     public int TimeoutSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// Maximum number of completion requests issued concurrently to a local Ollama
+    /// instance (default: 1). Ollama serializes generation internally, so firing many
+    /// requests at once builds a deep queue where each request's wall-clock grows with its
+    /// queue position and the slowest ones exceed <see cref="TimeoutSeconds"/>. Gating
+    /// concurrency app-side makes callers wait in-process so each request runs alone and
+    /// finishes within the timeout. Only applies to the Ollama provider; cloud providers
+    /// (OpenAI/Azure/Anthropic) are not gated. Read once at startup — changing it requires
+    /// a restart.
+    /// </summary>
+    public int MaxConcurrentRequests { get; set; } = 1;
+
 }
 
 /// <summary>

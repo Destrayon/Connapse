@@ -111,7 +111,10 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // LLM providers — resolved at runtime based on LlmSettings.Provider
+        // LLM providers — resolved at runtime based on LlmSettings.Provider.
+        // Singleton gate shared across all (transient) Ollama provider instances so local
+        // inference is throttled process-wide (see LlmConcurrencyGate).
+        services.AddSingleton<LlmConcurrencyGate>();
         services.AddHttpClient<OllamaLlmProvider>();
         services.AddScoped<OpenAiLlmProvider>();
         services.AddScoped<AzureOpenAiLlmProvider>();
