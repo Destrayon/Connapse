@@ -87,3 +87,40 @@ Verify that the auto-generated container summary biases an MCP-connected agent t
 2. Manually trigger it via the dashboard
 3. Verify no errors and no rollups fire if all containers are up-to-date
 4. Make a container's summary stale (e.g. update a doc summary timestamp manually) and trigger the sweep again; a `RollupContainerAsync` for that container should appear in the queue
+
+## HERCULES — document-clustering container summary method (#335)
+
+The default container summary method for new installs is `document-clustering`. The legacy method is `summary-clustering`. Verify both end-to-end.
+
+### Scenario: Document-clustering default for new container
+
+1. Create a fresh container "qa-hercules-default" and open its Summary settings tab.
+2. **Expected:** "Container summary method" dropdown shows "Document clustering (recommended)" by default.
+3. Enable summaries (master toggle on) and save.
+4. Upload 5 documents (any text files).
+5. Wait for ingestion to complete (per-doc spinners stop, no Indexed pill).
+6. **Expected:** Each doc's row shows no "Summary" indicator. The container row shows no summary yet (rollup hasn't happened).
+7. Click "Regenerate summary now".
+8. **Expected:** Container rollup pill appears, runs for ~10–30s, container summary text populates. Open each doc detail — all 5 docs (N ≤ stuff threshold of 30) now have per-doc summaries cached.
+
+### Scenario: Document-clustering clustering regime (>30 docs)
+
+1. Create container "qa-hercules-cluster".
+2. Enable summaries in document-clustering mode.
+3. Upload 35 documents.
+4. Wait for ingestion to complete (no per-doc summary spinners — they all SummaryIndexed without LLM calls).
+5. Click "Regenerate summary now".
+6. **Expected:** Container summary appears. Open the FileBrowser doc list — exactly K = `min(20, ceil(35/3))` = 12 docs have summaries; the remaining 23 do not. Watch the Hangfire dashboard during the rollup — should see exactly 12 `PerDocSummary*` jobs run (sequential, inside the rollup) plus 1 `RollupContainerAsync`.
+
+### Scenario: Switch to summary-clustering
+
+1. Open container "qa-hercules-default" settings tab.
+2. Change "Container summary method" to "Summary clustering". Save.
+3. Upload one new document "doc-after-switch.txt".
+4. Wait for ingestion to complete.
+5. **Expected:** "doc-after-switch.txt" gets a per-doc summary at ingest (open detail panel to confirm). The 5 docs uploaded under document-clustering may or may not have summaries depending on whether they were medoids in a prior rollup — lazy-mode cache state is preserved.
+
+### Scenario: Cache reuse on re-rollup
+
+1. In container "qa-hercules-cluster" (from Scenario 2), click "Regenerate summary now" a second time without uploading anything.
+2. **Expected:** Rollup completes quickly. Hangfire dashboard / logs show **zero** `PerDocSummaryAsync` invocations this time (all K medoid docs have cached summaries whose `summary_content_hash` matches the current `content_hash`).
