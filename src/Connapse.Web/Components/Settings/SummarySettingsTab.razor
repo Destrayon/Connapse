@@ -43,6 +43,24 @@
     </div>
 
     <div class="mb-3">
+        <label class="form-label">Container summary method</label>
+        <select class="form-select" value="@containerSummaryMethod"
+                @onchange="OnContainerSummaryMethodChanged">
+            <option value="document-clustering">Document clustering (recommended)</option>
+            <option value="summary-clustering">Summary clustering</option>
+        </select>
+        <div class="form-text">
+            <strong>Document clustering</strong> — no per-doc summaries at upload. At container
+            summary generation time, the system clusters documents by their embeddings and
+            summarizes only the K most representative ones. Lower LLM cost; container summary
+            generation is slower the first time it runs.<br />
+            <strong>Summary clustering</strong> — summarizes every uploaded document at ingest.
+            Container summary generation reuses those summaries. Higher LLM cost overall; faster
+            container summary generation.
+        </div>
+    </div>
+
+    <div class="mb-3">
         <label class="form-label">Max input tokens per document</label>
         <input type="number" class="form-control"
                value="@(maxInputTokens?.ToString() ?? string.Empty)"
@@ -146,6 +164,7 @@
     private string? llmProvider;
     private string? llmModel;
     private int? maxInputTokens;
+    private string containerSummaryMethod = SummaryStrategy.DocumentClustering;
     private string perDocPromptText = string.Empty;
     private string containerPromptText = string.Empty;
 
@@ -161,12 +180,20 @@
         llmProvider = Settings.LlmProvider;
         llmModel = Settings.LlmModel;
         maxInputTokens = Settings.MaxInputTokens;
+        containerSummaryMethod = Settings.ContainerSummaryMethod;
         perDocPromptText = !string.IsNullOrWhiteSpace(Settings.PerDocSystemPrompt)
             ? Settings.PerDocSystemPrompt!
             : SummaryPrompts.PerDocSystemPrompt;
         containerPromptText = !string.IsNullOrWhiteSpace(Settings.ContainerRollupSystemPrompt)
             ? Settings.ContainerRollupSystemPrompt!
             : SummaryPrompts.ContainerRollupSystemPrompt;
+    }
+
+    private Task OnContainerSummaryMethodChanged(ChangeEventArgs e)
+    {
+        string? raw = e.Value as string;
+        containerSummaryMethod = string.IsNullOrWhiteSpace(raw) ? SummaryStrategy.DocumentClustering : raw;
+        return EmitChanged();
     }
 
     private Task OnEnabledChanged(ChangeEventArgs e)
@@ -239,6 +266,7 @@
         return new SummarySettings
         {
             Enabled = enabled,
+            ContainerSummaryMethod = containerSummaryMethod,
             LlmProvider = llmProvider,
             LlmModel = llmModel,
             MaxInputTokens = maxInputTokens,
