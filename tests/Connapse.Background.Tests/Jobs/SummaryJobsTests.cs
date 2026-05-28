@@ -68,7 +68,8 @@ public class SummaryJobsTests
         Guid containerId = Guid.NewGuid();
         string docId = Guid.NewGuid().ToString();
         const string docSummary = "Summary text";
-        string expectedHash = ComputeExpectedHash(docId, docSummary);
+        const string contentHash = "deadbeef-content-hash";
+        string expectedHash = ComputeExpectedHash(docId, contentHash);
 
         containerStore.GetAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Container?>(new Container(
@@ -86,7 +87,12 @@ public class SummaryJobsTests
                 SummaryDocSetHash: expectedHash)));
 
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings { Enabled = true }));
+            .Returns(Task.FromResult(new SummarySettings
+            {
+                Enabled = true,
+                // Pin to summary-clustering: this test exercises the eager-mode hash short-circuit.
+                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
+            }));
 
         docStore.ListAsync(containerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(),
                 Arg.Any<CancellationToken>())
@@ -100,10 +106,10 @@ public class SummaryJobsTests
                     Path: "/a.txt",
                     SizeBytes: 100,
                     CreatedAt: DateTime.UtcNow,
-                    Metadata: new Dictionary<string, string>(),
+                    Metadata: new Dictionary<string, string> { ["ContentHash"] = contentHash },
                     Summary: docSummary,
                     SummaryGeneratedAt: DateTime.UtcNow,
-                    SummaryContentHash: "abc",
+                    SummaryContentHash: contentHash,
                     IngestionState: IngestionState.SummaryIndexed)
             }));
 
@@ -157,7 +163,8 @@ public class SummaryJobsTests
         return new SummaryLlmResolver(optionsMonitor, serviceProvider);
     }
 
-    private static string ComputeExpectedHash(string docId, string summary) =>
-        // Must match SummaryJobs.ComputeDocSetHash logic exactly.
-        HexHash.Sha256(string.Join("\n", new[] { $"{docId}|{HexHash.Sha256(summary)}" }));
+    private static string ComputeExpectedHash(string docId, string contentHash) =>
+        // Must match SummaryJobs.ComputeDocSetHash logic exactly — post-HERCULES this
+        // hashes (docId, content_hash) pairs, not (docId, sha256(summary)).
+        HexHash.Sha256(string.Join("\n", new[] { $"{docId}|{contentHash}" }));
 }

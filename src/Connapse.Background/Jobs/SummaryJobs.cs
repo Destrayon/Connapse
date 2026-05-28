@@ -209,15 +209,26 @@ public sealed class SummaryJobs : ISummaryJobs
     }
 
     /// <summary>
-    /// Deterministic hash of the (sorted) set of {docId, summary} pairs in this container.
-    /// Matches the legacy <c>ContainerSummaryWorker.ComputeDocSetHash</c> exactly so jobs
-    /// migrated mid-flight don't trigger spurious re-rollups due to a hash format change.
+    /// Deterministic hash of the (sorted) set of {docId, content_hash} pairs for the docs
+    /// in this container. Works for both <c>summary-clustering</c> (docs filtered to those
+    /// with summaries — content_hash still identifies stale-vs-fresh state) and
+    /// <c>document-clustering</c> (most docs have null summaries; content_hash is the only
+    /// durable identifier).
     /// </summary>
+    /// <remarks>
+    /// Migration impact: hashes differ from the prior (docId, summary-sha256) formula across
+    /// the deploy boundary, causing exactly one extra rollup per container on first run
+    /// post-deploy. Accepted one-shot cost.
+    /// </remarks>
     internal static string ComputeDocSetHash(IEnumerable<Document> docs)
     {
         IEnumerable<string> parts = docs
             .OrderBy(d => d.Id)
-            .Select(d => $"{d.Id}|{HexHash.Sha256(d.Summary ?? string.Empty)}");
+            .Select(d =>
+            {
+                string contentHash = d.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
+                return $"{d.Id}|{contentHash}";
+            });
         return HexHash.Sha256(string.Join("\n", parts));
     }
 }
