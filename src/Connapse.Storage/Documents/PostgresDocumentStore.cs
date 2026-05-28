@@ -242,19 +242,34 @@ public class PostgresDocumentStore : IDocumentStore
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
 
-        // Containers where any doc has a newer summary timestamp than the container's own summary,
-        // OR where the container has docs with summaries but no container summary at all.
-        // Mirrors the recovery query in ContainerSummaryWorker so behavior is unchanged after
-        // the Hangfire migration.
+        // Stale = container has at least one doc AND something changed more recently than the
+        // container's last rollup. "Change" is the latest of three doc-level timestamps:
+        //   • SummaryGeneratedAt — bumped when a per-doc summary is written (summary-clustering
+        //     mode at ingest; document-clustering mode when a medoid summary is cached)
+        //   • LastIndexedAt      — bumped on re-ingestion (content updates)
+        //   • CreatedAt          — initial upload
+        //
+        // Before HERCULES this query filtered to docs with non-null Summary, which silently
+        // excluded document-clustering containers (whose docs are mostly null-summary) — the
+        // sweep then reported "no stale containers" forever and rollups never fired.
         return await context.Documents
-            .Where(d => d.Summary != null && d.SummaryGeneratedAt != null)
             .GroupBy(d => d.ContainerId)
-            .Select(g => new { ContainerId = g.Key, LatestDocSummary = g.Max(d => d.SummaryGeneratedAt) })
+            .Select(g => new
+            {
+                ContainerId = g.Key,
+                MaxSummary = g.Max(d => d.SummaryGeneratedAt),
+                MaxIndexed = g.Max(d => d.LastIndexedAt),
+                MaxCreated = g.Max(d => d.CreatedAt),
+            })
             .Join(context.Containers,
                   x => x.ContainerId,
                   c => c.Id,
-                  (x, c) => new { x.ContainerId, x.LatestDocSummary, ContainerSummaryAt = c.SummaryGeneratedAt })
-            .Where(x => x.ContainerSummaryAt == null || x.LatestDocSummary > x.ContainerSummaryAt)
+                  (x, c) => new { x.ContainerId, x.MaxSummary, x.MaxIndexed, x.MaxCreated, ContainerSummaryAt = c.SummaryGeneratedAt })
+            .Where(x =>
+                x.ContainerSummaryAt == null
+                || (x.MaxSummary != null && x.MaxSummary > x.ContainerSummaryAt)
+                || (x.MaxIndexed != null && x.MaxIndexed > x.ContainerSummaryAt)
+                || x.MaxCreated > x.ContainerSummaryAt)
             .Select(x => x.ContainerId)
             .ToListAsync(ct);
     }
