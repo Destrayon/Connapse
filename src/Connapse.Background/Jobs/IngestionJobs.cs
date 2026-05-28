@@ -58,13 +58,41 @@ public sealed class IngestionJobs : IIngestionJobs
             // up the document/container and reads the file through the appropriate connector.
             await _ingester.IngestByIdAsync(documentId, options, ct);
 
+            // Resolve summary settings to decide whether a per-doc summary job is even worth
+            // enqueueing. Two modes skip it entirely (no dashboard noise, no wasted dequeue):
+            //   • summaries disabled → no LLM work ever
+            //   • document-clustering → per-doc summarization is deferred to rollup time
+            // Falls back gracefully if the container isn't found (transient race or test mode).
+            //
             // Wrap-up uses CancellationToken.None: if the app restarts during these brief
             // (~50ms) DB/SignalR ops, we still want them to complete — otherwise the UI's
             // spinner gets stuck even though ingestion finished. Pattern: "best-effort
             // finalization" — once we've done the real work, commit the resulting state.
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Indexed, CancellationToken.None);
+            SummarySettings? settings = null;
+            if (Guid.TryParse(options.ContainerId, out Guid containerId))
+            {
+                settings = await _settingsResolver.GetSummarySettingsAsync(containerId, CancellationToken.None);
+            }
+
+            bool needsPerDocSummary = settings is not null
+                                       && settings.Enabled
+                                       && settings.ContainerSummaryMethod == SummaryStrategy.SummaryClustering;
+
+            // Terminal state in the no-summarization paths is SummaryIndexed — the doc is
+            // fully done with its expected lifecycle. In summary-clustering mode we pass
+            // through Indexed first, then PerDocSummaryAsync flips to SummaryIndexed.
+            IngestionState terminalState = needsPerDocSummary
+                ? IngestionState.Indexed
+                : IngestionState.SummaryIndexed;
+
+            await _docStore.UpdateIngestionStateAsync(documentId, terminalState, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
-                documentId, IngestionState.Indexed, CancellationToken.None);
+                documentId, terminalState, CancellationToken.None);
+
+            if (needsPerDocSummary)
+            {
+                _bgClient.Enqueue<IIngestionJobs>(j => j.PerDocSummaryAsync(documentId, default));
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -9,7 +9,7 @@ namespace Connapse.Background.Tests.Jobs;
 public class IngestionJobsTests
 {
     [Fact]
-    public async Task IngestAsync_RunsPipelineAndTransitionsStateToIndexed()
+    public async Task IngestAsync_SummaryClusteringMode_TransitionsToIndexedAndEnqueuesPerDocSummary()
     {
         var ingester = Substitute.For<IKnowledgeIngester>();
         var docStore = Substitute.For<IDocumentStore>();
@@ -19,6 +19,14 @@ public class IngestionJobsTests
         var settingsResolver = Substitute.For<IContainerSettingsResolver>();
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
         var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
+
+        Guid containerId = Guid.NewGuid();
+        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new SummarySettings
+            {
+                Enabled = true,
+                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
+            }));
 
         var containerStore = Substitute.For<IContainerStore>();
         var connectorFactory = Substitute.For<IConnectorFactory>();
@@ -32,15 +40,64 @@ public class IngestionJobsTests
             DocumentId: documentId,
             FileName: "test.txt",
             ContentType: "text/plain",
-            ContainerId: Guid.NewGuid().ToString());
+            ContainerId: containerId.ToString());
 
         await jobs.IngestAsync(documentId, options, CancellationToken.None);
 
         await ingester.Received(1).IngestByIdAsync(
             documentId, options, Arg.Any<CancellationToken>());
 
+        // Eager mode: state transitions to Indexed and a follow-up PerDocSummary job is enqueued.
         await docStore.Received(1).UpdateIngestionStateAsync(
             documentId, IngestionState.Indexed, Arg.Any<CancellationToken>());
+        bgClient.Received(1).Create(
+            Arg.Any<Hangfire.Common.Job>(),
+            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
+    }
+
+    [Fact]
+    public async Task IngestAsync_DocumentClusteringMode_TransitionsDirectlyToSummaryIndexedNoEnqueue()
+    {
+        var ingester = Substitute.For<IKnowledgeIngester>();
+        var docStore = Substitute.For<IDocumentStore>();
+        var parsers = Array.Empty<IDocumentParser>();
+        var summarizer = Substitute.For<IPerDocSummarizer>();
+        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
+        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
+        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
+
+        Guid containerId = Guid.NewGuid();
+        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new SummarySettings
+            {
+                Enabled = true,
+                ContainerSummaryMethod = SummaryStrategy.DocumentClustering,
+            }));
+
+        var containerStore = Substitute.For<IContainerStore>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
+        var jobs = new IngestionJobs(
+            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            settingsResolver, bgClient, stateBroadcaster, logger);
+
+        string documentId = Guid.NewGuid().ToString();
+        var options = new IngestionOptions(
+            DocumentId: documentId,
+            FileName: "test.txt",
+            ContentType: "text/plain",
+            ContainerId: containerId.ToString());
+
+        await jobs.IngestAsync(documentId, options, CancellationToken.None);
+
+        // Lazy mode: terminal state is SummaryIndexed; no PerDoc job is enqueued.
+        await docStore.Received(1).UpdateIngestionStateAsync(
+            documentId, IngestionState.SummaryIndexed, Arg.Any<CancellationToken>());
+        await docStore.DidNotReceive().UpdateIngestionStateAsync(
+            documentId, IngestionState.Indexed, Arg.Any<CancellationToken>());
+        bgClient.DidNotReceive().Create(
+            Arg.Any<Hangfire.Common.Job>(),
+            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
     }
 
     [Fact]

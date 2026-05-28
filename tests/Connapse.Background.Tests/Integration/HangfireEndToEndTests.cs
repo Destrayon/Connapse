@@ -32,8 +32,12 @@ public sealed class HangfireEndToEndTests
     }
 
     [Fact]
-    public async Task EnqueueAsync_CreatesEnqueuedIngestJobAndAwaitingSummaryContinuation()
+    public async Task EnqueueAsync_CreatesOnlyIngestJob_NoUpfrontPerDocContinuation()
     {
+        // Post-HERCULES: HangfireIngestionQueue no longer attaches a PerDocSummary
+        // continuation. The per-doc job is enqueued (or skipped) inside IngestAsync's
+        // tail based on the container's resolved SummarySettings, so document-clustering
+        // and summaries-disabled containers don't create any per-doc job at all.
         var bgClient = new BackgroundJobClient();
         var queue = new HangfireIngestionQueue(bgClient);
 
@@ -51,12 +55,6 @@ public sealed class HangfireEndToEndTests
 
         var monitor = JobStorage.Current.GetMonitoringApi();
 
-        // Hangfire reads the [Queue] attribute from the resolved Job.Method. When the
-        // method is invoked via an interface expression (Enqueue<IIngestionJobs>), the
-        // attribute lookup may resolve via the interface declaration — which has no
-        // [Queue] — so jobs can land on "default" rather than "ingestion". In production
-        // the worker is configured to listen on both queues; for this wiring test we
-        // collect across whatever queue Hangfire picked.
         var enqueuedJobs = monitor.Queues()
             .SelectMany(q => monitor.EnqueuedJobs(q.Name, 0, 100))
             .ToList();
@@ -66,28 +64,11 @@ public sealed class HangfireEndToEndTests
         enqueuedJobs.Single().Value.Job!.Method.Name.Should().Be(
             nameof(Connapse.Background.Jobs.IIngestionJobs.IngestAsync));
 
-        // The continuation summary job is created in Awaiting state. MemoryStorage's
-        // StatisticsDto.Awaiting is null in this version, so we look up the parent's
-        // "Continuations" job property — populated by ContinueJobWith — and then fetch
-        // the continuation job to confirm it targets PerDocSummaryAsync.
+        // Verify NO continuation is attached — the per-doc decision is deferred to IngestAsync.
         string parentId = enqueuedJobs.Single().Key;
         var parentDetails = monitor.JobDetails(parentId);
         parentDetails.Should().NotBeNull();
-        parentDetails.Properties.Should().ContainKey("Continuations",
-            "ContinueJobWith should attach a continuation reference on the parent");
-
-        // Parse the JSON-encoded continuations array and verify the child targets
-        // PerDocSummaryAsync. The exact JSON shape ({"JobId":"<guid>","Options":<int>})
-        // is Hangfire-internal but stable across 1.8.x.
-        string continuationsJson = parentDetails.Properties["Continuations"];
-        using var doc = System.Text.Json.JsonDocument.Parse(continuationsJson);
-        var first = doc.RootElement.EnumerateArray().FirstOrDefault();
-        first.ValueKind.Should().NotBe(System.Text.Json.JsonValueKind.Undefined);
-        string continuationId = first.GetProperty("JobId").GetString()!;
-
-        var childDetails = monitor.JobDetails(continuationId);
-        childDetails.Should().NotBeNull();
-        childDetails.Job!.Method.Name.Should().Be(
-            nameof(Connapse.Background.Jobs.IIngestionJobs.PerDocSummaryAsync));
+        parentDetails.Properties.Should().NotContainKey("Continuations",
+            "post-HERCULES, HangfireIngestionQueue should not attach an upfront PerDocSummary continuation");
     }
 }
