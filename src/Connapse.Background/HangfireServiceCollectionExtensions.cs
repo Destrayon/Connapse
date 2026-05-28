@@ -26,6 +26,15 @@ public static class HangfireServiceCollectionExtensions
             .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
             .UseSimpleAssemblyNameTypeSerializer()
             .UseRecommendedSerializerSettings()
+            // Replace Hangfire's default AspNetCoreLogProvider with a no-op. The default
+            // captures the host's ILoggerFactory into the process-wide static
+            // GlobalConfiguration.Configuration; any second IHost in the same process
+            // (e.g., WebApplicationFactory.WithWebHostBuilder in integration tests)
+            // overwrites the static with its own factory reference. When that host
+            // disposes, the static reference dangles and every Hangfire worker dequeue
+            // hits ObjectDisposedException("LoggerFactory"). See NoOpHangfireLogProvider
+            // for full rationale.
+            .UseLogProvider(new NoOpHangfireLogProvider())
             .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(connectionString), new PostgreSqlStorageOptions
             {
                 SchemaName = "hangfire",
