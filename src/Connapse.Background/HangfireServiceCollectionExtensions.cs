@@ -4,6 +4,7 @@ using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace Connapse.Background;
 
@@ -22,6 +23,18 @@ public static class HangfireServiceCollectionExtensions
             throw new InvalidOperationException(
                 "DefaultConnection string is required for Hangfire's PostgreSQL storage.");
 
+        // Cap Hangfire's own Npgsql pool. Hangfire draws connections from the global string-keyed
+        // pool for this connection string, independent of the app's NpgsqlDataSource pool. Left
+        // unspecified, Npgsql defaults Maximum Pool Size to 100 — and stacked on the app pool
+        // against Postgres's own max_connections ceiling, that let concurrent rollups exhaust
+        // connections ("too many clients already"). Overridable per deployment; default suits a
+        // single-process box where the app pool also needs headroom under the same ceiling.
+        int hangfireMaxPool = configuration.GetValue<int?>("Hangfire:MaxPoolSize") ?? 30;
+        string hangfireConnectionString = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            MaxPoolSize = hangfireMaxPool
+        }.ConnectionString;
+
         services.AddHangfire(opt => opt
             .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
             .UseSimpleAssemblyNameTypeSerializer()
@@ -35,7 +48,7 @@ public static class HangfireServiceCollectionExtensions
             // hits ObjectDisposedException("LoggerFactory"). See NoOpHangfireLogProvider
             // for full rationale.
             .UseLogProvider(new NoOpHangfireLogProvider())
-            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(connectionString), new PostgreSqlStorageOptions
+            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(hangfireConnectionString), new PostgreSqlStorageOptions
             {
                 SchemaName = "hangfire",
                 PrepareSchemaIfNecessary = true,
@@ -54,7 +67,13 @@ public static class HangfireServiceCollectionExtensions
         {
             services.AddHangfireServer(opt =>
             {
-                opt.WorkerCount = Environment.ProcessorCount * 2;
+                // Right-size the worker pool. Hangfire's default (ProcessorCount * 2) is tuned for
+                // CPU-bound jobs; this workload is LLM/IO-bound and serialized through a concurrency
+                // gate, so on a many-core box most of those workers would just park while holding a
+                // DB connection (DisableConcurrentExecution keeps each running job's distributed-lock
+                // connection open for its whole lifetime). Cap the default and allow an override.
+                opt.WorkerCount = configuration.GetValue<int?>("Hangfire:WorkerCount")
+                    ?? Math.Min(Environment.ProcessorCount * 2, 16);
                 opt.Queues = new[]
                 {
                     Jobs.JobQueues.Ingestion,

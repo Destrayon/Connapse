@@ -1,3 +1,4 @@
+using System.Reflection;
 using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -168,6 +169,23 @@ public class SummaryJobsTests
         bgClient.Received(3).Create(
             Arg.Any<Hangfire.Common.Job>(),
             Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
+    }
+
+    [Fact]
+    public void RollupContainerAsync_HasNoAutomaticRetry()
+    {
+        // The recurring SweepStaleContainersAsync re-enqueues any still-stale container every
+        // cycle, so a failed rollup is naturally retried on the next sweep tick — the sweep IS
+        // the retry loop. Hangfire's own AutomaticRetry would instead stack Scheduled jobs on top
+        // of the sweep's enqueues, and that duplicate pile-up under concurrent rollups is what
+        // exhausted the Postgres connection pool. Lock Attempts == 0 so a well-meaning re-add of
+        // the default retry attribute can't silently regress it.
+        MethodInfo? method = typeof(SummaryJobs).GetMethod(nameof(SummaryJobs.RollupContainerAsync));
+        Assert.NotNull(method);
+
+        var retry = method!.GetCustomAttribute<Hangfire.AutomaticRetryAttribute>();
+        Assert.NotNull(retry);
+        Assert.Equal(0, retry!.Attempts);
     }
 
     private static SummaryLlmResolver CreateLlmResolverSubstitute()

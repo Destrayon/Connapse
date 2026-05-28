@@ -135,3 +135,23 @@ A single local Ollama instance serializes generation internally. When many conta
 2. Make them all stale at once and let the `summary-sweep-stale-containers` job fire (or trigger it from the Hangfire dashboard), so multiple `RollupContainerAsync` jobs run concurrently.
 3. Tail the logs: `/api/chat` calls should start strictly one at a time — each new call begins only after the previous one returns (`MaxConcurrentRequests = 1`) — and every rollup should complete with **no** `TaskCanceledException`. The first call may be slow (cold model load); subsequent calls are fast.
 4. (Optional) Raise `MaxConcurrentRequests` above 1 only if the Ollama host has GPU/CPU headroom to run that many generations in parallel without any single one exceeding `TimeoutSeconds`. The setting is read once at startup, so changing it requires a restart.
+
+## Postgres connection budget — stability under concurrent rollups (#335)
+
+Concurrent rollups also pressure the database, not just the LLM. Two Npgsql connection pools share one Postgres server: the app's `NpgsqlDataSource` (queries, vector search, EF) and the background job runner's storage pool. Each pool, left unspecified, defaults to a maximum of 100 connections — so two uncapped pools can together demand 200 against a server that typically allows ~100. On top of that, `DisableConcurrentExecution` on a rollup holds its distributed-lock connection open for the job's entire lifetime, including while a worker is parked waiting on the Ollama concurrency gate. With an oversized worker pool (Hangfire's default is `ProcessorCount * 2`, which is large on a many-core box), a backlog of swept rollups could hold enough connections at once to exhaust the server, surfacing as `PostgresException: 53300: sorry, too many clients already`.
+
+Three knobs bound the demand, each overridable per deployment:
+
+- **`Database:MaxPoolSize`** (default 40) — caps the app's `NpgsqlDataSource` pool.
+- **`Hangfire:MaxPoolSize`** (default 30) — caps the background runner's storage pool.
+- **`Hangfire:WorkerCount`** (default `min(ProcessorCount * 2, 16)`) — caps concurrent jobs, so fewer lock-holding connections are alive at once.
+
+The defaults sum to a per-process budget (40 + 30 = 70 connections) that leaves headroom for admin tooling under a ~100 ceiling. A deployment whose Postgres allows more connections, or that runs multiple app instances against one server, should raise or lower these to fit its own `max_connections`.
+
+Rollups also do **not** use Hangfire's automatic retry (`AutomaticRetry(Attempts = 0)` on `RollupContainerAsync`). The recurring `summary-sweep-stale-containers` job re-enqueues any container that is still stale on its next tick, so a failed rollup is retried by the sweep rather than by Hangfire stacking Scheduled retry jobs on top of the sweep's enqueues — the duplicate pile-up that retries would create is exactly what pressured the connection pool.
+
+### Scenario: Backlog of rollups doesn't exhaust connections
+
+1. With summaries enabled and a working LLM provider, make several containers stale at once (e.g. update their doc summary timestamps) and let `summary-sweep-stale-containers` fire, or trigger it from the Hangfire dashboard.
+2. While the backlog drains, query the database: `SELECT count(*) FROM pg_stat_activity;` — the count should stay well under the server's `max_connections` (no climb toward the ceiling).
+3. **Expected:** every rollup completes; no `53300: sorry, too many clients already` in the app logs. A rollup that does fail (e.g. transient LLM error) lands in **Failed** in the dashboard — not Scheduled — and is picked up again on the next sweep tick rather than by a Hangfire retry.

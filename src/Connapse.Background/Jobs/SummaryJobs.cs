@@ -61,7 +61,13 @@ public sealed class SummaryJobs : ISummaryJobs
 
     [Queue(JobQueues.Summarization)]
     [DisableConcurrentExecution(timeoutInSeconds: 600)]
-    [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 30, 120, 600 })]
+    // No Hangfire retry: the recurring SweepStaleContainersAsync (every 5 min) re-enqueues any
+    // container that is still stale, so a failed rollup is naturally retried on the next tick —
+    // the sweep IS the retry loop. Hangfire retries would instead stack Scheduled jobs on top of
+    // the sweep's enqueues; that duplicate pile-up is what exhausted the Postgres connection pool
+    // under concurrent rollups. A failed rollup lands in Failed (not Scheduled), which also keeps
+    // the sweep's in-flight dedup simple (it only has to skip Enqueued/Processing, never retries).
+    [AutomaticRetry(Attempts = 0)]
     public async Task RollupContainerAsync(Guid containerId, CancellationToken ct)
     {
         Container? container = await _containerStore.GetAsync(containerId, ct);

@@ -43,6 +43,13 @@ public static class ServiceCollectionExtensions
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
         dataSourceBuilder.EnableDynamicJson(); // Required for Dictionary<string, string> serialization
         dataSourceBuilder.UseVector();
+        // Cap the application's connection pool. Postgres enforces a server-wide max_connections
+        // ceiling; the app pool and the background job runner's pool draw from it concurrently, so
+        // an uncapped pool here (Npgsql defaults Maximum Pool Size to 100) can starve the other or
+        // exhaust the server under load. Sized to leave headroom for the background pool and admin
+        // tooling beneath a typical ceiling; overridable per deployment via Database:MaxPoolSize.
+        dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize =
+            configuration.GetValue<int?>("Database:MaxPoolSize") ?? 40;
         var dataSource = dataSourceBuilder.Build();
 
         services.AddDbContext<KnowledgeDbContext>(options =>
