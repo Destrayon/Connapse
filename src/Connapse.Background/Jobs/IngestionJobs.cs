@@ -113,6 +113,22 @@ public sealed class IngestionJobs : IIngestionJobs
                 return;
             }
 
+            if (settings.ContainerSummaryMethod == SummaryStrategy.DocumentClustering)
+            {
+                // document-clustering mode summarizes K medoids lazily at rollup time;
+                // no per-doc summary is generated at ingest. Advance the ingestion state
+                // so the UI doesn't show a stuck spinner — "summary processing complete"
+                // here means "we decided not to summarize this doc."
+                _logger.LogInformation(
+                    "PerDocSummarySkipped {DocumentId} reason=document_clustering_mode",
+                    LogSanitizer.Sanitize(documentId));
+
+                await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.SummaryIndexed, CancellationToken.None);
+                await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
+                    documentId, IngestionState.SummaryIndexed, CancellationToken.None);
+                return;
+            }
+
             // Re-parse the doc text via the same parser the pipeline used during ingestion.
             // Read through the container's connector (matching IngestionPipeline.IngestByIdAsync) —
             // _fileSystem.OpenFileAsync(doc.Path) would miss the container-id prefix that the

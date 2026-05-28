@@ -76,7 +76,15 @@ public class IngestionJobsTests
                 IngestionState: IngestionState.Indexed)));
 
         settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings { Enabled = true }));
+            .Returns(Task.FromResult(new SummarySettings
+            {
+                Enabled = true,
+                // Explicit: this test exercises the eager summary-clustering path, where
+                // PerDocSummaryAsync actually invokes the summarizer. The new default
+                // (document-clustering) takes a separate early-return path covered by
+                // IngestionJobsHerculesTests.
+                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
+            }));
 
         // Container/connector chain: GetAsync → connector → ReadFileAsync
         var container = new Container(
