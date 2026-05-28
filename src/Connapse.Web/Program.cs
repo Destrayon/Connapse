@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using Connapse.Background;
 using Connapse.Core;
 using Connapse.Identity;
 using Connapse.Identity.Data;
@@ -19,6 +20,7 @@ using Connapse.Web.Hubs;
 using Connapse.Core.Interfaces;
 using Connapse.Web;
 using Connapse.Web.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -82,7 +84,12 @@ builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
 builder.Services.AddSingleton<FileBrowserChangeNotifier>();
 
 // Add background services
-builder.Services.AddHostedService<IngestionProgressBroadcaster>();
+// Singleton-as-hosted-service so the same instance also serves IIngestionStateBroadcaster
+// for Connapse.Background Hangfire jobs (which can't reference Web directly).
+builder.Services.AddSingleton<IngestionProgressBroadcaster>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionProgressBroadcaster>());
+builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
+    sp.GetRequiredService<IngestionProgressBroadcaster>());
 
 // ConnectorWatcherService: manages FileSystemWatcher instances per Filesystem container.
 // Registered as singleton so endpoints can call StartWatchingContainer() at runtime.
@@ -140,6 +147,9 @@ builder.Services.AddConnapseStorage(builder.Configuration);
 
 // Add document ingestion pipeline
 builder.Services.AddDocumentIngestion();
+
+// Add Hangfire background-job runtime (PostgreSQL storage + worker pools + dashboard auth)
+builder.Services.AddConnapseHangfire(builder.Configuration);
 
 // Add knowledge search (hybrid vector + keyword search)
 builder.Services.AddKnowledgeSearch();
@@ -280,6 +290,31 @@ app.UseCors();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
+
+// Hangfire dashboard — gated by HangfireDashboardAuthFilter (defers to "RequireAdmin" policy).
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[]
+    {
+        app.Services.GetRequiredService<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
+    }
+});
+
+// Register recurring jobs idempotently at startup. AddOrUpdate is safe to call repeatedly.
+using (var scope = app.Services.CreateScope())
+{
+    var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+    // Every 5 minutes: scan for containers with stale summaries (per-doc summaries newer
+    // than container summary) and enqueue a rollup for those that have settled (no in-flight
+    // PerDocSummary jobs). This replaces per-PerDocSummary scheduling: bursts of N uploads
+    // converge to 1 rollup instead of N. Pattern matches Postgres materialized view refresh
+    // and Algolia derived-index updates — sweep-based, not write-through, for expensive
+    // aggregates over frequently-changing base data.
+    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.ISummaryJobs>(
+        recurringJobId: "summary-sweep-stale-containers",
+        methodCall: s => s.SweepStaleContainersAsync(default),
+        cronExpression: "*/5 * * * *");
+}
 
 app.UseAntiforgery();
 

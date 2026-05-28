@@ -11,7 +11,7 @@ namespace Connapse.Web.Services;
 /// Background service that monitors ingestion job progress and broadcasts
 /// updates via SignalR to connected clients.
 /// </summary>
-public class IngestionProgressBroadcaster : BackgroundService
+public class IngestionProgressBroadcaster : BackgroundService, IIngestionStateBroadcaster
 {
     private readonly IIngestionQueue _queue;
     private readonly IHubContext<IngestionHub> _hubContext;
@@ -117,5 +117,25 @@ public class IngestionProgressBroadcaster : BackgroundService
         // Throttle active jobs (max 2 updates per second)
         var elapsed = DateTime.UtcNow - _lastBroadcast[jobId];
         return elapsed.TotalMilliseconds >= 500;
+    }
+
+    /// <summary>
+    /// Pushes a per-document IngestionState transition (Pending → Indexed → SummaryIndexed → Failed)
+    /// to all connected SignalR clients. Called from background Hangfire jobs at each state change
+    /// so the UI can update per-doc status pills without polling. Separate wire event from the
+    /// in-flight job-progress stream (which tracks IngestionJobState — Queued/Processing/etc.).
+    /// </summary>
+    public async Task BroadcastIngestionStateChangedAsync(
+        string documentId, IngestionState state, CancellationToken ct = default)
+    {
+        // In-process notifier first — Blazor Server components subscribe here
+        // because a server-to-server SignalR client has no auth cookies.
+        _notifier.NotifyStateChanged(documentId, state);
+
+        // SignalR push for any non-circuit clients (e.g. external tooling).
+        await _hubContext.Clients.All.SendAsync(
+            "IngestionStateChanged",
+            new { DocumentId = documentId, State = state.ToString() },
+            ct);
     }
 }

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -7,6 +8,7 @@ using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.Vectors;
 using Connapse.Web.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -440,6 +442,21 @@ public static class ContainersEndpoints
         .WithName("SyncContainer")
         .WithDescription("Sync files from a remote connector (S3, AzureBlob, MinIO). Lists remote files, compares to DB, enqueues new/changed.")
         .RequireAuthorization("RequireEditor");
+
+        // POST /api/containers/{containerId}/summary/regenerate
+        // Manually enqueue a container rollup. Useful after editing summary settings or for
+        // operator-triggered regeneration. Gated on RequireAdmin (matches /api/settings).
+        group.MapPost("/{containerId:guid}/summary/regenerate", (
+            Guid containerId,
+            [FromServices] IBackgroundJobClient bgClient) =>
+        {
+            bgClient.Enqueue<ISummaryJobs>(
+                s => s.RollupContainerAsync(containerId, default));
+            return Results.Accepted($"/api/containers/{containerId}");
+        })
+        .WithName("RegenerateContainerSummary")
+        .WithDescription("Enqueue an immediate container summary rollup (skips the 60s debounce).")
+        .RequireAuthorization("RequireAdmin");
 
         return app;
     }

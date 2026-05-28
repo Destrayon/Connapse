@@ -190,6 +190,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("summary_content_hash")
                 .HasMaxLength(64);
 
+            entity.Property(e => e.IngestionState)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasColumnName("ingestion_state")
+                .IsRequired()
+                .HasDefaultValue(Core.IngestionState.Pending);
+
+            entity.HasIndex(e => e.IngestionState)
+                .HasDatabaseName("ix_documents_ingestion_state");
+
             entity.HasIndex(e => e.ContainerId)
                 .HasDatabaseName("idx_documents_container_id");
 

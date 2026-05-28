@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
+    <Project Path="src/Connapse.Background/Connapse.Background.csproj" />
     <Project Path="src/Connapse.Core/Connapse.Core.csproj" />
     <Project Path="src/Connapse.Identity/Connapse.Identity.csproj" />
     <Project Path="src/Connapse.Ingestion/Connapse.Ingestion.csproj" />
@@ -9,6 +10,7 @@
     <Project Path="src/Connapse.Web/Connapse.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Connapse.Background.Tests/Connapse.Background.Tests.csproj" />
     <Project Path="tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj" />
     <Project Path="tests/Connapse.Identity.Tests/Connapse.Identity.Tests.csproj" />
     <Project Path="tests/Connapse.Ingestion.Tests/Connapse.Ingestion.Tests.csproj" />

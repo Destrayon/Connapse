@@ -29,9 +29,9 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly EmbeddingCache _embeddingCache;
-    private readonly IPerDocSummarizer _summarizer;
-    private readonly IContainerSummaryQueue _dirtyQueue;
-    private readonly IContainerSettingsResolver _settingsResolver;
+    private readonly IContainerStore _containerStore;
+    private readonly IConnectorFactory _connectorFactory;
+    private readonly IDocumentStore _documentStore;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -56,9 +56,6 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <param name="chunkingSettings">Runtime monitor providing current chunking configuration.</param>
     /// <param name="embeddingSettings">Runtime monitor providing current embedding configuration.</param>
     /// <param name="embeddingCache">Cache used to retrieve or compute embeddings to avoid redundant work.</param>
-    /// <param name="summarizer">Per-document summarizer called after chunks and vectors are persisted.</param>
-    /// <param name="dirtyQueue">Queue for posting container summary dirty events.</param>
-    /// <param name="settingsResolver">Resolves per-container settings (chunking, embedding, summary, etc.).</param>
     /// <param name="logger">Logger used for recording pipeline diagnostics and errors.</param>
     public IngestionPipeline(
         KnowledgeDbContext context,
@@ -70,9 +67,9 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         EmbeddingCache embeddingCache,
-        IPerDocSummarizer summarizer,
-        IContainerSummaryQueue dirtyQueue,
-        IContainerSettingsResolver settingsResolver,
+        IContainerStore containerStore,
+        IConnectorFactory connectorFactory,
+        IDocumentStore documentStore,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -84,9 +81,9 @@ public class IngestionPipeline : IKnowledgeIngester
         _chunkingSettings = chunkingSettings;
         _embeddingSettings = embeddingSettings;
         _embeddingCache = embeddingCache;
-        _summarizer = summarizer;
-        _dirtyQueue = dirtyQueue;
-        _settingsResolver = settingsResolver;
+        _containerStore = containerStore;
+        _connectorFactory = connectorFactory;
+        _documentStore = documentStore;
         _logger = logger;
     }
 
@@ -375,47 +372,9 @@ public class IngestionPipeline : IKnowledgeIngester
 
             await _context.SaveChangesAsync(ct);
 
-            // Generate per-document summary — non-fatal; ingestion succeeds regardless.
-            try
-            {
-                SummarySettings summarySettings = await _settingsResolver.GetSummarySettingsAsync(containerId, ct);
-
-                PerDocSummarizationResult summaryResult = await _summarizer.GenerateAsync(
-                    documentId: documentEntity.Id.ToString(),
-                    docText: parsedDocument.Content,
-                    mimeType: options.ContentType,
-                    fileName: options.FileName ?? "",
-                    settings: summarySettings,
-                    ct: ct);
-
-                if (summaryResult.Skipped)
-                {
-                    _logger.LogInformation(
-                        "PerDocSummarySkipped {DocumentId} {Reason}",
-                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
-                        LogSanitizer.Sanitize(summaryResult.SkipReason ?? ""));
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
-                        LogSanitizer.Sanitize(documentEntity.Id.ToString()),
-                        summaryResult.Model,
-                        summaryResult.InputTokens,
-                        summaryResult.OutputTokens);
-
-                    // Post dirty event to trigger container summary regen
-                    // Only when summary was actually generated (not skipped due to content hash match)
-                    await _dirtyQueue.EnqueueAsync(
-                        new ContainerSummaryDirtyEvent(containerId, documentEntity.Id),
-                        ct);
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "PerDocSummaryFailed {DocumentId}", LogSanitizer.Sanitize(documentEntity.Id.ToString()));
-                // continue — ingestion succeeds even if summary fails
-            }
+            // Per-doc summary and container rollup are scheduled separately as Hangfire jobs
+            // (IngestionJobs.PerDocSummaryAsync → SummaryJobs.RollupContainerAsync) so they
+            // don't block the ingestion path. See Connapse.Background for the wiring.
 
             stopwatch.Stop();
 
@@ -466,6 +425,45 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Resolves the source stream for a document via the container's connector and delegates
+    /// to <see cref="IngestAsync(Stream, IngestionOptions, CancellationToken)"/>. Used by the
+    /// Hangfire ingestion job class, which receives only a documentId at invocation time.
+    /// </summary>
+    public async Task<IngestionResult> IngestByIdAsync(
+        string documentId,
+        IngestionOptions options,
+        CancellationToken ct = default)
+    {
+        // Resolve the container ID — prefer options.ContainerId, fall back to looking up the doc.
+        Guid containerId;
+        string virtualPath;
+        if (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cid))
+        {
+            containerId = cid;
+            virtualPath = options.Path ?? options.FileName ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: options must provide Path or FileName for document {documentId}");
+        }
+        else
+        {
+            Document? doc = await _documentStore.GetAsync(documentId, ct)
+                ?? throw new InvalidOperationException(
+                    $"IngestByIdAsync: document {documentId} not found and no ContainerId in options");
+            containerId = Guid.Parse(doc.ContainerId);
+            virtualPath = doc.Path;
+        }
+
+        Container? container = await _containerStore.GetAsync(containerId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: container {containerId} not found for document {documentId}");
+
+        IConnector connector = _connectorFactory.Create(container);
+        string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
+
+        await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
+        return await IngestAsync(stream, options, ct);
     }
 
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(

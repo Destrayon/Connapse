@@ -15,6 +15,7 @@
 @inject IIngestionQueue IngestionQueue
 @inject IContainerSettingsResolver SettingsResolver
 @using Connapse.Web.Services
+@using Microsoft.AspNetCore.SignalR.Client
 @inject IngestionProgressNotifier ProgressNotifier
 @inject FileBrowserChangeNotifier FileChangeNotifier
 @inject NavigationManager Navigation
@@ -33,6 +34,13 @@
             {
                 <span class="breadcrumb-sep">/</span>
                 <button class="breadcrumb-link" @onclick="NavigateToRoot">@container.Name</button>
+                @if (_isRollupInProgress)
+                {
+                    <span class="badge bg-info ms-2" title="A container rollup summary job is queued or running">
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        Updating summary...
+                    </span>
+                }
             }
             @foreach (var crumb in GetBreadcrumbs())
             {
@@ -164,7 +172,8 @@
                     <h6 class="text-accent mb-3">Summary Generation</h6>
                     <SummarySettingsTab @ref="summaryTabRef"
                                         Settings="summarySettings"
-                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
+                                        ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model"
+                                        ContainerId="@ParseContainerIdOrEmpty()" />
                 </div>
                 @* UI Permissions — Filesystem containers only *@
                 @if (container?.ConnectorType == ConnectorType.Filesystem)
@@ -319,7 +328,34 @@
                         <td class="col-status">
                             @if (!entry.IsFolder)
                             {
-                                <span class="badge @GetStatusBadgeClass(entry.Status ?? "Pending")">@(entry.Status ?? "Pending")</span>
+                                @* Single source of truth: Document.IngestionState (driven by Hangfire
+                                   jobs via IngestionStateChanged SignalR push). The legacy entry.Status
+                                   string field is stale post-Hangfire — HangfireIngestionQueue never
+                                   updates _jobStatuses after enqueue, so the old broadcaster polling
+                                   loop would push "Queued" forever and clobber the real state. *@
+                                @if (entry.IngestionState == Connapse.Core.IngestionState.Pending)
+                                {
+                                    <span class="badge bg-secondary" title="Ingestion in progress">
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                        Processing
+                                    </span>
+                                }
+                                else if (entry.IngestionState == Connapse.Core.IngestionState.Failed)
+                                {
+                                    <span class="badge bg-danger">Failed</span>
+                                    <button class="btn btn-sm btn-outline-secondary ms-1"
+                                            title="Retry ingestion"
+                                            @onclick="() => RetryIngestion(entry)"
+                                            @onclick:stopPropagation="true">↻</button>
+                                }
+                                else if (entry.IngestionState == Connapse.Core.IngestionState.SummaryIndexed)
+                                {
+                                    <span class="badge bg-success" title="Indexed and summarized — fully ready">Ready</span>
+                                }
+                                else if (entry.IngestionState == Connapse.Core.IngestionState.Indexed)
+                                {
+                                    <span class="badge bg-success" title="Indexed and searchable">Ready</span>
+                                }
                             }
                         </td>
                         <td class="col-modified">
@@ -627,6 +663,9 @@
     private bool jsInitialized;
     private bool _disposed;
 
+    // SignalR connection for IngestionStateChanged per-doc push events.
+    private HubConnection? _hubConnection;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -635,12 +674,86 @@
         // Subscribe to in-process progress notifications instead of creating a
         // server-to-server SignalR client (which has no auth cookies and fails negotiate).
         ProgressNotifier.ProgressReceived += OnProgressReceived;
+        ProgressNotifier.StateChanged += OnStateChanged;
 
         // Subscribe to real-time file-list changes from the filesystem watcher.
         FileChangeNotifier.FileChanged += OnFileChanged;
 
         await LoadContainer();
         await LoadEntries();
+
+        // SignalR subscription for per-document IngestionState transitions
+        // (Indexed → SummaryIndexed → Failed). The browser-side connection picks
+        // up the auth cookie automatically; server-to-server lookups would not.
+        try
+        {
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/hubs/ingestion"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<IngestionStateChangedDto>("IngestionStateChanged", async dto =>
+            {
+                if (_disposed) return;
+                if (!Enum.TryParse<IngestionState>(dto.State, out var newState)) return;
+                var idx = entries.FindIndex(e => e.Id == dto.DocumentId);
+                if (idx < 0) return;
+                entries[idx] = entries[idx] with { IngestionState = newState };
+                await InvokeAsync(StateHasChanged);
+            });
+
+            await _hubConnection.StartAsync();
+        }
+        catch
+        {
+            // SignalR negotiate can fail in test/dev contexts (e.g. circuit not fully wired);
+            // the existing in-process ProgressNotifier still drives in-flight job updates.
+        }
+    }
+
+    private async Task RetryIngestion(BrowseEntryDto entry)
+    {
+        if (entry.Id is null) return;
+        if (!Guid.TryParse(ContainerId, out _)) return;
+
+        var job = new IngestionJob(
+            JobId: Guid.NewGuid().ToString(),
+            DocumentId: entry.Id,
+            Path: entry.Path,
+            Options: new IngestionOptions(
+                DocumentId: entry.Id,
+                FileName: entry.Name,
+                ContentType: entry.ContentType,
+                ContainerId: ContainerId,
+                Path: entry.Path));
+
+        // Optimistic local flip back to Pending so the spinner shows immediately.
+        var idx = entries.FindIndex(e => e.Id == entry.Id);
+        if (idx >= 0) entries[idx] = entries[idx] with { IngestionState = IngestionState.Pending };
+        StateHasChanged();
+
+        await IngestionQueue.EnqueueAsync(job);
+    }
+
+    private record IngestionStateChangedDto(string DocumentId, string State);
+
+    private async void OnStateChanged(IngestionStateChangedEvent ev)
+    {
+        if (_disposed) return;
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                var idx = entries.FindIndex(e => e.Id == ev.DocumentId);
+                if (idx < 0) return;
+                entries[idx] = entries[idx] with { IngestionState = ev.State };
+                StateHasChanged();
+            });
+        }
+        catch (Exception)
+        {
+            // async void — swallow to keep the Blazor circuit alive
+        }
     }
 
     private async void OnProgressReceived(IngestionProgressUpdate progress)
@@ -753,6 +866,60 @@
             }
             catch { /* Will retry on next render */ }
         }
+
+        // Container rollup-in-progress pill — throttled scan of the Hangfire monitoring
+        // API. Cheap to call (in-memory dictionary scan on PostgreSQL storage's
+        // dashboard cache), but still throttled to once per second.
+        if (container is not null && Guid.TryParse(container.Id, out var cid))
+        {
+            bool newState = IsRollupInProgress(cid);
+            if (newState != _isRollupInProgress)
+            {
+                _isRollupInProgress = newState;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    // Tracks the most recent rollup-pill check so we don't hammer the Hangfire monitoring
+    // API on every render. The pill is best-effort UX — being a second stale is fine.
+    private bool _isRollupInProgress;
+    private DateTime _rollupPillLastChecked = DateTime.MinValue;
+    private bool _rollupPillCachedResult;
+
+    private bool IsRollupInProgress(Guid containerId)
+    {
+        if (DateTime.UtcNow - _rollupPillLastChecked < TimeSpan.FromSeconds(1))
+            return _rollupPillCachedResult;
+
+        try
+        {
+            var monitor = Hangfire.JobStorage.Current.GetMonitoringApi();
+            var scheduled = monitor.ScheduledJobs(0, 1000);
+            var processing = monitor.ProcessingJobs(0, 1000);
+
+            bool matchScheduled = scheduled.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
+            bool matchProcessing = processing.Any(kvp => MatchesRollup(kvp.Value.Job, containerId));
+
+            _rollupPillCachedResult = matchScheduled || matchProcessing;
+        }
+        catch
+        {
+            // Monitoring API can throw under load; fall back to "not in progress" so the
+            // pill flickers off rather than crashing the render.
+            _rollupPillCachedResult = false;
+        }
+
+        _rollupPillLastChecked = DateTime.UtcNow;
+        return _rollupPillCachedResult;
+    }
+
+    private static bool MatchesRollup(Hangfire.Common.Job? job, Guid containerId)
+    {
+        if (job is null) return false;
+        if (job.Method.Name != nameof(Connapse.Background.Jobs.ISummaryJobs.RollupContainerAsync)) return false;
+        if (job.Args.Count == 0) return false;
+        return job.Args[0] is Guid argGuid && argGuid == containerId;
     }
 
     private async Task LoadContainer()
@@ -879,7 +1046,10 @@
             if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            result.Add(new BrowseEntryDto(doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes, LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"), Id: doc.Id));
+            result.Add(new BrowseEntryDto(
+                doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes,
+                LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"),
+                Id: doc.Id, IngestionState: doc.IngestionState, ContentType: doc.ContentType));
         }
 
         result.Sort((a, b) =>
@@ -931,7 +1101,9 @@
                 info.Length,
                 info.LastWriteTimeUtc,
                 doc?.Metadata.GetValueOrDefault("Status"),
-                doc?.Id));
+                doc?.Id,
+                doc?.IngestionState,
+                doc?.ContentType));
         }
 
         result.Sort((a, b) =>
@@ -1011,6 +1183,44 @@
     [JSInvokable]
     public string GetCurrentPath() => currentPath;
 
+    /// <summary>
+    /// Optimistic eager insert — JS calls this BEFORE the upload fetch starts so the user
+    /// sees a row immediately with a Pending spinner. HandleDropUploadResult later dedups
+    /// by Path and swaps in the real DocumentId once the API responds.
+    /// </summary>
+    [JSInvokable]
+    public async Task AddUploadPlaceholders(string filesJson)
+    {
+        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(
+            filesJson,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        if (placeholders is null) return;
+
+        foreach (var p in placeholders)
+        {
+            // Skip if a row already exists for this path (avoids dup with a connector watcher event).
+            if (entries.Any(e => !e.IsFolder && string.Equals(e.Path, p.Path, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var placeholder = new BrowseEntryDto(
+                Name: p.Name,
+                Path: p.Path,
+                IsFolder: false,
+                SizeBytes: p.SizeBytes,
+                LastModified: DateTime.UtcNow,
+                Status: "Uploading",
+                Id: null,
+                IngestionState: Connapse.Core.IngestionState.Pending,
+                ContentType: null);
+
+            var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, p.Name, StringComparison.OrdinalIgnoreCase) > 0);
+            if (insertIdx < 0) insertIdx = entries.Count;
+            entries.Insert(insertIdx, placeholder);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
     [JSInvokable]
     public async Task HandleDropUploadResult(string resultJson)
     {
@@ -1029,7 +1239,9 @@
                     SizeBytes: doc.SizeBytes,
                     LastModified: DateTime.UtcNow,
                     Status: "Queued",
-                    Id: doc.DocumentId);
+                    Id: doc.DocumentId,
+                    IngestionState: Connapse.Core.IngestionState.Pending,
+                    ContentType: null);
 
                 // Deduplicate by ID or path — a cloud sync poll or filesystem watcher may have
                 // already inserted an entry for the same file with a different document ID.
@@ -1051,6 +1263,23 @@
 
                 if (doc.JobId is not null)
                     jobToDocumentId[doc.JobId] = doc.DocumentId;
+
+                // Race-recovery: a Hangfire job that finished BEFORE the placeholder
+                // had its real DocumentId would have pushed IngestionStateChanged that
+                // the SignalR handler dropped (it looks up by Id, the placeholder Id
+                // was null). Re-fetch the current state so the pill doesn't get stuck
+                // on Pending if ingestion completed during the upload round-trip.
+                try
+                {
+                    var fresh = await DocumentStore.GetAsync(doc.DocumentId);
+                    if (fresh is not null)
+                    {
+                        var idx = entries.FindIndex(e => e.Id == doc.DocumentId);
+                        if (idx >= 0)
+                            entries[idx] = entries[idx] with { IngestionState = fresh.IngestionState };
+                    }
+                }
+                catch { /* best-effort */ }
             }
         }
 
@@ -1621,6 +1850,12 @@
         }
     }
 
+    // Defensive parse — the `[Parameter]` ContainerId is a route-bound string, and the
+    // SummarySettingsTab needs a real Guid. Falls back to Empty (which hides the
+    // Regenerate-now button) if the route param is malformed.
+    private Guid ParseContainerIdOrEmpty() =>
+        Guid.TryParse(ContainerId, out var cid) ? cid : Guid.Empty;
+
     // Treat an "all-default" SummarySettings (Enabled=false + every override null) as no
     // per-container override, so we don't pollute settings_overrides_json with empty objects.
     private static bool HasSummaryOverride(SummarySettings s) =>
@@ -1635,7 +1870,13 @@
     {
         _disposed = true;
         ProgressNotifier.ProgressReceived -= OnProgressReceived;
+        ProgressNotifier.StateChanged -= OnStateChanged;
         FileChangeNotifier.FileChanged -= OnFileChanged;
+        if (_hubConnection is not null)
+        {
+            try { await _hubConnection.DisposeAsync(); }
+            catch { /* ignore */ }
+        }
         if (jsModule is not null)
         {
             try { await jsModule.DisposeAsync(); }
@@ -1645,9 +1886,10 @@
     }
 
     // DTOs
-    private record BrowseEntryDto(string Name, string Path, bool IsFolder, long? SizeBytes, DateTime? LastModified, string? Status, string? Id);
+    private record BrowseEntryDto(string Name, string Path, bool IsFolder, long? SizeBytes, DateTime? LastModified, string? Status, string? Id, IngestionState? IngestionState = null, string? ContentType = null);
     private record UploadResponseDto(string? BatchId, List<UploadedDocDto> Documents, int TotalCount, int SuccessCount);
     private record UploadedDocDto(string DocumentId, string? JobId, string FileName, long SizeBytes, string Path, string? Error);
+    private record UploadPlaceholderDto(string Name, string Path, long SizeBytes);
     private record BreadcrumbItem(string Name, string Path);
 
 }

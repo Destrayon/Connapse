@@ -19,13 +19,16 @@ namespace Connapse.Storage.Documents;
 public class PostgresDocumentStore : IDocumentStore
 {
     private readonly IDbContextFactory<KnowledgeDbContext> _factory;
+    private readonly IContainerStore _containerStore;
     private readonly ILogger<PostgresDocumentStore> _logger;
 
     public PostgresDocumentStore(
         IDbContextFactory<KnowledgeDbContext> factory,
+        IContainerStore containerStore,
         ILogger<PostgresDocumentStore> logger)
     {
         _factory = factory;
+        _containerStore = containerStore;
         _logger = logger;
     }
 
@@ -160,8 +163,19 @@ public class PostgresDocumentStore : IDocumentStore
             return;
         }
 
+        bool docHadSummary = !string.IsNullOrEmpty(entity.Summary);
+        Guid containerId = entity.ContainerId;
+
         context.Documents.Remove(entity);
         await context.SaveChangesAsync(ct);
+
+        // If the deleted doc contributed to the container summary, mark the container as
+        // stale so the next sweep tick triggers a re-rollup. Without this, the sweep query
+        // wouldn't detect pure-deletion changes (no doc has a "newer" summary timestamp).
+        if (docHadSummary)
+        {
+            await _containerStore.MarkSummaryStaleAsync(containerId, ct);
+        }
 
         _logger.LogInformation(
             "Deleted document {DocumentId} ({FileName})",
@@ -205,6 +219,44 @@ public class PostgresDocumentStore : IDocumentStore
         entity.SummaryGeneratedAt = generatedAt;
         entity.SummaryContentHash = contentHash;
         await context.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity is null) return;
+
+        entity.IngestionState = state;
+        await context.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        // Containers where any doc has a newer summary timestamp than the container's own summary,
+        // OR where the container has docs with summaries but no container summary at all.
+        // Mirrors the recovery query in ContainerSummaryWorker so behavior is unchanged after
+        // the Hangfire migration.
+        return await context.Documents
+            .Where(d => d.Summary != null && d.SummaryGeneratedAt != null)
+            .GroupBy(d => d.ContainerId)
+            .Select(g => new { ContainerId = g.Key, LatestDocSummary = g.Max(d => d.SummaryGeneratedAt) })
+            .Join(context.Containers,
+                  x => x.ContainerId,
+                  c => c.Id,
+                  (x, c) => new { x.ContainerId, x.LatestDocSummary, ContainerSummaryAt = c.SummaryGeneratedAt })
+            .Where(x => x.ContainerSummaryAt == null || x.LatestDocSummary > x.ContainerSummaryAt)
+            .Select(x => x.ContainerId)
+            .ToListAsync(ct);
     }
 
     public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
@@ -260,6 +312,7 @@ public class PostgresDocumentStore : IDocumentStore
             metadata,
             entity.Summary,
             entity.SummaryGeneratedAt,
-            entity.SummaryContentHash);
+            entity.SummaryContentHash,
+            entity.IngestionState);
     }
 }

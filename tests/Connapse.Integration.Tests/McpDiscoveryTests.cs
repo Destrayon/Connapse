@@ -177,6 +177,8 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
             builder.UseSetting("Mcp:AllowAnonymousDiscovery", "true");
             builder.UseSetting("RateLimiting:McpPermitLimit", "2");
             builder.UseSetting("RateLimiting:McpWindowSeconds", "60");
+            // See CreateFactoryWithAnonDiscovery for rationale.
+            builder.UseSetting("Hangfire:DisableServer", "true");
         });
         using var client = factory.CreateClient();
 
@@ -201,6 +203,11 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
         return fixture.Factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Mcp:AllowAnonymousDiscovery", "true");
+            // Don't start a second Hangfire BackgroundJobServer in the derived host —
+            // the parent fixture's server keeps processing the shared Postgres queue.
+            // Starting two servers in the same process corrupts Hangfire's static
+            // LogProvider on dispose, breaking workers in unrelated subsequent tests.
+            builder.UseSetting("Hangfire:DisableServer", "true");
         });
     }
 
