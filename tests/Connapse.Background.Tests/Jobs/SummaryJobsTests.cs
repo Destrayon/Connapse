@@ -17,6 +17,10 @@ public class SummaryJobsTests
         var docStore = Substitute.For<IDocumentStore>();
         var settingsResolver = Substitute.For<IContainerSettingsResolver>();
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        var vectorStore = Substitute.For<IVectorStore>();
+        var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
@@ -44,6 +48,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
+            vectorStore, perDocSummarizer, connectorFactory, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
@@ -60,6 +65,10 @@ public class SummaryJobsTests
         var docStore = Substitute.For<IDocumentStore>();
         var settingsResolver = Substitute.For<IContainerSettingsResolver>();
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        var vectorStore = Substitute.For<IVectorStore>();
+        var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
@@ -115,6 +124,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
+            vectorStore, perDocSummarizer, connectorFactory, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
@@ -134,6 +144,10 @@ public class SummaryJobsTests
         var docStore = Substitute.For<IDocumentStore>();
         var settingsResolver = Substitute.For<IContainerSettingsResolver>();
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
+        var vectorStore = Substitute.For<IVectorStore>();
+        var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
         var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
@@ -145,6 +159,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
+            vectorStore, perDocSummarizer, connectorFactory, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.SweepStaleContainersAsync(CancellationToken.None);

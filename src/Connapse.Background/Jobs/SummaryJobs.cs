@@ -15,10 +15,17 @@ namespace Connapse.Background.Jobs;
 /// </summary>
 public sealed class SummaryJobs : ISummaryJobs
 {
+    private const int LazyStuffThreshold = 30; // mirrors ContainerSummarizer.StuffThreshold
+    private const int LazyMaxClusters = 20;    // mirrors ContainerSummarizer.MaxClusters
+
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _docStore;
     private readonly IContainerSettingsResolver _settingsResolver;
     private readonly IDocumentSummaryEmbeddingProvider _embeddingProvider;
+    private readonly IVectorStore _vectorStore;
+    private readonly IPerDocSummarizer _perDocSummarizer;
+    private readonly IConnectorFactory _connectorFactory;
+    private readonly IEnumerable<IDocumentParser> _parsers;
     private readonly SummaryLlmResolver _llmResolver;
     private readonly ITokenCounter _tokenCounter;
     private readonly IBackgroundJobClient _bgClient;
@@ -29,6 +36,10 @@ public sealed class SummaryJobs : ISummaryJobs
         IDocumentStore docStore,
         IContainerSettingsResolver settingsResolver,
         IDocumentSummaryEmbeddingProvider embeddingProvider,
+        IVectorStore vectorStore,
+        IPerDocSummarizer perDocSummarizer,
+        IConnectorFactory connectorFactory,
+        IEnumerable<IDocumentParser> parsers,
         SummaryLlmResolver llmResolver,
         ITokenCounter tokenCounter,
         IBackgroundJobClient bgClient,
@@ -38,6 +49,10 @@ public sealed class SummaryJobs : ISummaryJobs
         _docStore = docStore;
         _settingsResolver = settingsResolver;
         _embeddingProvider = embeddingProvider;
+        _vectorStore = vectorStore;
+        _perDocSummarizer = perDocSummarizer;
+        _connectorFactory = connectorFactory;
+        _parsers = parsers;
         _llmResolver = llmResolver;
         _tokenCounter = tokenCounter;
         _bgClient = bgClient;
@@ -61,6 +76,19 @@ public sealed class SummaryJobs : ISummaryJobs
             return;
         }
 
+        if (settings.ContainerSummaryMethod == SummaryStrategy.DocumentClustering)
+        {
+            await RollupDocumentClusteringAsync(containerId, container, settings, ct);
+        }
+        else
+        {
+            await RollupSummaryClusteringAsync(containerId, container, settings, ct);
+        }
+    }
+
+    private async Task RollupSummaryClusteringAsync(
+        Guid containerId, Container container, SummarySettings settings, CancellationToken ct)
+    {
         IReadOnlyList<Document> docs = await _docStore.ListAsync(
             containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
         List<Document> withSummaries = docs.Where(d => !string.IsNullOrEmpty(d.Summary)).ToList();
@@ -76,9 +104,8 @@ public sealed class SummaryJobs : ISummaryJobs
         string docSetHash = ComputeDocSetHash(withSummaries);
         if (docSetHash == container.SummaryDocSetHash)
         {
-            // doc_set_hash_match: set of summarized docs + their summary texts hasn't changed
-            // since the last rollup. Accepted trade-off: content_hash changes inside
-            // already-summarized docs aren't detected by this hash alone.
+            // doc_set_hash_match: set of summarized docs + their content hashes hasn't changed
+            // since the last rollup.
             _logger.LogInformation(
                 "ContainerRollupSkipped {ContainerId} reason=doc_set_hash_match",
                 LogSanitizer.Sanitize(containerId.ToString()));
@@ -106,13 +133,221 @@ public sealed class SummaryJobs : ISummaryJobs
             containerId, result.Summary, DateTime.UtcNow, docSetHash, ct);
 
         _logger.LogInformation(
-            "ContainerRollupCompleted {ContainerId} regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok}",
+            "ContainerRollupCompleted {ContainerId} method=summary-clustering regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok}",
             LogSanitizer.Sanitize(containerId.ToString()),
             LogSanitizer.Sanitize(result.Regime ?? ""),
             result.NumDocs,
             result.KClusters,
             result.InputTokens,
             result.OutputTokens);
+    }
+
+    private async Task RollupDocumentClusteringAsync(
+        Guid containerId, Container container, SummarySettings settings, CancellationToken ct)
+    {
+        IReadOnlyList<Document> allDocs = await _docStore.ListAsync(
+            containerId, pathPrefix: null, skip: 0, take: 10_000, ct);
+
+        if (allDocs.Count == 0)
+        {
+            await _containerStore.UpdateSummaryAsync(containerId, null, null, null, ct);
+            return;
+        }
+
+        // Hash gate: skip rollup if the (docId, content_hash) set is unchanged since last rollup.
+        string docSetHash = ComputeDocSetHash(allDocs);
+        if (docSetHash == container.SummaryDocSetHash)
+        {
+            _logger.LogInformation(
+                "ContainerRollupSkipped {ContainerId} reason=doc_set_hash_match",
+                LogSanitizer.Sanitize(containerId.ToString()));
+            return;
+        }
+
+        // Pick which docs to summarize. Below the stuff threshold we summarize all of them;
+        // above it we cluster on pooled chunk embeddings and pick K medoids.
+        IReadOnlyList<Document> docsToSummarize;
+        string regime;
+        int? kClusters = null;
+
+        if (allDocs.Count <= LazyStuffThreshold)
+        {
+            docsToSummarize = allDocs;
+            regime = "stuff";
+        }
+        else
+        {
+            IReadOnlyList<(Guid DocumentId, float[] Embedding)> pooled =
+                await _vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, ct);
+            if (pooled.Count == 0)
+            {
+                _logger.LogInformation(
+                    "ContainerRollupSkipped {ContainerId} reason=no_pooled_embeddings",
+                    LogSanitizer.Sanitize(containerId.ToString()));
+                return;
+            }
+
+            int k = Math.Min(LazyMaxClusters, (int)Math.Ceiling(pooled.Count / 3.0));
+            kClusters = k;
+
+            // MedoidSelector takes (Guid Id, float[] Embedding); the pooled tuple's element
+            // name differs (DocumentId) but the shape matches, so project explicitly to keep
+            // the intent obvious.
+            var medoidInput = pooled.Select(p => (Id: p.DocumentId, Embedding: p.Embedding)).ToList();
+            IReadOnlyList<(Guid Id, float[] Embedding)> medoids =
+                MedoidSelector.SelectFarthestFirst(medoidInput, k);
+            var medoidIds = medoids.Select(m => m.Id).ToHashSet();
+
+            // Map medoid Guids back to Document instances. Skip any whose docs no longer exist
+            // (deleted between pooling query and now) — defensive.
+            Dictionary<Guid, Document> docsById = allDocs
+                .Where(d => Guid.TryParse(d.Id, out _))
+                .ToDictionary(d => Guid.Parse(d.Id));
+            docsToSummarize = medoidIds
+                .Where(id => docsById.ContainsKey(id))
+                .Select(id => docsById[id])
+                .ToList();
+            regime = "cluster";
+        }
+
+        // Lazy-summarize each selected doc: cache hit when content_hash matches; otherwise call LLM.
+        var summarizedDocs = new List<DocumentWithSummary>();
+        foreach (Document doc in docsToSummarize)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string contentHash = doc.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
+            bool cacheHit = !string.IsNullOrEmpty(doc.Summary)
+                            && !string.IsNullOrEmpty(doc.SummaryContentHash)
+                            && doc.SummaryContentHash == contentHash;
+
+            string? summary;
+            if (cacheHit)
+            {
+                summary = doc.Summary;
+                _logger.LogDebug(
+                    "LazyMedoidSummaryCacheHit {DocumentId}",
+                    LogSanitizer.Sanitize(doc.Id));
+            }
+            else
+            {
+                summary = await GenerateAndCacheSummaryAsync(doc, settings, ct);
+                if (summary is null) continue;
+            }
+
+            // The ContainerSummarizer reduce step needs an Embedding too. Empty array is fine
+            // because docsToSummarize is already <= LazyMaxClusters, so the reduce step takes
+            // its stuff path (N <= StuffThreshold) and never touches .Embedding.
+            if (!Guid.TryParse(doc.Id, out Guid docGuid)) continue;
+            summarizedDocs.Add(new DocumentWithSummary(
+                Id: docGuid,
+                Summary: summary!,
+                Embedding: Array.Empty<float>()));
+        }
+
+        if (summarizedDocs.Count == 0)
+        {
+            _logger.LogInformation(
+                "ContainerRollupSkipped {ContainerId} reason=no_summarizable_docs",
+                LogSanitizer.Sanitize(containerId.ToString()));
+            return;
+        }
+
+        ILlmProvider? llm = _llmResolver.Resolve(settings);
+        IContainerSummarizer summarizer = new ContainerSummarizer(llm, _tokenCounter);
+        ContainerSummarizationResult result = await summarizer.GenerateAsync(
+            container.Name, summarizedDocs, settings, ct);
+
+        if (result.Skipped)
+        {
+            _logger.LogInformation(
+                "ContainerRollupSkipped {ContainerId} reason={Reason}",
+                LogSanitizer.Sanitize(containerId.ToString()),
+                LogSanitizer.Sanitize(result.SkipReason ?? ""));
+            return;
+        }
+
+        await _containerStore.UpdateSummaryAsync(
+            containerId, result.Summary, DateTime.UtcNow, docSetHash, ct);
+
+        _logger.LogInformation(
+            "ContainerRollupCompleted {ContainerId} method=document-clustering regime={Regime} N={N} k={K} inTok={InTok} outTok={OutTok}",
+            LogSanitizer.Sanitize(containerId.ToString()),
+            regime,
+            allDocs.Count,
+            kClusters,
+            result.InputTokens,
+            result.OutputTokens);
+    }
+
+    /// <summary>
+    /// Runs the per-doc summarizer for one document in document-clustering mode, then
+    /// writes the result through to <c>documents.summary</c> as the cache for future rollups.
+    /// Returns null if the doc could not be summarized (parser failure, empty content, etc).
+    /// </summary>
+    private async Task<string?> GenerateAndCacheSummaryAsync(
+        Document doc, SummarySettings settings, CancellationToken ct)
+    {
+        if (!Guid.TryParse(doc.ContainerId, out Guid containerId)) return null;
+        Container? container = await _containerStore.GetAsync(containerId, ct);
+        if (container is null) return null;
+
+        // Re-parse doc text through the container's connector — same pattern as
+        // IngestionJobs.PerDocSummaryAsync.
+        string parsedText;
+        try
+        {
+            IConnector connector = _connectorFactory.Create(container);
+            string jobPath = connector.ResolveJobPath(doc.Path.TrimStart('/'));
+            await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
+
+            string extension = Path.GetExtension(doc.FileName).ToLowerInvariant();
+            IDocumentParser? parser = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
+            if (parser is null)
+            {
+                _logger.LogInformation(
+                    "LazyMedoidSummarySkipped {DocumentId} reason=no_parser_for_extension",
+                    LogSanitizer.Sanitize(doc.Id));
+                return null;
+            }
+
+            ParsedDocument parsed = await parser.ParseAsync(stream, doc.FileName, ct);
+            parsedText = parsed.Content;
+        }
+        catch (FileNotFoundException)
+        {
+            _logger.LogWarning(
+                "LazyMedoidSummarySkipped {DocumentId} reason=file_not_found",
+                LogSanitizer.Sanitize(doc.Id));
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(parsedText))
+        {
+            _logger.LogInformation(
+                "LazyMedoidSummarySkipped {DocumentId} reason=empty_parsed_content",
+                LogSanitizer.Sanitize(doc.Id));
+            return null;
+        }
+
+        PerDocSummarizationResult result = await _perDocSummarizer.GenerateAsync(
+            doc.Id, parsedText, doc.ContentType, doc.FileName, settings, ct);
+
+        if (result.Skipped || string.IsNullOrEmpty(result.Summary))
+        {
+            _logger.LogInformation(
+                "LazyMedoidSummarySkipped {DocumentId} reason={Reason}",
+                LogSanitizer.Sanitize(doc.Id),
+                LogSanitizer.Sanitize(result.SkipReason ?? "no_summary_returned"));
+            return null;
+        }
+
+        // Write through to cache: documents.summary + summary_content_hash + summary_generated_at
+        string contentHash = doc.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
+        await _docStore.UpdateSummaryAsync(
+            doc.Id, result.Summary, DateTime.UtcNow, contentHash, ct);
+
+        return result.Summary;
     }
 
     [Queue(JobQueues.Summarization)]
