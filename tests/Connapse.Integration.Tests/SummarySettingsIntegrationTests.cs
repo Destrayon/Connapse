@@ -217,6 +217,89 @@ public class SummarySettingsIntegrationTests(SharedWebAppFixture fixture)
         }
     }
 
+    // ── ContainerSummaryMethod resolution (G+C) ───────────────────────────
+
+    [Fact]
+    public async Task GetSummarySettingsAsync_ContainerSummaryMethodOverride_TakesPrecedence()
+    {
+        // Arrange — global says summary-clustering, per-container override says document-clustering.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var settingsStore = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+
+        var originalGlobal = await settingsStore.GetAsync<SummarySettings>("Summary");
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "method-override-test" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            await settingsStore.SaveAsync("Summary", new SummarySettings
+            {
+                Enabled = true,
+                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
+            });
+
+            var overrides = new ContainerSettingsOverrides
+            {
+                Summary = new SummarySettings
+                {
+                    Enabled = true,
+                    ContainerSummaryMethod = SummaryStrategy.DocumentClustering,
+                }
+            };
+            await fixture.AdminClient.PutAsJsonAsync(
+                $"/api/containers/{container!.Id}/settings", overrides);
+
+            // Act
+            var resolved = await resolver.GetSummarySettingsAsync(
+                Guid.Parse(container.Id), CancellationToken.None);
+
+            // Assert — per-container override wins.
+            resolved.ContainerSummaryMethod.Should().Be(SummaryStrategy.DocumentClustering);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+            if (originalGlobal is null)
+                await settingsStore.ResetAsync("Summary");
+            else
+                await settingsStore.SaveAsync("Summary", originalGlobal);
+        }
+    }
+
+    [Fact]
+    public async Task GetSummarySettingsAsync_NoOverride_UsesDocumentClusteringDefault()
+    {
+        // Arrange — no global SummarySettings, no per-container override.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var settingsStore = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+
+        var originalGlobal = await settingsStore.GetAsync<SummarySettings>("Summary");
+        await settingsStore.ResetAsync("Summary");
+
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "method-default-test" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+
+        try
+        {
+            // Act
+            var resolved = await resolver.GetSummarySettingsAsync(
+                Guid.Parse(container!.Id), CancellationToken.None);
+
+            // Assert — record-default applies when both layers are absent.
+            resolved.ContainerSummaryMethod.Should().Be(SummaryStrategy.DocumentClustering);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container!.Id}");
+            if (originalGlobal is not null)
+                await settingsStore.SaveAsync("Summary", originalGlobal);
+        }
+    }
+
     // DTOs
 
     private record ContainerDto(string Id, string Name);
