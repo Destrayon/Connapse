@@ -353,7 +353,7 @@ public record UploadSettings
 ///   → global DB settings table, key="Summary"
 ///   → property-initializer defaults below (Enabled=false, others=null)
 /// </summary>
-public record SummarySettings
+public record SummarySettings : IValidatableObject
 {
     /// <summary>
     /// Master toggle. When false, both per-doc summaries and container rollups
@@ -361,6 +361,14 @@ public record SummarySettings
     /// Default: false (opt-in).
     /// </summary>
     public bool Enabled { get; init; } = false;
+
+    /// <summary>
+    /// Container summary generation method. See <see cref="SummaryStrategy"/> for allowed values.
+    /// Default: <c>document-clustering</c> — clusters by pooled chunk embeddings and lazy-summarizes
+    /// K medoid documents at rollup time. Set to <c>summary-clustering</c> to use the legacy
+    /// eager per-doc summarization path.
+    /// </summary>
+    public string ContainerSummaryMethod { get; init; } = SummaryStrategy.DocumentClustering;
 
     /// <summary>
     /// LLM provider for summary generation (Ollama / OpenAI / AzureOpenAI / Anthropic).
@@ -394,5 +402,15 @@ public record SummarySettings
     /// in PerDocSummarizer (replaces the hardcoded MaxInputCharacters = 20_000).
     /// </summary>
     public int? MaxInputTokens { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!SummaryStrategy.All.Contains(ContainerSummaryMethod))
+        {
+            yield return new ValidationResult(
+                $"ContainerSummaryMethod must be one of: {string.Join(", ", SummaryStrategy.All)}. Got: '{ContainerSummaryMethod}'.",
+                new[] { nameof(ContainerSummaryMethod) });
+        }
+    }
 }
 
