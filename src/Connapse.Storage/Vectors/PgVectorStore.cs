@@ -345,4 +345,91 @@ public class PgVectorStore : IVectorStore
             vectors.Count,
             documentId);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
+        Guid containerId,
+        CancellationToken ct = default)
+    {
+        // Step 1: pick the dominant model_id in the container. ChunkVectorEntity carries
+        // ContainerId and ModelId directly — no JOIN needed.
+        var modelCounts = await _context.ChunkVectors
+            .Where(cv => cv.ContainerId == containerId)
+            .GroupBy(cv => cv.ModelId)
+            .Select(g => new { ModelId = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .ToListAsync(ct);
+
+        if (modelCounts.Count == 0)
+        {
+            return Array.Empty<(Guid, float[])>();
+        }
+
+        string dominantModelId = modelCounts[0].ModelId;
+
+        if (modelCounts.Count > 1)
+        {
+            int excludedVectors = modelCounts.Skip(1).Sum(m => m.Count);
+            _logger.LogWarning(
+                "GetPooledDocumentEmbeddingsAsync: container {ContainerId} has mixed embedding models. " +
+                "Using dominant model '{DominantModelId}' ({DominantCount} vectors). " +
+                "Excluding {ExcludedCount} vectors from {OtherModelCount} other model(s).",
+                containerId, dominantModelId, modelCounts[0].Count, excludedVectors, modelCounts.Count - 1);
+        }
+
+        // Step 2: pool per-document. AVG(embedding) returns a vector at the same dimensionality.
+        var conn = _context.Database.GetDbConnection();
+        bool openedHere = false;
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync(ct);
+            openedHere = true;
+        }
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT document_id, AVG(embedding)::vector AS pooled
+                FROM chunk_vectors
+                WHERE container_id = @cid
+                  AND model_id = @model_id
+                GROUP BY document_id
+                """;
+
+            var p = cmd.Parameters;
+            p.Add(new NpgsqlParameter("cid", containerId));
+            p.Add(new NpgsqlParameter("model_id", dominantModelId));
+
+            var results = new List<(Guid DocumentId, float[] Embedding)>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                Guid docId = reader.GetGuid(0);
+                Vector pooled = reader.GetFieldValue<Vector>(1);
+                float[] raw = pooled.ToArray();
+                float[] normalized = L2Normalize(raw);
+                results.Add((docId, normalized));
+            }
+
+            return results;
+        }
+        finally
+        {
+            if (openedHere)
+            {
+                await conn.CloseAsync();
+            }
+        }
+    }
+
+    private static float[] L2Normalize(float[] v)
+    {
+        double sumSq = 0;
+        for (int i = 0; i < v.Length; i++) sumSq += v[i] * v[i];
+        double norm = Math.Sqrt(sumSq);
+        if (norm < 1e-12) return v; // degenerate; leave as-is rather than div-by-zero
+        float[] result = new float[v.Length];
+        for (int i = 0; i < v.Length; i++) result[i] = (float)(v[i] / norm);
+        return result;
+    }
 }
