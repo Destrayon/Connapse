@@ -1,7 +1,11 @@
 @using Connapse.Core
+@using Connapse.Core.Interfaces
 @using Connapse.Storage.Llm
-@inject IHttpClientFactory HttpClientFactory
-@inject NavigationManager Navigation
+@using Connapse.Background.Jobs
+@using Hangfire
+@inject IDocumentStore DocumentStore
+@inject IContainerStore ContainerStore
+@inject IBackgroundJobClient BackgroundJobs
 
 <div class="settings-tab">
     <h4 class="mb-3">Summary Generation</h4>
@@ -115,6 +119,8 @@
        the global settings tab passes Guid.Empty and the button stays hidden. *@
     @if (ContainerId != Guid.Empty)
     {
+        <AuthorizeView Roles="Owner,Admin">
+        <Authorized>
         <hr />
         <div class="mb-3">
             <button type="button" class="btn btn-outline-secondary"
@@ -134,6 +140,91 @@
                 <div class="form-text @(regenerateSuccess ? "text-success" : "text-danger")">@regenerateMessage</div>
             }
         </div>
+
+        <div class="mb-3">
+            @if (!clearConfirmPending)
+            {
+                <button type="button" class="btn btn-outline-danger"
+                        @onclick="() => clearConfirmPending = true"
+                        disabled="@isClearing">
+                    Clear summaries
+                </button>
+            }
+            else
+            {
+                <button type="button" class="btn btn-danger"
+                        @onclick="ClearSummaries"
+                        disabled="@isClearing">
+                    @if (isClearing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    Confirm clear
+                </button>
+                <button type="button" class="btn btn-link btn-sm"
+                        @onclick="() => clearConfirmPending = false"
+                        disabled="@isClearing">
+                    Cancel
+                </button>
+            }
+            <div class="form-text">
+                Deletes all cached per-document and container summaries. Embeddings, chunks, and the
+                documents themselves are kept. Summaries regenerate automatically on the next sweep.
+            </div>
+            @if (clearMessage is not null)
+            {
+                <div class="form-text @(clearSuccess ? "text-success" : "text-danger")">@clearMessage</div>
+            }
+        </div>
+        </Authorized>
+        </AuthorizeView>
+    }
+
+    @* Global summary settings tab (ContainerId == Guid.Empty): a bulk clear that wipes cached
+       summaries across every container, since there's no single container to scope to here. *@
+    @if (ContainerId == Guid.Empty)
+    {
+        <AuthorizeView Roles="Owner,Admin">
+        <Authorized>
+        <hr />
+        <div class="mb-3">
+            @if (!clearAllConfirmPending)
+            {
+                <button type="button" class="btn btn-outline-danger"
+                        @onclick="() => clearAllConfirmPending = true"
+                        disabled="@isClearingAll">
+                    Clear all summaries
+                </button>
+            }
+            else
+            {
+                <button type="button" class="btn btn-danger"
+                        @onclick="ClearAllSummaries"
+                        disabled="@isClearingAll">
+                    @if (isClearingAll)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    Confirm — clear every container
+                </button>
+                <button type="button" class="btn btn-link btn-sm"
+                        @onclick="() => clearAllConfirmPending = false"
+                        disabled="@isClearingAll">
+                    Cancel
+                </button>
+            }
+            <div class="form-text">
+                Deletes cached per-document and container summaries for <strong>every container</strong>.
+                Embeddings, chunks, and the documents themselves are kept. Summaries regenerate
+                automatically on the next sweep.
+            </div>
+            @if (clearAllMessage is not null)
+            {
+                <div class="form-text @(clearAllSuccess ? "text-success" : "text-danger")">@clearAllMessage</div>
+            }
+        </div>
+        </Authorized>
+        </AuthorizeView>
     }
 </div>
 
@@ -157,6 +248,16 @@
     private bool isRegenerating;
     private string? regenerateMessage;
     private bool regenerateSuccess;
+
+    private bool isClearing;
+    private bool clearConfirmPending;
+    private string? clearMessage;
+    private bool clearSuccess;
+
+    private bool isClearingAll;
+    private bool clearAllConfirmPending;
+    private string? clearAllMessage;
+    private bool clearAllSuccess;
 
     // SummarySettings is an init-only record, so we hold edit state in
     // intermediate fields and reconstruct the record on every change.
@@ -281,7 +382,7 @@
 
     public SummarySettings GetCurrentSettings() => BuildSettingsFromLocal();
 
-    private async Task RegenerateNow()
+    private void RegenerateNow()
     {
         if (ContainerId == Guid.Empty) return;
         if (isRegenerating) return;
@@ -290,22 +391,13 @@
         regenerateMessage = null;
         try
         {
-            var http = HttpClientFactory.CreateClient("BlazorClient");
-            http.BaseAddress ??= new Uri(Navigation.BaseUri);
-            var response = await http.PostAsync(
-                $"/api/containers/{ContainerId}/summary/regenerate",
-                content: null);
-
-            if (response.IsSuccessStatusCode)
-            {
-                regenerateSuccess = true;
-                regenerateMessage = "Summary rollup enqueued.";
-            }
-            else
-            {
-                regenerateSuccess = false;
-                regenerateMessage = $"Failed to enqueue rollup: {(int)response.StatusCode} {response.ReasonPhrase}";
-            }
+            // Blazor Server runs this on the server, so enqueue the Hangfire job
+            // directly. The old HTTP loopback hit the RequireAdmin endpoint
+            // anonymously — a server-side HttpClient carries no browser auth
+            // cookie — and 401'd.
+            BackgroundJobs.Enqueue<ISummaryJobs>(s => s.RollupContainerAsync(ContainerId, default));
+            regenerateSuccess = true;
+            regenerateMessage = "Summary rollup enqueued.";
         }
         catch (Exception ex)
         {
@@ -315,6 +407,81 @@
         finally
         {
             isRegenerating = false;
+        }
+    }
+
+    private async Task ClearSummaries()
+    {
+        if (ContainerId == Guid.Empty) return;
+        if (isClearing) return;
+
+        isClearing = true;
+        clearMessage = null;
+        try
+        {
+            // Direct service calls — Blazor Server runs on the server, so there's no
+            // need to loop back through the authenticated HTTP API (which 401'd because
+            // the server-side HttpClient sends no browser auth cookie). The
+            // AuthorizeView gate above restricts this to Owner/Admin.
+            int clearedDocs = await DocumentStore.ClearDocumentSummariesAsync(ContainerId);
+            await ContainerStore.UpdateSummaryAsync(ContainerId, null, null, null);
+            clearSuccess = true;
+            clearMessage = $"Cleared {clearedDocs} document summaries. They'll regenerate on the next sweep.";
+        }
+        catch (Exception ex)
+        {
+            clearSuccess = false;
+            clearMessage = $"Failed to clear summaries: {ex.Message}";
+        }
+        finally
+        {
+            isClearing = false;
+            clearConfirmPending = false;
+        }
+    }
+
+    private async Task ClearAllSummaries()
+    {
+        // Global-tab only: this button clears every container, so it must never run
+        // from a container-scoped mount (where the per-container Clear button applies).
+        if (ContainerId != Guid.Empty) return;
+        if (isClearingAll) return;
+
+        isClearingAll = true;
+        clearAllMessage = null;
+        try
+        {
+            // Loop the existing per-container primitives directly (no HTTP loopback).
+            // In multi-tenant deployments ListAsync and the clears are RLS-scoped to the
+            // caller, so "all" means "all containers the caller can see". The
+            // AuthorizeView gate above restricts this to Owner/Admin.
+            const int pageSize = 200;
+            int containersCleared = 0;
+            int clearedDocs = 0;
+            for (int skip = 0; ; skip += pageSize)
+            {
+                var page = await ContainerStore.ListAsync(skip, pageSize);
+                foreach (var c in page)
+                {
+                    if (!Guid.TryParse(c.Id, out var cid)) continue;
+                    clearedDocs += await DocumentStore.ClearDocumentSummariesAsync(cid);
+                    await ContainerStore.UpdateSummaryAsync(cid, null, null, null);
+                    containersCleared++;
+                }
+                if (page.Count < pageSize) break;
+            }
+            clearAllSuccess = true;
+            clearAllMessage = $"Cleared summaries for {containersCleared} container(s). They'll regenerate on the next sweep.";
+        }
+        catch (Exception ex)
+        {
+            clearAllSuccess = false;
+            clearAllMessage = $"Failed to clear summaries: {ex.Message}";
+        }
+        finally
+        {
+            isClearingAll = false;
+            clearAllConfirmPending = false;
         }
     }
 }

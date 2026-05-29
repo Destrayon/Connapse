@@ -221,6 +221,22 @@ public class PostgresDocumentStore : IDocumentStore
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task<int> ClearDocumentSummariesAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        // Set-based clear of the per-doc summary cache. Filter to rows that actually have
+        // something cached so the affected-count reflects real work and we skip no-op writes.
+        return await context.Documents
+            .Where(d => d.ContainerId == containerId
+                && (d.Summary != null || d.SummaryGeneratedAt != null || d.SummaryContentHash != null))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.Summary, (string?)null)
+                .SetProperty(d => d.SummaryGeneratedAt, (DateTime?)null)
+                .SetProperty(d => d.SummaryContentHash, (string?)null),
+                ct);
+    }
+
     public async Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default)
     {
         if (!Guid.TryParse(documentId, out var guid))
