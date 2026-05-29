@@ -31,12 +31,21 @@ public static class SummaryPrompts
         1. One-sentence scope: "Use this container for queries about X, Y, Z."
         2. Concrete trigger terms and synonyms the agent should pattern-match.
         3. Representative questions this container can answer (5-8 bullets).
-        4. Out-of-scope: topics agents should NOT route here.
+        4. Scope boundaries: only call a topic out-of-scope when the
+           summaries below actively establish it (a bounded, single-subject
+           corpus). If the input says you are shown a representative SAMPLE
+           rather than every document, do NOT assert what the container
+           excludes — a topic missing from the sample may still be present.
+           Hedge instead: "appears centered on…; may also hold related
+           material."
         5. Query hints: phrasings or keywords that retrieve well.
 
         Be specific over generic. Name entities, not categories. Prefer
-        imperative voice ("Use when…", "Does not cover…"). Brief the reader
-        like a new hire who'll be making routing decisions all day.
+        imperative voice ("Use when…"). Brief the reader like a new hire
+        who'll be making routing decisions all day. A false "does not cover
+        X" is costly — it suppresses real retrievals — while omitting an
+        exclusion only risks a cheap, self-correcting extra query; when
+        unsure, omit it.
         """;
 
     public static string RenderPerDocUserMessage(
@@ -56,8 +65,8 @@ public static class SummaryPrompts
         IEnumerable<string> summaries)
     {
         string clusterNote = isClustered
-            ? $"; shown via cluster medoids with cluster sizes in brackets"
-            : string.Empty;
+            ? "; you are shown a representative SAMPLE — cluster medoids, with cluster sizes in brackets — NOT every document"
+            : "; all documents are shown below";
 
         string body = string.Join("\n", summaries.Select((s, i) => $"{i + 1}. {s}"));
 

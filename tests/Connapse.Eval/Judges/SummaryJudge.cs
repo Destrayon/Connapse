@@ -24,9 +24,9 @@ public sealed class SummaryJudge(ILlmProvider judge)
             1. Names what + when (specific entities, scope, time range): __
             2. Pushy against undertriggering (enumerates trigger terms): __
             3. Concrete trigger terms (not abstract categories): __
-            4. States what's NOT covered (negative scope): __
+            4. Calibrated scope (states exclusions only when the corpus clearly supports them; hedges otherwise): __
             5. Defines or namespaces specialized terms: __
-            6. Uses imperative voice ("Use when…", "Does not cover…"): __
+            6. Uses imperative voice ("Use when…"): __
             7. Briefs like a new hire (decision-oriented, third person): __
             8. Lists answerable questions: __
 

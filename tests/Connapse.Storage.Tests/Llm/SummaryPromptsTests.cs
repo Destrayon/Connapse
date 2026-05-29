@@ -18,7 +18,7 @@ public class SummaryPromptsTests
     public void ContainerRollupPrompt_ContainsStructureSections()
     {
         SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Use this container for");
-        SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Out-of-scope");
+        SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Scope boundaries");
         SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Query hints");
     }
 

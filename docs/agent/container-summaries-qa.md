@@ -14,7 +14,7 @@ Verify that the auto-generated container summary biases an MCP-connected agent t
 
 1. **Routing test.** Connect Claude Code (or an equivalent MCP client). Ask: "What did Apple report for Q3 2025 iPhone sales?" Expected: agent calls `container_list` → `search_knowledge(container=<test>, query="iPhone Q3 2025 sales")`. Should NOT use `list_files` + `get_document`.
 
-2. **Out-of-scope test.** Ask the agent something the container should NOT route to. Expected: agent does not route based on the summary's "Does not cover…" section.
+2. **Scope-boundary test.** Ask the agent something the container should NOT route to. Expected: in the stuff regime (all docs summarized) the description may name explicit boundaries; in the clustered regime (a medoid sample) it hedges scope rather than asserting a hard "does not cover," so a false exclusion can't silently suppress retrieval.
 
 3. **Query-term lift.** Compare agent query terms with/without summary. Agent should use phrases from the "Query hints" section more often when summary is present.
 
