@@ -287,9 +287,10 @@ public sealed class SummaryJobs : ISummaryJobs
     }
 
     /// <summary>
-    /// Runs the per-doc summarizer for one document in document-clustering mode, then
-    /// writes the result through to <c>documents.summary</c> as the cache for future rollups.
-    /// Returns null if the doc could not be summarized (parser failure, empty content, etc).
+    /// Runs the per-doc summarizer for one document in document-clustering mode. The summarizer
+    /// persists the result to <c>documents.summary</c> keyed on the doc's content hash, which
+    /// serves as the cache for future rollups. Returns null if the doc could not be summarized
+    /// (parser failure, empty content, etc).
     /// </summary>
     private async Task<string?> GenerateAndCacheSummaryAsync(
         Document doc, SummarySettings settings, CancellationToken ct)
@@ -336,8 +337,12 @@ public sealed class SummaryJobs : ISummaryJobs
             return null;
         }
 
+        // Pass the canonical content hash so PerDocSummarizer persists it as summary_content_hash.
+        // That single write is the cache the next rollup's cache-check (SummaryContentHash ==
+        // ContentHash) compares against — no second write needed here.
+        string contentHash = doc.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
         PerDocSummarizationResult result = await _perDocSummarizer.GenerateAsync(
-            doc.Id, parsedText, doc.ContentType, doc.FileName, settings, ct);
+            doc.Id, contentHash, parsedText, doc.ContentType, doc.FileName, settings, ct);
 
         if (result.Skipped || string.IsNullOrEmpty(result.Summary))
         {
@@ -347,11 +352,6 @@ public sealed class SummaryJobs : ISummaryJobs
                 LogSanitizer.Sanitize(result.SkipReason ?? "no_summary_returned"));
             return null;
         }
-
-        // Write through to cache: documents.summary + summary_content_hash + summary_generated_at
-        string contentHash = doc.Metadata?.GetValueOrDefault("ContentHash") ?? string.Empty;
-        await _docStore.UpdateSummaryAsync(
-            doc.Id, result.Summary, DateTime.UtcNow, contentHash, ct);
 
         return result.Summary;
     }

@@ -65,7 +65,7 @@ public class IngestionJobsHerculesTests
 
         // Assert — summarizer is never invoked.
         await summarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
-            default!, default!, default!, default!, default!, default);
+            default!, default!, default!, default!, default!, default!, default);
 
         // State is still advanced to SummaryIndexed so the UI doesn't hang.
         await docStore.Received(1).UpdateIngestionStateAsync(
@@ -123,7 +123,7 @@ public class IngestionJobsHerculesTests
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await summarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
-            default!, default!, default!, default!, default!, default);
+            default!, default!, default!, default!, default!, default!, default);
         // Disabled path does NOT advance state — that's the documented behavior.
         await docStore.DidNotReceiveWithAnyArgs().UpdateIngestionStateAsync(
             default!, default, default);

@@ -157,7 +157,7 @@ public class IngestionJobsTests
             .Returns(call => Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Test content"))));
 
         summarizer.GenerateAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
                 Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new PerDocSummarizationResult(
                 Skipped: false, Summary: "Test summary", InputTokens: 10, OutputTokens: 5, Model: "test")));
@@ -220,7 +220,7 @@ public class IngestionJobsTests
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
         await summarizer.DidNotReceive().GenerateAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
             Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>());
         bgClient.DidNotReceive().Create(
             Arg.Any<Hangfire.Common.Job>(), Arg.Any<Hangfire.States.IState>());

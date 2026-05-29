@@ -57,7 +57,7 @@ public class SummaryJobsHerculesTests
         await collected.EmbeddingProvider.DidNotReceiveWithAnyArgs().GetSummaryEmbeddingsAsync(
             default!, default);
         await collected.PerDocSummarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
-            default!, default!, default!, default!, default!, default);
+            default!, default!, default!, default!, default!, default!, default);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class SummaryJobsHerculesTests
         // and would call the LLM provider, but we don't stub one so it'd return null /
         // produce a skipped result — either way, the summarizer assertion holds.
         await collected.PerDocSummarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
-            default!, default!, default!, default!, default!, default);
+            default!, default!, default!, default!, default!, default!, default);
     }
 
     // ── Test-only helpers ──────────────────────────────────────────────────

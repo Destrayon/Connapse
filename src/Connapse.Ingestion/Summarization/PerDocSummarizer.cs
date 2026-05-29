@@ -1,6 +1,5 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Storage.Llm;
 
 namespace Connapse.Ingestion.Summarization;
@@ -14,6 +13,7 @@ public sealed class PerDocSummarizer(
 
     public async Task<PerDocSummarizationResult> GenerateAsync(
         string documentId,
+        string contentHash,
         string docText,
         string? mimeType,
         string fileName,
@@ -28,8 +28,6 @@ public sealed class PerDocSummarizer(
 
         if (string.IsNullOrWhiteSpace(docText))
             return new PerDocSummarizationResult(Skipped: true, SkipReason: "extraction_empty");
-
-        string contentHash = HexHash.Sha256(docText);
 
         Connapse.Core.Document? existing = await docStore.GetAsync(documentId, ct);
         if (existing?.SummaryContentHash == contentHash)

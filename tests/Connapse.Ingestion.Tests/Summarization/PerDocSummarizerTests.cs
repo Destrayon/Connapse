@@ -42,7 +42,7 @@ public class PerDocSummarizerTests
 
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
         SummarySettings settings = new() { Enabled = true };
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, docText, "text/plain", "file.txt", settings, CancellationToken.None);
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, hash, docText, "text/plain", "file.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("content_hash_match");
@@ -68,7 +68,7 @@ public class PerDocSummarizerTests
 
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
         SummarySettings settings = new() { Enabled = true };
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "doc text", "text/plain", "file.txt", settings, CancellationToken.None);
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "new_hash", "doc text", "text/plain", "file.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeFalse();
         result.Summary.Should().Be("Apple earnings summary");
@@ -76,7 +76,7 @@ public class PerDocSummarizerTests
         result.OutputTokens.Should().Be(100);
 
         await docStore.Received(1).UpdateSummaryAsync(
-            docId, "Apple earnings summary", Arg.Any<DateTime>(), Arg.Any<string>(),
+            docId, "Apple earnings summary", Arg.Any<DateTime>(), "new_hash",
             Arg.Any<CancellationToken>());
     }
 
@@ -90,7 +90,7 @@ public class PerDocSummarizerTests
 
         PerDocSummarizer subject = new(llmProvider: null, docStore, tokenCounter);
         SummarySettings settings = new() { Enabled = true };
-        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "text", "text/plain", "x.txt", settings, CancellationToken.None);
+        PerDocSummarizationResult result = await subject.GenerateAsync(docId, "hash", "text", "text/plain", "x.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("no_provider_configured");
@@ -107,7 +107,7 @@ public class PerDocSummarizerTests
         PerDocSummarizer subject = new(llm, docStore, tokenCounter);
         SummarySettings settings = new() { Enabled = true };
         PerDocSummarizationResult result = await subject.GenerateAsync(
-            Guid.NewGuid().ToString(), "  \n\t  ", "text/plain", "empty.txt", settings, CancellationToken.None);
+            Guid.NewGuid().ToString(), "hash", "  \n\t  ", "text/plain", "empty.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("extraction_empty");
@@ -123,7 +123,7 @@ public class PerDocSummarizerTests
         var settings = new SummarySettings { Enabled = false };
 
         var result = await summarizer.GenerateAsync(
-            "doc-1", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
+            "doc-1", "hash", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
 
         result.Skipped.Should().BeTrue();
         result.SkipReason.Should().Be("summaries_disabled");
@@ -152,7 +152,7 @@ public class PerDocSummarizerTests
         };
 
         await summarizer.GenerateAsync(
-            "doc-1", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
+            "doc-1", "hash", "some text", "text/plain", "doc.txt", settings, CancellationToken.None);
 
         await llmProvider.Received(1).CompleteAsync(
             customPrompt,
@@ -177,7 +177,7 @@ public class PerDocSummarizerTests
         var settings = new SummarySettings { Enabled = true, LlmModel = "qwen3:14b" };
 
         await summarizer.GenerateAsync(
-            "doc-1", "text", "text/plain", "doc.txt", settings, CancellationToken.None);
+            "doc-1", "hash", "text", "text/plain", "doc.txt", settings, CancellationToken.None);
 
         await llmProvider.Received(1).CompleteAsync(
             Arg.Any<string>(),
@@ -204,7 +204,7 @@ public class PerDocSummarizerTests
         var settings = new SummarySettings { Enabled = true, MaxInputTokens = 100 };  // 100 tokens × 4 = 400 chars
 
         await summarizer.GenerateAsync(
-            "doc-1", longText, "text/plain", "doc.txt", settings, CancellationToken.None);
+            "doc-1", "hash", longText, "text/plain", "doc.txt", settings, CancellationToken.None);
 
         capturedUserPrompt.Should().NotBeNull();
         capturedUserPrompt!.Should().Contain(new string('a', 400));

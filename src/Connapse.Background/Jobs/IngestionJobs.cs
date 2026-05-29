@@ -206,8 +206,9 @@ public sealed class IngestionJobs : IIngestionJobs
                 return;
             }
 
+            string contentHash = doc.Metadata.GetValueOrDefault("ContentHash") ?? string.Empty;
             PerDocSummarizationResult result = await _summarizer.GenerateAsync(
-                documentId, parsedText, doc.ContentType, doc.FileName, settings, ct);
+                documentId, contentHash, parsedText, doc.ContentType, doc.FileName, settings, ct);
 
             if (result.Skipped)
             {
