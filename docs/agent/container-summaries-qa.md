@@ -110,7 +110,7 @@ The default container summary method for new installs is `document-clustering`. 
 3. Upload 35 documents.
 4. Wait for ingestion to complete (no per-doc summary spinners — they all SummaryIndexed without LLM calls).
 5. Click "Regenerate summary now".
-6. **Expected:** Container summary appears. Open the FileBrowser doc list — exactly K = `min(20, ceil(35/3))` = 12 docs have summaries; the remaining 23 do not. Watch the Hangfire dashboard during the rollup — should see exactly 12 `PerDocSummary*` jobs run (sequential, inside the rollup) plus 1 `RollupContainerAsync`.
+6. **Expected:** Container summary appears. Open the FileBrowser doc list — exactly K = `min(20, ceil(35/3))` = 12 docs have summaries; the remaining 23 do not. Watch the Hangfire dashboard during the rollup — you should see a single `RollupContainerAsync` job and **no** separate `PerDocSummaryAsync` jobs: in document-clustering mode the 12 medoid summaries are generated inline within the rollup (look for 12 `LazyMedoidSummary*` log lines), not as standalone Hangfire jobs.
 
 ### Scenario: Switch to summary-clustering
 
@@ -123,7 +123,7 @@ The default container summary method for new installs is `document-clustering`. 
 ### Scenario: Cache reuse on re-rollup
 
 1. In container "qa-hercules-cluster" (from Scenario 2), click "Regenerate summary now" a second time without uploading anything.
-2. **Expected:** Rollup completes quickly. Hangfire dashboard / logs show **zero** `PerDocSummaryAsync` invocations this time (all K medoid docs have cached summaries whose `summary_content_hash` matches the current `content_hash`).
+2. **Expected:** Rollup completes quickly. Logs show **zero** inline LLM summarization calls this time — instead one `LazyMedoidSummaryCacheHit` debug line fires for each of the K medoid docs (all have cached summaries whose `summary_content_hash` matches the current `content_hash`). The Hangfire dashboard shows a single `RollupContainerAsync` job and no `PerDocSummaryAsync` jobs (there are none in document-clustering mode).
 
 ## Ollama concurrency gate — stability under concurrent rollups (#335)
 

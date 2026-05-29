@@ -230,6 +230,7 @@ public class SummarySettingsIntegrationTests(SharedWebAppFixture fixture)
         var originalGlobal = await settingsStore.GetAsync<SummarySettings>("Summary");
         var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "method-override-test" });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
 
         try
@@ -248,8 +249,9 @@ public class SummarySettingsIntegrationTests(SharedWebAppFixture fixture)
                     ContainerSummaryMethod = SummaryStrategy.DocumentClustering,
                 }
             };
-            await fixture.AdminClient.PutAsJsonAsync(
+            var putResponse = await fixture.AdminClient.PutAsJsonAsync(
                 $"/api/containers/{container!.Id}/settings", overrides);
+            putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
             // Act
             var resolved = await resolver.GetSummarySettingsAsync(
@@ -281,6 +283,7 @@ public class SummarySettingsIntegrationTests(SharedWebAppFixture fixture)
 
         var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
             new { Name = "method-default-test" });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
 
         try

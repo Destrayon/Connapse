@@ -50,7 +50,7 @@ A new string field on `SummarySettings` in `Connapse.Core/Models/SettingsModels.
 ```csharp
 public record SummarySettings
 {
-    public bool Enabled { get; init; } = true;
+    public bool Enabled { get; init; } = false;  // opt-in
     public string ContainerSummaryMethod { get; init; } = "document-clustering";  // NEW
     public string LlmModel { get; init; } = "...";
     public string LlmProvider { get; init; } = "...";

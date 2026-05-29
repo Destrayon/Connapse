@@ -30,6 +30,8 @@ public static class HangfireServiceCollectionExtensions
         // connections ("too many clients already"). Overridable per deployment; default suits a
         // single-process box where the app pool also needs headroom under the same ceiling.
         int hangfireMaxPool = configuration.GetValue<int?>("Hangfire:MaxPoolSize") ?? 30;
+        if (hangfireMaxPool <= 0)
+            throw new InvalidOperationException("Hangfire:MaxPoolSize must be a positive integer.");
         string hangfireConnectionString = new NpgsqlConnectionStringBuilder(connectionString)
         {
             MaxPoolSize = hangfireMaxPool
@@ -72,8 +74,11 @@ public static class HangfireServiceCollectionExtensions
                 // gate, so on a many-core box most of those workers would just park while holding a
                 // DB connection (DisableConcurrentExecution keeps each running job's distributed-lock
                 // connection open for its whole lifetime). Cap the default and allow an override.
-                opt.WorkerCount = configuration.GetValue<int?>("Hangfire:WorkerCount")
+                int workerCount = configuration.GetValue<int?>("Hangfire:WorkerCount")
                     ?? Math.Min(Environment.ProcessorCount * 2, 16);
+                if (workerCount <= 0)
+                    throw new InvalidOperationException("Hangfire:WorkerCount must be a positive integer.");
+                opt.WorkerCount = workerCount;
                 opt.Queues = new[]
                 {
                     Jobs.JobQueues.Ingestion,

@@ -4,6 +4,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Llm;
+using FluentAssertions;
 using NSubstitute;
 
 namespace Connapse.Background.Tests.Jobs;
@@ -181,11 +182,11 @@ public class SummaryJobsTests
         // exhausted the Postgres connection pool. Lock Attempts == 0 so a well-meaning re-add of
         // the default retry attribute can't silently regress it.
         MethodInfo? method = typeof(SummaryJobs).GetMethod(nameof(SummaryJobs.RollupContainerAsync));
-        Assert.NotNull(method);
+        method.Should().NotBeNull();
 
         var retry = method!.GetCustomAttribute<Hangfire.AutomaticRetryAttribute>();
-        Assert.NotNull(retry);
-        Assert.Equal(0, retry!.Attempts);
+        retry.Should().NotBeNull();
+        retry!.Attempts.Should().Be(0);
     }
 
     private static SummaryLlmResolver CreateLlmResolverSubstitute()

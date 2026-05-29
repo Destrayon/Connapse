@@ -369,12 +369,28 @@ public class PgVectorStore : IVectorStore
 
         if (modelCounts.Count > 1)
         {
-            int excludedVectors = modelCounts.Skip(1).Sum(m => m.Count);
+            // The interface contract asks for the count of *documents* excluded due to a
+            // non-dominant model. A document is excluded only when it has no chunks of the
+            // dominant model — docs with mixed-model chunks still contribute their dominant
+            // ones. Compute total vs. dominant-reachable distinct docs (mixed-model path only).
+            int totalDocs = await _context.ChunkVectors
+                .Where(cv => cv.ContainerId == containerId)
+                .Select(cv => cv.DocumentId)
+                .Distinct()
+                .CountAsync(ct);
+            int includedDocs = await _context.ChunkVectors
+                .Where(cv => cv.ContainerId == containerId && cv.ModelId == dominantModelId)
+                .Select(cv => cv.DocumentId)
+                .Distinct()
+                .CountAsync(ct);
+            int excludedDocuments = totalDocs - includedDocs;
+
             _logger.LogWarning(
                 "GetPooledDocumentEmbeddingsAsync: container {ContainerId} has mixed embedding models. " +
-                "Using dominant model '{DominantModelId}' ({DominantCount} vectors). " +
-                "Excluding {ExcludedCount} vectors from {OtherModelCount} other model(s).",
-                containerId, dominantModelId, modelCounts[0].Count, excludedVectors, modelCounts.Count - 1);
+                "Using dominant model '{DominantModelId}' ({DominantVectorCount} vectors). " +
+                "Excluding {ExcludedDocumentCount} document(s) with no chunks of the dominant model, " +
+                "across {OtherModelCount} other model(s).",
+                containerId, dominantModelId, modelCounts[0].Count, excludedDocuments, modelCounts.Count - 1);
         }
 
         // Step 2: pool per-document. AVG(embedding) returns a vector at the same dimensionality.

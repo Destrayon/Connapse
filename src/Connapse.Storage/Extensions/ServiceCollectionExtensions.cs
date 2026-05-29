@@ -48,8 +48,10 @@ public static class ServiceCollectionExtensions
         // an uncapped pool here (Npgsql defaults Maximum Pool Size to 100) can starve the other or
         // exhaust the server under load. Sized to leave headroom for the background pool and admin
         // tooling beneath a typical ceiling; overridable per deployment via Database:MaxPoolSize.
-        dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize =
-            configuration.GetValue<int?>("Database:MaxPoolSize") ?? 40;
+        int appMaxPoolSize = configuration.GetValue<int?>("Database:MaxPoolSize") ?? 40;
+        if (appMaxPoolSize <= 0)
+            throw new InvalidOperationException("Database:MaxPoolSize must be a positive integer.");
+        dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = appMaxPoolSize;
         var dataSource = dataSourceBuilder.Build();
 
         services.AddDbContext<KnowledgeDbContext>(options =>
