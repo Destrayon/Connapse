@@ -35,13 +35,14 @@ public sealed class PerDocSummarizer(
 
         int maxTokens = settings.MaxInputTokens ?? DefaultMaxInputTokens;
         int maxChars = maxTokens * 4;
-        string truncated = docText.Length > maxChars ? docText[..maxChars] : docText;
+        bool wasTruncated = docText.Length > maxChars;
+        string truncatedText = wasTruncated ? docText[..maxChars] : docText;
 
         string systemPrompt = !string.IsNullOrWhiteSpace(settings.PerDocSystemPrompt)
             ? settings.PerDocSystemPrompt
             : SummaryPrompts.PerDocSystemPrompt;
 
-        string userMessage = SummaryPrompts.RenderPerDocUserMessage(fileName, mimeType, truncated);
+        string userMessage = SummaryPrompts.RenderPerDocUserMessage(fileName, mimeType, truncatedText, wasTruncated);
 
         int inputTokens = tokenCounter.CountTokens(systemPrompt) + tokenCounter.CountTokens(userMessage);
 
