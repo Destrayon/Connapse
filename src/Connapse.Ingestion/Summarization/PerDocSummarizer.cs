@@ -46,7 +46,7 @@ public sealed class PerDocSummarizer(
 
         int inputTokens = tokenCounter.CountTokens(systemPrompt) + tokenCounter.CountTokens(userMessage);
 
-        LlmCompletionOptions? options = settings.LlmModel is null
+        LlmCompletionOptions? options = string.IsNullOrWhiteSpace(settings.LlmModel)
             ? null
             : new LlmCompletionOptions(Model: settings.LlmModel);
 
@@ -54,7 +54,7 @@ public sealed class PerDocSummarizer(
             systemPrompt, userMessage, options, ct);
 
         int outputTokens = tokenCounter.CountTokens(responseText);
-        string model = settings.LlmModel ?? llmProvider.ModelId;
+        string model = string.IsNullOrWhiteSpace(settings.LlmModel) ? llmProvider.ModelId : settings.LlmModel;
 
         DateTime now = DateTime.UtcNow;
         await docStore.UpdateSummaryAsync(documentId, responseText, now, contentHash, ct);

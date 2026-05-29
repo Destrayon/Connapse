@@ -187,6 +187,40 @@ public class PerDocSummarizerTests
     }
 
     [Fact]
+    public async Task GenerateAsync_WithEmptyLlmModel_FallsBackToProviderModel()
+    {
+        // Regression: the settings UI can persist LlmModel as "" (empty string)
+        // rather than null. An empty string is not a valid model — it must be
+        // treated as "no override", not forwarded to the provider as model "".
+        // Forwarding "" makes Ollama return a non-2xx that surfaces as a
+        // misleading "Failed to connect ... model ''" error.
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("default-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("generated"));
+
+        var docStore = Substitute.For<IDocumentStore>();
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+
+        var summarizer = new PerDocSummarizer(llmProvider, docStore, tokenCounter);
+        var settings = new SummarySettings { Enabled = true, LlmModel = "" };
+
+        var result = await summarizer.GenerateAsync(
+            "doc-1", "hash", "text", "text/plain", "doc.txt", settings, CancellationToken.None);
+
+        // Must NOT forward an empty model override.
+        await llmProvider.Received(1).CompleteAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Is<LlmCompletionOptions?>(o => o == null || !string.IsNullOrWhiteSpace(o.Model)),
+            Arg.Any<CancellationToken>());
+
+        // Reported model falls back to the provider default, not "".
+        result.Model.Should().Be("default-model");
+    }
+
+    [Fact]
     public async Task GenerateAsync_WithMaxInputTokens_TruncatesInputToFourTimesTheLimit()
     {
         var llmProvider = Substitute.For<ILlmProvider>();

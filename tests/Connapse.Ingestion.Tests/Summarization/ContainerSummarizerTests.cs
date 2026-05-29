@@ -160,4 +160,37 @@ public class ContainerSummarizerTests
             Arg.Is<LlmCompletionOptions?>(o => o != null && o.Model == "claude-sonnet-4-6"),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task GenerateAsync_WithEmptyLlmModel_FallsBackToProviderModel()
+    {
+        // Regression: the settings UI can persist LlmModel as "" (empty string)
+        // rather than null. An empty string is not a valid model — it must be
+        // treated as "no override", not forwarded to the provider as model "".
+        var llmProvider = Substitute.For<ILlmProvider>();
+        llmProvider.ModelId.Returns("default-model");
+        llmProvider.CompleteAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<LlmCompletionOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("rollup"));
+        var tokenCounter = Substitute.For<ITokenCounter>();
+        tokenCounter.CountTokens(Arg.Any<string>()).Returns(10);
+        var summarizer = new ContainerSummarizer(llmProvider, tokenCounter);
+        var docs = new List<DocumentWithSummary>
+        {
+            new(Guid.NewGuid(), "sum1", new float[] { 0.1f })
+        };
+        var settings = new SummarySettings { Enabled = true, LlmModel = "" };
+
+        ContainerSummarizationResult result =
+            await summarizer.GenerateAsync("container", docs, settings, CancellationToken.None);
+
+        // Must NOT forward an empty model override.
+        await llmProvider.Received(1).CompleteAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Is<LlmCompletionOptions?>(o => o == null || !string.IsNullOrWhiteSpace(o.Model)),
+            Arg.Any<CancellationToken>());
+
+        // Reported model falls back to the provider default, not "".
+        result.Model.Should().Be("default-model");
+    }
 }

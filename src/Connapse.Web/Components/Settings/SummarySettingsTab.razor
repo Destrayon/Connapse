@@ -267,8 +267,12 @@
         {
             Enabled = enabled,
             ContainerSummaryMethod = containerSummaryMethod,
-            LlmProvider = llmProvider,
-            LlmModel = llmModel,
+            // Normalize blank overrides to null: an empty string is not a valid
+            // provider/model, and downstream consumers treat null as "inherit the
+            // global setting". Persisting "" would override the configured model
+            // with an empty one (Ollama then rejects the request).
+            LlmProvider = string.IsNullOrWhiteSpace(llmProvider) ? null : llmProvider,
+            LlmModel = string.IsNullOrWhiteSpace(llmModel) ? null : llmModel,
             MaxInputTokens = maxInputTokens,
             PerDocSystemPrompt = perDoc,
             ContainerRollupSystemPrompt = containerRollup
