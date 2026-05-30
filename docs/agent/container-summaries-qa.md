@@ -14,7 +14,7 @@ Verify that the auto-generated container summary biases an MCP-connected agent t
 
 1. **Routing test.** Connect Claude Code (or an equivalent MCP client). Ask: "What did Apple report for Q3 2025 iPhone sales?" Expected: agent calls `container_list` → `search_knowledge(container=<test>, query="iPhone Q3 2025 sales")`. Should NOT use `list_files` + `get_document`.
 
-2. **Out-of-scope test.** Ask the agent something the container should NOT route to. Expected: agent does not route based on the summary's "Does not cover…" section.
+2. **Scope-boundary test.** Ask the agent something the container should NOT route to. Expected: in the stuff regime (all docs summarized) the description may name explicit boundaries; in the clustered regime (a medoid sample) it hedges scope rather than asserting a hard "does not cover," so a false exclusion can't silently suppress retrieval.
 
 3. **Query-term lift.** Compare agent query terms with/without summary. Agent should use phrases from the "Query hints" section more often when summary is present.
 
@@ -87,3 +87,71 @@ Verify that the auto-generated container summary biases an MCP-connected agent t
 2. Manually trigger it via the dashboard
 3. Verify no errors and no rollups fire if all containers are up-to-date
 4. Make a container's summary stale (e.g. update a doc summary timestamp manually) and trigger the sweep again; a `RollupContainerAsync` for that container should appear in the queue
+
+## HERCULES — document-clustering container summary method (#335)
+
+The default container summary method for new installs is `document-clustering`. The legacy method is `summary-clustering`. Verify both end-to-end.
+
+### Scenario: Document-clustering default for new container
+
+1. Create a fresh container "qa-hercules-default" and open its Summary settings tab.
+2. **Expected:** "Container summary method" dropdown shows "Document clustering (recommended)" by default.
+3. Enable summaries (master toggle on) and save.
+4. Upload 5 documents (any text files).
+5. Wait for ingestion to complete (per-doc spinners stop, no Indexed pill).
+6. **Expected:** Each doc's row shows no "Summary" indicator. The container row shows no summary yet (rollup hasn't happened).
+7. Click "Regenerate summary now".
+8. **Expected:** Container rollup pill appears, runs for ~10–30s, container summary text populates. Open each doc detail — all 5 docs (N ≤ stuff threshold of 30) now have per-doc summaries cached.
+
+### Scenario: Document-clustering clustering regime (>30 docs)
+
+1. Create container "qa-hercules-cluster".
+2. Enable summaries in document-clustering mode.
+3. Upload 35 documents.
+4. Wait for ingestion to complete (no per-doc summary spinners — they all SummaryIndexed without LLM calls).
+5. Click "Regenerate summary now".
+6. **Expected:** Container summary appears. Open the FileBrowser doc list — exactly K = `min(20, ceil(35/3))` = 12 docs have summaries; the remaining 23 do not. Watch the Hangfire dashboard during the rollup — you should see a single `RollupContainerAsync` job and **no** separate `PerDocSummaryAsync` jobs: in document-clustering mode the 12 medoid summaries are generated inline within the rollup (look for 12 `LazyMedoidSummary*` log lines), not as standalone Hangfire jobs.
+
+### Scenario: Switch to summary-clustering
+
+1. Open container "qa-hercules-default" settings tab.
+2. Change "Container summary method" to "Summary clustering". Save.
+3. Upload one new document "doc-after-switch.txt".
+4. Wait for ingestion to complete.
+5. **Expected:** "doc-after-switch.txt" gets a per-doc summary at ingest (open detail panel to confirm). The 5 docs uploaded under document-clustering may or may not have summaries depending on whether they were medoids in a prior rollup — lazy-mode cache state is preserved.
+
+### Scenario: Cache reuse on re-rollup
+
+1. In container "qa-hercules-cluster" (from Scenario 2), click "Regenerate summary now" a second time without uploading anything.
+2. **Expected:** Rollup completes quickly. Logs show **zero** inline LLM summarization calls this time — instead one `LazyMedoidSummaryCacheHit` debug line fires for each of the K medoid docs (all have cached summaries whose `summary_content_hash` matches the current `content_hash`). The Hangfire dashboard shows a single `RollupContainerAsync` job and no `PerDocSummaryAsync` jobs (there are none in document-clustering mode).
+
+## Ollama concurrency gate — stability under concurrent rollups (#335)
+
+A single local Ollama instance serializes generation internally. When many container rollups are enqueued at once (e.g. the stale-container sweep settling a backlog), unbounded `/api/chat` requests pile into Ollama's internal queue; each queued request's `HttpClient` timeout clock (`LlmSettings.TimeoutSeconds`, 300s default) is already running, so the slowest tail requests exceed it and surface as `TaskCanceledException`. `LlmSettings.MaxConcurrentRequests` (default 1) gates how many completions the app issues to Ollama at once — callers wait in-process before the HTTP call starts, so each request that reaches Ollama runs alone and finishes well within the timeout. Only the Ollama provider is gated; cloud providers (OpenAI/Azure/Anthropic) handle concurrency server-side.
+
+### Scenario: Concurrent rollups don't time out on Ollama
+
+1. With Ollama configured (single instance) and summaries enabled in document-clustering mode, create several small containers (N ≤ 30 docs each, so each rollup uses the "stuff" regime).
+2. Make them all stale at once and let the `summary-sweep-stale-containers` job fire (or trigger it from the Hangfire dashboard), so multiple `RollupContainerAsync` jobs run concurrently.
+3. Tail the logs: `/api/chat` calls should start strictly one at a time — each new call begins only after the previous one returns (`MaxConcurrentRequests = 1`) — and every rollup should complete with **no** `TaskCanceledException`. The first call may be slow (cold model load); subsequent calls are fast.
+4. (Optional) Raise `MaxConcurrentRequests` above 1 only if the Ollama host has GPU/CPU headroom to run that many generations in parallel without any single one exceeding `TimeoutSeconds`. The setting is read once at startup, so changing it requires a restart.
+
+## Postgres connection budget — stability under concurrent rollups (#335)
+
+Concurrent rollups also pressure the database, not just the LLM. Two Npgsql connection pools share one Postgres server: the app's `NpgsqlDataSource` (queries, vector search, EF) and the background job runner's storage pool. Each pool, left unspecified, defaults to a maximum of 100 connections — so two uncapped pools can together demand 200 against a server that typically allows ~100. On top of that, `DisableConcurrentExecution` on a rollup holds its distributed-lock connection open for the job's entire lifetime, including while a worker is parked waiting on the Ollama concurrency gate. With an oversized worker pool (Hangfire's default is `ProcessorCount * 2`, which is large on a many-core box), a backlog of swept rollups could hold enough connections at once to exhaust the server, surfacing as `PostgresException: 53300: sorry, too many clients already`.
+
+Three knobs bound the demand, each overridable per deployment:
+
+- **`Database:MaxPoolSize`** (default 40) — caps the app's `NpgsqlDataSource` pool.
+- **`Hangfire:MaxPoolSize`** (default 30) — caps the background runner's storage pool.
+- **`Hangfire:WorkerCount`** (default `min(ProcessorCount * 2, 16)`) — caps concurrent jobs, so fewer lock-holding connections are alive at once.
+
+The defaults sum to a per-process budget (40 + 30 = 70 connections) that leaves headroom for admin tooling under a ~100 ceiling. A deployment whose Postgres allows more connections, or that runs multiple app instances against one server, should raise or lower these to fit its own `max_connections`.
+
+Rollups also do **not** use Hangfire's automatic retry (`AutomaticRetry(Attempts = 0)` on `RollupContainerAsync`). The recurring `summary-sweep-stale-containers` job re-enqueues any container that is still stale on its next tick, so a failed rollup is retried by the sweep rather than by Hangfire stacking Scheduled retry jobs on top of the sweep's enqueues — the duplicate pile-up that retries would create is exactly what pressured the connection pool.
+
+### Scenario: Backlog of rollups doesn't exhaust connections
+
+1. With summaries enabled and a working LLM provider, make several containers stale at once (e.g. update their doc summary timestamps) and let `summary-sweep-stale-containers` fire, or trigger it from the Hangfire dashboard.
+2. While the backlog drains, query the database: `SELECT count(*) FROM pg_stat_activity;` — the count should stay well under the server's `max_connections` (no climb toward the ceiling).
+3. **Expected:** every rollup completes; no `53300: sorry, too many clients already` in the app logs. A rollup that does fail (e.g. transient LLM error) lands in **Failed** in the dashboard — not Scheduled — and is picked up again on the next sweep tick rather than by a Hangfire retry.

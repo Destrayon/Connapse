@@ -43,6 +43,15 @@ public static class ServiceCollectionExtensions
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
         dataSourceBuilder.EnableDynamicJson(); // Required for Dictionary<string, string> serialization
         dataSourceBuilder.UseVector();
+        // Cap the application's connection pool. Postgres enforces a server-wide max_connections
+        // ceiling; the app pool and the background job runner's pool draw from it concurrently, so
+        // an uncapped pool here (Npgsql defaults Maximum Pool Size to 100) can starve the other or
+        // exhaust the server under load. Sized to leave headroom for the background pool and admin
+        // tooling beneath a typical ceiling; overridable per deployment via Database:MaxPoolSize.
+        int appMaxPoolSize = configuration.GetValue<int?>("Database:MaxPoolSize") ?? 40;
+        if (appMaxPoolSize <= 0)
+            throw new InvalidOperationException("Database:MaxPoolSize must be a positive integer.");
+        dataSourceBuilder.ConnectionStringBuilder.MaxPoolSize = appMaxPoolSize;
         var dataSource = dataSourceBuilder.Build();
 
         services.AddDbContext<KnowledgeDbContext>(options =>
@@ -111,7 +120,10 @@ public static class ServiceCollectionExtensions
             };
         });
 
-        // LLM providers — resolved at runtime based on LlmSettings.Provider
+        // LLM providers — resolved at runtime based on LlmSettings.Provider.
+        // Singleton gate shared across all (transient) Ollama provider instances so local
+        // inference is throttled process-wide (see LlmConcurrencyGate).
+        services.AddSingleton<LlmConcurrencyGate>();
         services.AddHttpClient<OllamaLlmProvider>();
         services.AddScoped<OpenAiLlmProvider>();
         services.AddScoped<AzureOpenAiLlmProvider>();

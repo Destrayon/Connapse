@@ -22,7 +22,7 @@ public class DocumentEntity
     // Per-document summary (input to container summary rollup)
     public string? Summary { get; set; }
     public DateTime? SummaryGeneratedAt { get; set; }
-    public string? SummaryContentHash { get; set; } // sha256(doc_text) at time of summary
+    public string? SummaryContentHash { get; set; } // raw-file content hash (= content_hash) at time of summary
 
     // Multi-stage enrichment lifecycle driving UI status pills.
     // Distinct from Status (which tracks the ingestion job's lifecycle string).

@@ -61,7 +61,7 @@ public sealed class ContainerSummarizer(
 
         int inputTokens = tokenCounter.CountTokens(systemPrompt) + tokenCounter.CountTokens(userMsg);
 
-        LlmCompletionOptions? options = settings.LlmModel is null
+        LlmCompletionOptions? options = string.IsNullOrWhiteSpace(settings.LlmModel)
             ? null
             : new LlmCompletionOptions(Model: settings.LlmModel);
 
@@ -69,7 +69,7 @@ public sealed class ContainerSummarizer(
             systemPrompt, userMsg, options, ct);
 
         int outputTokens = tokenCounter.CountTokens(responseText);
-        string model = settings.LlmModel ?? llmProvider.ModelId;
+        string model = string.IsNullOrWhiteSpace(settings.LlmModel) ? llmProvider.ModelId : settings.LlmModel;
 
         return new ContainerSummarizationResult(
             Skipped: false,

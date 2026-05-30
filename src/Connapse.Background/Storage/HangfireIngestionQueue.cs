@@ -50,12 +50,13 @@ public sealed class HangfireIngestionQueue : IIngestionQueue
 
         _documentToJobId[job.DocumentId] = job.JobId;
 
-        // Enqueue ingestion; ContinueJobWith fires per-doc summary on success
+        // Enqueue ingestion. Per-doc summary scheduling now happens inside IngestAsync's
+        // tail, gated on the container's resolved SummarySettings — document-clustering
+        // and summaries-disabled both skip the per-doc job entirely (no dashboard noise,
+        // no wasted dequeue cycle). Summary-clustering enqueues PerDocSummaryAsync at the
+        // end of IngestAsync as a sibling Hangfire job.
         string parentId = _bgClient.Enqueue<IIngestionJobs>(
             j => j.IngestAsync(job.DocumentId, job.Options, default));
-        _bgClient.ContinueJobWith<IIngestionJobs>(
-            parentId,
-            j => j.PerDocSummaryAsync(job.DocumentId, default));
 
         _jobIdToHangfireParentId[job.JobId] = parentId;
         return Task.CompletedTask;

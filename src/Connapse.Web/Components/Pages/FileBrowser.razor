@@ -709,6 +709,11 @@
             // SignalR negotiate can fail in test/dev contexts (e.g. circuit not fully wired);
             // the existing in-process ProgressNotifier still drives in-flight job updates.
         }
+
+        // Drive the rollup-in-progress pill from a low-frequency poll (see RunRollupPollLoopAsync).
+        _rollupPollCts = new CancellationTokenSource();
+        _rollupPollTimer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        _ = RunRollupPollLoopAsync();
     }
 
     private async Task RetryIngestion(BrowseEntryDto entry)
@@ -867,18 +872,9 @@
             catch { /* Will retry on next render */ }
         }
 
-        // Container rollup-in-progress pill — throttled scan of the Hangfire monitoring
-        // API. Cheap to call (in-memory dictionary scan on PostgreSQL storage's
-        // dashboard cache), but still throttled to once per second.
-        if (container is not null && Guid.TryParse(container.Id, out var cid))
-        {
-            bool newState = IsRollupInProgress(cid);
-            if (newState != _isRollupInProgress)
-            {
-                _isRollupInProgress = newState;
-                await InvokeAsync(StateHasChanged);
-            }
-        }
+        // The rollup-in-progress pill is driven by RunRollupPollLoopAsync (a 2s poll), not by
+        // render ticks: in document-clustering mode the rollup runs after per-doc SignalR
+        // traffic stops, so no render would fire to clear the pill once the rollup completes.
     }
 
     // Tracks the most recent rollup-pill check so we don't hammer the Hangfire monitoring
@@ -886,6 +882,34 @@
     private bool _isRollupInProgress;
     private DateTime _rollupPillLastChecked = DateTime.MinValue;
     private bool _rollupPillCachedResult;
+
+    // Low-frequency poll that keeps the rollup pill honest. Per-doc pills re-render via SignalR,
+    // but a container rollup (especially in document-clustering mode) runs after that traffic
+    // stops — without a poll, the pill would stay stuck "on" until a manual page refresh.
+    private PeriodicTimer? _rollupPollTimer;
+    private CancellationTokenSource? _rollupPollCts;
+
+    private async Task RunRollupPollLoopAsync()
+    {
+        if (_rollupPollTimer is null || _rollupPollCts is null) return;
+        try
+        {
+            while (await _rollupPollTimer.WaitForNextTickAsync(_rollupPollCts.Token))
+            {
+                if (_disposed) return;
+                if (container is null || !Guid.TryParse(container.Id, out var cid)) continue;
+
+                bool newState = IsRollupInProgress(cid);
+                if (newState != _isRollupInProgress)
+                {
+                    _isRollupInProgress = newState;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch (OperationCanceledException) { /* disposed — expected */ }
+        catch { /* best-effort pill; never tear down the circuit */ }
+    }
 
     private bool IsRollupInProgress(Guid containerId)
     {
@@ -1869,6 +1893,9 @@
     public async ValueTask DisposeAsync()
     {
         _disposed = true;
+        _rollupPollCts?.Cancel();
+        _rollupPollTimer?.Dispose();
+        _rollupPollCts?.Dispose();
         ProgressNotifier.ProgressReceived -= OnProgressReceived;
         ProgressNotifier.StateChanged -= OnStateChanged;
         FileChangeNotifier.FileChanged -= OnFileChanged;

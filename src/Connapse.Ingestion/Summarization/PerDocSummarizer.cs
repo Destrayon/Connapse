@@ -1,6 +1,5 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Storage.Llm;
 
 namespace Connapse.Ingestion.Summarization;
@@ -14,6 +13,7 @@ public sealed class PerDocSummarizer(
 
     public async Task<PerDocSummarizationResult> GenerateAsync(
         string documentId,
+        string contentHash,
         string docText,
         string? mimeType,
         string fileName,
@@ -29,25 +29,24 @@ public sealed class PerDocSummarizer(
         if (string.IsNullOrWhiteSpace(docText))
             return new PerDocSummarizationResult(Skipped: true, SkipReason: "extraction_empty");
 
-        string contentHash = HexHash.Sha256(docText);
-
         Connapse.Core.Document? existing = await docStore.GetAsync(documentId, ct);
         if (existing?.SummaryContentHash == contentHash)
             return new PerDocSummarizationResult(Skipped: true, SkipReason: "content_hash_match");
 
         int maxTokens = settings.MaxInputTokens ?? DefaultMaxInputTokens;
         int maxChars = maxTokens * 4;
-        string truncated = docText.Length > maxChars ? docText[..maxChars] : docText;
+        bool wasTruncated = docText.Length > maxChars;
+        string truncatedText = wasTruncated ? docText[..maxChars] : docText;
 
         string systemPrompt = !string.IsNullOrWhiteSpace(settings.PerDocSystemPrompt)
             ? settings.PerDocSystemPrompt
             : SummaryPrompts.PerDocSystemPrompt;
 
-        string userMessage = SummaryPrompts.RenderPerDocUserMessage(fileName, mimeType, truncated);
+        string userMessage = SummaryPrompts.RenderPerDocUserMessage(fileName, mimeType, truncatedText, wasTruncated);
 
         int inputTokens = tokenCounter.CountTokens(systemPrompt) + tokenCounter.CountTokens(userMessage);
 
-        LlmCompletionOptions? options = settings.LlmModel is null
+        LlmCompletionOptions? options = string.IsNullOrWhiteSpace(settings.LlmModel)
             ? null
             : new LlmCompletionOptions(Model: settings.LlmModel);
 
@@ -55,7 +54,7 @@ public sealed class PerDocSummarizer(
             systemPrompt, userMessage, options, ct);
 
         int outputTokens = tokenCounter.CountTokens(responseText);
-        string model = settings.LlmModel ?? llmProvider.ModelId;
+        string model = string.IsNullOrWhiteSpace(settings.LlmModel) ? llmProvider.ModelId : settings.LlmModel;
 
         DateTime now = DateTime.UtcNow;
         await docStore.UpdateSummaryAsync(documentId, responseText, now, contentHash, ct);

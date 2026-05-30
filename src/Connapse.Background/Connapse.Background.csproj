@@ -23,4 +23,8 @@
     <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Connapse.Background.Tests" />
+  </ItemGroup>
+
 </Project>

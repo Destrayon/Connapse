@@ -17,15 +17,18 @@ public class OllamaLlmProvider : ILlmProvider
     private readonly HttpClient _httpClient;
     private readonly ILogger<OllamaLlmProvider> _logger;
     private readonly LlmSettings _settings;
+    private readonly LlmConcurrencyGate _gate;
 
     public OllamaLlmProvider(
         HttpClient httpClient,
         IOptionsSnapshot<LlmSettings> settings,
-        ILogger<OllamaLlmProvider> logger)
+        ILogger<OllamaLlmProvider> logger,
+        LlmConcurrencyGate gate)
     {
         _httpClient = httpClient;
         _logger = logger;
         _settings = settings.Value;
+        _gate = gate;
 
         if (!string.IsNullOrEmpty(_settings.BaseUrl))
             _httpClient.BaseAddress = new Uri(_settings.BaseUrl);
@@ -44,6 +47,10 @@ public class OllamaLlmProvider : ILlmProvider
     {
         var resolvedModel = ResolveModel(options);
         var request = BuildRequest(systemPrompt, userPrompt, options, resolvedModel, stream: false);
+
+        // Wait in-process for a slot so this call runs alone against the local Ollama instance
+        // rather than piling into its internal queue (where the tail request would time out).
+        using var slot = await _gate.AcquireAsync(ct).ConfigureAwait(false);
 
         try
         {
@@ -75,6 +82,9 @@ public class OllamaLlmProvider : ILlmProvider
     {
         var resolvedModel = ResolveModel(options);
         var request = BuildRequest(systemPrompt, userPrompt, options, resolvedModel, stream: true);
+
+        // Held for the whole stream lifetime — one local inference at a time (see CompleteAsync).
+        using var slot = await _gate.AcquireAsync(ct).ConfigureAwait(false);
 
         HttpResponseMessage response;
         try

@@ -345,4 +345,107 @@ public class PgVectorStore : IVectorStore
             vectors.Count,
             documentId);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(Guid DocumentId, float[] Embedding)>> GetPooledDocumentEmbeddingsAsync(
+        Guid containerId,
+        CancellationToken ct = default)
+    {
+        // Step 1: pick the dominant model_id in the container. ChunkVectorEntity carries
+        // ContainerId and ModelId directly — no JOIN needed.
+        var modelCounts = await _context.ChunkVectors
+            .Where(cv => cv.ContainerId == containerId)
+            .GroupBy(cv => cv.ModelId)
+            .Select(g => new { ModelId = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .ToListAsync(ct);
+
+        if (modelCounts.Count == 0)
+        {
+            return Array.Empty<(Guid, float[])>();
+        }
+
+        string dominantModelId = modelCounts[0].ModelId;
+
+        if (modelCounts.Count > 1)
+        {
+            // The interface contract asks for the count of *documents* excluded due to a
+            // non-dominant model. A document is excluded only when it has no chunks of the
+            // dominant model — docs with mixed-model chunks still contribute their dominant
+            // ones. Compute total vs. dominant-reachable distinct docs (mixed-model path only).
+            int totalDocs = await _context.ChunkVectors
+                .Where(cv => cv.ContainerId == containerId)
+                .Select(cv => cv.DocumentId)
+                .Distinct()
+                .CountAsync(ct);
+            int includedDocs = await _context.ChunkVectors
+                .Where(cv => cv.ContainerId == containerId && cv.ModelId == dominantModelId)
+                .Select(cv => cv.DocumentId)
+                .Distinct()
+                .CountAsync(ct);
+            int excludedDocuments = totalDocs - includedDocs;
+
+            _logger.LogWarning(
+                "GetPooledDocumentEmbeddingsAsync: container {ContainerId} has mixed embedding models. " +
+                "Using dominant model '{DominantModelId}' ({DominantVectorCount} vectors). " +
+                "Excluding {ExcludedDocumentCount} document(s) with no chunks of the dominant model, " +
+                "across {OtherModelCount} other model(s).",
+                containerId, dominantModelId, modelCounts[0].Count, excludedDocuments, modelCounts.Count - 1);
+        }
+
+        // Step 2: pool per-document. AVG(embedding) returns a vector at the same dimensionality.
+        var conn = _context.Database.GetDbConnection();
+        bool openedHere = false;
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync(ct);
+            openedHere = true;
+        }
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT document_id, AVG(embedding)::vector AS pooled
+                FROM chunk_vectors
+                WHERE container_id = @cid
+                  AND model_id = @model_id
+                GROUP BY document_id
+                """;
+
+            var p = cmd.Parameters;
+            p.Add(new NpgsqlParameter("cid", containerId));
+            p.Add(new NpgsqlParameter("model_id", dominantModelId));
+
+            var results = new List<(Guid DocumentId, float[] Embedding)>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                Guid docId = reader.GetGuid(0);
+                Vector pooled = reader.GetFieldValue<Vector>(1);
+                float[] raw = pooled.ToArray();
+                float[] normalized = L2Normalize(raw);
+                results.Add((docId, normalized));
+            }
+
+            return results;
+        }
+        finally
+        {
+            if (openedHere)
+            {
+                await conn.CloseAsync();
+            }
+        }
+    }
+
+    private static float[] L2Normalize(float[] v)
+    {
+        double sumSq = 0;
+        for (int i = 0; i < v.Length; i++) sumSq += v[i] * v[i];
+        double norm = Math.Sqrt(sumSq);
+        if (norm < 1e-12) return v; // degenerate; leave as-is rather than div-by-zero
+        float[] result = new float[v.Length];
+        for (int i = 0; i < v.Length; i++) result[i] = (float)(v[i] / norm);
+        return result;
+    }
 }

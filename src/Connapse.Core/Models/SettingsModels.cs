@@ -333,6 +333,18 @@ public record LlmSettings
     /// </summary>
     public int TimeoutSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// Maximum number of completion requests issued concurrently to a local Ollama
+    /// instance (default: 1). Ollama serializes generation internally, so firing many
+    /// requests at once builds a deep queue where each request's wall-clock grows with its
+    /// queue position and the slowest ones exceed <see cref="TimeoutSeconds"/>. Gating
+    /// concurrency app-side makes callers wait in-process so each request runs alone and
+    /// finishes within the timeout. Only applies to the Ollama provider; cloud providers
+    /// (OpenAI/Azure/Anthropic) are not gated. Read once at startup — changing it requires
+    /// a restart.
+    /// </summary>
+    public int MaxConcurrentRequests { get; set; } = 1;
+
 }
 
 /// <summary>
@@ -353,7 +365,7 @@ public record UploadSettings
 ///   → global DB settings table, key="Summary"
 ///   → property-initializer defaults below (Enabled=false, others=null)
 /// </summary>
-public record SummarySettings
+public record SummarySettings : IValidatableObject
 {
     /// <summary>
     /// Master toggle. When false, both per-doc summaries and container rollups
@@ -361,6 +373,14 @@ public record SummarySettings
     /// Default: false (opt-in).
     /// </summary>
     public bool Enabled { get; init; } = false;
+
+    /// <summary>
+    /// Container summary generation method. See <see cref="SummaryStrategy"/> for allowed values.
+    /// Default: <c>document-clustering</c> — clusters by pooled chunk embeddings and lazy-summarizes
+    /// K medoid documents at rollup time. Set to <c>summary-clustering</c> to use the legacy
+    /// eager per-doc summarization path.
+    /// </summary>
+    public string ContainerSummaryMethod { get; init; } = SummaryStrategy.DocumentClustering;
 
     /// <summary>
     /// LLM provider for summary generation (Ollama / OpenAI / AzureOpenAI / Anthropic).
@@ -394,5 +414,15 @@ public record SummarySettings
     /// in PerDocSummarizer (replaces the hardcoded MaxInputCharacters = 20_000).
     /// </summary>
     public int? MaxInputTokens { get; init; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (!SummaryStrategy.All.Contains(ContainerSummaryMethod))
+        {
+            yield return new ValidationResult(
+                $"ContainerSummaryMethod must be one of: {string.Join(", ", SummaryStrategy.All)}. Got: '{ContainerSummaryMethod}'.",
+                new[] { nameof(ContainerSummaryMethod) });
+        }
+    }
 }
 

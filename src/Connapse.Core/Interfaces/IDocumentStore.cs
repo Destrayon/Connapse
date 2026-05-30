@@ -12,6 +12,15 @@ public interface IDocumentStore
     Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default);
 
     /// <summary>
+    /// Clears the cached per-document summary fields (Summary, SummaryGeneratedAt, SummaryContentHash)
+    /// for every document in a container. Returns the number of rows affected. Embeddings, chunks, and
+    /// the documents themselves are left intact — this only drops the summary cache so it can be
+    /// regenerated. Pairs with <see cref="IContainerStore.UpdateSummaryAsync"/> (nulls) to fully reset
+    /// a container's summarization state.
+    /// </summary>
+    Task<int> ClearDocumentSummariesAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
     /// Updates only the IngestionState column. Used by Hangfire job classes
     /// as they transition through Pending → Indexed → SummaryIndexed → (Failed).
     /// </summary>

@@ -12,13 +12,14 @@ public class SummaryPromptsTests
     {
         SummaryPrompts.PerDocSystemPrompt.Should().Contain("AI agent, not a human");
         SummaryPrompts.PerDocSystemPrompt.Should().Contain("search_knowledge");
+        SummaryPrompts.PerDocSystemPrompt.Should().Contain("truncated");
     }
 
     [Fact]
     public void ContainerRollupPrompt_ContainsStructureSections()
     {
         SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Use this container for");
-        SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Out-of-scope");
+        SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Scope boundaries");
         SummaryPrompts.ContainerRollupSystemPrompt.Should().Contain("Query hints");
     }
 
@@ -28,10 +29,24 @@ public class SummaryPromptsTests
         string rendered = SummaryPrompts.RenderPerDocUserMessage(
             filename: "earnings.pdf",
             mimeType: "application/pdf",
-            firstNTokens: "Apple Q3 2025 earnings...");
+            firstNTokens: "Apple Q3 2025 earnings...",
+            wasTruncated: false);
         rendered.Should().Contain("earnings.pdf");
         rendered.Should().Contain("application/pdf");
         rendered.Should().Contain("Apple Q3 2025 earnings...");
+        rendered.Should().Contain("full document text is shown below");
+    }
+
+    [Fact]
+    public void RenderPerDocUserMessage_WhenTruncated_SignalsHeadOnly()
+    {
+        string rendered = SummaryPrompts.RenderPerDocUserMessage(
+            filename: "long.pdf",
+            mimeType: "application/pdf",
+            firstNTokens: "opening section...",
+            wasTruncated: true);
+        rendered.Should().Contain("only the HEAD");
+        rendered.Should().NotContain("full document text is shown below");
     }
 
     [Fact]
