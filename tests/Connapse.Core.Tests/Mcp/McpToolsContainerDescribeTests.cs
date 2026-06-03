@@ -104,6 +104,14 @@ public class McpToolsContainerDescribeTests
     }
 
     [Fact]
+    public async Task ContainerDescribe_ContainerNotFound_OmitsServerInstructions()
+    {
+        var result = await McpTools.ContainerDescribe(_services, "nonexistent");
+
+        result.Should().NotContain("Server instructions:");
+    }
+
+    [Fact]
     public async Task ContainerDescribe_ResolvesByName()
     {
         _containerStore
