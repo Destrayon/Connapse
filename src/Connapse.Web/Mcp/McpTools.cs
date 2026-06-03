@@ -779,7 +779,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
-     Description("Returns an agent-optimized description of a container: its user-supplied description, auto-generated summary (if available), and document statistics. Use this to understand what a container covers before querying via search_knowledge, or when container_list output is insufficient to choose between containers.")]
+     Description("Returns an agent-optimized description of a container: its user-supplied description, auto-generated summary (if available), and document statistics. Use this to understand what a container covers before querying via search_knowledge, or when container_list output is insufficient to choose between containers. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
         IServiceProvider services,
         [Description("Container ID (GUID) or name")] string containerId,
@@ -823,6 +823,7 @@ public class McpTools
 
         text += $"Storage: {FormatBytes(stats.TotalSizeBytes)}\n";
         text += $"Created: {container.CreatedAt:u}";
+        text += "\n\n---\nServer instructions:\n" + McpServerConfig.McpServerInstructions;
 
         return text;
     }

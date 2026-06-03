@@ -82,7 +82,16 @@ public class McpToolsContainerDescribeTests
         var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
 
         result.Should().Contain("Documents: 12");
-        result.Should().NotContain("ready");
+        result.Should().NotContain(" ready,"); // status breakdown omitted when all docs ready
+    }
+
+    [Fact]
+    public async Task ContainerDescribe_Success_AppendsServerInstructions()
+    {
+        var result = await McpTools.ContainerDescribe(_services, ContainerId.ToString());
+
+        result.Should().Contain("Server instructions:");
+        result.Should().Contain(McpServerConfig.McpServerInstructions);
     }
 
     [Fact]
