@@ -212,7 +212,7 @@ public class PgVectorStore : IVectorStore
             if (filters.TryGetValue("containerId", out var containerIdStr) &&
                 Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add("cv.container_id = @containerId");
+                whereClauses.Add("cv.owner_id = @containerId");
                 parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = containerId });
             }
 
@@ -241,7 +241,7 @@ public class PgVectorStore : IVectorStore
             SELECT
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
-                cv.container_id as ""ContainerId"",
+                cv.owner_id as ""ContainerId"",
                 (cv.embedding::vector({dims}) <=> @queryVector) as ""Distance"",
                 c.content as ""Content"",
                 c.chunk_index as ""ChunkIndex"",
@@ -407,7 +407,7 @@ public class PgVectorStore : IVectorStore
             cmd.CommandText = """
                 SELECT document_id, AVG(embedding)::vector AS pooled
                 FROM chunk_vectors
-                WHERE container_id = @cid
+                WHERE owner_id = @cid
                   AND model_id = @model_id
                 GROUP BY document_id
                 """;

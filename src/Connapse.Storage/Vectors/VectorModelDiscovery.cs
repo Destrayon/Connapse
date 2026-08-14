@@ -33,7 +33,7 @@ public class VectorModelDiscovery(
             cmd.CommandText =
                 "SELECT model_id, vector_dims(embedding) AS dims, COUNT(*) AS cnt " +
                 "FROM chunk_vectors " +
-                "WHERE container_id = @containerId " +
+                "WHERE owner_id = @containerId " +
                 "GROUP BY model_id, vector_dims(embedding) " +
                 "ORDER BY cnt DESC";
 

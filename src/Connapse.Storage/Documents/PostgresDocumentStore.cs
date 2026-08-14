@@ -42,7 +42,10 @@ public class PostgresDocumentStore : IDocumentStore
         var containerId = Guid.Parse(document.ContainerId);
         var metadata = document.Metadata ?? new Dictionary<string, string>();
 
-        // Atomic upsert: INSERT ... ON CONFLICT (container_id, path) DO UPDATE.
+        // Atomic upsert: INSERT ... ON CONFLICT (owner_id, path) DO UPDATE.
+        // The conflict target is owner_id, not container_id, because that is the column
+        // the unique index covers — a unique index over the nullable container_id would
+        // not constrain source-owned rows, since Postgres treats each NULL as distinct.
         // On conflict, increments generation so stale ingestion jobs can detect they're outdated.
         // Returns the winning row's id and generation.
         var conn = context.Database.GetDbConnection();
@@ -51,7 +54,7 @@ public class PostgresDocumentStore : IDocumentStore
         cmd.CommandText = """
             INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, status, created_at, metadata)
             VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Pending', @created, @meta::jsonb)
-            ON CONFLICT (container_id, path) DO UPDATE SET
+            ON CONFLICT (owner_id, path) DO UPDATE SET
                 file_name    = EXCLUDED.file_name,
                 content_type = EXCLUDED.content_type,
                 content_hash = EXCLUDED.content_hash,
