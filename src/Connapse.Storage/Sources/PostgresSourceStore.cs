@@ -186,6 +186,39 @@ public class PostgresSourceStore(
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task<bool> TryAdvanceSyncStateAsync(
+        Guid id, string? expectedCursor, string? newCursor, SyncStatus status, string? error, DateTime? syncedAt, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        // Build the predicate explicitly rather than comparing against a nullable parameter:
+        // `s.SyncCursor == expectedCursor` with a null parameter translates to `sync_cursor = NULL`,
+        // which is never true in SQL, so a first-ever advance (expected null) would always report
+        // a conflict.
+        var matching = expectedCursor is null
+            ? context.Sources.Where(s => s.Id == id && s.SyncCursor == null)
+            : context.Sources.Where(s => s.Id == id && s.SyncCursor == expectedCursor);
+
+        // Single atomic UPDATE ... WHERE — no read-modify-write window for a concurrent sync
+        // to slip through.
+        int affected = await matching.ExecuteUpdateAsync(setters => setters
+            .SetProperty(s => s.SyncCursor, newCursor)
+            .SetProperty(s => s.LastSyncStatus, (int)status)
+            .SetProperty(s => s.LastSyncError, error)
+            .SetProperty(s => s.LastSyncedAt, syncedAt)
+            .SetProperty(s => s.UpdatedAt, DateTime.UtcNow), ct);
+
+        if (affected == 0)
+        {
+            logger.LogWarning(
+                "Sync cursor for source {SourceId} was advanced by another run; discarding this result",
+                id);
+            return false;
+        }
+
+        return true;
+    }
+
     public async Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);

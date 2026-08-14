@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -139,7 +140,22 @@ public class PostgresConnectionStore(
             .Select(c => c.SecretProtected)
             .FirstOrDefaultAsync(ct);
 
-        return string.IsNullOrEmpty(ciphertext) ? null : Protector.Unprotect(ciphertext);
+        if (string.IsNullOrEmpty(ciphertext)) return null;
+
+        try
+        {
+            return Protector.Unprotect(ciphertext);
+        }
+        catch (CryptographicException ex)
+        {
+            // A raw CryptographicException here is opaque — it reads as a corrupt payload when
+            // the real cause is almost always a lost or unshared DataProtection key ring. Wrap
+            // it so callers can tell "re-enter this credential" apart from a transient fault.
+            logger.LogError(ex,
+                "Failed to decrypt secret for connection {ConnectionId}; the DataProtection key ring is unavailable",
+                id);
+            throw new ConnectionSecretUnavailableException(id, ex);
+        }
     }
 
     private static Connection MapToModel(ConnectionEntity entity, int sourceCount) => new(

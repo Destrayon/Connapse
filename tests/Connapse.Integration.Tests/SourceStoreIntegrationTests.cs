@@ -80,6 +80,78 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task TryAdvanceSyncStateAsync_FirstAdvanceFromNullCursor_Succeeds()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+
+        bool advanced = await sources.TryAdvanceSyncStateAsync(
+            source.Id, expectedCursor: null, newCursor: "cursor-1", SyncStatus.Succeeded, null, DateTime.UtcNow);
+
+        advanced.Should().BeTrue();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be("cursor-1");
+    }
+
+    [Fact]
+    public async Task TryAdvanceSyncStateAsync_ReverseCompletionOrder_CannotRegressTheCursor()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+
+        // Both syncs read the same starting cursor (null), then B finishes first.
+        await sources.TryAdvanceSyncStateAsync(
+            source.Id, expectedCursor: null, newCursor: "cursor-B", SyncStatus.Succeeded, null, DateTime.UtcNow);
+
+        // A now completes late, still believing the cursor is null. It must not win.
+        bool aWon = await sources.TryAdvanceSyncStateAsync(
+            source.Id, expectedCursor: null, newCursor: "cursor-A", SyncStatus.Succeeded, null, DateTime.UtcNow);
+
+        aWon.Should().BeFalse();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be("cursor-B");
+    }
+
+    [Fact]
+    public async Task TryAdvanceSyncStateAsync_ChainedAdvances_EachMatchesPriorCursor()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+
+        await sources.TryAdvanceSyncStateAsync(source.Id, null, "c1", SyncStatus.Succeeded, null, DateTime.UtcNow);
+        bool second = await sources.TryAdvanceSyncStateAsync(source.Id, "c1", "c2", SyncStatus.Succeeded, null, DateTime.UtcNow);
+
+        second.Should().BeTrue();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be("c2");
+    }
+
+    [Fact]
+    public async Task UpdateSyncStateAsync_StillResetsUnconditionally_ForFullResync()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+        await sources.TryAdvanceSyncStateAsync(source.Id, null, "stale-token", SyncStatus.Succeeded, null, DateTime.UtcNow);
+
+        // A RequiresFullResync response must be able to clear the cursor regardless of its
+        // current value — the compare-and-swap path deliberately does not gate this.
+        await sources.UpdateSyncStateAsync(source.Id, null, SyncStatus.Failed, "410 Gone", DateTime.UtcNow);
+
+        var reloaded = await sources.GetAsync(source.Id);
+        reloaded!.SyncCursor.Should().BeNull();
+        reloaded.LastSyncError.Should().Be("410 Gone");
+    }
+
+    [Fact]
     public async Task CreateAsync_UnknownConnection_Throws()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
