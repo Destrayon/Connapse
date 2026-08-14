@@ -42,7 +42,10 @@ public class PostgresDocumentStore : IDocumentStore
         var containerId = Guid.Parse(document.ContainerId);
         var metadata = document.Metadata ?? new Dictionary<string, string>();
 
-        // Atomic upsert: INSERT ... ON CONFLICT (container_id, path) DO UPDATE.
+        // Atomic upsert: INSERT ... ON CONFLICT (owner_id, path) DO UPDATE.
+        // The conflict target is owner_id, not container_id, because that is the column
+        // the unique index covers — a unique index over the nullable container_id would
+        // not constrain source-owned rows, since Postgres treats each NULL as distinct.
         // On conflict, increments generation so stale ingestion jobs can detect they're outdated.
         // Returns the winning row's id and generation.
         var conn = context.Database.GetDbConnection();
@@ -51,7 +54,7 @@ public class PostgresDocumentStore : IDocumentStore
         cmd.CommandText = """
             INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, status, created_at, metadata)
             VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Pending', @created, @meta::jsonb)
-            ON CONFLICT (container_id, path) DO UPDATE SET
+            ON CONFLICT (owner_id, path) DO UPDATE SET
                 file_name    = EXCLUDED.file_name,
                 content_type = EXCLUDED.content_type,
                 content_hash = EXCLUDED.content_hash,
@@ -164,7 +167,7 @@ public class PostgresDocumentStore : IDocumentStore
         }
 
         bool docHadSummary = !string.IsNullOrEmpty(entity.Summary);
-        Guid containerId = entity.ContainerId;
+        Guid? containerId = entity.ContainerId;
 
         context.Documents.Remove(entity);
         await context.SaveChangesAsync(ct);
@@ -172,9 +175,11 @@ public class PostgresDocumentStore : IDocumentStore
         // If the deleted doc contributed to the container summary, mark the container as
         // stale so the next sweep tick triggers a re-rollup. Without this, the sweep query
         // wouldn't detect pure-deletion changes (no doc has a "newer" summary timestamp).
-        if (docHadSummary)
+        // Source-owned documents have no container, so there is no container summary
+        // to invalidate — the source summary rollup arrives with the sync engine.
+        if (docHadSummary && containerId.HasValue)
         {
-            await _containerStore.MarkSummaryStaleAsync(containerId, ct);
+            await _containerStore.MarkSummaryStaleAsync(containerId.Value, ct);
         }
 
         _logger.LogInformation(
@@ -269,7 +274,10 @@ public class PostgresDocumentStore : IDocumentStore
         // excluded document-clustering containers (whose docs are mostly null-summary) — the
         // sweep then reported "no stale containers" forever and rollups never fired.
         return await context.Documents
-            .GroupBy(d => d.ContainerId)
+            // Source-owned documents have a null container_id and never roll up into a
+            // container summary, so they are excluded before grouping.
+            .Where(d => d.ContainerId != null)
+            .GroupBy(d => d.ContainerId!.Value)
             .Select(g => new
             {
                 ContainerId = g.Key,

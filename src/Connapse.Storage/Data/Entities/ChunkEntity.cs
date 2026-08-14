@@ -6,7 +6,8 @@ public class ChunkEntity
 {
     public Guid Id { get; set; }
     public Guid DocumentId { get; set; }
-    public Guid ContainerId { get; set; }
+    /// <summary>Denormalized owner: the container or source that owns this chunk.</summary>
+    public Guid OwnerId { get; set; }
     public string Content { get; set; } = string.Empty;
     public int ChunkIndex { get; set; }
     public int TokenCount { get; set; }

@@ -86,7 +86,7 @@ public class PgVectorStore : IVectorStore
             existing.Embedding = new Vector(vector);
             existing.ModelId = modelId;
             existing.DocumentId = documentId;
-            existing.ContainerId = containerId;
+            existing.OwnerId = containerId;
         }
         else
         {
@@ -95,7 +95,7 @@ public class PgVectorStore : IVectorStore
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
-                ContainerId = containerId,
+                OwnerId = containerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId
             };
@@ -168,7 +168,7 @@ public class PgVectorStore : IVectorStore
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
-                ContainerId = containerId,
+                OwnerId = containerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId,
                 ContentHash = metadata.TryGetValue("contentHash", out var hash) ? hash : null,
@@ -212,7 +212,7 @@ public class PgVectorStore : IVectorStore
             if (filters.TryGetValue("containerId", out var containerIdStr) &&
                 Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add("cv.container_id = @containerId");
+                whereClauses.Add("cv.owner_id = @containerId");
                 parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = containerId });
             }
 
@@ -241,7 +241,7 @@ public class PgVectorStore : IVectorStore
             SELECT
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
-                cv.container_id as ""ContainerId"",
+                cv.owner_id as ""ContainerId"",
                 (cv.embedding::vector({dims}) <=> @queryVector) as ""Distance"",
                 c.content as ""Content"",
                 c.chunk_index as ""ChunkIndex"",
@@ -352,9 +352,9 @@ public class PgVectorStore : IVectorStore
         CancellationToken ct = default)
     {
         // Step 1: pick the dominant model_id in the container. ChunkVectorEntity carries
-        // ContainerId and ModelId directly — no JOIN needed.
+        // OwnerId and ModelId directly — no JOIN needed.
         var modelCounts = await _context.ChunkVectors
-            .Where(cv => cv.ContainerId == containerId)
+            .Where(cv => cv.OwnerId == containerId)
             .GroupBy(cv => cv.ModelId)
             .Select(g => new { ModelId = g.Key, Count = g.Count() })
             .OrderByDescending(x => x.Count)
@@ -374,12 +374,12 @@ public class PgVectorStore : IVectorStore
             // dominant model — docs with mixed-model chunks still contribute their dominant
             // ones. Compute total vs. dominant-reachable distinct docs (mixed-model path only).
             int totalDocs = await _context.ChunkVectors
-                .Where(cv => cv.ContainerId == containerId)
+                .Where(cv => cv.OwnerId == containerId)
                 .Select(cv => cv.DocumentId)
                 .Distinct()
                 .CountAsync(ct);
             int includedDocs = await _context.ChunkVectors
-                .Where(cv => cv.ContainerId == containerId && cv.ModelId == dominantModelId)
+                .Where(cv => cv.OwnerId == containerId && cv.ModelId == dominantModelId)
                 .Select(cv => cv.DocumentId)
                 .Distinct()
                 .CountAsync(ct);
@@ -407,7 +407,7 @@ public class PgVectorStore : IVectorStore
             cmd.CommandText = """
                 SELECT document_id, AVG(embedding)::vector AS pooled
                 FROM chunk_vectors
-                WHERE container_id = @cid
+                WHERE owner_id = @cid
                   AND model_id = @model_id
                 GROUP BY document_id
                 """;

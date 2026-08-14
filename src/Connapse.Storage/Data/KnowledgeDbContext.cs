@@ -13,6 +13,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
     public DbSet<BatchEntity> Batches => Set<BatchEntity>();
     public DbSet<BatchDocumentEntity> BatchDocuments => Set<BatchDocumentEntity>();
+    public DbSet<ConnectionEntity> Connections => Set<ConnectionEntity>();
+    public DbSet<SourceEntity> Sources => Set<SourceEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +30,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureSettings(modelBuilder);
         ConfigureBatches(modelBuilder);
         ConfigureBatchDocuments(modelBuilder);
+        ConfigureConnections(modelBuilder);
+        ConfigureSources(modelBuilder);
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)
@@ -131,8 +135,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasDefaultValueSql("gen_random_uuid()");
 
             entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
-                .IsRequired();
+                .HasColumnName("container_id");
+
+            entity.Property(e => e.SourceId)
+                .HasColumnName("source_id");
+
+            // Stored generated column. The search path filters on owner_id so it never
+            // has to know whether the owner is a container or a source.
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
+                .HasComputedColumnSql("COALESCE(container_id, source_id)", stored: true);
 
             entity.Property(e => e.FileName)
                 .HasColumnName("file_name")
@@ -200,16 +212,35 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.IngestionState)
                 .HasDatabaseName("ix_documents_ingestion_state");
 
+            // Exactly one owner. Postgres treats "(a IS NULL) <> (b IS NULL)" as XOR.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "ck_documents_single_owner",
+                "(container_id IS NULL) <> (source_id IS NULL)"));
+
             entity.HasIndex(e => e.ContainerId)
                 .HasDatabaseName("idx_documents_container_id");
 
-            entity.HasIndex(e => new { e.ContainerId, e.Path })
-                .HasDatabaseName("idx_documents_container_path")
+            entity.HasIndex(e => e.SourceId)
+                .HasDatabaseName("idx_documents_source_id");
+
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("ix_documents_owner_id");
+
+            // Keyed on owner_id, not container_id: a unique index over a nullable
+            // container_id would not constrain source-owned rows at all, since
+            // Postgres treats each NULL as distinct.
+            entity.HasIndex(e => new { e.OwnerId, e.Path })
+                .HasDatabaseName("idx_documents_owner_path")
                 .IsUnique();
 
             entity.HasOne(e => e.Container)
                 .WithMany(c => c.Documents)
                 .HasForeignKey(e => e.ContainerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Source)
+                .WithMany(s => s.Documents)
+                .HasForeignKey(e => e.SourceId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
@@ -241,8 +272,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
-            entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
                 .IsRequired();
 
             entity.Property(e => e.TokenCount)
@@ -267,8 +298,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunks_document_id");
 
-            entity.HasIndex(e => e.ContainerId)
-                .HasDatabaseName("idx_chunks_container_id");
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("idx_chunks_owner_id");
 
             entity.HasIndex(e => e.SearchVector)
                 .HasDatabaseName("idx_chunks_fts")
@@ -294,8 +325,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
-            entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
                 .IsRequired();
 
             entity.Property(e => e.Embedding)
@@ -321,8 +352,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
 
-            entity.HasIndex(e => e.ContainerId)
-                .HasDatabaseName("idx_chunk_vectors_container_id");
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("idx_chunk_vectors_owner_id");
 
             // B-tree index on model_id for search filtering and partial index WHERE clauses
             entity.HasIndex(e => e.ModelId)
@@ -422,6 +453,129 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .WithMany(d => d.BatchDocuments)
                 .HasForeignKey(e => e.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureConnections(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ConnectionEntity>(entity =>
+        {
+            entity.ToTable("connections");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider")
+                .IsRequired();
+
+            entity.Property(e => e.ConfigJson)
+                .HasColumnName("config")
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.SecretProtected)
+                .HasColumnName("secret_protected");
+
+            entity.Property(e => e.CreatedByUserId)
+                .HasColumnName("created_by_user_id");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.Name)
+                .IsUnique()
+                .HasDatabaseName("ix_connections_name");
+        });
+    }
+
+    private static void ConfigureSources(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SourceEntity>(entity =>
+        {
+            entity.ToTable("sources");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasColumnName("description");
+
+            entity.Property(e => e.ConnectionId)
+                .HasColumnName("connection_id")
+                .IsRequired();
+
+            entity.Property(e => e.ScopeJson)
+                .HasColumnName("scope")
+                .HasColumnType("jsonb")
+                .IsRequired();
+
+            entity.Property(e => e.SettingsOverridesJson)
+                .HasColumnName("settings_overrides")
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.Enabled)
+                .HasColumnName("enabled")
+                .HasDefaultValue(true);
+
+            entity.Property(e => e.SyncCursor)
+                .HasColumnName("sync_cursor");
+
+            entity.Property(e => e.LastSyncedAt)
+                .HasColumnName("last_synced_at");
+
+            entity.Property(e => e.LastSyncStatus)
+                .HasColumnName("last_sync_status")
+                .HasDefaultValue(0);
+
+            entity.Property(e => e.LastSyncError)
+                .HasColumnName("last_sync_error");
+
+            entity.Property(e => e.SyncIntervalSeconds)
+                .HasColumnName("sync_interval_seconds");
+
+            entity.Property(e => e.Summary)
+                .HasColumnName("summary");
+
+            entity.Property(e => e.SummaryGeneratedAt)
+                .HasColumnName("summary_generated_at");
+
+            entity.Property(e => e.SummaryDocSetHash)
+                .HasColumnName("summary_doc_set_hash");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.Name)
+                .IsUnique()
+                .HasDatabaseName("ix_sources_name");
+
+            entity.HasIndex(e => e.ConnectionId)
+                .HasDatabaseName("ix_sources_connection_id");
+
+            // Restrict, not Cascade: deleting a connection that still has sources
+            // must fail loudly rather than silently destroying their documents.
+            entity.HasOne(e => e.Connection)
+                .WithMany(c => c.Sources)
+                .HasForeignKey(e => e.ConnectionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

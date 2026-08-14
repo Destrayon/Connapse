@@ -37,7 +37,7 @@ public class KeywordSearchService
         if (!string.IsNullOrEmpty(options.ContainerId))
         {
             var idx = parameters.Count;
-            whereClauses.Add($"d.container_id = {{{idx}}}");
+            whereClauses.Add($"d.owner_id = {{{idx}}}");
             parameters.Add(Guid.Parse(options.ContainerId));
         }
 
@@ -81,7 +81,7 @@ public class KeywordSearchService
                     32) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
-                d.container_id as ContainerId,
+                d.owner_id as ContainerId,
                 d.path as Path
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
