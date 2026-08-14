@@ -51,7 +51,11 @@ public class ReindexService : IReindexService
     /// </summary>
     private async Task<bool> FileExistsAsync(DocumentEntity doc, CancellationToken ct)
     {
-        var container = await _containerStore.GetAsync(doc.ContainerId, ct);
+        // Source-owned documents have no container; they fall through to the legacy
+        // file system path until the sync engine gives sources their own connector.
+        var container = doc.ContainerId.HasValue
+            ? await _containerStore.GetAsync(doc.ContainerId.Value, ct)
+            : null;
         if (container is not null)
         {
             try
@@ -74,7 +78,11 @@ public class ReindexService : IReindexService
     /// </summary>
     private async Task<Stream> OpenFileAsync(DocumentEntity doc, CancellationToken ct)
     {
-        var container = await _containerStore.GetAsync(doc.ContainerId, ct);
+        // Source-owned documents have no container; they fall through to the legacy
+        // file system path until the sync engine gives sources their own connector.
+        var container = doc.ContainerId.HasValue
+            ? await _containerStore.GetAsync(doc.ContainerId.Value, ct)
+            : null;
         if (container is not null)
         {
             try

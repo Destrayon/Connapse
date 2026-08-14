@@ -341,7 +341,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     Id = chunkId,
                     DocumentId = documentEntity.Id,
-                    ContainerId = containerId,
+                    OwnerId = containerId,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
                     TokenCount = chunkInfo.TokenCount,

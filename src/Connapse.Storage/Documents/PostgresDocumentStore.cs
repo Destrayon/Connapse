@@ -164,7 +164,7 @@ public class PostgresDocumentStore : IDocumentStore
         }
 
         bool docHadSummary = !string.IsNullOrEmpty(entity.Summary);
-        Guid containerId = entity.ContainerId;
+        Guid? containerId = entity.ContainerId;
 
         context.Documents.Remove(entity);
         await context.SaveChangesAsync(ct);
@@ -172,9 +172,11 @@ public class PostgresDocumentStore : IDocumentStore
         // If the deleted doc contributed to the container summary, mark the container as
         // stale so the next sweep tick triggers a re-rollup. Without this, the sweep query
         // wouldn't detect pure-deletion changes (no doc has a "newer" summary timestamp).
-        if (docHadSummary)
+        // Source-owned documents have no container, so there is no container summary
+        // to invalidate — the source summary rollup arrives with the sync engine.
+        if (docHadSummary && containerId.HasValue)
         {
-            await _containerStore.MarkSummaryStaleAsync(containerId, ct);
+            await _containerStore.MarkSummaryStaleAsync(containerId.Value, ct);
         }
 
         _logger.LogInformation(
@@ -269,7 +271,10 @@ public class PostgresDocumentStore : IDocumentStore
         // excluded document-clustering containers (whose docs are mostly null-summary) — the
         // sweep then reported "no stale containers" forever and rollups never fired.
         return await context.Documents
-            .GroupBy(d => d.ContainerId)
+            // Source-owned documents have a null container_id and never roll up into a
+            // container summary, so they are excluded before grouping.
+            .Where(d => d.ContainerId != null)
+            .GroupBy(d => d.ContainerId!.Value)
             .Select(g => new
             {
                 ContainerId = g.Key,

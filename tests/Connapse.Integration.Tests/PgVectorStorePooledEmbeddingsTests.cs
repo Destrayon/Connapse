@@ -155,7 +155,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         {
             Id = chunkId,
             DocumentId = documentId,
-            ContainerId = containerId,
+            OwnerId = containerId,
             ChunkIndex = 0,
             Content = "test",
             TokenCount = 1,
@@ -166,7 +166,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
         {
             ChunkId = chunkId,
             DocumentId = documentId,
-            ContainerId = containerId,
+            OwnerId = containerId,
             Embedding = new Vector(embedding),
             ModelId = modelId,
             ContentHash = $"hash-{chunkId:N}",

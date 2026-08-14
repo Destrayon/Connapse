@@ -135,8 +135,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasDefaultValueSql("gen_random_uuid()");
 
             entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
-                .IsRequired();
+                .HasColumnName("container_id");
+
+            entity.Property(e => e.SourceId)
+                .HasColumnName("source_id");
+
+            // Stored generated column. The search path filters on owner_id so it never
+            // has to know whether the owner is a container or a source.
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
+                .HasComputedColumnSql("COALESCE(container_id, source_id)", stored: true);
 
             entity.Property(e => e.FileName)
                 .HasColumnName("file_name")
@@ -204,16 +212,35 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.IngestionState)
                 .HasDatabaseName("ix_documents_ingestion_state");
 
+            // Exactly one owner. Postgres treats "(a IS NULL) <> (b IS NULL)" as XOR.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "ck_documents_single_owner",
+                "(container_id IS NULL) <> (source_id IS NULL)"));
+
             entity.HasIndex(e => e.ContainerId)
                 .HasDatabaseName("idx_documents_container_id");
 
-            entity.HasIndex(e => new { e.ContainerId, e.Path })
-                .HasDatabaseName("idx_documents_container_path")
+            entity.HasIndex(e => e.SourceId)
+                .HasDatabaseName("idx_documents_source_id");
+
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("ix_documents_owner_id");
+
+            // Keyed on owner_id, not container_id: a unique index over a nullable
+            // container_id would not constrain source-owned rows at all, since
+            // Postgres treats each NULL as distinct.
+            entity.HasIndex(e => new { e.OwnerId, e.Path })
+                .HasDatabaseName("idx_documents_owner_path")
                 .IsUnique();
 
             entity.HasOne(e => e.Container)
                 .WithMany(c => c.Documents)
                 .HasForeignKey(e => e.ContainerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Source)
+                .WithMany(s => s.Documents)
+                .HasForeignKey(e => e.SourceId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
@@ -245,8 +272,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
-            entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
                 .IsRequired();
 
             entity.Property(e => e.TokenCount)
@@ -271,8 +298,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunks_document_id");
 
-            entity.HasIndex(e => e.ContainerId)
-                .HasDatabaseName("idx_chunks_container_id");
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("idx_chunks_owner_id");
 
             entity.HasIndex(e => e.SearchVector)
                 .HasDatabaseName("idx_chunks_fts")
@@ -298,8 +325,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.DocumentId)
                 .HasColumnName("document_id");
 
-            entity.Property(e => e.ContainerId)
-                .HasColumnName("container_id")
+            entity.Property(e => e.OwnerId)
+                .HasColumnName("owner_id")
                 .IsRequired();
 
             entity.Property(e => e.Embedding)
@@ -325,8 +352,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunk_vectors_document_id");
 
-            entity.HasIndex(e => e.ContainerId)
-                .HasDatabaseName("idx_chunk_vectors_container_id");
+            entity.HasIndex(e => e.OwnerId)
+                .HasDatabaseName("idx_chunk_vectors_owner_id");
 
             // B-tree index on model_id for search filtering and partial index WHERE clauses
             entity.HasIndex(e => e.ModelId)

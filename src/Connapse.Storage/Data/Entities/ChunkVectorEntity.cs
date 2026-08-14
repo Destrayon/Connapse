@@ -9,7 +9,8 @@ public class ChunkVectorEntity
 {
     public Guid ChunkId { get; set; }
     public Guid DocumentId { get; set; }
-    public Guid ContainerId { get; set; }
+    /// <summary>Denormalized owner: the container or source that owns this chunk.</summary>
+    public Guid OwnerId { get; set; }
     public Vector Embedding { get; set; } = null!;
     public string ModelId { get; set; } = string.Empty;
     /// <summary>SHA-256 hex hash of the chunk content, used for embedding cache lookups.</summary>
