@@ -159,6 +159,24 @@ namespace Connapse.Storage.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Refuse the rollback before dropping anything. Source-owned documents have a
+            // null container_id and no container to revert to, so restoring the NOT NULL
+            // constraint would either rewrite their ownership to the zero GUID or fail
+            // obscurely on the containers foreign key. Fail fast with an actionable message
+            // instead, while the schema is still intact.
+            migrationBuilder.Sql("""
+                DO $$
+                DECLARE source_owned_count bigint;
+                BEGIN
+                    SELECT count(*) INTO source_owned_count FROM documents WHERE source_id IS NOT NULL;
+                    IF source_owned_count > 0 THEN
+                        RAISE EXCEPTION
+                            'Cannot roll back AddConnectionsAndSources: % document(s) are owned by a source and have no container to revert to. Delete or repoint them before rolling back.',
+                            source_owned_count;
+                    END IF;
+                END $$;
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_documents_sources_source_id",
                 table: "documents");
@@ -218,7 +236,6 @@ namespace Connapse.Storage.Migrations
                 table: "documents",
                 type: "uuid",
                 nullable: false,
-                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"),
                 oldClrType: typeof(Guid),
                 oldType: "uuid",
                 oldNullable: true);
