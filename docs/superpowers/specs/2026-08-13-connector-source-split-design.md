@@ -126,8 +126,25 @@ owner_id uuid GENERATED ALWAYS AS (COALESCE(container_id, source_id)) STORED
 ```
 
 Index `owner_id`. Search filters on it. Ingestion writes whichever of the two real columns
-applies. `chunk_vectors` links through `document_id` and is expected to need no change —
-to be verified during planning rather than assumed.
+applies.
+
+### `chunks` and `chunk_vectors` — rename, do not add
+
+Both `ChunkEntity` and `ChunkVectorEntity` carry a **denormalized `ContainerId`** alongside
+`DocumentId`, so they cannot be left untouched. They must not get the same two-column treatment
+as `documents`, however: `chunk_vectors` is the largest table in the system and carries the
+IVFFlat partial indexes, so adding a column and backfilling it would mean a table rewrite and an
+index rebuild.
+
+Instead, rename `container_id` to `owner_id` on both tables and drop the foreign key to
+`containers`, widening the column's meaning to "the container or source that owns this chunk."
+In PostgreSQL, `ALTER TABLE ... RENAME COLUMN` is a catalog-only change and dropping a constraint
+is cheap, so this is effectively instant regardless of row count and requires no vector reindex.
+
+The cost is that `chunks` and `chunk_vectors` lose database-level referential integrity to their
+owner. That is acceptable because they already cascade from `documents`, which retains full
+integrity via the CHECK constraint above — an orphaned chunk would require an orphaned document
+first.
 
 ## Connector contract changes
 
@@ -239,8 +256,13 @@ one release, not several.
 - Changes to chunking, embedding, or ranking.
 - Federated or pass-through search that does not persist content locally.
 
-## Open items for the implementation plan
+## Resolved during planning
 
-- Confirm `chunk_vectors` genuinely needs no schema change.
-- Decide the specific milestone for phase 5.
-- Determine whether `SyncIntervalSeconds` is per-source or inherited from a connection default.
+- **`chunk_vectors` does need a schema change.** Both `chunks` and `chunk_vectors` denormalize
+  `container_id`. Resolved by renaming the column to `owner_id` and dropping its FK rather than
+  adding a parallel column — see the data model section.
+- **Phase 5 lands in v0.4.0**, the same milestone as phases 1–4, so the compatibility window spans
+  a single release as intended.
+- **`SyncIntervalSeconds` is nullable per-source and falls back to a connection-level default.**
+  Most installs will set a cadence once per connection; a noisy or expensive source can override
+  it without a second configuration concept.
