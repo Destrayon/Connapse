@@ -13,6 +13,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<SettingEntity> Settings => Set<SettingEntity>();
     public DbSet<BatchEntity> Batches => Set<BatchEntity>();
     public DbSet<BatchDocumentEntity> BatchDocuments => Set<BatchDocumentEntity>();
+    public DbSet<ConnectionEntity> Connections => Set<ConnectionEntity>();
+    public DbSet<SourceEntity> Sources => Set<SourceEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -28,6 +30,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureSettings(modelBuilder);
         ConfigureBatches(modelBuilder);
         ConfigureBatchDocuments(modelBuilder);
+        ConfigureConnections(modelBuilder);
+        ConfigureSources(modelBuilder);
     }
 
     private static void ConfigureContainers(ModelBuilder modelBuilder)
@@ -422,6 +426,129 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .WithMany(d => d.BatchDocuments)
                 .HasForeignKey(e => e.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureConnections(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ConnectionEntity>(entity =>
+        {
+            entity.ToTable("connections");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider")
+                .IsRequired();
+
+            entity.Property(e => e.ConfigJson)
+                .HasColumnName("config")
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.SecretProtected)
+                .HasColumnName("secret_protected");
+
+            entity.Property(e => e.CreatedByUserId)
+                .HasColumnName("created_by_user_id");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.Name)
+                .IsUnique()
+                .HasDatabaseName("ix_connections_name");
+        });
+    }
+
+    private static void ConfigureSources(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SourceEntity>(entity =>
+        {
+            entity.ToTable("sources");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id");
+
+            entity.Property(e => e.Name)
+                .HasColumnName("name")
+                .HasMaxLength(128)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasColumnName("description");
+
+            entity.Property(e => e.ConnectionId)
+                .HasColumnName("connection_id")
+                .IsRequired();
+
+            entity.Property(e => e.ScopeJson)
+                .HasColumnName("scope")
+                .HasColumnType("jsonb")
+                .IsRequired();
+
+            entity.Property(e => e.SettingsOverridesJson)
+                .HasColumnName("settings_overrides")
+                .HasColumnType("jsonb");
+
+            entity.Property(e => e.Enabled)
+                .HasColumnName("enabled")
+                .HasDefaultValue(true);
+
+            entity.Property(e => e.SyncCursor)
+                .HasColumnName("sync_cursor");
+
+            entity.Property(e => e.LastSyncedAt)
+                .HasColumnName("last_synced_at");
+
+            entity.Property(e => e.LastSyncStatus)
+                .HasColumnName("last_sync_status")
+                .HasDefaultValue(0);
+
+            entity.Property(e => e.LastSyncError)
+                .HasColumnName("last_sync_error");
+
+            entity.Property(e => e.SyncIntervalSeconds)
+                .HasColumnName("sync_interval_seconds");
+
+            entity.Property(e => e.Summary)
+                .HasColumnName("summary");
+
+            entity.Property(e => e.SummaryGeneratedAt)
+                .HasColumnName("summary_generated_at");
+
+            entity.Property(e => e.SummaryDocSetHash)
+                .HasColumnName("summary_doc_set_hash");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at");
+
+            entity.HasIndex(e => e.Name)
+                .IsUnique()
+                .HasDatabaseName("ix_sources_name");
+
+            entity.HasIndex(e => e.ConnectionId)
+                .HasDatabaseName("ix_sources_connection_id");
+
+            // Restrict, not Cascade: deleting a connection that still has sources
+            // must fail loudly rather than silently destroying their documents.
+            entity.HasOne(e => e.Connection)
+                .WithMany(c => c.Sources)
+                .HasForeignKey(e => e.ConnectionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
