@@ -4,8 +4,10 @@ using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.Data;
+using Connapse.Storage.Connections;
 using Connapse.Storage.Containers;
 using Connapse.Storage.Documents;
+using Connapse.Storage.Sources;
 using Connapse.Storage.FileSystem;
 using Connapse.Storage.Folders;
 using Connapse.Storage.Settings;
@@ -142,6 +144,8 @@ public static class ServiceCollectionExtensions
 
         // Container store
         services.AddScoped<IContainerStore, PostgresContainerStore>();
+        services.AddScoped<IConnectionStore, PostgresConnectionStore>();
+        services.AddScoped<ISourceStore, PostgresSourceStore>();
 
         // Folder store
         services.AddScoped<IFolderStore, PostgresFolderStore>();

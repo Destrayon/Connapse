@@ -29,3 +29,18 @@ public record UpdateConnectionRequest(
     string? Name = null,
     string? ConfigJson = null,
     string? Secret = null);
+
+/// <summary>
+/// Thrown when a stored connection secret exists but cannot be decrypted — in practice,
+/// because the DataProtection key ring that encrypted it is gone or unreachable (a replaced
+/// volume, or a replica that does not share the key directory). Distinct from "no secret
+/// stored", which returns null. Callers should surface a reconnect prompt rather than
+/// treating this as a transient fault; retrying will not help.
+/// </summary>
+public class ConnectionSecretUnavailableException(Guid connectionId, Exception inner)
+    : Exception($"The stored secret for connection '{connectionId}' could not be decrypted. " +
+                "The DataProtection key ring that encrypted it is unavailable, so the credential " +
+                "must be re-entered.", inner)
+{
+    public Guid ConnectionId { get; } = connectionId;
+}
