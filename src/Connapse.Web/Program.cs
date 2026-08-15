@@ -96,6 +96,11 @@ builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
 builder.Services.AddSingleton<ConnectorWatcherService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherService>());
 
+// Migrates legacy external containers into connection + source pairs (#350). Idempotent,
+// and registered before the watcher's work matters because a migrated container must be
+// a source before anything tries to poll it.
+builder.Services.AddHostedService<SourceBackfillHostedService>();
+
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();
 
