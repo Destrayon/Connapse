@@ -100,4 +100,67 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
+
+    [Fact]
+    public async Task Reindex_AttemptingToMoveSourceDocumentToContainer_IsRejected()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+
+        using var first = new MemoryStream("original source-owned content"u8.ToArray());
+        var created = await pipeline.IngestAsync(first, new IngestionOptions(
+            FileName: "move.md", ContentType: "text/markdown", Path: "/move.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        // Re-ingesting the same document under a container owner would clear source_id and
+        // set container_id. The CHECK still passes — exactly one column is set — so nothing
+        // at the database level catches it, and the content silently crosses an
+        // authorization boundary.
+        using var second = new MemoryStream("reindexed content"u8.ToArray());
+        Func<Task> act = async () => await pipeline.IngestAsync(second, new IngestionOptions(
+            DocumentId: created.DocumentId, FileName: "move.md", Path: "/move.md")
+        {
+            Owner = OwnerRef.ForContainer(Guid.NewGuid())
+        }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        await using var ctx = await factory.CreateDbContextAsync();
+        var doc = await ctx.Documents.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(created.DocumentId));
+        doc.SourceId.Should().Be(sourceId, "a rejected reindex must not move the document");
+        doc.ContainerId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Reindex_WithMatchingOwner_Succeeds()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+
+        using var first = new MemoryStream("first revision of the document"u8.ToArray());
+        var created = await pipeline.IngestAsync(first, new IngestionOptions(
+            FileName: "same.md", ContentType: "text/markdown", Path: "/same.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        // Same owner is the normal re-sync case and must keep working.
+        using var second = new MemoryStream("second revision of the document"u8.ToArray());
+        await pipeline.IngestAsync(second, new IngestionOptions(
+            DocumentId: created.DocumentId, FileName: "same.md", Path: "/same.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        await using var ctx = await factory.CreateDbContextAsync();
+        var doc = await ctx.Documents.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(created.DocumentId));
+        doc.SourceId.Should().Be(sourceId);
+        doc.ContainerId.Should().BeNull();
+    }
 }

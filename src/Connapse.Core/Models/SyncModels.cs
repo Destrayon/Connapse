@@ -27,3 +27,22 @@ public record SourceSyncResult(
     bool UsedDeltaPath,
     bool RequiredResync,
     string? Error);
+
+/// <summary>
+/// Thrown when a reindex would move a document between ownership domains — source to
+/// container or the reverse. Distinct from ordinary ingestion failures because it must
+/// escape the catch-all that records a "Failed" document: a refused reindex is not the
+/// same as one that went wrong, and conflating them would leave the caller believing the
+/// work failed rather than that it was rejected.
+/// </summary>
+public class DocumentOwnershipChangedException(Guid documentId, OwnerRef existing, OwnerRef attempted)
+    : InvalidOperationException(
+        $"Document {documentId} is owned by {(existing.IsSource ? "source" : "container")} {existing.Id}; " +
+        $"refusing to reindex it as {(attempted.IsSource ? "source" : "container")} {attempted.Id}. " +
+        "Document ownership cannot change.")
+{
+    public Guid DocumentId { get; } = documentId;
+    public OwnerRef ExistingOwner { get; } = existing;
+    public OwnerRef AttemptedOwner { get; } = attempted;
+}
+
