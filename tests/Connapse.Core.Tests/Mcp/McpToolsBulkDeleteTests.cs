@@ -145,22 +145,10 @@ public class McpToolsBulkDeleteTests
         await _ingestionQueue.Received(1).CancelJobForDocumentAsync("file-2");
     }
 
-    [Fact]
-    public async Task BulkDelete_ReadOnlyConnector_ReturnsError()
-    {
-        _containerStore
-            .GetAsync(ContainerId, Arg.Any<CancellationToken>())
-            .Returns(MakeContainer(ConnectorType.S3));
-
-        var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");
-        _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(doc1);
-
-        var json = """["file-1"]""";
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
-
-        // Every file should get a write-guard error since BulkDelete delegates to DeleteFile
-        result.Should().Contain("Deleted 0 of 1");
-    }
+    // BulkDelete_ReadOnlyConnector_ReturnsError was removed in #351. It asserted that a
+    // bulk delete against an S3 container fails the write guard, but an S3 container can
+    // no longer exist: the Phase 2 backfill migrated them to sources and container
+    // creation is restricted to managed storage, so the scenario is unreachable.
 
     private static Container MakeContainer(ConnectorType type = ConnectorType.ManagedStorage) => new(
         Id: ContainerId.ToString(),

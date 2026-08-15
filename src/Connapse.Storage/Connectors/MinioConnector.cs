@@ -14,7 +14,7 @@ namespace Connapse.Storage.Connectors;
 /// prefix isolation via MinioConnectorConfig.
 /// SupportsLiveWatch = false; WatchAsync throws NotSupportedException.
 /// </summary>
-public class MinioConnector : IConnector
+public class MinioConnector : IWritableConnector
 {
     private readonly IAmazonS3 _s3;
     private readonly MinioOptions _options;
@@ -29,7 +29,6 @@ public class MinioConnector : IConnector
 
     public ConnectorType Type => ConnectorType.ManagedStorage;
     public bool SupportsLiveWatch => false;
-    public bool SupportsWrite => true;
 
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');

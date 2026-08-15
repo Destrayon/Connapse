@@ -267,10 +267,6 @@ public static class DocumentsEndpoints
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeDenied is not null) return scopeDenied;
 
-            var deleteError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Delete);
-            if (deleteError is not null)
-                return Results.BadRequest(new { error = "write_denied", message = deleteError });
-
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });

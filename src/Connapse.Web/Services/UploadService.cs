@@ -63,11 +63,12 @@ public class UploadService : IUploadService
         if (container is null)
             return new UploadResult(false, Error: "Container not found.");
 
-        // 6: Write guard
-        var connector = _connectorFactory.Create(container);
-        var writeError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
-        if (writeError is not null)
-            return new UploadResult(false, Error: writeError);
+        // 6: Write access. Managed storage is the only writable backend, so resolving an
+        // IWritableConnector *is* the permission check, so no runtime guard is needed. This
+        // cannot fail for a real container: creation is restricted to ManagedStorage and
+        // the Phase 2 backfill moved every external one to a source.
+        if (_connectorFactory.Create(container) is not IWritableConnector connector)
+            return new UploadResult(false, Error: "This container is not writable.");
 
         // 7: Cloud scope enforcement
         if (request.UserId.HasValue)
@@ -88,11 +89,9 @@ public class UploadService : IUploadService
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "Container not found.")).ToList());
 
-        var connector = _connectorFactory.Create(container);
-        var writeError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Upload, connector);
-        if (writeError is not null)
+        if (_connectorFactory.Create(container) is not IWritableConnector connector)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
-                .Select(_ => new UploadResult(false, Error: writeError)).ToList());
+                .Select(_ => new UploadResult(false, Error: "This container is not writable.")).ToList());
 
         // Cloud scope (once for the container)
         var firstUserId = request.Files.FirstOrDefault()?.UserId;
@@ -167,7 +166,7 @@ public class UploadService : IUploadService
     private async Task<UploadResult> ExecuteUploadAsync(
         UploadRequest request,
         Container container,
-        IConnector connector,
+        IWritableConnector connector,
         string? batchId,
         CancellationToken ct)
     {

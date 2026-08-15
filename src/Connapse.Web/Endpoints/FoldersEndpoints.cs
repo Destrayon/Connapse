@@ -32,10 +32,6 @@ public static class FoldersEndpoints
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
 
-            var createFolderError = ContainerWriteGuard.CheckWrite(container, WriteOperation.CreateFolder);
-            if (createFolderError is not null)
-                return Results.BadRequest(new { error = "write_denied", message = createFolderError });
-
             if (string.IsNullOrWhiteSpace(request.Path))
                 return Results.BadRequest(new { error = "Folder path is required" });
 
@@ -92,10 +88,6 @@ public static class FoldersEndpoints
             var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeResult is { HasAccess: false })
                 return CloudAccessDenied(scopeResult, containerId);
-
-            var deleteFolderError = ContainerWriteGuard.CheckWrite(container, WriteOperation.Delete);
-            if (deleteFolderError is not null)
-                return Results.BadRequest(new { error = "write_denied", message = deleteFolderError });
 
             if (string.IsNullOrWhiteSpace(path))
                 return Results.BadRequest(new { error = "Folder path is required" });

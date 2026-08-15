@@ -30,7 +30,6 @@ public class S3Connector : IConnector, IDisposable
 
     public ConnectorType Type => ConnectorType.S3;
     public bool SupportsLiveWatch => false;
-    public bool SupportsWrite => false;
 
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');
@@ -46,32 +45,6 @@ public class S3Connector : IConnector, IDisposable
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
             throw new FileNotFoundException($"File not found in S3 bucket '{_config.BucketName}' at '{key}'.", path);
-        }
-    }
-
-    public async Task WriteFileAsync(string path, Stream content, string? contentType = null, CancellationToken ct = default)
-    {
-        var key = ToS3Key(path);
-        var request = new PutObjectRequest
-        {
-            BucketName = _config.BucketName,
-            Key = key,
-            InputStream = content,
-            ContentType = contentType
-        };
-        await _s3.PutObjectAsync(request, ct);
-    }
-
-    public async Task DeleteFileAsync(string path, CancellationToken ct = default)
-    {
-        var key = ToS3Key(path);
-        try
-        {
-            await _s3.DeleteObjectAsync(_config.BucketName, key, ct);
-        }
-        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-        {
-            // Already deleted — treat as success
         }
     }
 

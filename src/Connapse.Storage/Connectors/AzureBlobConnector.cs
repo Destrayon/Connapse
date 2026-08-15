@@ -25,7 +25,6 @@ public class AzureBlobConnector : IConnector
 
     public ConnectorType Type => ConnectorType.AzureBlob;
     public bool SupportsLiveWatch => false;
-    public bool SupportsWrite => true;
 
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');
@@ -45,25 +44,6 @@ public class AzureBlobConnector : IConnector
             throw new FileNotFoundException(
                 $"Blob not found in '{_config.StorageAccountName}/{_config.ContainerName}' at '{blobName}'.", path);
         }
-    }
-
-    public async Task WriteFileAsync(string path, Stream content, string? contentType = null, CancellationToken ct = default)
-    {
-        var blobName = ToBlobName(path);
-        var blobClient = _containerClient.GetBlobClient(blobName);
-
-        var options = new BlobUploadOptions();
-        if (!string.IsNullOrEmpty(contentType))
-            options.HttpHeaders = new BlobHttpHeaders { ContentType = contentType };
-
-        await blobClient.UploadAsync(content, options, ct);
-    }
-
-    public async Task DeleteFileAsync(string path, CancellationToken ct = default)
-    {
-        var blobName = ToBlobName(path);
-        var blobClient = _containerClient.GetBlobClient(blobName);
-        await blobClient.DeleteIfExistsAsync(cancellationToken: ct);
     }
 
     public async Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)

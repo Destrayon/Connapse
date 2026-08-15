@@ -392,10 +392,6 @@ public class McpTools
 
         var containerForDelete = await containerStore.GetAsync(resolvedId.Value, ct);
 
-        var deleteError = ContainerWriteGuard.CheckWrite(containerForDelete!, WriteOperation.Delete);
-        if (deleteError is not null)
-            return $"Error: {deleteError}";
-
         var documentStore = services.GetRequiredService<IDocumentStore>();
         var document = await documentStore.GetAsync(fileId, ct);
 

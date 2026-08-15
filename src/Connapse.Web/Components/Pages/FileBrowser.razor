@@ -1508,16 +1508,10 @@
         {
             if (!string.IsNullOrEmpty(entry.Path))
             {
-                if (container?.ConnectorType == ConnectorType.Filesystem)
-                {
-                    // entry.Path is a virtual path (/subfolder/file.pdf); connector resolves it to absolute
-                    var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
-                    await fsConnector.DeleteFileAsync(entry.Path.TrimStart('/'));
-                }
-                else
-                {
-                    await FileSystem.DeleteAsync(entry.Path);
-                }
+                // The Filesystem branch that used to live here is gone with #351: external
+                // storage is a source now, so a container can only be managed storage and
+                // this condition could never be true again.
+                await FileSystem.DeleteAsync(entry.Path);
             }
         }
         catch { /* File already deleted or not found */ }
