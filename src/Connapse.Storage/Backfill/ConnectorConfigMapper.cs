@@ -84,6 +84,15 @@ public class ConnectorConfigMapper : IConnectorConfigMapper
     /// config JSON instead — Postgres jsonb normalizes property order and whitespace on
     /// storage, so a round-tripped blob will not match what JsonSerializer produced and
     /// every container would end up with its own connection.
+    /// <para>
+    /// The readable slug alone is NOT safe to key on, because slugification is lossy in
+    /// two ways: every non-alphanumeric character collapses to '-' (so the distinct roles
+    /// ".../role/a" and ".../role-a" both become "role-a"), and the result is truncated to
+    /// varchar(128) (so two long ARNs differing only near the end would match). Either
+    /// collision would silently attach a source to another credential's connection. The
+    /// hash suffix makes the name injective with respect to the dedup key, and is appended
+    /// after truncation so it always survives.
+    /// </para>
     /// </summary>
     private static string NameFor(string provider, string dedupKey, string containerName)
     {
@@ -102,8 +111,21 @@ public class ConnectorConfigMapper : IConnectorConfigMapper
 
         if (slug.Length == 0) slug = "default";
 
-        string name = $"{provider}-{slug}";
-        // connections.name is varchar(128).
-        return name.Length <= 128 ? name : name[..128];
+        string suffix = ShortHash(dedupKey);
+        // connections.name is varchar(128); reserve room for "-" + 8 hex chars.
+        int maxSlug = 128 - provider.Length - 1 - 1 - suffix.Length;
+        if (slug.Length > maxSlug) slug = slug[..maxSlug].TrimEnd('-');
+
+        return $"{provider}-{slug}-{suffix}";
+    }
+
+    /// <summary>
+    /// First 8 hex characters of the SHA-256 of the dedup key. Not a security boundary —
+    /// purely a collision discriminator for human-readable names.
+    /// </summary>
+    private static string ShortHash(string value)
+    {
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexStringLower(hash)[..8];
     }
 }

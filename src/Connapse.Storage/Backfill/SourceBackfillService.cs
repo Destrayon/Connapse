@@ -21,10 +21,74 @@ public class SourceBackfillService(
     IConnectorConfigMapper mapper,
     ILogger<SourceBackfillService> logger)
 {
+    /// <summary>
+    /// Arbitrary but fixed key for the Postgres session-level advisory lock that serializes
+    /// this backfill. Any constant works as long as it is unique within the application.
+    /// </summary>
+    private const long AdvisoryLockKey = 0x50485F32_4241434BL; // "PH_2BACK"
+
     public async Task<BackfillReport> RunAsync(CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
+        // Serialize across replicas. Every instance runs this at startup, and the
+        // read-then-create sequence for connections is not concurrency-safe on its own:
+        // two replicas migrating different containers that map to the same connection can
+        // both see none and race to create it. pg_try_advisory_lock is non-blocking, so a
+        // losing replica simply skips — the winner does the work, and the migration is
+        // idempotent if anything is left over. The lock is session-scoped and released
+        // when this connection returns to the pool.
+        bool acquired = await TryAcquireLockAsync(context, ct);
+        if (!acquired)
+        {
+            logger.LogInformation("Another instance is running the container-to-source backfill; skipping");
+            return new BackfillReport(0, 0, 0, 0, []);
+        }
+
+        try
+        {
+            return await RunUnderLockAsync(context, ct);
+        }
+        finally
+        {
+            await ReleaseLockAsync(context, ct);
+        }
+    }
+
+    private static async Task<bool> TryAcquireLockAsync(KnowledgeDbContext context, CancellationToken ct)
+    {
+        var conn = context.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT pg_try_advisory_lock(@key)";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "key";
+        p.Value = AdvisoryLockKey;
+        cmd.Parameters.Add(p);
+
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result is true;
+    }
+
+    private static async Task ReleaseLockAsync(KnowledgeDbContext context, CancellationToken ct)
+    {
+        var conn = context.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) return;
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT pg_advisory_unlock(@key)";
+        var p = cmd.CreateParameter();
+        p.ParameterName = "key";
+        p.Value = AdvisoryLockKey;
+        cmd.Parameters.Add(p);
+
+        await cmd.ExecuteScalarAsync(ct);
+    }
+
+    private async Task<BackfillReport> RunUnderLockAsync(KnowledgeDbContext context, CancellationToken ct)
+    {
         var legacy = await context.Containers
             .AsNoTracking()
             .Where(c => c.ConnectorType != (int)ConnectorType.ManagedStorage)

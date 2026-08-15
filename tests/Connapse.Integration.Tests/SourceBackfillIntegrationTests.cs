@@ -191,4 +191,45 @@ public class SourceBackfillIntegrationTests(SharedWebAppFixture fixture)
 
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
     }
+
+    [Fact]
+    public async Task RunAsync_WhileAnotherInstanceHoldsTheLock_SkipsInsteadOfRacing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var backfill = scope.ServiceProvider.GetRequiredService<SourceBackfillService>();
+        await using var ctx = await factory.CreateDbContextAsync();
+
+        Guid containerId = await SeedLegacyContainerAsync(
+            ctx, (int)ConnectorType.S3, """{"bucketName":"locked","region":"ap-south-1"}""", documentCount: 1);
+
+        // Simulate a second replica already running: hold the same advisory lock on a
+        // separate connection for the duration of the call.
+        await using var holder = await factory.CreateDbContextAsync();
+        var holderConn = holder.Database.GetDbConnection();
+        await holderConn.OpenAsync();
+        await using (var lockCmd = holderConn.CreateCommand())
+        {
+            lockCmd.CommandText = "SELECT pg_advisory_lock(5784978390821978955)";
+            await lockCmd.ExecuteScalarAsync();
+        }
+
+        try
+        {
+            var report = await backfill.RunAsync(CancellationToken.None);
+
+            // The losing replica must do nothing at all, not partially migrate.
+            report.ContainersMigrated.Should().Be(0);
+
+            await using var fresh = await factory.CreateDbContextAsync();
+            (await fresh.Containers.AnyAsync(c => c.Id == containerId)).Should().BeTrue();
+            (await fresh.Sources.AnyAsync(s => s.Id == containerId)).Should().BeFalse();
+        }
+        finally
+        {
+            await using var unlockCmd = holderConn.CreateCommand();
+            unlockCmd.CommandText = "SELECT pg_advisory_unlock(5784978390821978955)";
+            await unlockCmd.ExecuteScalarAsync();
+        }
+    }
 }

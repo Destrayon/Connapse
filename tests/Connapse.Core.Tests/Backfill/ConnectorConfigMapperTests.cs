@@ -113,4 +113,35 @@ public class ConnectorConfigMapperTests
         // connections.name is varchar(128).
         connection.Name.Length.Should().BeLessThanOrEqualTo(128);
     }
+
+    [Fact]
+    public void Map_S3_DifferentRoleArnsThatSlugifyAlike_StillProduceDistinctNames()
+    {
+        // "role/a" and "role-a" both slugify to "role-a". Without a discriminator the
+        // second container would silently attach to the first connection and inherit the
+        // wrong role.
+        var a = """{"bucketName":"one","region":"us-east-1","roleArn":"arn:aws:iam::1:role/a"}""";
+        var b = """{"bucketName":"one","region":"us-east-1","roleArn":"arn:aws:iam::1:role-a"}""";
+
+        var first = _mapper.Map(ConnectorType.S3, a, "a").Connection;
+        var second = _mapper.Map(ConnectorType.S3, b, "b").Connection;
+
+        first.DedupKey.Should().NotBe(second.DedupKey);
+        first.Name.Should().NotBe(second.Name);
+    }
+
+    [Fact]
+    public void Map_VeryLongCredentialsDifferingLate_StillProduceDistinctNames()
+    {
+        // Truncation to varchar(128) must not erase the difference between two credentials.
+        string longA = "arn:aws:iam::1:role/" + new string('x', 200) + "a";
+        string longB = "arn:aws:iam::1:role/" + new string('x', 200) + "b";
+
+        var first = _mapper.Map(ConnectorType.S3, $$"""{"region":"us-east-1","roleArn":"{{longA}}"}""", "a").Connection;
+        var second = _mapper.Map(ConnectorType.S3, $$"""{"region":"us-east-1","roleArn":"{{longB}}"}""", "b").Connection;
+
+        first.Name.Should().NotBe(second.Name);
+        first.Name.Length.Should().BeLessThanOrEqualTo(128);
+        second.Name.Length.Should().BeLessThanOrEqualTo(128);
+    }
 }
