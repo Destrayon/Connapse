@@ -15,7 +15,7 @@ public class UploadServiceTests
 
     private readonly IContainerStore _containerStore = Substitute.For<IContainerStore>();
     private readonly IConnectorFactory _connectorFactory = Substitute.For<IConnectorFactory>();
-    private readonly IConnector _connector = Substitute.For<IConnector>();
+    private readonly IWritableConnector _connector = Substitute.For<IWritableConnector>();
     private readonly IFolderStore _folderStore = Substitute.For<IFolderStore>();
     private readonly IIngestionQueue _ingestionQueue = Substitute.For<IIngestionQueue>();
     private readonly IDocumentStore _documentStore = Substitute.For<IDocumentStore>();
@@ -30,7 +30,6 @@ public class UploadServiceTests
         var container = MakeContainer();
         _containerStore.GetAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(container);
         _connectorFactory.Create(Arg.Any<Container>()).Returns(_connector);
-        _connector.SupportsWrite.Returns(true);
         _connector.ResolveJobPath(Arg.Any<string>()).Returns(ci => "/" + ci.ArgAt<string>(0).TrimStart('/'));
         _fileTypeValidator.IsSupported(Arg.Any<string>()).Returns(true);
         _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string> { ".txt", ".pdf", ".md" });
@@ -122,12 +121,16 @@ public class UploadServiceTests
     }
 
     [Fact]
-    public async Task UploadAsync_RejectsReadOnlyConnector()
+    public async Task UploadAsync_RejectsNonWritableConnector()
     {
-        _connector.SupportsWrite.Returns(false);
+        // Write access is a type guarantee as of #351: a connector that is not an
+        // IWritableConnector cannot be written to, so there is no runtime flag to unset.
+        _connectorFactory.Create(Arg.Any<Container>()).Returns(Substitute.For<IConnector>());
+
         var result = await _sut.UploadAsync(MakeRequest());
+
         result.Success.Should().BeFalse();
-        result.Error.Should().Contain("read-only");
+        result.Error.Should().Contain("not writable");
     }
 
     [Fact]
@@ -135,7 +138,6 @@ public class UploadServiceTests
     {
         _containerStore.GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(MakeContainer(ConnectorType.S3));
-        _connector.SupportsWrite.Returns(true); // Hypothetical writable S3
         _cloudScopeService.GetScopesAsync(UserId, Arg.Any<Container>(), Arg.Any<CancellationToken>())
             .Returns(CloudScopeResult.Deny("test denial"));
 

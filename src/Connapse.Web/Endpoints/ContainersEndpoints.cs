@@ -37,6 +37,20 @@ public static class ContainersEndpoints
 
             var normalizedName = trimmedName;
 
+            // External storage is modelled as a source (#348), not a container. Rejecting it
+            // here is what makes ContainerWriteGuard's runtime checks dead code rather than
+            // merely unused — without this, a new S3 container would still be writable once
+            // the guard is gone. Checked before config validation, which would otherwise mask
+            // a missing restriction behind a "config required" error.
+            if (request.ConnectorType != ConnectorType.ManagedStorage)
+            {
+                return Results.BadRequest(new
+                {
+                    error = $"Containers are managed storage only. To ingest from {request.ConnectorType}, "
+                          + "create a connection and a source instead."
+                });
+            }
+
             // Validate connector config before creating
             if (request.ConnectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob)
             {

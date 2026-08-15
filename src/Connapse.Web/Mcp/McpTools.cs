@@ -392,9 +392,10 @@ public class McpTools
 
         var containerForDelete = await containerStore.GetAsync(resolvedId.Value, ct);
 
-        var deleteError = ContainerWriteGuard.CheckWrite(containerForDelete!, WriteOperation.Delete);
-        if (deleteError is not null)
-            return $"Error: {deleteError}";
+        // Backfill safety net (#350/#351): a legacy external container can still exist if the
+        // startup backfill has not succeeded, and its contents must stay immutable.
+        if (containerForDelete is not null && containerForDelete.ConnectorType != ConnectorType.ManagedStorage)
+            return $"Error: Container '{containerId}' is backed by {containerForDelete.ConnectorType} and is read-only. It is pending migration to a source.";
 
         var documentStore = services.GetRequiredService<IDocumentStore>();
         var document = await documentStore.GetAsync(fileId, ct);

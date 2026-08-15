@@ -15,24 +15,9 @@ public class SyncEndpointIntegrationTests(SharedWebAppFixture fixture)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    [Fact]
-    public async Task Sync_FilesystemContainer_Returns400()
-    {
-        var config = JsonSerializer.Serialize(new { rootPath = "C:\\temp\\sync-test-" + Guid.NewGuid() });
-        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
-            new { Name = "sync-fs-test", ConnectorType = ConnectorType.Filesystem, ConnectorConfig = config });
-        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
-
-        var syncResponse = await fixture.AdminClient.PostAsync(
-            $"/api/containers/{container!.Id}/sync", null);
-
-        syncResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var body = await syncResponse.Content.ReadFromJsonAsync<ErrorResponse>(JsonOptions);
-        body!.Error.Should().Contain("live watch");
-
-        await fixture.AdminClient.DeleteAsync($"/api/containers/{container.Id}");
-    }
-
+    // Sync_FilesystemContainer_Returns400 was removed in #351: Filesystem containers
+    // can no longer be created, so the scenario is unreachable. Container creation is
+    // restricted to managed storage by ContainerCreationRestrictionTests.
 
     [Fact]
     public async Task Sync_NonExistentContainer_Returns404()

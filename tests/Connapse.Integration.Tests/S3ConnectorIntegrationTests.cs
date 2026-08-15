@@ -50,6 +50,23 @@ public class S3ConnectorIntegrationTests : IAsyncLifetime
         _connector.Dispose();
     }
 
+
+    /// <summary>
+    /// Seeds an object directly through the AWS SDK. S3Connector is read-only as of #351
+    /// (external storage backs sources, which Connapse never mutates), so fixtures can no
+    /// longer be created through the connector itself.
+    /// </summary>
+    private async Task SeedAsync(string virtualPath, string content, string? contentType = null)
+    {
+        await _localStack.S3Client.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = _bucketName,
+            Key = virtualPath.TrimStart('/'),
+            ContentBody = content,
+            ContentType = contentType
+        });
+    }
+
     [Fact]
     public async Task ListFilesAsync_EmptyBucket_ReturnsEmpty()
     {
@@ -59,25 +76,23 @@ public class S3ConnectorIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task WriteAndListFilesAsync_SingleFile_ReturnsFile()
+    public async Task ListFilesAsync_SingleSeededFile_ReturnsFile()
     {
-        var content = Encoding.UTF8.GetBytes("Hello from S3 connector test");
-        using var stream = new MemoryStream(content);
+        const string body = "Hello from S3 connector test";
+        await SeedAsync("/docs/hello.txt", body, "text/plain");
 
-        await _connector.WriteFileAsync("/docs/hello.txt", stream, "text/plain");
         var files = await _connector.ListFilesAsync();
 
         files.Should().HaveCount(1);
         files[0].Path.Should().Be("/docs/hello.txt");
-        files[0].SizeBytes.Should().Be(content.Length);
+        files[0].SizeBytes.Should().Be(Encoding.UTF8.GetByteCount(body));
     }
 
     [Fact]
     public async Task ReadFileAsync_ExistingFile_ReturnsContent()
     {
         const string originalContent = "S3 connector read test content";
-        using var writeStream = new MemoryStream(Encoding.UTF8.GetBytes(originalContent));
-        await _connector.WriteFileAsync("/data/readtest.txt", writeStream);
+        await SeedAsync("/data/readtest.txt", originalContent);
 
         using var readStream = await _connector.ReadFileAsync("/data/readtest.txt");
         using var reader = new StreamReader(readStream);
@@ -95,33 +110,9 @@ public class S3ConnectorIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task DeleteFileAsync_ExistingFile_RemovesFromBucket()
-    {
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("to be deleted"));
-        await _connector.WriteFileAsync("/temp/delete-me.txt", stream);
-
-        var filesBefore = await _connector.ListFilesAsync();
-        filesBefore.Should().ContainSingle(f => f.Path == "/temp/delete-me.txt");
-
-        await _connector.DeleteFileAsync("/temp/delete-me.txt");
-
-        var filesAfter = await _connector.ListFilesAsync();
-        filesAfter.Should().NotContain(f => f.Path == "/temp/delete-me.txt");
-    }
-
-    [Fact]
-    public async Task DeleteFileAsync_NonExistentFile_DoesNotThrow()
-    {
-        var act = async () => await _connector.DeleteFileAsync("/ghost/file.txt");
-
-        await act.Should().NotThrowAsync();
-    }
-
-    [Fact]
     public async Task ExistsAsync_ExistingFile_ReturnsTrue()
     {
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes("exists check"));
-        await _connector.WriteFileAsync("/check/exists.txt", stream);
+        await SeedAsync("/check/exists.txt", "exists check");
 
         var exists = await _connector.ExistsAsync("/check/exists.txt");
 
@@ -139,13 +130,9 @@ public class S3ConnectorIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task ListFilesAsync_WithPrefix_FiltersCorrectly()
     {
-        using var s1 = new MemoryStream(Encoding.UTF8.GetBytes("doc1"));
-        using var s2 = new MemoryStream(Encoding.UTF8.GetBytes("doc2"));
-        using var s3 = new MemoryStream(Encoding.UTF8.GetBytes("img1"));
-
-        await _connector.WriteFileAsync("/docs/doc1.txt", s1);
-        await _connector.WriteFileAsync("/docs/doc2.txt", s2);
-        await _connector.WriteFileAsync("/images/img1.png", s3);
+        await SeedAsync("/docs/doc1.txt", "doc1");
+        await SeedAsync("/docs/doc2.txt", "doc2");
+        await SeedAsync("/images/img1.png", "img1");
 
         var docsOnly = await _connector.ListFilesAsync("docs");
 
@@ -154,13 +141,12 @@ public class S3ConnectorIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task WriteAndListFilesAsync_MultipleFiles_AllReturned()
+    public async Task ListFilesAsync_MultipleSeededFiles_AllReturned()
     {
         var fileNames = new[] { "alpha.txt", "beta.txt", "gamma.txt" };
         foreach (var name in fileNames)
         {
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"content of {name}"));
-            await _connector.WriteFileAsync($"/{name}", stream);
+            await SeedAsync($"/{name}", $"content of {name}");
         }
 
         var listed = await _connector.ListFilesAsync();

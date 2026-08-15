@@ -38,7 +38,6 @@ public class FilesystemConnector : IConnector
 
     public ConnectorType Type => ConnectorType.Filesystem;
     public bool SupportsLiveWatch => true;
-    public bool SupportsWrite => true;
 
     public string RootPath => _config.RootPath;
 
@@ -58,23 +57,6 @@ public class FilesystemConnector : IConnector
             FileShare.Read,
             bufferSize: 4096,
             useAsync: true));
-    }
-
-    public async Task WriteFileAsync(string path, Stream content, string? contentType = null, CancellationToken ct = default)
-    {
-        var fullPath = GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-
-        await using var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
-        await content.CopyToAsync(fs, ct);
-    }
-
-    public Task DeleteFileAsync(string path, CancellationToken ct = default)
-    {
-        var fullPath = GetFullPath(path);
-        if (File.Exists(fullPath))
-            File.Delete(fullPath);
-        return Task.CompletedTask;
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
