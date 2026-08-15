@@ -35,7 +35,7 @@ public class PgVectorStore : IVectorStore
     /// <param name="metadata">Metadata containing required keys:
     /// - "documentId": a GUID string identifying the document,
     /// - "modelId": the model identifier string.
-    /// Optionally may contain "containerId" as a GUID string.</param>
+    /// - "ownerId": a GUID string identifying the owning container or source.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <exception cref="ArgumentException">Thrown when:
     /// - <paramref name="id"/> is not a valid GUID,
@@ -70,11 +70,12 @@ public class PgVectorStore : IVectorStore
             throw new ArgumentException("Metadata must contain a 'modelId'", nameof(metadata));
         }
 
-        // Extract containerId from metadata
-        Guid containerId = Guid.Empty;
-        if (metadata.TryGetValue("containerId", out var containerIdStr))
+        // Demand an explicit owner. Defaulting to Guid.Empty here fails silently: the vector
+        // is written, but no owner-scoped query can ever match it, so the content becomes
+        // unreachable rather than visibly broken.
+        if (!metadata.TryGetValue("ownerId", out var ownerIdStr) || !Guid.TryParse(ownerIdStr, out var ownerId))
         {
-            Guid.TryParse(containerIdStr, out containerId);
+            throw new ArgumentException("Metadata must contain a valid 'ownerId'", nameof(metadata));
         }
 
         var existing = await _context.ChunkVectors
@@ -86,7 +87,7 @@ public class PgVectorStore : IVectorStore
             existing.Embedding = new Vector(vector);
             existing.ModelId = modelId;
             existing.DocumentId = documentId;
-            existing.OwnerId = containerId;
+            existing.OwnerId = ownerId;
         }
         else
         {
@@ -95,7 +96,7 @@ public class PgVectorStore : IVectorStore
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
-                OwnerId = containerId,
+                OwnerId = ownerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId
             };
@@ -121,7 +122,7 @@ public class PgVectorStore : IVectorStore
     /// - Metadata: required and optional metadata for the chunk.
     /// Required metadata keys: "documentId" (GUID string) and "modelId" (string).
     /// Optional metadata keys:
-    /// - "containerId" (GUID string; unparseable or missing defaults to Guid.Empty),
+    /// Also required: "ownerId" (GUID string). Optional keys:
     /// - "contentHash" (string),
     /// - "dimensions" (integer string; used only if parses to an int > 0).
     /// </param>
@@ -135,7 +136,7 @@ public class PgVectorStore : IVectorStore
     /// A list of tuples where each tuple contains:
     /// - Id: a string representation of the chunk GUID.
     /// - Vector: the embedding values for the chunk.
-    /// - Metadata: a dictionary that must include "documentId" (GUID string) and "modelId"; may include "containerId" (GUID string), "contentHash", and "dimensions" (positive integer string).
+    /// - Metadata: a dictionary that must include "documentId" (GUID string), "modelId", and "ownerId" (GUID string); may include "contentHash" and "dimensions" (positive integer string).
     /// </param>
     /// <param name="ct">Cancellation token to cancel the operation.</param>
     /// <exception cref="ArgumentException">
@@ -160,15 +161,17 @@ public class PgVectorStore : IVectorStore
             if (!metadata.TryGetValue("modelId", out var modelId))
                 throw new ArgumentException("Each item's metadata must contain a 'modelId'", nameof(items));
 
-            Guid containerId = Guid.Empty;
-            if (metadata.TryGetValue("containerId", out var containerIdStr))
-                Guid.TryParse(containerIdStr, out containerId);
+            // Demand an explicit owner. Defaulting to Guid.Empty here fails silently: the
+            // vector is written, but no owner-scoped query can ever match it, so the content
+            // is unreachable rather than visibly broken.
+            if (!metadata.TryGetValue("ownerId", out var ownerIdStr) || !Guid.TryParse(ownerIdStr, out var ownerId))
+                throw new ArgumentException("Each item's metadata must contain a valid 'ownerId'", nameof(items));
 
             _context.ChunkVectors.Add(new ChunkVectorEntity
             {
                 ChunkId = chunkId,
                 DocumentId = documentId,
-                OwnerId = containerId,
+                OwnerId = ownerId,
                 Embedding = new Vector(vector),
                 ModelId = modelId,
                 ContentHash = metadata.TryGetValue("contentHash", out var hash) ? hash : null,

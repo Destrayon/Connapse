@@ -119,6 +119,18 @@ public class IngestionPipeline : IKnowledgeIngester
             : Guid.NewGuid();
         DocumentEntity? documentEntity = null;
 
+        // Resolve ownership before the try block. Everything below writes through this, so a
+        // source-owned document cannot be recorded against container_id — which would violate
+        // the ck_documents_single_owner CHECK — and no chunk or vector can be written with a
+        // zero owner, which no owner-scoped query would ever match. Deliberately outside the
+        // catch: an ownerless call is a programming error, and failing fast beats recording a
+        // half-written document with a Failed status.
+        var owner = options.Owner
+            ?? (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
+                ? OwnerRef.ForContainer(cId)
+                : throw new ArgumentException(
+                    "Ingestion requires an owner: set Owner, or supply a parseable ContainerId.", nameof(options)));
+
         try
         {
             // Handle non-seekable streams (e.g., from MinIO)
@@ -163,10 +175,6 @@ public class IngestionPipeline : IKnowledgeIngester
             metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
             metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
 
-            var containerId = !string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
-                ? cId
-                : Guid.Empty;
-
             // Check if document already exists (created eagerly by UploadService)
             documentEntity = await _context.Documents.FindAsync([documentId], ct);
             bool isReindex = documentEntity is not null;
@@ -188,7 +196,8 @@ public class IngestionPipeline : IKnowledgeIngester
             if (documentEntity != null)
             {
                 // Update existing document for reindex
-                documentEntity.ContainerId = containerId;
+                documentEntity.ContainerId = owner.ContainerId;
+                documentEntity.SourceId = owner.SourceId;
                 documentEntity.FileName = options.FileName ?? "unknown";
                 documentEntity.ContentType = options.ContentType;
                 documentEntity.Path = virtualPath;
@@ -202,7 +211,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 documentEntity = new DocumentEntity
                 {
                     Id = documentId,
-                    ContainerId = containerId,
+                    ContainerId = owner.ContainerId,
+                    SourceId = owner.SourceId,
                     FileName = options.FileName ?? "unknown",
                     ContentType = options.ContentType,
                     Path = virtualPath,
@@ -341,7 +351,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     Id = chunkId,
                     DocumentId = documentEntity.Id,
-                    OwnerId = containerId,
+                    OwnerId = owner.Id,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
                     TokenCount = chunkInfo.TokenCount,
@@ -353,7 +363,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["documentId"] = documentEntity.Id.ToString(),
-                    ["containerId"] = containerId.ToString(),
+                    ["ownerId"] = owner.Id.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
                     ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),

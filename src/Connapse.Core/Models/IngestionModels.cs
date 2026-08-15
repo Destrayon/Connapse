@@ -8,7 +8,15 @@ public record IngestionOptions(
     string? Path = null,
     ChunkingStrategy Strategy = ChunkingStrategy.Semantic,
     Dictionary<string, string>? Metadata = null,
-    int Generation = 0);
+    int Generation = 0)
+{
+    /// <summary>
+    /// Who will own the ingested document. Preferred over <see cref="ContainerId"/>, which
+    /// cannot express source ownership. When null, ContainerId is used and the owner is
+    /// taken to be a container.
+    /// </summary>
+    public OwnerRef? Owner { get; init; }
+}
 
 public record IngestionResult(
     string DocumentId,

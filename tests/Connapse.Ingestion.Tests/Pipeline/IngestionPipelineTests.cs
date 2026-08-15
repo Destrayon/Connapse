@@ -28,6 +28,13 @@ namespace Connapse.Ingestion.Tests.Pipeline;
 [Trait("Category", "Unit")]
 public class IngestionPipelineTests
 {
+    /// <summary>
+    /// These tests predate source ownership and relied on the pipeline defaulting a missing
+    /// container to Guid.Empty. Ingestion now requires an explicit owner, so they declare a
+    /// container one — the ownership itself is not what they are testing.
+    /// </summary>
+    private static readonly Guid TestOwnerId = Guid.NewGuid();
+
     private readonly IKnowledgeFileSystem _fileSystem;
     private readonly IEmbeddingProvider _embeddingProvider;
     private readonly IVectorStore _vectorStore;
@@ -110,7 +117,7 @@ public class IngestionPipelineTests
         var pipeline = CreatePipeline(dbContext);
         var docId = Guid.NewGuid().ToString();
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(DocumentId: docId, FileName: "test.txt");
+        var options = new IngestionOptions(DocumentId: docId, FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(stream, options);
 
@@ -123,7 +130,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(stream, options);
 
@@ -137,7 +144,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(stream, options);
 
@@ -152,7 +159,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(stream, options);
 
@@ -166,7 +173,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(stream, options);
 
@@ -194,7 +201,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         await pipeline.IngestAsync(stream, options);
 
@@ -207,7 +214,7 @@ public class IngestionPipelineTests
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
         var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.xyz");
+        var options = new IngestionOptions(FileName: "test.xyz") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         await pipeline.IngestAsync(stream, options);
 
@@ -237,7 +244,7 @@ public class IngestionPipelineTests
         var innerStream = new MemoryStream(data);
         var nonSeekableStream = new NonSeekableStream(innerStream);
 
-        var options = new IngestionOptions(FileName: "test.txt");
+        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
         var result = await pipeline.IngestAsync(nonSeekableStream, options);
 
