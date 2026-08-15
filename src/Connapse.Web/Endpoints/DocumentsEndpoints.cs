@@ -263,6 +263,14 @@ public static class DocumentsEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            // Backfill safety net (#350/#351). Every container should be managed storage by
+            // now, but the backfill runs at startup and is allowed to fail without blocking
+            // boot, so a legacy external container can still be present. Its contents mirror
+            // someone else's system and must stay immutable. Not covered by cloud scope,
+            // which is an access check and would pass for a user with a linked identity.
+            if (container.ConnectorType != ConnectorType.ManagedStorage)
+                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
+
             // Cloud scope enforcement
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeDenied is not null) return scopeDenied;

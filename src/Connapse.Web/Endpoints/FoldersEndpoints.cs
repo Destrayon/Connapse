@@ -27,6 +27,13 @@ public static class FoldersEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            // Backfill safety net (#350/#351): a legacy external container can still exist if
+            // the startup backfill has not succeeded. Its contents mirror someone else's
+            // system and must stay immutable. Cloud scope does not cover this — it is an
+            // access check and would pass for a user with a linked identity.
+            if (container.ConnectorType != ConnectorType.ManagedStorage)
+                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
+
             // Cloud scope enforcement
             var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeResult is { HasAccess: false })
@@ -83,6 +90,13 @@ public static class FoldersEndpoints
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            // Backfill safety net (#350/#351): a legacy external container can still exist if
+            // the startup backfill has not succeeded. Its contents mirror someone else's
+            // system and must stay immutable. Cloud scope does not cover this — it is an
+            // access check and would pass for a user with a linked identity.
+            if (container.ConnectorType != ConnectorType.ManagedStorage)
+                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
 
             // Cloud scope enforcement
             var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
