@@ -102,12 +102,26 @@ public static class ContainersEndpoints
         group.MapGet("/{containerId:guid}", async (
             Guid containerId,
             [FromServices] IContainerStore containerStore,
+            [FromServices] ISourceStore sourceStore,
+            [FromServices] IConnectionStore connectionStore,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
-            return container is not null
-                ? Results.Ok(container)
-                : Results.NotFound(new { error = $"Container {containerId} not found" });
+            if (container is not null)
+                return Results.Ok(container);
+
+            // Compatibility read. Phase 2 (#350) migrated external containers into sources
+            // that reuse the container's GUID, so IDs held by agent prompts, CLI scripts,
+            // and bookmarks must keep resolving. Projected into the Container shape so
+            // existing clients see no change; removed in Phase 5 (#353) once callers have
+            // moved to /api/sources. Reads only — deleting or syncing a source through the
+            // containers route is deliberately not supported.
+            var migrated = await sourceStore.GetAsync(containerId, ct);
+            if (migrated is null)
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            var connection = await connectionStore.GetAsync(migrated.ConnectionId, ct);
+            return Results.Ok(ToContainerShape(migrated, connection?.Provider));
         })
         .WithName("GetContainer")
         .WithDescription("Get a specific container by ID")
@@ -460,6 +474,26 @@ public static class ContainersEndpoints
             ".pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             _ => null
         };
+
+    /// <summary>
+    /// Projects a migrated Source back into the Container shape so clients holding a
+    /// pre-migration ID see an unchanged response body. Sources have no folder tree and
+    /// no connector config of their own, so those fields come back empty — the scope now
+    /// lives on the source and is served by /api/sources.
+    /// </summary>
+    private static Container ToContainerShape(Source source, ConnectionProvider? provider) => new(
+        Id: source.Id.ToString(),
+        Name: source.Name,
+        Description: source.Description,
+        ConnectorType: provider is null ? ConnectorType.ManagedStorage : (ConnectorType)(int)provider,
+        CreatedAt: source.CreatedAt,
+        UpdatedAt: source.UpdatedAt,
+        DocumentCount: source.DocumentCount,
+        SettingsOverrides: source.SettingsOverrides,
+        ConnectorConfig: null,
+        Summary: source.Summary,
+        SummaryGeneratedAt: source.SummaryGeneratedAt,
+        SummaryDocSetHash: source.SummaryDocSetHash);
 }
 
 // Request DTOs for container endpoints

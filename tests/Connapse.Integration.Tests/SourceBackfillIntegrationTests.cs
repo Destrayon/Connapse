@@ -161,4 +161,34 @@ public class SourceBackfillIntegrationTests(SharedWebAppFixture fixture)
         var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
         (await sources.GetAsync(containerId))!.DocumentCount.Should().Be(2);
     }
+
+    [Fact]
+    public async Task GetContainer_AfterMigration_StillResolvesByOldId()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var backfill = scope.ServiceProvider.GetRequiredService<SourceBackfillService>();
+        await using var ctx = await factory.CreateDbContextAsync();
+
+        Guid containerId = await SeedLegacyContainerAsync(
+            ctx, (int)ConnectorType.S3, """{"bucketName":"compat","region":"us-east-1"}""", documentCount: 1);
+
+        await backfill.RunAsync(CancellationToken.None);
+
+        // The container row is gone, but agent prompts, CLI scripts, and bookmarks still
+        // carry this ID. The compatibility read must keep them working.
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{containerId}");
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain(containerId.ToString());
+    }
+
+    [Fact]
+    public async Task GetContainer_UnknownId_StillReturns404()
+    {
+        var response = await fixture.AdminClient.GetAsync($"/api/containers/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
+    }
 }
