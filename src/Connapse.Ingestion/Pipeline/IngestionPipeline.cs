@@ -119,6 +119,18 @@ public class IngestionPipeline : IKnowledgeIngester
             : Guid.NewGuid();
         DocumentEntity? documentEntity = null;
 
+        // Resolve ownership before the try block. Everything below writes through this, so a
+        // source-owned document cannot be recorded against container_id — which would violate
+        // the ck_documents_single_owner CHECK — and no chunk or vector can be written with a
+        // zero owner, which no owner-scoped query would ever match. Deliberately outside the
+        // catch: an ownerless call is a programming error, and failing fast beats recording a
+        // half-written document with a Failed status.
+        var owner = options.Owner
+            ?? (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
+                ? OwnerRef.ForContainer(cId)
+                : throw new ArgumentException(
+                    "Ingestion requires an owner: set Owner, or supply a parseable ContainerId.", nameof(options)));
+
         try
         {
             // Handle non-seekable streams (e.g., from MinIO)
@@ -163,10 +175,6 @@ public class IngestionPipeline : IKnowledgeIngester
             metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
             metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
 
-            var containerId = !string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
-                ? cId
-                : Guid.Empty;
-
             // Check if document already exists (created eagerly by UploadService)
             documentEntity = await _context.Documents.FindAsync([documentId], ct);
             bool isReindex = documentEntity is not null;
@@ -187,8 +195,22 @@ public class IngestionPipeline : IKnowledgeIngester
 
             if (documentEntity != null)
             {
+                // Ownership is immutable. Writing both columns from the incoming options would
+                // let a reindex move a document between a source and a container while still
+                // satisfying ck_documents_single_owner — exactly one column stays set, so the
+                // database cannot catch it — silently carrying content across an authorization
+                // boundary. The catch below rethrows this rather than recording a Failed
+                // document, because a refused reindex is not a failed one.
+                var existingOwner = documentEntity.SourceId is Guid existingSourceId
+                    ? OwnerRef.ForSource(existingSourceId)
+                    : OwnerRef.ForContainer(documentEntity.ContainerId!.Value);
+
+                if (existingOwner != owner)
+                    throw new DocumentOwnershipChangedException(documentId, existingOwner, owner);
+
                 // Update existing document for reindex
-                documentEntity.ContainerId = containerId;
+                documentEntity.ContainerId = owner.ContainerId;
+                documentEntity.SourceId = owner.SourceId;
                 documentEntity.FileName = options.FileName ?? "unknown";
                 documentEntity.ContentType = options.ContentType;
                 documentEntity.Path = virtualPath;
@@ -202,7 +224,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 documentEntity = new DocumentEntity
                 {
                     Id = documentId,
-                    ContainerId = containerId,
+                    ContainerId = owner.ContainerId,
+                    SourceId = owner.SourceId,
                     FileName = options.FileName ?? "unknown",
                     ContentType = options.ContentType,
                     Path = virtualPath,
@@ -341,7 +364,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     Id = chunkId,
                     DocumentId = documentEntity.Id,
-                    OwnerId = containerId,
+                    OwnerId = owner.Id,
                     Content = chunkInfo.Content,
                     ChunkIndex = chunkInfo.ChunkIndex,
                     TokenCount = chunkInfo.TokenCount,
@@ -353,7 +376,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
                 {
                     ["documentId"] = documentEntity.Id.ToString(),
-                    ["containerId"] = containerId.ToString(),
+                    ["ownerId"] = owner.Id.ToString(),
                     ["modelId"] = embedSettings.Model,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
                     ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),
@@ -389,6 +412,13 @@ public class IngestionPipeline : IKnowledgeIngester
                 ChunkCount: chunks.Count,
                 Duration: stopwatch.Elapsed,
                 Warnings: warnings);
+        }
+        catch (DocumentOwnershipChangedException)
+        {
+            // Let this escape. Recording a "Failed" document here would tell the caller the
+            // work went wrong rather than that it was refused, and would leave the document
+            // real owner looking broken.
+            throw;
         }
         catch (Exception ex)
         {
@@ -451,7 +481,17 @@ public class IngestionPipeline : IKnowledgeIngester
             Document? doc = await _documentStore.GetAsync(documentId, ct)
                 ?? throw new InvalidOperationException(
                     $"IngestByIdAsync: document {documentId} not found and no ContainerId in options");
-            containerId = Guid.Parse(doc.ContainerId);
+
+            // Source-owned documents have an empty ContainerId, so Guid.Parse would throw a
+            // bare FormatException here. Fail with something actionable instead. Re-ingesting
+            // a source document goes through the sync engine, which resolves its connector
+            // from the source's connection rather than from a container.
+            if (string.IsNullOrEmpty(doc.ContainerId) || !Guid.TryParse(doc.ContainerId, out var docContainerId))
+                throw new InvalidOperationException(
+                    $"IngestByIdAsync: document {documentId} is not owned by a container. " +
+                    "Source-owned documents are re-ingested by the source sync engine.");
+
+            containerId = docContainerId;
             virtualPath = doc.Path;
         }
 
