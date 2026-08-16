@@ -244,6 +244,32 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             "a transient remote error must not discard progress — the next cycle resumes from it");
     }
 
+    /// <summary>
+    /// The background loop calls SyncAllAsync, not SyncSourceAsync — everything else here
+    /// enters one level below it, so the enumeration and the enabled filter would otherwise
+    /// ship untested.
+    /// </summary>
+    [Fact]
+    public async Task SyncAllAsync_SyncsEnabledSourcesAndLeavesDisabledOnesAlone()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        var (enabled, _) = await SeedSourceAsync(scope.ServiceProvider);
+        var (disabled, _) = await SeedSourceAsync(scope.ServiceProvider);
+        await sources.UpdateAsync(disabled.Id, new UpdateSourceRequest(Enabled: false));
+
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(File("/a.md")));
+
+        await service.SyncAllAsync(CancellationToken.None);
+
+        // Asserted per-source rather than by counting connector calls: the suite shares one
+        // database, so SyncAllAsync legitimately picks up sources other tests created.
+        (await sources.GetAsync(enabled.Id))!.LastSyncStatus.Should().Be(SyncStatus.Succeeded);
+        (await sources.GetAsync(disabled.Id))!.LastSyncStatus.Should().Be(
+            SyncStatus.Never, "a disabled source must not be contacted at all");
+    }
+
     [Fact]
     public async Task SyncSourceAsync_UnchangedRemoteFile_IsNotReIngested()
     {
