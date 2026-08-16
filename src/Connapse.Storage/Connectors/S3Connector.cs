@@ -138,6 +138,15 @@ public class S3Connector : IConnector, IDisposable
         return "/" + key.TrimStart('/');
     }
 
+    /// <summary>
+    /// Builds an STS role session name, clamped to the 64-character AWS limit.
+    /// </summary>
+    internal static string BuildRoleSessionName()
+    {
+        string name = $"connapse-{Guid.NewGuid():N}";
+        return name.Length <= 64 ? name : name[..64];
+    }
+
     private static IAmazonS3 CreateS3Client(S3ConnectorConfig config)
     {
         var region = RegionEndpoint.GetBySystemName(config.Region);
@@ -148,7 +157,11 @@ public class S3Connector : IConnector, IDisposable
             var assumeResponse = stsClient.AssumeRoleAsync(new AssumeRoleRequest
             {
                 RoleArn = config.RoleArn,
-                RoleSessionName = $"connapse-{Guid.NewGuid():N}"[..64],
+                // AWS caps RoleSessionName at 64 characters, so this truncates. It must clamp
+                // to the actual length: the literal is 41 characters ("connapse-" plus a
+                // 32-char GUID), and a bare [..64] throws ArgumentOutOfRangeException — which
+                // meant assuming a role never worked at all.
+                RoleSessionName = BuildRoleSessionName(),
                 DurationSeconds = 3600
             }).GetAwaiter().GetResult();
 

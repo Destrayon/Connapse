@@ -33,6 +33,95 @@ public class ConnectorFactory : IConnectorFactory
         };
     }
 
+    public IConnector Create(Source source, Connection connection)
+    {
+        if (source.ConnectionId != connection.Id)
+            throw new ArgumentException(
+                $"Connection '{connection.Id}' does not own source '{source.Id}'.", nameof(connection));
+
+        using var credential = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(connection.ConfigJson) ? "{}" : connection.ConfigJson);
+        using var scope = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(source.ScopeJson) ? "{}" : source.ScopeJson);
+
+        return connection.Provider switch
+        {
+            ConnectionProvider.S3 => new S3Connector(new S3ConnectorConfig
+            {
+                Region = Str(credential, "region") ?? "us-east-1",
+                RoleArn = Str(credential, "roleArn"),
+                BucketName = Str(scope, "bucketName")
+                    ?? throw new InvalidOperationException(
+                        $"Source '{source.Name}' has no bucketName in its scope."),
+                Prefix = Str(scope, "prefix"),
+            }),
+
+            ConnectionProvider.AzureBlob => new AzureBlobConnector(new AzureBlobConnectorConfig
+            {
+                StorageAccountName = Str(credential, "storageAccountName")
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no storageAccountName."),
+                ManagedIdentityClientId = Str(credential, "managedIdentityClientId"),
+                ContainerName = Str(scope, "containerName")
+                    ?? throw new InvalidOperationException(
+                        $"Source '{source.Name}' has no containerName in its scope."),
+                Prefix = Str(scope, "prefix"),
+            }),
+
+            ConnectionProvider.Filesystem => new FilesystemConnector(new FilesystemConnectorConfig
+            {
+                RootPath = CombineUnderRoot(
+                    Str(credential, "allowedRoot")
+                        ?? throw new InvalidOperationException(
+                            $"Connection '{connection.Name}' has no allowedRoot."),
+                    Str(scope, "subPath"),
+                    source.Name),
+                IncludePatterns = Arr(scope, "includePatterns"),
+                ExcludePatterns = Arr(scope, "excludePatterns"),
+            }),
+
+            _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
+        };
+    }
+
+    private static string? Str(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString()
+            : null;
+
+    private static IReadOnlyList<string> Arr(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray()
+            : [];
+
+    /// <summary>
+    /// Resolves a source's subPath beneath its connection's allowed root, and verifies the
+    /// result stays inside it. The allowed root is the boundary an admin configured, so a
+    /// scope containing "../" must not be able to reach past it.
+    /// </summary>
+    private static string CombineUnderRoot(string allowedRoot, string? subPath, string sourceName)
+    {
+        if (string.IsNullOrWhiteSpace(subPath))
+            return allowedRoot;
+
+        string rootFull = Path.GetFullPath(allowedRoot);
+        string combined = Path.GetFullPath(Path.Combine(rootFull, subPath));
+
+        // Compare with a trailing separator so "/data-other" cannot pass as being under "/data".
+        string rootWithSep = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+
+        if (!combined.Equals(rootFull, StringComparison.Ordinal) &&
+            !combined.StartsWith(rootWithSep, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Source '{sourceName}' resolves to a path outside its connection's allowed root '{allowedRoot}'.");
+        }
+
+        return combined;
+    }
+
     private static S3Connector CreateS3Connector(Container container)
     {
         if (string.IsNullOrEmpty(container.ConnectorConfig))
