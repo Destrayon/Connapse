@@ -31,6 +31,12 @@ public class S3Connector : IConnector, IDisposable
     public ConnectorType Type => ConnectorType.S3;
     public bool SupportsLiveWatch => false;
 
+    /// <summary>
+    /// The resolved configuration, exposed so tests can assert on what ConnectorFactory
+    /// recombined from a connection and a source.
+    /// </summary>
+    internal S3ConnectorConfig Config => _config;
+
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');
 

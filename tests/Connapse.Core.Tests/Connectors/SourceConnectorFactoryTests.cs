@@ -44,9 +44,15 @@ public class SourceConnectorFactoryTests
         var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
         var source = MakeSource(connection.Id, """{"bucketName":"my-bucket","prefix":"docs/"}""");
 
-        var connector = _factory.Create(source, connection);
+        var connector = (S3Connector)_factory.Create(source, connection);
 
         connector.Type.Should().Be(ConnectorType.S3);
+        // Asserted field by field rather than on the type alone: a dropped region or a
+        // mis-joined prefix still yields a connector of the right type, and then reads the
+        // wrong bucket at runtime.
+        connector.Config.Region.Should().Be("eu-west-1", "the region comes from the connection");
+        connector.Config.BucketName.Should().Be("my-bucket", "the bucket comes from the source scope");
+        connector.Config.Prefix.Should().Be("docs/");
     }
 
     [Fact]
@@ -55,9 +61,20 @@ public class SourceConnectorFactoryTests
         var connection = MakeConnection(ConnectionProvider.AzureBlob, """{"storageAccountName":"acct","managedIdentityClientId":"mi-1"}""");
         var source = MakeSource(connection.Id, """{"containerName":"blobs","prefix":"p/"}""");
 
-        var connector = _factory.Create(source, connection);
+        var connector = (AzureBlobConnector)_factory.Create(source, connection);
 
         connector.Type.Should().Be(ConnectorType.AzureBlob);
+
+        // This is the only coverage of the Azure recombination. Unlike S3 — which LocalStack
+        // serves, so SourceSyncS3IntegrationTests exercises the mapping against a live
+        // remote — Azurite cannot authenticate DefaultAzureCredential, and redirecting the
+        // connector to it would mean supporting shared-key auth: precisely the stored cloud
+        // credential this project does not accept.
+        connector.Config.StorageAccountName.Should().Be("acct", "the account comes from the connection");
+        connector.Config.ManagedIdentityClientId.Should().Be("mi-1",
+            "dropping this silently falls back to the default identity, which may have wider access");
+        connector.Config.ContainerName.Should().Be("blobs", "the container comes from the source scope");
+        connector.Config.Prefix.Should().Be("p/");
     }
 
     [Fact]
@@ -66,9 +83,13 @@ public class SourceConnectorFactoryTests
         var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
         var source = MakeSource(connection.Id, """{"subPath":"team","includePatterns":["*.md"]}""");
 
-        var connector = _factory.Create(source, connection);
+        var connector = (FilesystemConnector)_factory.Create(source, connection);
 
         connector.Type.Should().Be(ConnectorType.Filesystem);
+        connector.Config.RootPath.Should().Be(
+            Path.GetFullPath(Path.Combine("/data", "team")),
+            "the source is confined to its subPath beneath the connection's root");
+        connector.Config.IncludePatterns.Should().BeEquivalentTo(["*.md"]);
     }
 
     [Fact]

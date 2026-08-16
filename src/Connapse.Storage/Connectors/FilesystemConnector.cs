@@ -39,6 +39,13 @@ public class FilesystemConnector : IConnector
     public ConnectorType Type => ConnectorType.Filesystem;
     public bool SupportsLiveWatch => true;
 
+    /// <summary>
+    /// The resolved configuration, exposed so tests can assert on what ConnectorFactory
+    /// recombined from a connection and a source — in particular the root the source is
+    /// confined to.
+    /// </summary>
+    internal FilesystemConnectorConfig Config => _config;
+
     public string RootPath => _config.RootPath;
 
     public string ResolveJobPath(string relativePath) =>
