@@ -699,4 +699,10 @@ Verified: `dotnet test` — 1058 passed, 0 failed.
 
 ## Manual verification before merging
 
-Automated tests use fakes for the remote. Also run once against LocalStack with a real S3 source: create a connection and source through the stores, drop three objects in the bucket, let a sync cycle run, and confirm three documents appear with `source_id` set and `container_id` null. Then delete one object remotely and confirm the next cycle removes its document.
+~~Automated tests use fakes for the remote. Also run once against LocalStack with a real S3 source.~~
+
+**Done as an automated test instead** — `SourceSyncS3IntegrationTests`, three cases against a real S3 API in LocalStack: three seeded objects all enqueue, an object deleted from the bucket removes its document, and a second cycle over an untouched bucket skips it. Running on every build beats a one-off manual pass.
+
+These resolve the real `IConnectorFactory` from DI rather than substituting it, so they are the only coverage of a connection's credentials and a source's scope being recombined into a working connector — every other sync test fakes that step. The class owns its LocalStack container directly instead of taking a collection fixture, because a second collection would get its own `SharedWebAppFixture` and duplicate the PostgreSQL and MinIO pair.
+
+Verified: `dotnet test` — 1061 passed, 0 failed.
