@@ -680,6 +680,23 @@ Part of #351"
 
 External sources sync again — new, changed, and deleted remote files are reflected. Documents ingested for a source carry `source_id`, and their chunks and vectors carry the same `owner_id` with no `Guid.Empty` anywhere. Forward cursor progress uses compare-and-swap and cannot regress; a resync clears the cursor unconditionally. `ConnectorWatcherService` is gone. `dotnet test` passes in full.
 
+## Progress log
+
+**Task 4 — SourceSyncService.** Written test-first. Two tests failed against the first cut, both real bugs: five `PostgresDocumentStore` queries still filtered on `ContainerId`, so every one returned nothing for a source-owned document; and the failure path wrote back the cursor from the cycle-start snapshot, rolling progress backwards after a transient outage. Files: `SourceSyncService.cs`, `PostgresDocumentStore.cs`, `SourceSyncIntegrationTests.cs`.
+
+**Task 4 (cont.) — watcher retired.** `SourceSyncService` registered; `ConnectorWatcherService` (700 lines) and `CloudSyncTests` deleted. Its four call sites were already no-ops, since both watch methods return immediately for managed storage. Two things the plan did not anticipate:
+
+- **Change detection was missing.** `CloudSyncTests` covered skipping unchanged and in-flight files; the first cut of `EnqueueAllAsync` enqueued every remote file every cycle. The content hash is computed after the download and parse, so it dedupes nothing that costs money — each source would have re-embedded its whole remote every five minutes. Now stores the remote's size and timestamp on the document and compares against it, which unlike the watcher's in-memory snapshot survives a restart. A document with no recorded signature is re-ingested once, which writes one; assuming "unchanged" instead would leave it permanently undetectable.
+- **`MapToModel` handed out an empty `ContainerId` for source-owned rows.** `container_id` is NULL there and `Nullable<Guid>.ToString()` returns `""` rather than throwing, so consumers silently got an empty owner and `StoreAsync`'s `Guid.Parse` of it would throw. Now maps `OwnerId`.
+
+Also noted, not fixed: `IDocumentStore.StoreAsync` always writes `container_id` and so cannot express a source-owned row at all. No live caller needs it — the pipeline writes entities directly — but anything that later tries to pre-register a source document through it breaks silently. `FileBrowserChangeNotifier` now has no publisher; #352 decides whether it gets one.
+
+**Task 5 — chunks.owner_id enforcement: composite foreign key.** Divergence is *not* reachable through application code: exactly one production path writes each of `chunks.owner_id` and `chunk_vectors.owner_id`, and both take the value from the same `OwnerRef` that writes the document's own columns (`IngestionPipeline.cs:367` and `:379`). `IVectorStore.UpsertAsync` has no production caller.
+
+Enforced anyway, because the consequence is the cross-owner exposure this epic exists to prevent, and the guard is nearly free: `documents` gains `UNIQUE (id, owner_id)`, and the existing single-column document FKs on `chunks` and `chunk_vectors` are replaced by composite FKs on `(document_id, owner_id)`. Declarative, still cascades, cheaper than the trigger the plan proposed, and it covers direct SQL too. Added `NOT VALID`: every insert and update is enforced from here on, but existing rows are not scanned, so a legacy diverged row cannot abort startup for every operator. Validating it is left to a later release, when it can be confirmed against real data. Files: `20260816021203_EnforceChunkOwnerMatchesDocument.cs`, `OwnerBridgeSchemaTests.cs`.
+
+Verified: `dotnet test` — 1058 passed, 0 failed.
+
 ## Manual verification before merging
 
 Automated tests use fakes for the remote. Also run once against LocalStack with a real S3 source: create a connection and source through the stores, drop three objects in the bucket, let a sync cycle run, and confirm three documents appear with `source_id` set and `container_id` null. Then delete one object remotely and confirm the next cycle removes its document.
