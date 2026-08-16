@@ -24,7 +24,6 @@ public static class ContainersEndpoints
             [FromBody] CreateContainerApiRequest request,
             [FromServices] IContainerStore containerStore,
             [FromServices] IAuditLogger auditLogger,
-            [FromServices] ConnectorWatcherService watcherService,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
@@ -80,9 +79,6 @@ public static class ContainersEndpoints
 
             await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
                 new { container.Name, container.ConnectorType }, ct);
-
-            // Start watching (Filesystem) or polling (S3/AzureBlob/MinIO).
-            watcherService.StartWatchingContainer(container);
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
@@ -161,7 +157,6 @@ public static class ContainersEndpoints
             Guid containerId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IAuditLogger auditLogger,
-            [FromServices] ConnectorWatcherService watcherService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -181,9 +176,6 @@ public static class ContainersEndpoints
 
             await auditLogger.LogAsync("container.deleted", "container", containerId.ToString(),
                 new { Name = container.Name }, ct);
-
-            // Stop the watcher/poller if one was running for this container.
-            watcherService.StopWatchingContainer(containerId);
 
             return Results.NoContent();
         })

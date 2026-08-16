@@ -9,7 +9,6 @@
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthStateProvider
 @using Connapse.Storage.ConnectionTesters
-@inject ConnectorWatcherService WatcherService
 @inject S3ConnectionTester S3Tester
 @inject AzureBlobConnectionTester AzureBlobTester
 
@@ -561,10 +560,6 @@ else
             }
 
             var container = await ContainerStore.CreateAsync(new CreateContainerRequest(normalizedName, newContainerDescription?.Trim(), newConnectorType, connectorConfig));
-
-            // Start the watcher (Filesystem) or polling loop (S3/AzureBlob/MinIO).
-            // Without this, files wouldn't be picked up until the 5-minute rescan.
-            WatcherService.StartWatchingContainer(container);
 
             showCreateModal = false;
             await LoadContainers();

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -240,6 +242,81 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         reloaded!.LastSyncStatus.Should().Be(SyncStatus.Failed);
         reloaded.SyncCursor.Should().Be("good-cursor",
             "a transient remote error must not discard progress — the next cycle resumes from it");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_UnchangedRemoteFile_IsNotReIngested()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var file = File("/stable.md");
+        var connector = new FakeListConnector(file);
+        var service = BuildService(scope.ServiceProvider, connector);
+
+        // First cycle indexes it and records the remote's signature.
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None))
+            .Upserted.Should().Be(1);
+        await DrainQueueAsync(scope.ServiceProvider, source, file);
+
+        // Second cycle sees the same size and timestamp, so it must do nothing. Without this
+        // the poll re-downloads and re-embeds the whole remote every five minutes.
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        second.Upserted.Should().Be(0, "an unchanged remote file must not be re-ingested");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_ChangedRemoteFile_IsReIngested()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var original = File("/report.md", size: 10);
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(original));
+
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        await DrainQueueAsync(scope.ServiceProvider, source, original);
+
+        // Same path, different size and timestamp — the remote changed.
+        var updated = original with { SizeBytes = 99, LastModified = original.LastModified.AddHours(1) };
+        var changedService = BuildService(scope.ServiceProvider, new FakeListConnector(updated));
+
+        var result = await changedService.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(1, "a file whose remote signature moved must be re-ingested");
+    }
+
+    /// <summary>
+    /// Stands in for the ingestion worker, which does not run in these tests: writes the
+    /// document the pipeline would have written, carrying the remote signature the sync
+    /// service put on the job. Change detection reads that signature back on the next cycle.
+    /// <para>
+    /// Written as raw SQL because <c>IDocumentStore.StoreAsync</c> always populates
+    /// <c>container_id</c> and so cannot express a source-owned row at all.
+    /// </para>
+    /// </summary>
+    private static async Task DrainQueueAsync(IServiceProvider sp, Source source, ConnectorFile file)
+    {
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await dbFactory.CreateDbContextAsync();
+
+        string metadata = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            [SourceSyncService.RemoteLastModifiedKey] = file.LastModified.ToString("O"),
+            [SourceSyncService.RemoteSizeKey] = file.SizeBytes.ToString(CultureInfo.InvariantCulture),
+        });
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, status, created_at, metadata)
+            VALUES ({0}, NULL, {1}, {2}, {3}, '', {4}, 'Ready', now(), {5}::jsonb)
+            ON CONFLICT (owner_id, path) DO UPDATE SET
+                size_bytes = EXCLUDED.size_bytes,
+                status     = 'Ready',
+                metadata   = EXCLUDED.metadata
+            """,
+            Guid.NewGuid(), source.Id, Path.GetFileName(file.Path), file.Path, file.SizeBytes, metadata);
     }
 
     [Fact]

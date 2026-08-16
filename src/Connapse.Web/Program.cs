@@ -79,8 +79,10 @@ builder.Services.AddSingleton<IngestionProgressNotifier>();
 // Downstream apps (e.g. multi-tenant Cloud) override via services.Replace().
 builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
 
-// In-process event bus so FileBrowser can receive real-time file-list changes
-// (add/delete) triggered by ConnectorWatcherService without polling.
+// In-process event bus so FileBrowser can receive real-time file-list changes without
+// polling. Its only publisher was ConnectorWatcherService, and it only ever fired for
+// Filesystem/S3/Azure containers — none of which exist as containers any more. Nothing
+// publishes to it today; the sources UI (#352) decides whether it gets one or is removed.
 builder.Services.AddSingleton<FileBrowserChangeNotifier>();
 
 // Add background services
@@ -91,15 +93,17 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionProgressB
 builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
     sp.GetRequiredService<IngestionProgressBroadcaster>());
 
-// ConnectorWatcherService: manages FileSystemWatcher instances per Filesystem container.
-// Registered as singleton so endpoints can call StartWatchingContainer() at runtime.
-builder.Services.AddSingleton<ConnectorWatcherService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<ConnectorWatcherService>());
-
 // Migrates legacy external containers into connection + source pairs (#350). Idempotent,
-// and registered before the watcher's work matters because a migrated container must be
-// a source before anything tries to poll it.
+// and registered before SourceSyncService because a migrated container must be a source
+// before anything tries to poll it.
 builder.Services.AddHostedService<SourceBackfillHostedService>();
+
+// Polls every enabled source and reconciles it with its remote. Replaces
+// ConnectorWatcherService, which enumerated containers — after the #350 backfill moved
+// external storage into `sources`, it found nothing and syncing stopped entirely.
+// No longer a singleton: nothing calls into it at runtime, because containers are managed
+// storage only and have no remote to watch.
+builder.Services.AddHostedService<SourceSyncService>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();

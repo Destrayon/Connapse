@@ -340,9 +340,14 @@ public class PostgresDocumentStore : IDocumentStore
         if (!string.IsNullOrEmpty(entity.ErrorMessage))
             metadata["ErrorMessage"] = entity.ErrorMessage;
 
+        // OwnerId, not ContainerId: a source-owned row has container_id NULL, and
+        // Nullable<Guid>.ToString() yields "" rather than throwing — so mapping the raw
+        // column silently handed every consumer an empty owner, and StoreAsync's
+        // Guid.Parse of it would throw. OwnerId is COALESCE(container_id, source_id) and
+        // is never null, which is exactly what this non-nullable DTO field means.
         return new(
             entity.Id.ToString(),
-            entity.ContainerId.ToString(),
+            entity.OwnerId.ToString(),
             entity.FileName,
             entity.ContentType,
             entity.Path,

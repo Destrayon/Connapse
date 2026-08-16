@@ -1,3 +1,4 @@
+using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -28,6 +29,10 @@ public class SourceSyncService(
     ILogger<SourceSyncService> logger) : BackgroundService
 {
     private static readonly TimeSpan DefaultSyncInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>Document metadata keys holding the remote's signature at last ingestion.</summary>
+    internal const string RemoteLastModifiedKey = "RemoteLastModified";
+    internal const string RemoteSizeKey = "RemoteSize";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -186,10 +191,22 @@ public class SourceSyncService(
 
         var documentStore = sp.GetRequiredService<IDocumentStore>();
         int count = 0;
+        int skipped = 0;
 
         foreach (var file in files)
         {
             var existing = await documentStore.GetByPathAsync(source.Id, file.Path, ct);
+
+            // Without this the fallback path re-ingests the entire remote on every cycle:
+            // the content hash is computed after the download and parse, so it dedupes
+            // nothing that costs money. Skipping here is what keeps a five-minute poll from
+            // re-embedding every file a source holds.
+            if (existing is not null && !HasRemoteChanged(existing, file))
+            {
+                skipped++;
+                continue;
+            }
+
             string documentId = existing?.Id ?? Guid.NewGuid().ToString();
             string fileName = Path.GetFileName(file.Path);
 
@@ -207,6 +224,13 @@ public class SourceSyncService(
                         ["OriginalFileName"] = fileName,
                         ["Source"] = "SourceSync",
                         ["SyncedAt"] = DateTime.UtcNow.ToString("O"),
+                        // The remote's own view of the file, recorded so the next cycle can
+                        // tell "already indexed" from "changed since". Stored on the document
+                        // rather than in memory so it survives a restart — the old watcher
+                        // kept this in a dictionary and lost every change made while it
+                        // was down.
+                        [RemoteLastModifiedKey] = file.LastModified.ToString("O"),
+                        [RemoteSizeKey] = file.SizeBytes.ToString(CultureInfo.InvariantCulture),
                     })
                 {
                     // The whole reason ownership had to become explicit: a synced document
@@ -218,10 +242,37 @@ public class SourceSyncService(
         }
 
         logger.LogInformation(
-            "Enqueued {Count} file(s) for source {SourceId} ({Name})",
-            count, source.Id, Sanitize(source.Name));
+            "Enqueued {Count} file(s) for source {SourceId} ({Name}); {Skipped} unchanged",
+            count, source.Id, Sanitize(source.Name), skipped);
 
         return count;
+    }
+
+    /// <summary>
+    /// Decides whether an already-indexed document needs re-ingesting, by comparing the
+    /// remote's size and modification time against the signature recorded last time.
+    /// </summary>
+    private static bool HasRemoteChanged(Document existing, ConnectorFile file)
+    {
+        // Already queued or mid-ingestion. Enqueueing again would race the in-flight job for
+        // the same document id, and the next cycle will catch it anyway once it settles.
+        string? status = existing.Metadata.GetValueOrDefault("Status");
+        if (status is "Pending" or "Queued" or "Processing")
+            return false;
+
+        string? lastModified = existing.Metadata.GetValueOrDefault(RemoteLastModifiedKey);
+        string? size = existing.Metadata.GetValueOrDefault(RemoteSizeKey);
+
+        // No signature: either indexed by the old watcher, or re-owned by the #350 backfill.
+        // Treated as changed so it is re-ingested exactly once, which writes the signature and
+        // makes it comparable from then on. The alternative — assuming unchanged — leaves a
+        // document that can never be detected as stale, because the baseline it would be
+        // compared against is never written.
+        if (lastModified is null || size is null)
+            return true;
+
+        return lastModified != file.LastModified.ToString("O")
+            || size != file.SizeBytes.ToString(CultureInfo.InvariantCulture);
     }
 
     private async Task<int> DeleteByPathsAsync(

@@ -106,9 +106,6 @@ public class McpTools
         await auditLogger.LogAsync("container.deleted", "container", resolvedId.Value.ToString(),
             new { Name = container?.Name ?? containerId }, ct);
 
-        var watcherService = services.GetRequiredService<ConnectorWatcherService>();
-        watcherService.StopWatchingContainer(resolvedId.Value);
-
         return $"Container '{containerId}' deleted.";
     }
 
