@@ -131,7 +131,7 @@ public class PostgresDocumentStore : IDocumentStore
 
         var query = context.Documents
             .AsNoTracking()
-            .Where(d => d.ContainerId == containerId);
+            .Where(d => d.OwnerId == containerId);
 
         if (!string.IsNullOrEmpty(pathPrefix))
         {
@@ -193,7 +193,7 @@ public class PostgresDocumentStore : IDocumentStore
         await using var context = await _factory.CreateDbContextAsync(ct);
 
         return await context.Documents
-            .AnyAsync(d => d.ContainerId == containerId && d.Path == path && d.Status == "Ready", ct);
+            .AnyAsync(d => d.OwnerId == containerId && d.Path == path && d.Status == "Ready", ct);
     }
 
     public async Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default)
@@ -202,7 +202,7 @@ public class PostgresDocumentStore : IDocumentStore
 
         var entity = await context.Documents
             .AsNoTracking()
-            .FirstOrDefaultAsync(d => d.ContainerId == containerId && d.Path == path, ct);
+            .FirstOrDefaultAsync(d => d.OwnerId == containerId && d.Path == path, ct);
 
         return entity is null ? null : MapToModel(entity);
     }
@@ -233,7 +233,7 @@ public class PostgresDocumentStore : IDocumentStore
         // Set-based clear of the per-doc summary cache. Filter to rows that actually have
         // something cached so the affected-count reflects real work and we skip no-op writes.
         return await context.Documents
-            .Where(d => d.ContainerId == containerId
+            .Where(d => d.OwnerId == containerId
                 && (d.Summary != null || d.SummaryGeneratedAt != null || d.SummaryContentHash != null))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.Summary, (string?)null)
@@ -304,7 +304,7 @@ public class PostgresDocumentStore : IDocumentStore
 
         var stats = await context.Documents
             .AsNoTracking()
-            .Where(d => d.ContainerId == containerId)
+            .Where(d => d.OwnerId == containerId)
             .GroupBy(_ => 1)
             .Select(g => new
             {
