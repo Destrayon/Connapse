@@ -43,6 +43,12 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
 
     /// <summary>
+    /// Written by SourceSyncService to record the remote's state at last ingestion, and
+    /// preserved across a reindex so its change detection keeps a baseline to compare against.
+    /// </summary>
+    private static readonly string[] RemoteSignatureKeys = ["RemoteLastModified", "RemoteSize"];
+
+    /// <summary>
     /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
     /// <summary>
     /// Initializes a new IngestionPipeline with the dependencies required to parse documents, split them into chunks, produce embeddings, and persist vectors and document state.
@@ -217,6 +223,22 @@ public class IngestionPipeline : IKnowledgeIngester
                 documentEntity.ContentHash = contentHash;
                 documentEntity.SizeBytes = workingStream.Length;
                 documentEntity.Status = "Processing";
+
+                // Carry forward the sync layer's record of what the remote looked like when
+                // this document was last ingested. Only SourceSyncService sets these, so any
+                // other caller — a reindex, in particular — would otherwise replace the
+                // metadata wholesale and erase the baseline. The next sync would then find no
+                // signature, treat every file as changed, and re-download and re-embed the
+                // entire source.
+                foreach (string key in RemoteSignatureKeys)
+                {
+                    if (!metadata.ContainsKey(key) &&
+                        documentEntity.Metadata?.TryGetValue(key, out var carried) == true)
+                    {
+                        metadata[key] = carried;
+                    }
+                }
+
                 documentEntity.Metadata = metadata;
             }
             else

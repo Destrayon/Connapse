@@ -99,6 +99,61 @@ public class OwnerBridgeSchemaTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Chunks_WithOwnerDifferentFromDocument_ViolatesForeignKey()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
+
+        Guid containerId = await SeedContainerAsync(context);
+        var documentId = Guid.NewGuid();
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, created_at)
+            VALUES ({0}, {1}, NULL, 'x.md', '/x.md', '', 1, now())
+            """, documentId, containerId);
+
+        // A chunk claiming an owner its document does not have. chunks.owner_id is a plain
+        // column, not a generated one, and search filters on it — so this row would be
+        // returned to whoever owns the id it names.
+        Func<Task> act = async () => await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO chunks (id, document_id, owner_id, content, chunk_index, token_count, start_offset, end_offset)
+            VALUES (gen_random_uuid(), {0}, gen_random_uuid(), 'leaked', 0, 1, 0, 6)
+            """, documentId);
+
+        (await act.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.ForeignKeyViolation);
+    }
+
+    [Fact]
+    public async Task Chunks_WithOwnerMatchingDocument_IsAccepted()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
+
+        Guid containerId = await SeedContainerAsync(context);
+        var documentId = Guid.NewGuid();
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, created_at)
+            VALUES ({0}, {1}, NULL, 'y.md', '/y.md', '', 1, now())
+            """, documentId, containerId);
+
+        // The paired case: the constraint must not reject the write the pipeline actually makes.
+        Func<Task> act = async () => await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO chunks (id, document_id, owner_id, content, chunk_index, token_count, start_offset, end_offset)
+            VALUES (gen_random_uuid(), {0}, {1}, 'fine', 0, 1, 0, 4)
+            """, documentId, containerId);
+
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
     public async Task Connections_DeleteWithReferencingSource_IsRestricted()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

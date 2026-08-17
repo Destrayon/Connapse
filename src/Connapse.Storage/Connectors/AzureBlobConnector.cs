@@ -26,6 +26,14 @@ public class AzureBlobConnector : IConnector
     public ConnectorType Type => ConnectorType.AzureBlob;
     public bool SupportsLiveWatch => false;
 
+    /// <summary>
+    /// The resolved configuration, exposed so tests can assert on what ConnectorFactory
+    /// recombined from a connection and a source. Azurite cannot authenticate
+    /// DefaultAzureCredential, so this mapping is not reachable through a live-remote test
+    /// the way the S3 equivalent is.
+    /// </summary>
+    internal AzureBlobConnectorConfig Config => _config;
+
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');
 

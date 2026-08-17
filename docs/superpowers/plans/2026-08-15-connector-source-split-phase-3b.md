@@ -680,6 +680,38 @@ Part of #351"
 
 External sources sync again — new, changed, and deleted remote files are reflected. Documents ingested for a source carry `source_id`, and their chunks and vectors carry the same `owner_id` with no `Guid.Empty` anywhere. Forward cursor progress uses compare-and-swap and cannot regress; a resync clears the cursor unconditionally. `ConnectorWatcherService` is gone. `dotnet test` passes in full.
 
+## Progress log
+
+**Task 4 — SourceSyncService.** Written test-first. Two tests failed against the first cut, both real bugs: five `PostgresDocumentStore` queries still filtered on `ContainerId`, so every one returned nothing for a source-owned document; and the failure path wrote back the cursor from the cycle-start snapshot, rolling progress backwards after a transient outage. Files: `SourceSyncService.cs`, `PostgresDocumentStore.cs`, `SourceSyncIntegrationTests.cs`.
+
+**Task 4 (cont.) — watcher retired.** `SourceSyncService` registered; `ConnectorWatcherService` (700 lines) and `CloudSyncTests` deleted. Its four call sites were already no-ops, since both watch methods return immediately for managed storage. Two things the plan did not anticipate:
+
+- **Change detection was missing.** `CloudSyncTests` covered skipping unchanged and in-flight files; the first cut of `EnqueueAllAsync` enqueued every remote file every cycle. The content hash is computed after the download and parse, so it dedupes nothing that costs money — each source would have re-embedded its whole remote every five minutes. Now stores the remote's size and timestamp on the document and compares against it, which unlike the watcher's in-memory snapshot survives a restart. A document with no recorded signature is re-ingested once, which writes one; assuming "unchanged" instead would leave it permanently undetectable.
+- **`MapToModel` handed out an empty `ContainerId` for source-owned rows.** `container_id` is NULL there and `Nullable<Guid>.ToString()` returns `""` rather than throwing, so consumers silently got an empty owner and `StoreAsync`'s `Guid.Parse` of it would throw. Now maps `OwnerId`.
+
+Also noted, not fixed: `IDocumentStore.StoreAsync` always writes `container_id` and so cannot express a source-owned row at all. No live caller needs it — the pipeline writes entities directly — but anything that later tries to pre-register a source document through it breaks silently. `FileBrowserChangeNotifier` now has no publisher; #352 decides whether it gets one.
+
+**Task 5 — chunks.owner_id enforcement: composite foreign key.** Divergence is *not* reachable through application code: exactly one production path writes each of `chunks.owner_id` and `chunk_vectors.owner_id`, and both take the value from the same `OwnerRef` that writes the document's own columns (`IngestionPipeline.cs:367` and `:379`). `IVectorStore.UpsertAsync` has no production caller.
+
+Enforced anyway, because the consequence is the cross-owner exposure this epic exists to prevent, and the guard is nearly free: `documents` gains `UNIQUE (id, owner_id)`, and the existing single-column document FKs on `chunks` and `chunk_vectors` are replaced by composite FKs on `(document_id, owner_id)`. Declarative, still cascades, cheaper than the trigger the plan proposed, and it covers direct SQL too. Added `NOT VALID`: every insert and update is enforced from here on, but existing rows are not scanned, so a legacy diverged row cannot abort startup for every operator. Validating it is left to a later release, when it can be confirmed against real data. Files: `20260816021203_EnforceChunkOwnerMatchesDocument.cs`, `OwnerBridgeSchemaTests.cs`.
+
+Verified: `dotnet test` — 1058 passed, 0 failed.
+
 ## Manual verification before merging
 
-Automated tests use fakes for the remote. Also run once against LocalStack with a real S3 source: create a connection and source through the stores, drop three objects in the bucket, let a sync cycle run, and confirm three documents appear with `source_id` set and `container_id` null. Then delete one object remotely and confirm the next cycle removes its document.
+~~Automated tests use fakes for the remote. Also run once against LocalStack with a real S3 source.~~
+
+**Done as an automated test instead** — `SourceSyncS3IntegrationTests`, three cases against a real S3 API in LocalStack: three seeded objects all enqueue, an object deleted from the bucket removes its document, and a second cycle over an untouched bucket skips it. Running on every build beats a one-off manual pass.
+
+These resolve the real `IConnectorFactory` from DI rather than substituting it, so they are the only coverage of a connection's credentials and a source's scope being recombined into a working connector — every other sync test fakes that step. The class owns its LocalStack container directly instead of taking a collection fixture, because a second collection would get its own `SharedWebAppFixture` and duplicate the PostgreSQL and MinIO pair.
+
+Added afterwards, from reviewing what the suite did *not* reach:
+
+- **`SyncAllAsync` had no coverage at all.** Every other sync test entered at `SyncSourceAsync`, one level below the method the background loop calls, so the enumeration and the enabled filter were untested.
+- **No Azure equivalent of the LocalStack test, and there cannot be one.** Azurite cannot authenticate `DefaultAzureCredential`, and `AzureBlobConnector` hardcodes `https://{account}.blob.core.windows.net`. Redirecting it would mean supporting shared-key auth — the stored cloud credential this project does not accept. Closed the reachable part instead: the connector configs are now `internal`-readable, and `SourceConnectorFactoryTests` asserts every recombined field for all three providers rather than just the resulting type. A dropped region or a mis-joined prefix still produces a connector of the right type and then reads the wrong bucket; the Azure `managedIdentityClientId` case matters most, since dropping it silently falls back to the default identity, which may have wider access.
+
+- **The migration is now tested against a populated database.** `ChunkOwnerMigrationTests` owns a PostgreSQL container so it can control which migrations have been applied: it migrates to the release before the constraint, writes documents, chunks and vectors the way an existing deployment holds them — including a deliberately diverged chunk — then migrates the rest of the way. Proves the two halves of the `NOT VALID` decision: legacy divergence does not block the upgrade and is not silently repaired, while a diverged row inserted afterwards is rejected. Non-vacuous by construction, since seeding the diverged row would itself have failed had the staged migration not stopped short.
+
+Still not covered: the delta path has no production implementer yet, so fakes are the only thing to test it against.
+
+Verified: `dotnet test` — 1064 passed, 0 failed.
