@@ -1,7 +1,10 @@
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
@@ -15,8 +18,23 @@ namespace Connapse.Core.Tests.Connectors;
 [Trait("Category", "Unit")]
 public class SourceConnectorFactoryTests
 {
-    private readonly IConnectorFactory _factory =
-        new ConnectorFactory(Substitute.For<IManagedStorageProvider>());
+    private readonly IConnectorFactory _factory = BuildFactory(new SourceSecuritySettings());
+
+    /// <summary>
+    /// Builds a factory with the given source-security policy. Defaults to no configured
+    /// allowlist, which is the unrestricted-with-a-warning path, so these tests keep covering
+    /// recombination rather than the allowlist.
+    /// </summary>
+    private static ConnectorFactory BuildFactory(SourceSecuritySettings settings)
+    {
+        var monitor = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
+        monitor.CurrentValue.Returns(settings);
+
+        return new ConnectorFactory(
+            Substitute.For<IManagedStorageProvider>(),
+            monitor,
+            NullLogger<ConnectorFactory>.Instance);
+    }
 
     private static Connection MakeConnection(ConnectionProvider provider, string config, Guid? id = null) => new(
         Id: id ?? Guid.NewGuid(),
@@ -129,6 +147,64 @@ public class SourceConnectorFactoryTests
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*outside*");
+    }
+
+    [Fact]
+    public void Create_FilesystemRootOutsideTheAllowlist_Throws()
+    {
+        // The allowlist bounds what the root itself may be. Link resolution bounds where a
+        // source may reach from there. Neither substitutes for the other: this is the control
+        // that stops allowedRoot: "/".
+        var factory = BuildFactory(new SourceSecuritySettings
+        {
+            AllowedFilesystemRoots = [Path.Combine(Path.GetTempPath(), "connapse-permitted")]
+        });
+
+        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/"}""");
+        var source = MakeSource(connection.Id, "{}");
+
+        Action act = () => factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*AllowedFilesystemRoots*");
+    }
+
+    [Fact]
+    public void Create_FilesystemRootInsideTheAllowlist_IsAccepted()
+    {
+        string permitted = Path.Combine(Path.GetTempPath(), $"connapse-allow-{Guid.NewGuid():N}");
+        string root = Path.Combine(permitted, "team");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var factory = BuildFactory(new SourceSecuritySettings { AllowedFilesystemRoots = [permitted] });
+
+            // A root nested inside a permitted entry is allowed — operators configure the
+            // parent once rather than enumerating every source directory.
+            var connection = MakeConnection(ConnectionProvider.Filesystem, $$"""{"allowedRoot":{{JsonSerializer.Serialize(root)}}}""");
+            var source = MakeSource(connection.Id, "{}");
+
+            factory.Create(source, connection).Type.Should().Be(ConnectorType.Filesystem);
+        }
+        finally
+        {
+            Directory.Delete(permitted, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Create_FilesystemRootWithNoAllowlistConfigured_IsAcceptedForNow()
+    {
+        // Deliberately permissive for one release: #350 backfilled existing filesystem
+        // containers into connections, so enforcing immediately would break every upgrade
+        // until an operator edited configuration. The factory logs a warning naming the root.
+        var factory = BuildFactory(new SourceSecuritySettings());
+
+        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
+        var source = MakeSource(connection.Id, "{}");
+
+        factory.Create(source, connection).Type.Should().Be(ConnectorType.Filesystem);
     }
 
     [Fact]

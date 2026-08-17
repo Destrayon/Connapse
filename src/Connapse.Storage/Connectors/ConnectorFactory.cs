@@ -2,6 +2,8 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Connapse.Storage.Connectors;
 
@@ -11,15 +13,22 @@ namespace Connapse.Storage.Connectors;
 public class ConnectorFactory : IConnectorFactory
 {
     private readonly IManagedStorageProvider _managedStorageProvider;
+    private readonly IOptionsMonitor<SourceSecuritySettings> _sourceSecurity;
+    private readonly ILogger<ConnectorFactory> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public ConnectorFactory(IManagedStorageProvider managedStorageProvider)
+    public ConnectorFactory(
+        IManagedStorageProvider managedStorageProvider,
+        IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
+        ILogger<ConnectorFactory> logger)
     {
         _managedStorageProvider = managedStorageProvider;
+        _sourceSecurity = sourceSecurity;
+        _logger = logger;
     }
 
     public IConnector Create(Container container)
@@ -72,9 +81,11 @@ public class ConnectorFactory : IConnectorFactory
             ConnectionProvider.Filesystem => new FilesystemConnector(new FilesystemConnectorConfig
             {
                 RootPath = CombineUnderRoot(
-                    Str(credential, "allowedRoot")
-                        ?? throw new InvalidOperationException(
-                            $"Connection '{connection.Name}' has no allowedRoot."),
+                    RequirePermittedRoot(
+                        Str(credential, "allowedRoot")
+                            ?? throw new InvalidOperationException(
+                                $"Connection '{connection.Name}' has no allowedRoot."),
+                        connection.Name),
                     Str(scope, "subPath"),
                     source.Name),
                 IncludePatterns = Arr(scope, "includePatterns"),
@@ -94,6 +105,42 @@ public class ConnectorFactory : IConnectorFactory
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray()
             : [];
+
+    /// <summary>
+    /// Checks a connection's allowed root against the deployment's configured allowlist.
+    /// <para>
+    /// The confinement check below stops a source escaping its root; this stops the root
+    /// itself being somewhere it should never be. They are independent: an allowlist does not
+    /// stop a symlink, and link resolution does not stop <c>allowedRoot: "/"</c>.
+    /// </para>
+    /// </summary>
+    private string RequirePermittedRoot(string allowedRoot, string connectionName)
+    {
+        switch (_sourceSecurity.CurrentValue.EvaluateRoot(allowedRoot))
+        {
+            case FilesystemRootDecision.Allowed:
+                return allowedRoot;
+
+            case FilesystemRootDecision.UnrestrictedByConfiguration:
+                // Warned rather than refused, for one release: #350 backfilled existing
+                // filesystem containers into connections, so enforcing immediately would
+                // break every upgrade until an operator edited configuration. The warning
+                // names the root so they know what to add.
+                _logger.LogWarning(
+                    "Connection {ConnectionName} uses filesystem root {Root} with no "
+                    + "{SectionName}:AllowedFilesystemRoots configured. Any root is currently "
+                    + "accepted; configure the allowlist to bound this.",
+                    LogSanitizer.Sanitize(connectionName),
+                    LogSanitizer.Sanitize(allowedRoot),
+                    SourceSecuritySettings.SectionName);
+                return allowedRoot;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Connection '{connectionName}' names filesystem root '{allowedRoot}', which is not "
+                    + $"within any entry of {SourceSecuritySettings.SectionName}:AllowedFilesystemRoots.");
+        }
+    }
 
     /// <summary>
     /// Resolves a source's subPath beneath its connection's allowed root, and verifies the
