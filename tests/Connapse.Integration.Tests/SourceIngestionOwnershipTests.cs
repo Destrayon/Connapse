@@ -163,4 +163,42 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
         doc.SourceId.Should().Be(sourceId);
         doc.ContainerId.Should().BeNull();
     }
+
+    [Fact]
+    public async Task Reindex_WithoutRemoteSignature_PreservesTheOneAlreadyStored()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+
+        // Ingested by the sync service, which records what the remote looked like.
+        using var first = new MemoryStream("synced content"u8.ToArray());
+        var created = await pipeline.IngestAsync(first, new IngestionOptions(
+            FileName: "sig.md", ContentType: "text/markdown", Path: "/sig.md",
+            Metadata: new Dictionary<string, string>
+            {
+                ["RemoteLastModified"] = "2026-08-16T00:00:00.0000000Z",
+                ["RemoteSize"] = "1234",
+            })
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        // A reindex knows nothing about the remote and carries no signature. The pipeline
+        // replaces metadata wholesale, so without carry-forward the baseline is erased — and
+        // the next sync would treat every file as changed and re-embed the whole source.
+        using var second = new MemoryStream("reindexed content"u8.ToArray());
+        await pipeline.IngestAsync(second, new IngestionOptions(
+            DocumentId: created.DocumentId, FileName: "sig.md", Path: "/sig.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        await using var ctx = await factory.CreateDbContextAsync();
+        var doc = await ctx.Documents.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(created.DocumentId));
+
+        doc.Metadata!["RemoteLastModified"].Should().Be("2026-08-16T00:00:00.0000000Z");
+        doc.Metadata["RemoteSize"].Should().Be("1234");
+    }
 }

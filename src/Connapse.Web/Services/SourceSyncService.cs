@@ -2,6 +2,7 @@ using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
+using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using static Connapse.Core.Utilities.LogSanitizer;
 
@@ -91,9 +92,10 @@ public class SourceSyncService(
         await using var scope = scopeFactory.CreateAsyncScope();
         var sourceStore = scope.ServiceProvider.GetRequiredService<ISourceStore>();
 
+        IConnector? connector = null;
         try
         {
-            IConnector connector = connectorFactory.Create(source, connection);
+            connector = connectorFactory.Create(source, connection);
 
             return connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
@@ -115,6 +117,13 @@ public class SourceSyncService(
                 source.Id, current?.SyncCursor, SyncStatus.Failed, ex.Message, DateTime.UtcNow, ct);
 
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: ex.Message);
+        }
+        finally
+        {
+            // S3Connector owns an AmazonS3Client and its socket pool. A cycle runs every five
+            // minutes per source, so skipping this abandons a client per source per cycle —
+            // the watcher this replaced disposed here for the same reason.
+            if (connector is IDisposable disposable) disposable.Dispose();
         }
     }
 
@@ -138,8 +147,11 @@ public class SourceSyncService(
             return new SourceSyncResult(0, 0, UsedDeltaPath: true, RequiredResync: true, Error: null);
         }
 
-        int upserted = await EnqueueAllAsync(source, delta.Upserted, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, sp, ct);
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await dbFactory.CreateDbContextAsync(ct);
+
+        int upserted = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
+        int deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
 
         // Compare-and-swap: a cycle that started earlier but finished later must not
         // overwrite newer progress with its own stale cursor.
@@ -149,8 +161,13 @@ public class SourceSyncService(
 
         if (!advanced)
         {
+            // Only the cursor write is dropped. The upserts and deletions above have already
+            // been applied, so this is not a rollback — say so, or the next person reading
+            // this line while chasing duplicate ingestion will rule out the wrong cause.
             logger.LogWarning(
-                "Source {SourceId} was advanced by another cycle; discarding this result", source.Id);
+                "Source {SourceId} was advanced by another cycle; keeping the newer cursor. "
+                + "This cycle's {Upserted} upsert(s) and {Deleted} deletion(s) were already applied.",
+                source.Id, upserted, deleted);
         }
 
         return new SourceSyncResult(upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null);
@@ -173,8 +190,8 @@ public class SourceSyncService(
         var remotePaths = remote.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
         var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
 
-        int upserted = await EnqueueAllAsync(source, remote, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, vanished, sp, ct);
+        int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
+        int deleted = await DeleteByPathsAsync(source, vanished, context, sp, ct);
 
         // No cursor to advance on this path, so record the outcome directly. The stored
         // cursor stays null, which is what marks this source as fallback-synced.
@@ -184,18 +201,50 @@ public class SourceSyncService(
         return new SourceSyncResult(upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null);
     }
 
+    /// <summary>
+    /// Loads the indexed documents for the given paths in one round trip per batch.
+    /// <para>
+    /// Querying per file instead would issue one SELECT per remote object every cycle — for a
+    /// source holding ten thousand objects, ten thousand queries every five minutes even when
+    /// nothing changed.
+    /// </para>
+    /// </summary>
+    private static async Task<Dictionary<string, DocumentEntity>> LoadByPathsAsync(
+        KnowledgeDbContext context, Guid ownerId, IReadOnlyCollection<string> paths, CancellationToken ct)
+    {
+        var byPath = new Dictionary<string, DocumentEntity>(StringComparer.Ordinal);
+        if (paths.Count == 0) return byPath;
+
+        // Batched: every path becomes a parameter, and one statement cannot carry more than
+        // PostgreSQL's parameter ceiling.
+        foreach (string[] batch in paths.Distinct(StringComparer.Ordinal).Chunk(1000))
+        {
+            var rows = await context.Documents
+                .AsNoTracking()
+                .Where(d => d.OwnerId == ownerId && batch.Contains(d.Path))
+                .ToListAsync(ct);
+
+            foreach (var row in rows) byPath[row.Path] = row;
+        }
+
+        return byPath;
+    }
+
     private async Task<int> EnqueueAllAsync(
-        Source source, IReadOnlyList<ConnectorFile> files, IServiceProvider sp, CancellationToken ct)
+        Source source, IReadOnlyList<ConnectorFile> files, KnowledgeDbContext context,
+        IServiceProvider sp, CancellationToken ct)
     {
         if (files.Count == 0) return 0;
 
-        var documentStore = sp.GetRequiredService<IDocumentStore>();
+        var existingByPath = await LoadByPathsAsync(
+            context, source.Id, files.Select(f => f.Path).ToList(), ct);
+
         int count = 0;
         int skipped = 0;
 
         foreach (var file in files)
         {
-            var existing = await documentStore.GetByPathAsync(source.Id, file.Path, ct);
+            existingByPath.TryGetValue(file.Path, out var existing);
 
             // Without this the fallback path re-ingests the entire remote on every cycle:
             // the content hash is computed after the download and parse, so it dedupes
@@ -207,7 +256,7 @@ public class SourceSyncService(
                 continue;
             }
 
-            string documentId = existing?.Id ?? Guid.NewGuid().ToString();
+            string documentId = existing?.Id.ToString() ?? Guid.NewGuid().ToString();
             string fileName = Path.GetFileName(file.Path);
 
             await queue.EnqueueAsync(new IngestionJob(
@@ -252,16 +301,16 @@ public class SourceSyncService(
     /// Decides whether an already-indexed document needs re-ingesting, by comparing the
     /// remote's size and modification time against the signature recorded last time.
     /// </summary>
-    private static bool HasRemoteChanged(Document existing, ConnectorFile file)
+    private static bool HasRemoteChanged(DocumentEntity existing, ConnectorFile file)
     {
         // Already queued or mid-ingestion. Enqueueing again would race the in-flight job for
         // the same document id, and the next cycle will catch it anyway once it settles.
-        string? status = existing.Metadata.GetValueOrDefault("Status");
-        if (status is "Pending" or "Queued" or "Processing")
+        if (existing.Status is "Pending" or "Queued" or "Processing")
             return false;
 
-        string? lastModified = existing.Metadata.GetValueOrDefault(RemoteLastModifiedKey);
-        string? size = existing.Metadata.GetValueOrDefault(RemoteSizeKey);
+        var metadata = existing.Metadata;
+        string? lastModified = metadata?.GetValueOrDefault(RemoteLastModifiedKey);
+        string? size = metadata?.GetValueOrDefault(RemoteSizeKey);
 
         // No signature: either indexed by the old watcher, or re-owned by the #350 backfill.
         // Treated as changed so it is re-ingested exactly once, which writes the signature and
@@ -276,19 +325,22 @@ public class SourceSyncService(
     }
 
     private async Task<int> DeleteByPathsAsync(
-        Source source, IReadOnlyList<string> paths, IServiceProvider sp, CancellationToken ct)
+        Source source, IReadOnlyList<string> paths, KnowledgeDbContext context,
+        IServiceProvider sp, CancellationToken ct)
     {
         if (paths.Count == 0) return 0;
 
         var documentStore = sp.GetRequiredService<IDocumentStore>();
+        var existingByPath = await LoadByPathsAsync(context, source.Id, paths, ct);
         int count = 0;
 
         foreach (var path in paths)
         {
-            var doc = await documentStore.GetByPathAsync(source.Id, path, ct);
-            if (doc is null) continue;
+            if (!existingByPath.TryGetValue(path, out var doc)) continue;
 
-            await documentStore.DeleteAsync(doc.Id, ct);
+            // Still routed through the store rather than the context: it also clears the
+            // document's stored file and cascades its chunks.
+            await documentStore.DeleteAsync(doc.Id.ToString(), ct);
             count++;
         }
 

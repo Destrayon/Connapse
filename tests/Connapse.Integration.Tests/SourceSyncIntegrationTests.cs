@@ -72,6 +72,44 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => throw new NotSupportedException();
     }
 
+    /// <summary>A connector that records whether it was disposed.</summary>
+    private sealed class DisposableConnector : IConnector, IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public ConnectorType Type => ConnectorType.S3;
+        public bool SupportsLiveWatch => false;
+
+        public void Dispose() => Disposed = true;
+
+        public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
+            => Task.FromResult<Stream>(new MemoryStream());
+        public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
+        public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
+        public string ResolveJobPath(string relativePath) => relativePath;
+        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>A connector that records disposal and fails every remote call.</summary>
+    private sealed class ThrowingDisposableConnector : IConnector, IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public ConnectorType Type => ConnectorType.S3;
+        public bool SupportsLiveWatch => false;
+
+        public void Dispose() => Disposed = true;
+
+        public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
+            => throw new IOException("remote unavailable");
+        public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
+            => throw new IOException("remote unavailable");
+        public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
+        public string ResolveJobPath(string relativePath) => relativePath;
+        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
+            => throw new NotSupportedException();
+    }
+
     /// <summary>A connector whose remote calls fail.</summary>
     private sealed class ThrowingConnector : IConnector
     {
@@ -343,6 +381,39 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
                 metadata   = EXCLUDED.metadata
             """,
             Guid.NewGuid(), source.Id, Path.GetFileName(file.Path), file.Path, file.SizeBytes, metadata);
+    }
+
+    /// <summary>
+    /// S3Connector owns an AmazonS3Client and its socket pool, and a cycle runs every five
+    /// minutes per source — so failing to dispose abandons one client per source per cycle.
+    /// </summary>
+    [Fact]
+    public async Task SyncSourceAsync_DisposesTheConnectorItCreated()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new DisposableConnector();
+        await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        connector.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_DisposesTheConnectorEvenWhenTheRemoteFails()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        // The failure path is the one that matters: an unreachable remote is exactly when
+        // cycles repeat, so a leak here compounds fastest.
+        var connector = new ThrowingDisposableConnector();
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Error.Should().NotBeNull();
+        connector.Disposed.Should().BeTrue();
     }
 
     [Fact]
