@@ -34,13 +34,23 @@ that satisfies one and not the other is a failure, so the tests have to pin both
 `DELETE /api/sources/{id}`, and `POST /api/sources/{id}/sync` to force a cycle.
 
 Deliberately absent: anything returning documents or paths. No `/api/sources/{id}/documents`, no
-`/api/sources/{id}/browse`. `GET /api/sources/{id}` returns the scope and its sync state — name,
-description, connection, enabled, last sync status, last error, last synced at — and never the
-`ScopeJson` credentials-adjacent detail beyond what the source itself declares.
+`/api/sources/{id}/browse`.
 
-Authorization matches the container endpoints: `RequireViewer` to read, `RequireEditor` to
-mutate. Creation and update validate that the named connection exists, because a source pointing
-at a missing connection is skipped silently by the sync service.
+**Responses use dedicated DTOs, never the `Source` record.** `Source` carries `ScopeJson`, which
+names buckets, prefixes, and filesystem subpaths — infrastructure detail a viewer has no reason
+to receive, and the kind of thing that turns a read route into reconnaissance. The DTO exposes
+id, name, description, connection id, enabled, and sync state. Tests assert the *absence* of
+`ScopeJson` rather than the presence of the wanted fields, because a later refactor that starts
+serializing the record directly would otherwise pass silently.
+
+Authorization is **not** copied from the container endpoints. Reads take `RequireViewer`;
+mutations take `RequireAdmin`, not `RequireEditor`. Creating a source chooses what external data
+gets indexed and made searchable, bounded only by whatever the connection's credential can reach
+— an administrative act. Airbyte reaches the same conclusion by splitting source-editor from
+destination-editor rather than treating them as one grant.
+
+Creation and update validate that the named connection exists, because a source pointing at a
+missing connection is skipped silently by the sync service.
 
 **Done when:** all six routes exist, are registered in `Program.cs`, and integration tests cover
 each — including that a source id passed to a container document route is rejected.
@@ -78,6 +88,13 @@ The Sources tab, the Connections settings screen, and Home simplification are Ph
 Removing the Filesystem write flags is deferred there too — it touches 10+ sites in
 `FileBrowser.razor`. Dropping `containers.connector_type`/`connector_config` is Phase 5 (#353).
 
-Whether `/api/connections` needs REST routes is an open question for Phase 4: the Blazor UI can
-use `IConnectionStore` directly, and the issue scopes 3c to sources only. Flagging rather than
-deciding it here.
+**Mutating `/api/connections` routes are out of scope — decided, not deferred.** Connections are
+the credential and filesystem-root boundary, and this project already refuses to accept cloud
+credentials over an API; a filesystem `allowedRoot` confers the same class of authority. They are
+configured out of band and managed in Admin Settings, which is the channel-scoped model Grafana
+uses, where the provisioning file can create datasources the HTTP API deliberately cannot.
+Read-only connection routes are fine if Phase 4 wants them for the UI.
+
+Any later proposal to add connection mutation over REST, CLI, or MCP reopens this security
+review rather than being an incremental addition — recorded here so it cannot arrive as one.
+Background: `docs/research/programmatic-source-configuration-safety-2026-08-17.md`.

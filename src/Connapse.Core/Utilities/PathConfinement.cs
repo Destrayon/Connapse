@@ -21,12 +21,19 @@ namespace Connapse.Core.Utilities;
 public static class PathConfinement
 {
     /// <summary>
-    /// Path comparison follows the filesystem, not the language: NTFS and APFS are
-    /// case-insensitive, ext4 is not. Comparing ordinally on Windows would let
-    /// <c>C:\Data\x</c> read as outside <c>C:\data</c>.
+    /// Case-insensitive only on Windows, where NTFS is reliably case-insensitive and an
+    /// ordinal comparison would wrongly read <c>C:\Data\x</c> as outside <c>C:\data</c>.
+    /// <para>
+    /// Everywhere else this compares ordinally, macOS included. APFS is case-insensitive by
+    /// default but can be formatted case-sensitive, and on such a volume <c>/Data</c> and
+    /// <c>/data</c> are genuinely different directories — matching them loosely would admit
+    /// one as being inside the other. The failure modes are not symmetric: comparing too
+    /// strictly rejects a legitimate path, which is visible and fixable, while comparing too
+    /// loosely admits a path that escapes the root, which is silent.
+    /// </para>
     /// </summary>
     private static readonly StringComparison PathComparison =
-        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     /// <summary>
     /// Returns the fully resolved <paramref name="candidate"/> when it lies inside
@@ -38,8 +45,25 @@ public static class PathConfinement
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
         ArgumentNullException.ThrowIfNull(candidate);
 
-        string rootFull = ResolveLinks(Path.GetFullPath(root));
-        string candidateFull = ResolveLinks(Path.GetFullPath(candidate));
+        string? rootFull;
+        string? candidateFull;
+
+        try
+        {
+            rootFull = ResolveLinks(Path.GetFullPath(root));
+            candidateFull = ResolveLinks(Path.GetFullPath(candidate));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            // Path.GetFullPath rejects malformed input. A path we cannot even normalize is
+            // not a path we can vouch for.
+            return null;
+        }
+
+        // Either side failing to resolve means the comparison would be against an unverified
+        // string, so refuse rather than guess.
+        if (rootFull is null || candidateFull is null)
+            return null;
 
         return IsWithin(rootFull, candidateFull) ? candidateFull : null;
     }
@@ -116,8 +140,12 @@ public static class PathConfinement
     /// A path that does not exist resolves as far as its existing ancestors allow — a root may
     /// legitimately be configured before it is created.
     /// </para>
+    /// <para>
+    /// Returns null when resolution fails. Callers must treat that as "outside every root":
+    /// a path we cannot resolve is a path we cannot vouch for.
+    /// </para>
     /// </summary>
-    private static string ResolveLinks(string fullPath)
+    private static string? ResolveLinks(string fullPath)
     {
         try
         {
@@ -127,7 +155,11 @@ public static class PathConfinement
             if (string.IsNullOrEmpty(parent) || parent == fullPath)
                 return fullPath;
 
-            string here = Path.Combine(ResolveLinks(parent), Path.GetFileName(fullPath));
+            string? resolvedParent = ResolveLinks(parent);
+            if (resolvedParent is null)
+                return null;
+
+            string here = Path.Combine(resolvedParent, Path.GetFileName(fullPath));
 
             if (Directory.Exists(here))
                 return new DirectoryInfo(here).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? here;
@@ -140,9 +172,9 @@ public static class PathConfinement
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // A path we cannot resolve is a path we cannot vouch for. Returning it unchanged
-            // would let the caller's containment check pass on an unverified string, so hand
-            // back a value that cannot be inside any root instead.
-            return Path.Combine(fullPath, "\u0000unresolvable");
+            // would let the caller's containment check pass on an unverified string, so the
+            // caller is forced to refuse it instead.
+            return null;
         }
     }
 }

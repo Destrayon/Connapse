@@ -64,7 +64,7 @@ The cautionary cases matter as much as the pattern. **CVE-2015-5531** (Elasticse
 - **TOCTOU (CWE-367).** Connapse validates the root once at config time, then a background service walks it every five minutes for the life of the process. A directory swapped for a symlink after validation wins. Atomic resolution at open time is the only real fix — Linux `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`; on .NET, re-resolve per file and refuse reparse points during enumeration. [primary]
 - **Comparison correctness.** `root + separator` fixes the nginx class, but the comparison must be `OrdinalIgnoreCase` on Windows/macOS and ordinal on Linux, and `\\?\` device paths, UNC shares, trailing dots or spaces, and NTFS alternate data streams (`file::$DATA`) need rejecting before normalization. [primary]
 
-**Empirical verification performed during this research.** Against .NET 7.6.4 on Windows, using the exact APIs in `ConnectorFactory.CombineUnderRoot` and `FilesystemConnector`:
+**Empirical verification performed during this research, against the code as it stood before the fix.** Run on Windows against .NET 10.0.303 (`dotnet --version`), using the exact APIs then in `ConnectorFactory.CombineUnderRoot` and `FilesystemConnector`:
 
 | Step | Result |
 |---|---|
@@ -73,7 +73,9 @@ The cautionary cases matter as much as the pattern. **CVE-2015-5531** (Elasticse
 | `combined.StartsWith(rootFull + separator)` | **True — the guard passes** |
 | `Directory.EnumerateFiles(root, "*", AllDirectories)` | **Returns `root\escape\keyring.txt`** — content from outside the root |
 
-Both halves fail: the guard admits the path, and the walk reads through it. `FilesystemConnector.cs:79` uses the bare `SearchOption.AllDirectories` overload with no `EnumerationOptions`, so nothing skips reparse points.
+Both halves failed: the guard admitted the path, and the walk read through it. `FilesystemConnector` used the bare `SearchOption.AllDirectories` overload with no `EnumerationOptions`, so nothing skipped reparse points.
+
+Fixed in #366: enumeration now sets `AttributesToSkip = FileAttributes.ReparsePoint` and re-confines each entry, and confinement resolves links on every path segment. The residual gaps below — TOCTOU, bind mounts, hard links — are unchanged by that fix and remain live.
 
 ### 3. Separating "declare" from "activate"
 
@@ -169,6 +171,8 @@ The core recommendation rests on primary sources: official documentation for Gra
 - Elasticsearch fs repository settings: https://www.elastic.co/docs/reference/elasticsearch/configuration-reference/fs-repository-settings
 - PHP open_basedir: https://www.php.net/manual/en/ini.core.php#ini.open-basedir
 - CVE-2015-5531: https://nvd.nist.gov/vuln/detail/CVE-2015-5531
+- CVE-2021-43798: https://nvd.nist.gov/vuln/detail/CVE-2021-43798
+- Grafana security advisory GHSA-8pjx-jj86-j47p (CVE-2021-43798): https://github.com/grafana/grafana/security/advisories/GHSA-8pjx-jj86-j47p
 - MCP specification 2025-06-18: https://modelcontextprotocol.io/specification/2025-06-18/index
 - MCP Security Best Practices: https://modelcontextprotocol.io/specification/draft/basic/security_best_practices
 - MCP tool annotations blog (16 Mar 2026): https://blog.modelcontextprotocol.io/posts/2026-03-16-tool-annotations/
