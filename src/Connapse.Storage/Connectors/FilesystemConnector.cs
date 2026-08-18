@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 
 namespace Connapse.Storage.Connectors;
 
@@ -76,8 +77,27 @@ public class FilesystemConnector : IConnector
             return Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
 
         var files = new List<ConnectorFile>();
-        foreach (var filePath in Directory.EnumerateFiles(rootDir, "*", SearchOption.AllDirectories))
+
+        // Reparse points are skipped rather than followed (#365). The bare
+        // SearchOption.AllDirectories overload descends through junctions and symlinks, so a
+        // link planted inside the root pulled its target's contents into the index. Each entry
+        // is also re-confined below rather than trusted from the walk: the root was validated
+        // once at construction, but this runs every sync cycle for the life of the process,
+        // and a directory swapped for a link in between would otherwise win (CWE-367).
+        var options = new EnumerationOptions
         {
+            RecurseSubdirectories = true,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+            IgnoreInaccessible = true,
+        };
+
+        string confinementRoot = _config.RootPath;
+
+        foreach (var filePath in Directory.EnumerateFiles(rootDir, "*", options))
+        {
+            if (PathConfinement.ResolveWithin(confinementRoot, filePath) is null)
+                continue;
+
             var fileName = Path.GetFileName(filePath);
 
             if (_config.IncludePatterns.Count > 0 && !_config.IncludePatterns.Any(p => MatchesGlob(fileName, p)))
@@ -160,19 +180,17 @@ public class FilesystemConnector : IConnector
 
     private string GetFullPath(string path)
     {
-        // If already absolute and not under RootPath, use as-is (for watcher events)
-        if (Path.IsPathRooted(path))
-            return path;
+        // An absolute path used to be returned unchecked, "for watcher events" — which meant
+        // any caller handing in a rooted path read straight past the root. Watcher events are
+        // now confined like everything else: they originate inside the root, so a genuine one
+        // still resolves, and one that does not is exactly what this must refuse (#365).
+        string? resolved = Path.IsPathRooted(path)
+            ? PathConfinement.ResolveWithin(_config.RootPath, path)
+            : PathConfinement.CombineWithin(_config.RootPath, path);
 
-        var fullPath = Path.GetFullPath(Path.Combine(_config.RootPath, path.TrimStart('/', '\\')));
-
-        // Prevent path traversal — resolved path must stay within the connector's root
-        var rootFull = Path.GetFullPath(_config.RootPath);
-        if (!fullPath.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
-            throw new UnauthorizedAccessException(
+        return resolved
+            ?? throw new UnauthorizedAccessException(
                 $"Path '{path}' resolves outside the connector root directory.");
-
-        return fullPath;
     }
 
     private static bool MatchesGlob(string fileName, string pattern)

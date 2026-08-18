@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 
 namespace Connapse.Storage.Connectors;
 
@@ -102,24 +103,15 @@ public class ConnectorFactory : IConnectorFactory
     private static string CombineUnderRoot(string allowedRoot, string? subPath, string sourceName)
     {
         if (string.IsNullOrWhiteSpace(subPath))
-            return allowedRoot;
+            return Path.GetFullPath(allowedRoot);
 
-        string rootFull = Path.GetFullPath(allowedRoot);
-        string combined = Path.GetFullPath(Path.Combine(rootFull, subPath));
-
-        // Compare with a trailing separator so "/data-other" cannot pass as being under "/data".
-        string rootWithSep = rootFull.EndsWith(Path.DirectorySeparatorChar)
-            ? rootFull
-            : rootFull + Path.DirectorySeparatorChar;
-
-        if (!combined.Equals(rootFull, StringComparison.Ordinal) &&
-            !combined.StartsWith(rootWithSep, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
+        // Delegated rather than compared here (#365). The previous check was Path.GetFullPath
+        // plus StartsWith, which is purely lexical: a junction inside the allowed root passed
+        // it, and the connector then walked straight through to the target. PathConfinement
+        // resolves links on every path segment before comparing.
+        return PathConfinement.CombineWithin(allowedRoot, subPath)
+            ?? throw new InvalidOperationException(
                 $"Source '{sourceName}' resolves to a path outside its connection's allowed root '{allowedRoot}'.");
-        }
-
-        return combined;
     }
 
     private static S3Connector CreateS3Connector(Container container)
