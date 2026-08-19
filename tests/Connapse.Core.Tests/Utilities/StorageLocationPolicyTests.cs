@@ -75,7 +75,7 @@ public class StorageLocationPolicyTests
     }
 
     [Fact]
-    public void Evaluate_IsCaseSensitive()
+    public void Evaluate_LocationDifferingOnlyByCase_IsDenied()
     {
         // S3 bucket names and Azure container names are both case-sensitive, so matching
         // loosely would admit a name that is not the same resource.
@@ -98,14 +98,22 @@ public class StorageLocationPolicyTests
     }
 
     [Fact]
-    public void Evaluate_BlankEntriesAreIgnoredButDoNotMakeItUnrestricted()
+    public void Evaluate_AllEntriesBlank_IsDenied()
     {
-        // A list of blanks must not read as "nothing configured" and silently permit
-        // everything — that would turn a typo into an open door.
+        // A malformed allowlist is not an absent one. Reading a list of blanks as "nothing
+        // configured" would let a typo silently permit everything — only a genuinely empty
+        // list takes the grace path.
         StorageLocationPolicy.Evaluate(["  ", ""], "any-bucket", null)
-            .Should().Be(StorageLocationDecision.UnrestrictedByConfiguration);
+            .Should().Be(StorageLocationDecision.Denied);
+    }
 
+    [Fact]
+    public void Evaluate_BlankEntryAlongsideRealOnes_IsIgnored()
+    {
         StorageLocationPolicy.Evaluate(["", "docs"], "payroll", null)
             .Should().Be(StorageLocationDecision.Denied);
+
+        StorageLocationPolicy.Evaluate(["", "docs"], "docs", null)
+            .Should().Be(StorageLocationDecision.Allowed);
     }
 }

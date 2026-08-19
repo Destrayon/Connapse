@@ -27,12 +27,19 @@ public static class StorageLocationPolicy
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(container);
 
+        // Declaring nothing is the grace path. Declaring entries that are all blank is not:
+        // that is a malformed allowlist, and reading it as "no restrictions" would turn a
+        // typo into an open door. The distinction is between an absent control and a broken
+        // one, and only the first should fail open.
+        if (allowedLocations.Count == 0)
+            return StorageLocationDecision.UnrestrictedByConfiguration;
+
         var entries = allowedLocations
             .Where(e => !string.IsNullOrWhiteSpace(e))
             .ToList();
 
         if (entries.Count == 0)
-            return StorageLocationDecision.UnrestrictedByConfiguration;
+            return StorageLocationDecision.Denied;
 
         string candidate = Normalize($"{container}/{prefix?.TrimStart('/') ?? string.Empty}");
 
@@ -43,9 +50,10 @@ public static class StorageLocationPolicy
             // An entry naming only a bucket permits any prefix within it; an entry naming a
             // bucket and prefix permits only that subtree. Compared with a trailing slash so
             // "bucket/docs" cannot admit "bucket/docs-internal" — the same off-by-slash trap
-            // that bites prefix-based filesystem checks.
+            // that bites prefix-based filesystem checks. Normalize has already stripped any
+            // trailing slash, so the separator is always appended here.
             if (candidate.Equals(allowed, StringComparison.Ordinal) ||
-                candidate.StartsWith(allowed.EndsWith('/') ? allowed : allowed + "/", StringComparison.Ordinal))
+                candidate.StartsWith(allowed + "/", StringComparison.Ordinal))
             {
                 return StorageLocationDecision.Allowed;
             }

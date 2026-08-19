@@ -10,32 +10,32 @@ namespace Connapse.Storage.Connectors;
 /// <summary>
 /// Creates IConnector instances from ContainerEntity configuration.
 /// </summary>
-public class ConnectorFactory : IConnectorFactory
+public class ConnectorFactory(
+    IManagedStorageProvider managedStorageProvider,
+    IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
+    ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
-    private readonly IManagedStorageProvider _managedStorageProvider;
-    private readonly IOptionsMonitor<SourceSecuritySettings> _sourceSecurity;
-    private readonly ILogger<ConnectorFactory> _logger;
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public ConnectorFactory(
-        IManagedStorageProvider managedStorageProvider,
-        IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
-        ILogger<ConnectorFactory> logger)
-    {
-        _managedStorageProvider = managedStorageProvider;
-        _sourceSecurity = sourceSecurity;
-        _logger = logger;
-    }
+    /// <summary>
+    /// Scopes already warned about running without an allowlist.
+    /// <para>
+    /// A connector is built on every sync cycle, so warning unconditionally would emit one
+    /// line per source every five minutes — burying the very message an operator needs to
+    /// act on before these become deny-by-default. Keyed on the scope as well as the
+    /// connection, so changing a root or bucket warns again rather than staying silent.
+    /// </para>
+    /// </summary>
+    private readonly HashSet<string> _warnedUnrestricted = [];
 
     public IConnector Create(Container container)
     {
         return container.ConnectorType switch
         {
-            ConnectorType.ManagedStorage => _managedStorageProvider.CreateConnector(container.Id),
+            ConnectorType.ManagedStorage => managedStorageProvider.CreateConnector(container.Id),
             ConnectorType.Filesystem => CreateFilesystemConnector(container),
             ConnectorType.S3 => CreateS3Connector(container),
             ConnectorType.AzureBlob => CreateAzureBlobConnector(container),
@@ -115,6 +115,18 @@ public class ConnectorFactory : IConnectorFactory
             : [];
 
     /// <summary>
+    /// True the first time a given scope is seen, false afterwards. The factory is a
+    /// singleton, so this is shared across every sync cycle for the process's lifetime.
+    /// </summary>
+    private bool ShouldWarn(string key)
+    {
+        lock (_warnedUnrestricted)
+        {
+            return _warnedUnrestricted.Add(key);
+        }
+    }
+
+    /// <summary>
     /// Checks that a source's bucket or blob container falls inside the locations its
     /// connection permits, and returns it.
     /// <para>
@@ -137,13 +149,16 @@ public class ConnectorFactory : IConnectorFactory
                 // Warned rather than refused, matching the filesystem root allowlist: #350
                 // backfilled existing S3 and Azure containers into connections and none of
                 // them declare locations, so enforcing now would break every upgrade.
-                _logger.LogWarning(
-                    "Connection {ConnectionName} declares no allowedLocations, so source "
-                    + "{SourceName} may name any container its credential can reach. It "
-                    + "currently names {Container}.",
-                    LogSanitizer.Sanitize(connectionName),
-                    LogSanitizer.Sanitize(sourceName),
-                    LogSanitizer.Sanitize(container));
+                if (ShouldWarn($"location:{connectionName}:{container}"))
+                {
+                    logger.LogWarning(
+                        "Connection {ConnectionName} declares no allowedLocations, so source "
+                        + "{SourceName} may name any container its credential can reach. It "
+                        + "currently names {Container}.",
+                        LogSanitizer.Sanitize(connectionName),
+                        LogSanitizer.Sanitize(sourceName),
+                        LogSanitizer.Sanitize(container));
+                }
                 return container;
 
             default:
@@ -163,7 +178,7 @@ public class ConnectorFactory : IConnectorFactory
     /// </summary>
     private string RequirePermittedRoot(string allowedRoot, string connectionName)
     {
-        switch (_sourceSecurity.CurrentValue.EvaluateRoot(allowedRoot))
+        switch (sourceSecurity.CurrentValue.EvaluateRoot(allowedRoot))
         {
             case FilesystemRootDecision.Allowed:
                 return allowedRoot;
@@ -173,13 +188,16 @@ public class ConnectorFactory : IConnectorFactory
                 // filesystem containers into connections, so enforcing immediately would
                 // break every upgrade until an operator edited configuration. The warning
                 // names the root so they know what to add.
-                _logger.LogWarning(
-                    "Connection {ConnectionName} uses filesystem root {Root} with no "
-                    + "{SectionName}:AllowedFilesystemRoots configured. Any root is currently "
-                    + "accepted; configure the allowlist to bound this.",
-                    LogSanitizer.Sanitize(connectionName),
-                    LogSanitizer.Sanitize(allowedRoot),
-                    SourceSecuritySettings.SectionName);
+                if (ShouldWarn($"root:{connectionName}:{allowedRoot}"))
+                {
+                    logger.LogWarning(
+                        "Connection {ConnectionName} uses filesystem root {Root} with no "
+                        + "{SectionName}:AllowedFilesystemRoots configured. Any root is currently "
+                        + "accepted; configure the allowlist to bound this.",
+                        LogSanitizer.Sanitize(connectionName),
+                        LogSanitizer.Sanitize(allowedRoot),
+                        SourceSecuritySettings.SectionName);
+                }
                 return allowedRoot;
 
             default:

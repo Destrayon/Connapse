@@ -12,7 +12,7 @@ namespace Connapse.Core;
 /// <c>path.repo</c>, which is a static node setting requiring a restart to change.
 /// </para>
 /// </summary>
-public class SourceSecuritySettings
+public record SourceSecuritySettings
 {
     public const string SectionName = "Sources:Security";
 
