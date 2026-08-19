@@ -150,6 +150,57 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
+    public void Create_S3SourceNamingABucketOutsideAllowedLocations_Throws()
+    {
+        // The connection's IAM role can read both buckets — this allowlist is the only thing
+        // distinguishing them, because every source on the connection is the same AWS principal.
+        var connection = MakeConnection(ConnectionProvider.S3,
+            """{"region":"eu-west-1","allowedLocations":["docs-bucket"]}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"payroll-bucket"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*allowedLocations*");
+    }
+
+    [Fact]
+    public void Create_S3SourceInsideAllowedLocations_IsAccepted()
+    {
+        var connection = MakeConnection(ConnectionProvider.S3,
+            """{"region":"eu-west-1","allowedLocations":["docs-bucket/team"]}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"docs-bucket","prefix":"team/2026/"}""");
+
+        var connector = (S3Connector)_factory.Create(source, connection);
+
+        connector.Config.BucketName.Should().Be("docs-bucket");
+    }
+
+    [Fact]
+    public void Create_AzureSourceNamingAContainerOutsideAllowedLocations_Throws()
+    {
+        var connection = MakeConnection(ConnectionProvider.AzureBlob,
+            """{"storageAccountName":"acct","allowedLocations":["public-docs"]}""");
+        var source = MakeSource(connection.Id, """{"containerName":"hr-private"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*allowedLocations*");
+    }
+
+    [Fact]
+    public void Create_CloudSourceWithNoAllowedLocations_IsAcceptedForNow()
+    {
+        // Same one-release grace as the filesystem root allowlist: #350 backfilled existing
+        // cloud containers into connections that declare no locations.
+        var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
+
+        _factory.Create(source, connection).Type.Should().Be(ConnectorType.S3);
+    }
+
+    [Fact]
     public void Create_FilesystemRootOutsideTheAllowlist_Throws()
     {
         // The allowlist bounds what the root itself may be. Link resolution bounds where a

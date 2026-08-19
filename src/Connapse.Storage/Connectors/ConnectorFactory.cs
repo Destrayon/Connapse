@@ -60,9 +60,13 @@ public class ConnectorFactory : IConnectorFactory
             {
                 Region = Str(credential, "region") ?? "us-east-1",
                 RoleArn = Str(credential, "roleArn"),
-                BucketName = Str(scope, "bucketName")
-                    ?? throw new InvalidOperationException(
-                        $"Source '{source.Name}' has no bucketName in its scope."),
+                BucketName = RequirePermittedLocation(
+                    Arr(credential, "allowedLocations"),
+                    Str(scope, "bucketName")
+                        ?? throw new InvalidOperationException(
+                            $"Source '{source.Name}' has no bucketName in its scope."),
+                    Str(scope, "prefix"),
+                    connection.Name, source.Name),
                 Prefix = Str(scope, "prefix"),
             }),
 
@@ -72,9 +76,13 @@ public class ConnectorFactory : IConnectorFactory
                     ?? throw new InvalidOperationException(
                         $"Connection '{connection.Name}' has no storageAccountName."),
                 ManagedIdentityClientId = Str(credential, "managedIdentityClientId"),
-                ContainerName = Str(scope, "containerName")
-                    ?? throw new InvalidOperationException(
-                        $"Source '{source.Name}' has no containerName in its scope."),
+                ContainerName = RequirePermittedLocation(
+                    Arr(credential, "allowedLocations"),
+                    Str(scope, "containerName")
+                        ?? throw new InvalidOperationException(
+                            $"Source '{source.Name}' has no containerName in its scope."),
+                    Str(scope, "prefix"),
+                    connection.Name, source.Name),
                 Prefix = Str(scope, "prefix"),
             }),
 
@@ -105,6 +113,45 @@ public class ConnectorFactory : IConnectorFactory
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray()
             : [];
+
+    /// <summary>
+    /// Checks that a source's bucket or blob container falls inside the locations its
+    /// connection permits, and returns it.
+    /// <para>
+    /// The cloud counterpart of <see cref="RequirePermittedRoot"/>. IAM cannot make this
+    /// distinction on its own: one connection role is shared by every source that uses the
+    /// connection, so as far as AWS or Azure is concerned each of those sources is the same
+    /// principal.
+    /// </para>
+    /// </summary>
+    private string RequirePermittedLocation(
+        IReadOnlyList<string> allowedLocations, string container, string? prefix,
+        string connectionName, string sourceName)
+    {
+        switch (StorageLocationPolicy.Evaluate(allowedLocations, container, prefix))
+        {
+            case StorageLocationDecision.Allowed:
+                return container;
+
+            case StorageLocationDecision.UnrestrictedByConfiguration:
+                // Warned rather than refused, matching the filesystem root allowlist: #350
+                // backfilled existing S3 and Azure containers into connections and none of
+                // them declare locations, so enforcing now would break every upgrade.
+                _logger.LogWarning(
+                    "Connection {ConnectionName} declares no allowedLocations, so source "
+                    + "{SourceName} may name any container its credential can reach. It "
+                    + "currently names {Container}.",
+                    LogSanitizer.Sanitize(connectionName),
+                    LogSanitizer.Sanitize(sourceName),
+                    LogSanitizer.Sanitize(container));
+                return container;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Source '{sourceName}' names storage location '{container}/{prefix}', which is not "
+                    + $"within the allowedLocations declared by connection '{connectionName}'.");
+        }
+    }
 
     /// <summary>
     /// Checks a connection's allowed root against the deployment's configured allowlist.
