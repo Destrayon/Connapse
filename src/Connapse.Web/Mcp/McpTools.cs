@@ -43,41 +43,52 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
-     Description("Lists all containers with their descriptions and document counts. Use to discover what containers exist when the target is unknown; if the user already named a container, call `search_knowledge` on it directly instead.")]
+     Description("Lists every searchable knowledge scope with its description and document count. Each entry is either kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         IServiceProvider services,
         CancellationToken ct = default)
     {
         var containerStore = services.GetRequiredService<IContainerStore>();
-        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
+        var sourceStore = services.GetRequiredService<ISourceStore>();
 
-        if (containers.Count == 0)
+        var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
+        var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
+
+        // Sources are listed alongside containers so existing agent prompts and the CLI keep
+        // working — a source is simply a searchable scope that happens to be read-only. The
+        // kind field is what lets an agent avoid calling list_files on one.
+        var owners = containers.Select(ToOwner).OfType<SearchableOwner>()
+            .Concat(sources.Select(ToOwner))
+            .ToList();
+
+        if (owners.Count == 0)
             return "No containers found.";
 
         // Conditional TIP: only emit when there's an actual routing decision to make
         // (i.e., more than one container). For a single container the agent has no
         // choice; the TIP would be wasted output tokens.
         var text = "";
-        if (containers.Count > 1)
+        if (owners.Count > 1)
         {
-            text = "TIP: Pick the container whose description best matches the topic, then call `search_knowledge(query=\"...\", containerId=\"<name>\")`.\n\n";
+            text = "TIP: Pick the entry whose description best matches the topic, then call `search_knowledge(query=\"...\", containerId=\"<name>\")`.\n\n";
         }
-        text += $"Found {containers.Count} container(s):\n\n";
-        foreach (var c in containers)
+
+        text += $"Found {owners.Count} knowledge scope(s):\n\n";
+        foreach (var owner in owners)
         {
-            text += $"- {c.Name} ({c.DocumentCount} files)";
-            if (!string.IsNullOrEmpty(c.Description))
-                text += $" — {c.Description}";
+            text += $"- {owner.Name} [{owner.Kind}] ({owner.DocumentCount} files)";
+            if (!string.IsNullOrEmpty(owner.Description))
+                text += $" — {owner.Description}";
             text += "\n";
 
             // Append summary first sentence if available
-            string? firstSentence = TruncateToFirstSentence(c.Summary, maxChars: 120);
+            string? firstSentence = TruncateToFirstSentence(owner.Summary, maxChars: 120);
             if (!string.IsNullOrEmpty(firstSentence))
             {
                 text += $"  Summary: {firstSentence}\n";
             }
 
-            text += $"  ID: {c.Id}\n";
+            text += $"  ID: {owner.Id}\n";
         }
 
         return text.TrimEnd();
@@ -114,7 +125,7 @@ public class McpTools
     public static async Task<string> SearchKnowledge(
         IServiceProvider services,
         [Description("The search query text")] string query,
-        [Description("Container ID or name to search within")] string containerId,
+        [Description("Container or source ID or name to search within")] string containerId,
         [Description("Search mode: Semantic (vector), Keyword (full-text), or Hybrid (both). Default: Hybrid")] string? mode = null,
         [Description("Number of results to return. Default: 10")] int? topK = null,
         [Description("Optional: Filter results to a folder subtree (e.g., '/docs/')")] string? path = null,
@@ -122,9 +133,15 @@ public class McpTools
         CancellationToken ct = default)
     {
         var containerStore = services.GetRequiredService<IContainerStore>();
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
-        if (resolvedId is null)
+        var sourceStore = services.GetRequiredService<ISourceStore>();
+
+        // Accepts either kind: search is scoped by owner_id, which is the same column
+        // whichever kind owns the document, so a source needs no separate search path.
+        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct);
+        if (owner is null)
             return $"Error: Container '{containerId}' not found.";
+
+        Guid? resolvedId = owner.Id;
 
         if (query.Length > ValidationConstants.MaxQueryLength)
             throw new ArgumentException($"Query must not exceed {ValidationConstants.MaxQueryLength} characters.");
@@ -777,36 +794,51 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_describe", ReadOnly = true, Idempotent = true),
-     Description("Returns an agent-optimized description of a container: its user-supplied description, auto-generated summary (if available), and document statistics. Use this to understand what a container covers before querying via search_knowledge, or when container_list output is insufficient to choose between containers. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
+     Description("Returns an agent-optimized description of a knowledge scope — container or source: its description, auto-generated summary (if available), and document statistics. Use this to understand what a scope covers before querying via search_knowledge, or when container_list output is insufficient to choose between them. The response also echoes the server's tool-routing instructions for clients that don't surface them on connect.")]
     public static async Task<string> ContainerDescribe(
         IServiceProvider services,
-        [Description("Container ID (GUID) or name")] string containerId,
+        [Description("Container or source ID (GUID) or name")] string containerId,
         CancellationToken ct = default)
     {
         var containerStore = services.GetRequiredService<IContainerStore>();
-        var resolvedId = await ResolveContainerIdAsync(containerId, containerStore, ct);
-        if (resolvedId is null)
+        var sourceStore = services.GetRequiredService<ISourceStore>();
+
+        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct);
+        if (owner is null)
             return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
 
-        var container = await containerStore.GetAsync(resolvedId.Value, ct);
-        if (container is null)
+        Guid? resolvedId = owner.Id;
+
+        var container = owner.IsSource ? null : await containerStore.GetAsync(owner.Id, ct);
+        if (!owner.IsSource && container is null)
             return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
 
         var documentStore = services.GetRequiredService<IDocumentStore>();
-        var stats = await documentStore.GetContainerStatsAsync(resolvedId.Value, ct);
+        var stats = await documentStore.GetContainerStatsAsync(owner.Id, ct);
 
-        var text = $"Container: {container.Name}\n";
-        text += $"ID: {container.Id}\n";
-        text += $"Type: {container.ConnectorType}\n";
+        var text = $"{(owner.IsSource ? "Source" : "Container")}: {owner.Name}\n";
+        text += $"ID: {owner.Id}\n";
+        text += $"Kind: {owner.Kind}\n";
 
-        if (!string.IsNullOrWhiteSpace(container.Description))
-            text += $"Description: {container.Description}\n";
-
-        if (!string.IsNullOrWhiteSpace(container.Summary))
+        if (owner.IsSource)
         {
-            text += $"Summary: {container.Summary}\n";
-            text += container.SummaryGeneratedAt.HasValue
-                ? $"Summary generated: {container.SummaryGeneratedAt.Value:u}\n"
+            // Named explicitly so an agent does not waste a call discovering it: a source has
+            // no file listing, by design rather than by omission.
+            text += "Type: external source (read-only; searchable, but `list_files` does not apply)\n";
+        }
+        else
+        {
+            text += $"Type: {container!.ConnectorType}\n";
+        }
+
+        if (!string.IsNullOrWhiteSpace(owner.Description))
+            text += $"Description: {owner.Description}\n";
+
+        if (!string.IsNullOrWhiteSpace(owner.Summary))
+        {
+            text += $"Summary: {owner.Summary}\n";
+            text += container?.SummaryGeneratedAt is { } generatedAt
+                ? $"Summary generated: {generatedAt:u}\n"
                 : "";
         }
         else
@@ -820,7 +852,7 @@ public class McpTools
             text += $"Documents: {stats.DocumentCount}\n";
 
         text += $"Storage: {FormatBytes(stats.TotalSizeBytes)}\n";
-        text += $"Created: {container.CreatedAt:u}";
+        text += $"Created: {owner.CreatedAt:u}";
         text += "\n\n---\nServer instructions:\n" + McpServerConfig.McpServerInstructions;
 
         return text;
@@ -835,6 +867,19 @@ public class McpTools
     };
 
     // Helpers
+
+    /// <summary>
+    /// Resolves a name or id to a <b>container</b> only.
+    /// <para>
+    /// Deliberately never resolves a source, and that is load-bearing rather than an
+    /// oversight. Every enumerating and mutating tool routes through this method, so a source
+    /// id handed to <c>list_files</c>, <c>upload_file</c>, or <c>delete_file</c> resolves to
+    /// nothing and the tool reports "not found". Teaching this method about sources would
+    /// silently turn <c>list_files</c> into a file-enumeration route over somebody else's S3
+    /// bucket — the permissions leak epic #348 exists to close. Tools that legitimately
+    /// accept either kind use <see cref="ResolveSearchableOwnerAsync"/> instead.
+    /// </para>
+    /// </summary>
     private static async Task<Guid?> ResolveContainerIdAsync(string nameOrId, IContainerStore store, CancellationToken ct)
     {
         if (Guid.TryParse(nameOrId, out var guid))
@@ -846,6 +891,63 @@ public class McpTools
         var byName = await store.GetByNameAsync(nameOrId.ToLowerInvariant(), ct);
         return byName is not null && Guid.TryParse(byName.Id, out var id) ? id : null;
     }
+
+    /// <summary>
+    /// A knowledge scope that can be searched and described: either a managed container or an
+    /// external source.
+    /// </summary>
+    internal sealed record SearchableOwner(
+        Guid Id, string Name, string Kind, string? Description, string? Summary,
+        int DocumentCount, DateTime CreatedAt)
+    {
+        public const string ManagedKind = "managed";
+        public const string SourceKind = "source";
+
+        public bool IsSource => Kind == SourceKind;
+    }
+
+    /// <summary>
+    /// Resolves a name or id to either a container or a source.
+    /// <para>
+    /// Restricted to the tools where accepting both is the whole point: searching a scope and
+    /// describing one. Listing a source as a searchable scope — its name, kind and summary —
+    /// is not the same as enumerating the documents inside it, and only the former is
+    /// permitted. Containers are checked first so an id collision, however improbable between
+    /// two GUID spaces, resolves to the more restricted kind.
+    /// </para>
+    /// </summary>
+    private static async Task<SearchableOwner?> ResolveSearchableOwnerAsync(
+        string nameOrId, IContainerStore containers, ISourceStore sources, CancellationToken ct)
+    {
+        if (Guid.TryParse(nameOrId, out var guid))
+        {
+            var container = await containers.GetAsync(guid, ct);
+            if (container is not null)
+                return ToOwner(container);
+
+            var source = await sources.GetAsync(guid, ct);
+            return source is not null ? ToOwner(source) : null;
+        }
+
+        string lowered = nameOrId.ToLowerInvariant();
+
+        var byName = await containers.GetByNameAsync(lowered, ct);
+        if (byName is not null)
+            return ToOwner(byName);
+
+        var sourceByName = await sources.GetByNameAsync(lowered, ct);
+        return sourceByName is not null ? ToOwner(sourceByName) : null;
+    }
+
+    private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>
+        Guid.TryParse(container.Id, out var id)
+            ? new SearchableOwner(id, container.Name, SearchableOwner.ManagedKind,
+                container.Description, container.Summary, container.DocumentCount, container.CreatedAt)
+            : null;
+
+    private static SearchableOwner ToOwner(Source source) =>
+        new(source.Id, source.Name, SearchableOwner.SourceKind,
+            source.Description, source.Summary, source.DocumentCount, source.CreatedAt);
 
     private static string? TruncateToFirstSentence(string? text, int maxChars)
     {

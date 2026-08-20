@@ -10,14 +10,23 @@ namespace Connapse.Core.Tests.Mcp;
 public class McpToolsContainerListTests
 {
     private readonly IContainerStore _containerStore;
+    private readonly ISourceStore _sourceStore;
     private readonly IServiceProvider _services;
 
     public McpToolsContainerListTests()
     {
         _containerStore = Substitute.For<IContainerStore>();
 
+        // container_list now lists sources alongside containers. Configured to return none
+        // so these tests keep covering container rendering; source rendering is covered in
+        // McpSourceKindTests against a real database.
+        _sourceStore = Substitute.For<ISourceStore>();
+        _sourceStore.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Source>());
+
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
+        services.GetService(typeof(ISourceStore)).Returns(_sourceStore);
         _services = services;
     }
 
@@ -46,8 +55,8 @@ public class McpToolsContainerListTests
         var result = await McpTools.ContainerList(_services);
 
         result.Should().NotStartWith("TIP:");
-        result.Should().StartWith("Found 1 container(s):");
-        result.Should().Contain("- only-one (7 files) — The only container");
+        result.Should().StartWith("Found 1 knowledge scope(s):");
+        result.Should().Contain("- only-one [managed] (7 files) — The only container");
     }
 
     [Fact]
@@ -65,14 +74,14 @@ public class McpToolsContainerListTests
 
         result.Should().StartWith("TIP:");
         result.Should().Contain("search_knowledge");
-        result.Should().Contain("Pick the container whose description best matches the topic");
+        result.Should().Contain("Pick the entry whose description best matches the topic");
 
         // Trimmed TIP should NOT contain the v1 "Do NOT enumerate files" phrasing —
         // ServerInstructions Rule 3 covers that now.
         result.Should().NotContain("Do NOT enumerate files");
 
-        result.Should().Contain("- docs (12 files) — Product documentation");
-        result.Should().Contain("- research (5 files) — Customer research");
+        result.Should().Contain("- docs [managed] (12 files) — Product documentation");
+        result.Should().Contain("- research [managed] (5 files) — Customer research");
     }
 
     [Fact]
@@ -106,7 +115,7 @@ public class McpToolsContainerListTests
         var result = await McpTools.ContainerList(_services);
 
         result.Should().NotContain("Summary:");
-        result.Should().Contain("- empty (0 files) — Empty container");
+        result.Should().Contain("- empty [managed] (0 files) — Empty container");
         result.Should().Contain("  ID:");
     }
 
@@ -160,11 +169,11 @@ public class McpToolsContainerListTests
 
         var result = await McpTools.ContainerList(_services);
 
-        result.Should().Contain("- docs (10 files) — Product docs");
+        result.Should().Contain("- docs [managed] (10 files) — Product docs");
         result.Should().Contain("  Summary: Complete product documentation.");
-        result.Should().Contain("- research (5 files) — Research papers");
-        result.Should().NotContain("- research (5 files) — Research papers\n  Summary:");
-        result.Should().Contain("- logs (100 files) — System logs");
+        result.Should().Contain("- research [managed] (5 files) — Research papers");
+        result.Should().NotContain("- research [managed] (5 files) — Research papers\n  Summary:");
+        result.Should().Contain("- logs [managed] (100 files) — System logs");
         result.Should().Contain("  Summary: Raw system logs.");
     }
 
