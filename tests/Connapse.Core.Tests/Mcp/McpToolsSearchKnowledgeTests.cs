@@ -29,8 +29,14 @@ public class McpToolsSearchKnowledgeTests
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(MakeContainer());
 
+        // search_knowledge now accepts a source id as well as a container id. Left
+        // unconfigured so every source lookup misses and these tests keep covering the
+        // container path; the source path is covered in McpSourceKindTests.
+        var sourceStore = Substitute.For<ISourceStore>();
+
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
+        services.GetService(typeof(ISourceStore)).Returns(sourceStore);
         services.GetService(typeof(IKnowledgeSearch)).Returns(_searchService);
         services.GetService(typeof(IOptionsMonitor<SearchSettings>)).Returns(_searchSettings);
         _services = services;

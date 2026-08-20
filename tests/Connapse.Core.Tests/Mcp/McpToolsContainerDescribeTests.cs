@@ -28,9 +28,15 @@ public class McpToolsContainerDescribeTests
             .GetContainerStatsAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new ContainerStats(12, 12, 0, 0, 300, 2_097_152, new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc)));
 
+        // container_describe now accepts a source as well as a container. Left unconfigured
+        // so every lookup misses and these tests keep covering the container path; the
+        // source path is covered in McpSourceKindTests against a real database.
+        var sourceStore = Substitute.For<ISourceStore>();
+
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
+        services.GetService(typeof(ISourceStore)).Returns(sourceStore);
         _services = services;
     }
 
