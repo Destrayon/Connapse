@@ -101,7 +101,8 @@ public static class SourcesEndpoints
 
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {
-                try { JsonDocument.Parse(request.ScopeJson); }
+                // Disposed: JsonDocument rents pooled buffers, and this runs per request.
+                try { using var _ = JsonDocument.Parse(request.ScopeJson); }
                 catch (JsonException ex)
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
             }
@@ -142,7 +143,8 @@ public static class SourcesEndpoints
         {
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {
-                try { JsonDocument.Parse(request.ScopeJson); }
+                // Disposed: JsonDocument rents pooled buffers, and this runs per request.
+                try { using var _ = JsonDocument.Parse(request.ScopeJson); }
                 catch (JsonException ex)
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
             }
@@ -205,6 +207,16 @@ public static class SourcesEndpoints
                 return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
 
             var result = await syncService.SyncSourceAsync(source, connection, ct);
+
+            // Nothing went wrong — the scheduled cycle got there first. 409 rather than 200
+            // so a script driving this does not read "0 upserted" as "nothing to do".
+            if (result.AlreadyRunning)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"A sync for source '{source.Name}' is already in progress.",
+                });
+            }
 
             await auditLogger.LogAsync("source.synced", "source", sourceId.ToString(),
                 new { source.Name, result.Upserted, result.Deleted }, ct);

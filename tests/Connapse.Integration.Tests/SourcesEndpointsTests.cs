@@ -307,6 +307,10 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             .Should().Be(HttpStatusCode.NotFound);
     }
 
+    // The per-source gate itself is covered deterministically in SourceSyncIntegrationTests,
+    // where a connector can be made to block. Racing two HTTP requests here would pass or
+    // fail on timing.
+
     [Fact]
     public async Task SyncSource_WhenDisabled_IsRejected()
     {
@@ -322,7 +326,7 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     // ── No enumeration surface ────────────────────────────────────────────
 
     [Fact]
-    public async Task NoBrowseOrDocumentRouteExistsForASource()
+    public async Task GetSource_EnumerationRoutes_AreNotFound()
     {
         Guid connectionId = await SeedConnectionAsync();
         Guid sourceId = await CreateSourceAsync(connectionId);
