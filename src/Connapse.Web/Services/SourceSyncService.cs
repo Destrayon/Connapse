@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -30,6 +31,13 @@ public class SourceSyncService(
     ILogger<SourceSyncService> logger) : BackgroundService
 {
     private static readonly TimeSpan DefaultSyncInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// One gate per source, so two cycles for the same source cannot overlap while different
+    /// sources still sync concurrently. Never pruned: the entry is a single semaphore, and a
+    /// source that syncs once is likely to sync again.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _syncGates = new();
 
     /// <summary>Document metadata keys holding the remote's signature at last ingestion.</summary>
     internal const string RemoteLastModifiedKey = "RemoteLastModified";
@@ -89,6 +97,26 @@ public class SourceSyncService(
         if (!source.Enabled)
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null);
 
+        // One sync per source at a time. The timer used to be the only caller and ran its
+        // sources sequentially, so overlap was impossible; the sync-now endpoint can now
+        // start a second cycle for a source the timer is already working on. The
+        // compare-and-swap below keeps the cursor safe either way, but two cycles would
+        // still list the same remote twice and enqueue the same files twice — duplicated
+        // embedding work, which costs real money.
+        //
+        // Acquired without waiting: a caller who arrives during an in-flight cycle wants to
+        // hear "already running", not to be blocked behind it.
+        var gate = _syncGates.GetOrAdd(source.Id, _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(0, ct))
+        {
+            logger.LogInformation(
+                "Sync for source {SourceId} ({Name}) is already in progress; skipping this request",
+                source.Id, Sanitize(source.Name));
+
+            return new SourceSyncResult(
+                0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null, AlreadyRunning: true);
+        }
+
         await using var scope = scopeFactory.CreateAsyncScope();
         var sourceStore = scope.ServiceProvider.GetRequiredService<ISourceStore>();
 
@@ -124,6 +152,8 @@ public class SourceSyncService(
             // minutes per source, so skipping this abandons a client per source per cycle —
             // the watcher this replaced disposed here for the same reason.
             if (connector is IDisposable disposable) disposable.Dispose();
+
+            gate.Release();
         }
     }
 

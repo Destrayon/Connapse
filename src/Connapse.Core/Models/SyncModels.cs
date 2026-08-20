@@ -21,12 +21,19 @@ public record OwnerRef(Guid Id, bool IsSource)
 /// <summary>
 /// Outcome of one sync cycle for one source.
 /// </summary>
+/// <param name="AlreadyRunning">
+/// True when the cycle did nothing because another sync of the same source held the gate.
+/// Distinct from <paramref name="Error"/>: nothing went wrong, the work simply belongs to
+/// the cycle already in flight. A caller that surfaces this to a user should say "in
+/// progress", not "failed".
+/// </param>
 public record SourceSyncResult(
     int Upserted,
     int Deleted,
     bool UsedDeltaPath,
     bool RequiredResync,
-    string? Error);
+    string? Error,
+    bool AlreadyRunning = false);
 
 /// <summary>
 /// Thrown when a reindex would move a document between ownership domains — source to

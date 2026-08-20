@@ -110,6 +110,35 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => throw new NotSupportedException();
     }
 
+    /// <summary>A connector that blocks inside ListFilesAsync until released.</summary>
+    private sealed class BlockingConnector : IConnector
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Completes once the connector is inside the remote call.</summary>
+        public Task Entered => _entered.Task;
+
+        public void Release() => _release.TrySetResult();
+
+        public ConnectorType Type => ConnectorType.S3;
+        public bool SupportsLiveWatch => false;
+
+        public async Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
+        {
+            _entered.TrySetResult();
+            await _release.Task;
+            return [];
+        }
+
+        public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
+            => Task.FromResult<Stream>(new MemoryStream());
+        public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
+        public string ResolveJobPath(string relativePath) => relativePath;
+        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
+            => throw new NotSupportedException();
+    }
+
     /// <summary>A connector whose remote calls fail.</summary>
     private sealed class ThrowingConnector : IConnector
     {
@@ -414,6 +443,64 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
 
         result.Error.Should().NotBeNull();
         connector.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_WhileAnotherCycleIsRunning_ReportsAlreadyRunning()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new BlockingConnector();
+        var service = BuildService(scope.ServiceProvider, connector);
+
+        // The timer was once the only caller and ran sources sequentially, so overlap could
+        // not happen. The sync-now endpoint can start a second cycle for a source the timer
+        // already holds — two cycles would list the same remote twice and enqueue the same
+        // files twice, which is duplicated embedding work rather than a correctness bug, but
+        // a costly one.
+        var firstCycle = service.SyncSourceAsync(source, connection, CancellationToken.None);
+        await connector.Entered; // the first cycle is now inside the remote call
+
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        second.AlreadyRunning.Should().BeTrue();
+        second.Error.Should().BeNull("nothing went wrong — the work belongs to the cycle in flight");
+
+        connector.Release();
+        (await firstCycle).AlreadyRunning.Should().BeFalse("the first cycle held the gate and ran");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_AfterACycleCompletes_TheGateIsReleased()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector());
+
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        // A gate that is never released would wedge the source permanently after one cycle.
+        second.AlreadyRunning.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_WhenTheRemoteThrows_TheGateIsStillReleased()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var service = BuildService(scope.ServiceProvider, new ThrowingConnector());
+
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        // The failure path is where a missed release would hurt most: an unreachable remote
+        // is exactly when cycles repeat.
+        second.AlreadyRunning.Should().BeFalse();
+        second.Error.Should().NotBeNull();
     }
 
     [Fact]

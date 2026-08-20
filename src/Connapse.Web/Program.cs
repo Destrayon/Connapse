@@ -101,9 +101,12 @@ builder.Services.AddHostedService<SourceBackfillHostedService>();
 // Polls every enabled source and reconciles it with its remote. Replaces
 // ConnectorWatcherService, which enumerated containers — after the #350 backfill moved
 // external storage into `sources`, it found nothing and syncing stopped entirely.
-// No longer a singleton: nothing calls into it at runtime, because containers are managed
-// storage only and have no remote to watch.
-builder.Services.AddHostedService<SourceSyncService>();
+//
+// Singleton-as-hosted-service so POST /api/sources/{id}/sync can run one cycle on demand
+// against the same instance. #364 registered it as a plain hosted service on the grounds
+// that nothing called into it at runtime; the sync-now route is that caller.
+builder.Services.AddSingleton<SourceSyncService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>());
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();
@@ -353,6 +356,7 @@ api.MapAuthEndpoints();
 api.MapCloudIdentityEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
+api.MapSourcesEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
