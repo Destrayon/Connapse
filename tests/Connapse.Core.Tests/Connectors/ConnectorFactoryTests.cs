@@ -21,7 +21,16 @@ public class ConnectorFactoryTests
         var managedStorageProvider = Substitute.For<IManagedStorageProvider>();
         managedStorageProvider.CreateConnector(Arg.Any<string>())
             .Returns(ci => Substitute.For<IConnector>());
-        _factory = new ConnectorFactory(managedStorageProvider);
+
+        // No allowlist configured: these tests cover container-path construction, which
+        // predates the source allowlist and is unaffected by it.
+        var sourceSecurity = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
+        sourceSecurity.CurrentValue.Returns(new SourceSecuritySettings());
+
+        _factory = new ConnectorFactory(
+            managedStorageProvider,
+            sourceSecurity,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ConnectorFactory>.Instance);
     }
 
     [Fact]

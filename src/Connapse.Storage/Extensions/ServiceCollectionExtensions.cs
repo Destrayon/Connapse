@@ -165,6 +165,13 @@ public static class ServiceCollectionExtensions
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 
+        // Bounds which filesystem roots a source may be pointed at. Bound from configuration
+        // only — never the settings table — because the authority a root confers is the same
+        // class of thing as a cloud credential, which this project refuses to accept over an
+        // API. See SourceSecuritySettings.
+        services.Configure<SourceSecuritySettings>(
+            configuration.GetSection(SourceSecuritySettings.SectionName));
+
         // Connector factory (singleton — shared S3 client and config must outlive requests)
         services.AddSingleton<ConnectorFactory>();
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
