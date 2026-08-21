@@ -1,0 +1,501 @@
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.ConnectionTesters
+@using Connapse.Storage.Connectors
+@using Microsoft.Extensions.Options
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject IConnectionStore ConnectionStore
+@inject ISourceStore SourceStore
+@inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
+@inject S3ConnectionTester S3Tester
+@inject AzureBlobConnectionTester AzureTester
+
+@*
+    Connections — the credential and filesystem-root boundary.
+
+    This tab looks like its siblings but is not built like them. Every other settings tab edits
+    one strongly-typed record through IOptionsMonitor and hands it back via OnSave; this one is
+    entity CRUD over IConnectionStore. Matching the visual pattern without the data pattern is
+    deliberate.
+
+    Connections are managed here and nowhere else: there is no REST, CLI, or MCP route that
+    creates or edits one. The authority a connection confers is the same class of thing as a
+    cloud credential, which this project does not accept over an API. See
+    docs/research/programmatic-source-configuration-safety-2026-08-17.md.
+*@
+
+<div class="row g-3">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <span class="bi-info-circle me-2"></span>
+            A <strong>connection</strong> holds a credential and an endpoint. A <strong>source</strong>
+            names a scope inside one — a bucket, a blob container, or a directory — and is what
+            Connapse actually syncs. Credentials themselves come from the environment: IAM roles for
+            AWS, managed identity for Azure. Connapse never stores cloud keys.
+        </div>
+    </div>
+
+    @if (statusMessage is not null)
+    {
+        <div class="col-12">
+            <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                <span class="@(statusSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                @statusMessage
+                <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+            </div>
+        </div>
+    }
+
+    @* ── List ──────────────────────────────────────────────────────── *@
+    @if (editing is null)
+    {
+        <div class="col-12 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Connections</h5>
+            <button class="btn btn-primary btn-sm" @onclick="StartCreate">
+                <span class="bi-plus-lg me-1"></span> Add connection
+            </button>
+        </div>
+
+        <div class="col-12">
+            @if (loading)
+            {
+                <div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</div>
+            }
+            else if (connections.Count == 0)
+            {
+                <div class="text-muted py-3">
+                    No connections yet. Add one to start syncing an external system.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Provider</th>
+                                <th>Scope</th>
+                                <th>Sources</th>
+                                <th>Credential</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in connections)
+                            {
+                                <tr>
+                                    <td class="fw-medium">@c.Name</td>
+                                    <td><span class="badge text-bg-secondary">@c.Provider</span></td>
+                                    <td class="small text-muted">@DescribeScope(c)</td>
+                                    <td>@c.SourceCount</td>
+                                    <td class="small">
+                                        @if (c.HasSecret)
+                                        {
+                                            <span class="text-success"><span class="bi-key-fill me-1"></span>Configured</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">From environment</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(c)">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        @* ── Create / edit ─────────────────────────────────────────── *@
+        <div class="col-12">
+            <h5>@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Name</label>
+            <input class="form-control" @bind="form.Name" placeholder="prod-docs-bucket" />
+            <div class="form-text">How this connection is referred to when creating a source.</div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Provider</label>
+            <select class="form-select" @bind="form.Provider" disabled="@(!isNew)">
+                <option value="@ConnectionProvider.S3">Amazon S3</option>
+                <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
+                <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
+            </select>
+            @if (!isNew)
+            {
+                <div class="form-text">The provider cannot change — create a new connection instead.</div>
+            }
+        </div>
+
+        @if (form.Provider == ConnectionProvider.S3)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Region</label>
+                <input class="form-control" @bind="form.Region" placeholder="us-east-1" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Role ARN <span class="text-muted">(optional)</span></label>
+                <input class="form-control" @bind="form.RoleArn" placeholder="arn:aws:iam::123456789012:role/connapse" />
+                <div class="form-text">Assumed via STS for cross-account access. Leave blank to use the ambient credentials.</div>
+            </div>
+        }
+        else if (form.Provider == ConnectionProvider.AzureBlob)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Storage account</label>
+                <input class="form-control" @bind="form.StorageAccountName" placeholder="mystorageaccount" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Managed identity client ID <span class="text-muted">(optional)</span></label>
+                <input class="form-control" @bind="form.ManagedIdentityClientId" placeholder="00000000-0000-0000-0000-000000000000" />
+                <div class="form-text">Selects a specific identity. Leave blank to use the default — which may have wider access.</div>
+            </div>
+        }
+        else
+        {
+            <div class="col-12">
+                <label class="form-label">Allowed root</label>
+                @if (allowedRoots.Count > 0)
+                {
+                    @* Selected, never typed. The API's job is to choose among configured roots,
+                       not to invent one — a free-text field here would reopen exactly the hole
+                       Sources:Security:AllowedFilesystemRoots closes. *@
+                    <select class="form-select" @bind="form.AllowedRoot">
+                        <option value="">Choose a root…</option>
+                        @foreach (var root in allowedRoots)
+                        {
+                            <option value="@root">@root</option>
+                        }
+                    </select>
+                    <div class="form-text">
+                        Configured in <code>Sources:Security:AllowedFilesystemRoots</code>. To offer a
+                        different directory, add it there and restart.
+                    </div>
+                }
+                else
+                {
+                    <input class="form-control" @bind="form.AllowedRoot" placeholder="/data/docs" />
+                    <div class="alert alert-warning mt-2 mb-0 py-2 small">
+                        <span class="bi-exclamation-triangle me-1"></span>
+                        No <code>Sources:Security:AllowedFilesystemRoots</code> is configured, so any
+                        directory is currently accepted. Configure the allowlist before this becomes
+                        deny-by-default in a later release — a source can read everything beneath
+                        whatever root you name here.
+                    </div>
+                }
+            </div>
+        }
+
+        @if (form.Provider != ConnectionProvider.Filesystem)
+        {
+            <div class="col-12">
+                <label class="form-label">
+                    Allowed locations <span class="text-muted">(one per line, optional)</span>
+                </label>
+                <textarea class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
+                          placeholder="docs-bucket&#10;shared-bucket/team/"></textarea>
+                <div class="form-text">
+                    Bounds which buckets or containers a source on this connection may name. One
+                    connection credential is shared by every source that uses it, so without this a
+                    source can name anything the credential can reach. An entry naming only a bucket
+                    permits any prefix within it. Leave empty to allow any — currently permitted, with
+                    a warning logged.
+                </div>
+            </div>
+        }
+
+        @if (!isNew && editing.HasSecret)
+        {
+            <div class="col-12">
+                <div class="alert alert-secondary py-2 mb-0 small">
+                    <span class="bi-key-fill me-1"></span>
+                    A credential is stored for this connection. Its value cannot be displayed — enter a
+                    new one below to replace it, or leave blank to keep it.
+                </div>
+            </div>
+        }
+
+        <div class="col-md-6">
+            <label class="form-label">
+                Credential <span class="text-muted">(optional)</span>
+            </label>
+            <input type="password" class="form-control" @bind="form.Secret" autocomplete="new-password"
+                   placeholder="@(editing.HasSecret ? "Leave blank to keep the stored credential" : "Usually not needed")" />
+            <div class="form-text">
+                Most deployments leave this empty: AWS uses IAM roles and Azure uses managed identity,
+                both resolved from the environment.
+            </div>
+        </div>
+
+        @* ── Test ──────────────────────────────────────────────────── *@
+        @if (form.Provider != ConnectionProvider.Filesystem)
+        {
+            <div class="col-md-6">
+                <label class="form-label">
+                    @(form.Provider == ConnectionProvider.S3 ? "Bucket to test against" : "Container to test against")
+                </label>
+                <input class="form-control" @bind="probeTarget" placeholder="@ProbePlaceholder()" />
+                <div class="form-text">
+                    Not saved. The connection holds no bucket of its own, so testing needs one to probe.
+                </div>
+            </div>
+        }
+
+        <div class="col-12 mt-3">
+            <button class="btn btn-primary me-2" @onclick="Save" disabled="@saving">
+                @if (saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <span>@(isNew ? "Create connection" : "Save changes")</span>
+            </button>
+            <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
+            @if (form.Provider != ConnectionProvider.Filesystem)
+            {
+                <button class="btn btn-info" @onclick="Test" disabled="@testing">
+                    @if (testing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Testing…</span>
+                    }
+                    else
+                    {
+                        <span class="bi-plug me-1"></span>
+                        <span>Test connection</span>
+                    }
+                </button>
+            }
+        </div>
+
+        @if (testMessage is not null)
+        {
+            <div class="col-12 mt-2">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                    @testMessage
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Connection> connections = [];
+    private IReadOnlyList<string> allowedRoots = [];
+    private bool loading = true;
+
+    private Connection? editing;
+    private bool isNew;
+    private ConnectionForm form = new();
+    private string? probeTarget;
+
+    private bool saving;
+    private bool testing;
+    private string? statusMessage;
+    private bool statusSuccess;
+    private string? testMessage;
+    private bool testSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        allowedRoots = SourceSecurity.CurrentValue.AllowedFilesystemRoots;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
+        loading = false;
+    }
+
+    private void StartCreate()
+    {
+        editing = new Connection(Guid.Empty, "", ConnectionProvider.S3, null, null, DateTime.UtcNow, DateTime.UtcNow);
+        isNew = true;
+        form = new ConnectionForm();
+        probeTarget = null;
+        testMessage = null;
+    }
+
+    private void StartEdit(Connection connection)
+    {
+        editing = connection;
+        isNew = false;
+        form = ConnectionForm.FromConnection(connection);
+        // Offered as the probe default: an allowed location is, by definition, somewhere this
+        // connection is meant to be able to reach.
+        probeTarget = form.FirstAllowedLocation();
+        testMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        editing = null;
+        testMessage = null;
+    }
+
+    private string ProbePlaceholder() =>
+        form.FirstAllowedLocation()
+        ?? (form.Provider == ConnectionProvider.S3 ? "my-bucket" : "my-container");
+
+    private async Task Save()
+    {
+        statusMessage = null;
+
+        if (form.Validate() is { } problem)
+        {
+            Fail(problem);
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            string config = form.ToConfigJson();
+
+            if (isNew)
+            {
+                await ConnectionStore.CreateAsync(
+                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, NullIfBlank(form.Secret)),
+                    createdByUserId: null);
+                Succeed($"Connection '{form.Name.Trim()}' created.");
+            }
+            else
+            {
+                // A blank secret means "keep the stored one" — null leaves it untouched, which is
+                // why the field is never pre-filled.
+                await ConnectionStore.UpdateAsync(editing!.Id,
+                    new UpdateConnectionRequest(form.Name.Trim(), config, NullIfBlank(form.Secret)));
+                Succeed($"Connection '{form.Name.Trim()}' saved.");
+            }
+
+            editing = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex.Message);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task Delete(Connection connection)
+    {
+        statusMessage = null;
+
+        // Said plainly rather than letting the store's exception surface. The count is already on
+        // the model, so the operator can be told what to remove first.
+        if (connection.SourceCount > 0)
+        {
+            Fail($"'{connection.Name}' still has {connection.SourceCount} source(s) using it. Remove or repoint them first.");
+            return;
+        }
+
+        try
+        {
+            await ConnectionStore.DeleteAsync(connection.Id);
+            Succeed($"Connection '{connection.Name}' deleted.");
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            Fail(ex.Message);
+        }
+    }
+
+    private async Task Test()
+    {
+        testing = true;
+        testMessage = null;
+
+        try
+        {
+            string? target = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
+            if (target is null)
+            {
+                testSuccess = false;
+                testMessage = form.Provider == ConnectionProvider.S3
+                    ? "Enter a bucket to test against."
+                    : "Enter a container to test against.";
+                return;
+            }
+
+            var (container, prefix) = ConnectionForm.SplitLocation(target);
+
+            ConnectionTestResult result;
+            if (form.Provider == ConnectionProvider.S3)
+            {
+                result = await S3Tester.TestConnectionAsync(new S3ConnectorConfig
+                {
+                    Region = NullIfBlank(form.Region) ?? "us-east-1",
+                    RoleArn = NullIfBlank(form.RoleArn),
+                    BucketName = container,
+                    Prefix = prefix,
+                }, TimeSpan.FromSeconds(15));
+            }
+            else
+            {
+                result = await AzureTester.TestConnectionAsync(new AzureBlobConnectorConfig
+                {
+                    StorageAccountName = form.StorageAccountName?.Trim() ?? "",
+                    ManagedIdentityClientId = NullIfBlank(form.ManagedIdentityClientId),
+                    ContainerName = container,
+                    Prefix = prefix,
+                }, TimeSpan.FromSeconds(15));
+            }
+
+            testSuccess = result.Success;
+            testMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = $"Test failed: {ex.Message}";
+        }
+        finally
+        {
+            testing = false;
+        }
+    }
+
+    private static string DescribeScope(Connection connection)
+    {
+        var form = ConnectionForm.FromConnection(connection);
+        return connection.Provider switch
+        {
+            ConnectionProvider.Filesystem => form.AllowedRoot ?? "—",
+            ConnectionProvider.S3 => form.Region ?? "—",
+            ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
+            _ => "—"
+        };
+    }
+
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private void Succeed(string message)
+    {
+        statusSuccess = true;
+        statusMessage = message;
+    }
+
+    private void Fail(string message)
+    {
+        statusSuccess = false;
+        statusMessage = message;
+    }
+}
