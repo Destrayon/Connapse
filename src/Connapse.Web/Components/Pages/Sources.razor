@@ -203,11 +203,26 @@
     {
         loading = true;
 
-        sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
-        connectionNames = (await ConnectionStore.ListAsync(take: int.MaxValue))
-            .ToDictionary(c => c.Id, c => c.Name);
-
-        loading = false;
+        try
+        {
+            sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
+            connectionNames = (await ConnectionStore.ListAsync(take: int.MaxValue))
+                .ToDictionary(c => c.Id, c => c.Name);
+        }
+        catch (Exception ex)
+        {
+            // Two failure modes to close, not one. Uncaught from OnInitializedAsync this tears
+            // down the circuit and the operator watches the page die; and without the finally
+            // below, a throw leaves `loading` true forever, so the page sits on its spinner
+            // even after a later action succeeds.
+            Fail($"Could not load sources: {ex.Message}");
+            sources = [];
+            connectionNames = [];
+        }
+        finally
+        {
+            loading = false;
+        }
     }
 
     private string ConnectionName(Guid connectionId) =>
