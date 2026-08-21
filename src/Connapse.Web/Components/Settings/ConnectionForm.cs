@@ -7,12 +7,12 @@ namespace Connapse.Web.Components.Settings;
 /// The editable shape of a connection, flattened out of the provider-specific JSON it is stored
 /// as and back again.
 /// <para>
-/// A plain class rather than logic inside the Razor component, so the round trip can be tested:
+/// A plain record rather than logic inside the Razor component, so the round trip can be tested:
 /// this is where a dropped field silently becomes a connection that resolves to the wrong
 /// place, and the component itself has no test harness in this repository.
 /// </para>
 /// </summary>
-public sealed class ConnectionForm
+public sealed record ConnectionForm
 {
     public string Name { get; set; } = "";
     public ConnectionProvider Provider { get; set; } = ConnectionProvider.S3;
@@ -31,11 +31,6 @@ public sealed class ConnectionForm
     /// <summary>Newline-separated in the UI; an array in the stored JSON.</summary>
     public string? AllowedLocations { get; set; }
 
-    /// <summary>
-    /// Never populated from storage. A connection's stored secret has no read path outside the
-    /// sync engine, so this only ever carries a replacement the operator just typed.
-    /// </summary>
-    public string? Secret { get; set; }
 
     /// <summary>
     /// Reads a stored connection into an editable form. A config that cannot be parsed yields an
@@ -68,10 +63,19 @@ public sealed class ConnectionForm
 
         if (node["allowedLocations"] is JsonArray arr)
         {
-            var values = arr
-                .Select(x => x?.GetValue<string>())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .ToList();
+            // TryGetValue, not GetValue: a stored array holding a number or an object would
+            // otherwise throw out here, past the parse guard above, and take the whole tab down
+            // over one malformed entry. Non-strings are skipped instead.
+            var values = new List<string>();
+            foreach (var element in arr)
+            {
+                if (element is JsonValue value
+                    && value.TryGetValue<string>(out var text)
+                    && !string.IsNullOrWhiteSpace(text))
+                {
+                    values.Add(text);
+                }
+            }
 
             if (values.Count > 0)
                 form.AllowedLocations = string.Join("\n", values);

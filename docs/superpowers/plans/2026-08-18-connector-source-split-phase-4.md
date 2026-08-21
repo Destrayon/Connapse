@@ -38,12 +38,16 @@ Three constraints that are not negotiable, each with a reason recorded elsewhere
   configured, render a dropdown of those roots — the API's job is to *select among* configured
   roots, never to invent one. When the allowlist is empty (the one-release grace window),
   fall back to a text field with a visible warning that it will become deny-by-default.
-- **The secret is never displayed.** `Connection` carries `HasSecret`, not the secret. Show
-  "configured" or "not configured" and offer replacement only. There is no read path for a
-  stored secret outside the sync engine, and the UI must not become one.
+- **No credential field at all.** The plan originally called for a write-only secret box.
+  Dropped on review: `GetSecretAsync` has no caller anywhere outside its own store, so no
+  connector reads a connection secret, and offering the field would only invite storing the
+  cloud credential this project refuses to hold. Existing rows that carry one are surfaced in
+  the list as a legacy secret rather than hidden, so an operator can see it is still there.
 - **Deletion explains itself.** `IConnectionStore.DeleteAsync` refuses while sources still
   reference the connection. `Connection.SourceCount` is already on the model — say "3 sources
-  use this connection" rather than surfacing a raw exception.
+  use this connection" rather than surfacing a raw exception. That count is a snapshot from the
+  last load, so it is a better message rather than a substitute for the store's own refusal: a
+  source added since then still has to be caught and reported the same way.
 
 Reuse `S3ConnectionTester` and `AzureBlobConnectionTester` unchanged for a Test button — with
 one wrinkle the issue did not anticipate. **Both testers require a bucket or blob container**
@@ -54,8 +58,10 @@ cannot be tested by them as written.
 Resolved without touching the testers: the Test button takes a probe target. When the
 connection declares `allowedLocations`, the first entry is offered as the default, since it is
 by definition a location this connection is meant to reach. Otherwise a small unsaved field
-asks which bucket to probe. The probe target is never persisted — it exists only to give the
-tester the argument it needs.
+asks for one, labelled per provider — a **bucket** for S3, a **container** for Azure Blob. The
+probe target is never persisted; it exists only to give the tester the argument it needs.
+Filesystem connections have no Test button at all: there is no remote to reach, and the root is
+already constrained by the allowlist.
 
 **Done when:** connections can be created, edited, tested, and deleted from Settings; the
 filesystem root is a selection when an allowlist exists; no secret value is ever rendered.
@@ -76,8 +82,9 @@ intent.
 Accepted residual risk, agreed during design: an aggregate document count is still a weak
 signal about a source's contents. Judged an acceptable trade for the tab being useful at all.
 
-**Done when:** the tab shows sync state for every source, offers the four actions, and renders
-no document or path anywhere.
+**Done when:** the tab shows sync state for every source and offers the four actions, while
+rendering no document name, no path, and no file listing. The aggregate document count is
+permitted — it is the accepted residual risk above, not an oversight.
 
 ## Task 4c — Home simplification and search facet
 
@@ -94,8 +101,13 @@ no document or path anywhere.
   since the watcher was removed in #364.
 - `Search.razor` gains an owner-kind badge on results and a source facet for scoping queries.
 
-**Done when:** no external connector is reachable through the file browser, and the write
-flags are gone.
+**Done when:** no external connector is reachable through the file browser, and the write flags
+are gone — both asserted by test rather than by inspection.
+
+The test that matters: seed a source and a managed container, then drive the file-browser route
+for each. The container must list its files; the source must be refused, not merely return an
+empty listing. An empty result would pass today and silently become a real listing the first
+time someone widens the lookup, which is exactly the regression this phase exists to prevent.
 
 ## Out of scope
 

@@ -139,15 +139,26 @@ public class ConnectionFormTests
     // ── The secret is never read back ─────────────────────────────────
 
     [Fact]
-    public void FromConnection_NeverPopulatesTheSecret()
+    public void FromConnection_NeverSurfacesAStoredSecret()
     {
-        // There is no read path for a stored secret outside the sync engine, and the editor must
-        // not become one. The field only ever carries a replacement the operator just typed.
+        // The form carries no secret field at all: no connector reads a connection secret, so
+        // offering one would only invite storing the cloud credential this project refuses to
+        // hold. Anything already in a stored config must not survive the round trip either.
         var form = ConnectionForm.FromConnection(
             Stored(ConnectionProvider.S3, """{"region":"eu-west-1","secret":"should-never-surface"}""", hasSecret: true));
 
-        form.Secret.Should().BeNull();
         form.ToConfigJson().Should().NotContain("should-never-surface");
+    }
+
+    [Fact]
+    public void FromConnection_MalformedAllowedLocationEntries_AreSkippedNotThrown()
+    {
+        // A stored array holding a number would throw out of GetValue<string>() past the parse
+        // guard, taking the whole tab down over one bad entry.
+        var form = ConnectionForm.FromConnection(
+            Stored(ConnectionProvider.S3, """{"region":"eu-west-1","allowedLocations":["good",42,null,{"x":1},"also-good"]}"""));
+
+        form.AllowedLocations.Should().Be("good\nalso-good");
     }
 
     // ── Robustness ────────────────────────────────────────────────────

@@ -29,10 +29,11 @@
     <div class="col-12">
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
-            A <strong>connection</strong> holds a credential and an endpoint. A <strong>source</strong>
-            names a scope inside one — a bucket, a blob container, or a directory — and is what
-            Connapse actually syncs. Credentials themselves come from the environment: IAM roles for
-            AWS, managed identity for Azure. Connapse never stores cloud keys.
+            A <strong>connection</strong> names an external system and how to reach it. A
+            <strong>source</strong> names a scope inside one — a bucket, a blob container, or a
+            directory — and is what Connapse actually syncs. Credentials are never entered here:
+            AWS resolves through IAM roles and Azure through managed identity, both from the
+            environment the server runs in.
         </div>
     </div>
 
@@ -93,7 +94,12 @@
                                     <td class="small">
                                         @if (c.HasSecret)
                                         {
-                                            <span class="text-success"><span class="bi-key-fill me-1"></span>Configured</span>
+                                            @* Only reachable for a connection created before this tab
+                                               existed. Shown rather than hidden so an operator can see
+                                               a stored credential is still there. *@
+                                            <span class="text-warning" title="Stored by an earlier version; no connector reads it">
+                                                <span class="bi-key-fill me-1"></span>Legacy secret
+                                            </span>
                                         }
                                         else
                                         {
@@ -215,28 +221,7 @@
             </div>
         }
 
-        @if (!isNew && editing.HasSecret)
-        {
-            <div class="col-12">
-                <div class="alert alert-secondary py-2 mb-0 small">
-                    <span class="bi-key-fill me-1"></span>
-                    A credential is stored for this connection. Its value cannot be displayed — enter a
-                    new one below to replace it, or leave blank to keep it.
-                </div>
-            </div>
-        }
 
-        <div class="col-md-6">
-            <label class="form-label">
-                Credential <span class="text-muted">(optional)</span>
-            </label>
-            <input type="password" class="form-control" @bind="form.Secret" autocomplete="new-password"
-                   placeholder="@(editing.HasSecret ? "Leave blank to keep the stored credential" : "Usually not needed")" />
-            <div class="form-text">
-                Most deployments leave this empty: AWS uses IAM roles and Azure uses managed identity,
-                both resolved from the environment.
-            </div>
-        </div>
 
         @* ── Test ──────────────────────────────────────────────────── *@
         @if (form.Provider != ConnectionProvider.Filesystem)
@@ -368,16 +353,25 @@
             if (isNew)
             {
                 await ConnectionStore.CreateAsync(
-                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, NullIfBlank(form.Secret)),
+                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, Secret: null),
                     createdByUserId: null);
                 Succeed($"Connection '{form.Name.Trim()}' created.");
             }
             else
             {
-                // A blank secret means "keep the stored one" — null leaves it untouched, which is
-                // why the field is never pre-filled.
-                await ConnectionStore.UpdateAsync(editing!.Id,
-                    new UpdateConnectionRequest(form.Name.Trim(), config, NullIfBlank(form.Secret)));
+                // Null result means the row is gone — deleted from another session between this
+                // form opening and saving. Reporting "saved" there would be a lie.
+                var updated = await ConnectionStore.UpdateAsync(editing!.Id,
+                    new UpdateConnectionRequest(form.Name.Trim(), config, Secret: null));
+
+                if (updated is null)
+                {
+                    Fail($"Connection '{editing.Name}' no longer exists — it was deleted elsewhere.");
+                    editing = null;
+                    await LoadAsync();
+                    return;
+                }
+
                 Succeed($"Connection '{form.Name.Trim()}' saved.");
             }
 
@@ -408,12 +402,20 @@
 
         try
         {
-            await ConnectionStore.DeleteAsync(connection.Id);
-            Succeed($"Connection '{connection.Name}' deleted.");
+            // SourceCount above is a snapshot from the last load, so a source added since then
+            // still reaches the store's own refusal — caught below rather than assumed away.
+            bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
+            if (deleted)
+                Succeed($"Connection '{connection.Name}' deleted.");
+            else
+                Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
+
             await LoadAsync();
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex)
         {
+            // Broad on purpose: an exception escaping a Blazor event handler tears down the
+            // circuit and the operator sees the page die rather than a message.
             Fail(ex.Message);
         }
     }
