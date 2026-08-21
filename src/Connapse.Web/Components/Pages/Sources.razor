@@ -1,0 +1,370 @@
+@page "/sources"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+
+@using Connapse.Web.Services
+@inject ISourceStore SourceStore
+@inject IConnectionStore ConnectionStore
+@inject SourceSyncService SyncService
+@inject IAuditLogger AuditLogger
+@inject AuthenticationStateProvider AuthStateProvider
+
+@*
+    Sources — external scopes Connapse mirrors but does not own.
+
+    This page shows what each source is *doing*, never what is *inside* it. There is no file
+    list, no path, and no document name anywhere on it, and that is the point of the whole
+    epic rather than an omission: the file tree exposed every synced object to any Connapse
+    user regardless of what they could see in the source system, which is a far wider surface
+    than search results, and search already passes through CloudScopeService.
+
+    The aggregate document count is the one exception, accepted during design as a weak signal
+    in exchange for the page being useful at all.
+*@
+
+<PageTitle>Sources - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1 class="mb-1"><span class="bi-cloud-arrow-down me-2"></span>Sources</h1>
+            <p class="text-muted mb-0">
+                External systems Connapse keeps in step with. Their contents are searchable but not
+                browsable — Connapse mirrors this data, it does not own it.
+            </p>
+        </div>
+        @if (isAdmin)
+        {
+            <a class="btn btn-outline-secondary" href="/settings">
+                <span class="bi-gear me-1"></span> Connections
+            </a>
+        }
+    </div>
+
+    @if (message is not null)
+    {
+        <div class="alert @(messageSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+            <span class="@(messageSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+            @message
+            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading sources…</div>
+    }
+    else if (sources.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <p class="text-muted mb-2">No sources yet.</p>
+                <p class="text-muted small mb-0">
+                    A source points at a scope inside a connection — a bucket, a blob container, or a
+                    directory. @(isAdmin ? "Add a connection first, then create a source inside it." : "Ask an administrator to add one.")
+                </p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Connection</th>
+                        <th>Scope</th>
+                        <th>Documents</th>
+                        <th>Last sync</th>
+                        <th>Status</th>
+                        @if (isAdmin)
+                        {
+                            <th class="text-end">Actions</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var source in sources)
+                    {
+                        <tr class="@(source.Enabled ? "" : "opacity-50")">
+                            <td>
+                                <div class="fw-medium">@source.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(source.Description))
+                                {
+                                    <div class="small text-muted">@source.Description</div>
+                                }
+                            </td>
+                            <td class="small">@ConnectionName(source.ConnectionId)</td>
+                            @* The scope names a bucket or directory, which is infrastructure rather
+                               than content. Shown because an operator needs to know what a source
+                               points at; it is never a listing of what is inside. *@
+                            <td class="small text-muted font-monospace">@DescribeScope(source)</td>
+                            <td>@source.DocumentCount</td>
+                            <td class="small text-muted">@FormatLastSync(source)</td>
+                            <td>@StatusBadge(source)</td>
+                            @if (isAdmin)
+                            {
+                                <td class="text-end text-nowrap">
+                                    <button class="btn btn-sm btn-outline-primary me-1"
+                                            @onclick="() => SyncNow(source)"
+                                            disabled="@(!source.Enabled || syncing == source.Id)">
+                                        @if (syncing == source.Id)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        else
+                                        {
+                                            <span class="bi-arrow-repeat"></span>
+                                        }
+                                        <span class="ms-1">Sync</span>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
+                                        @(source.Enabled ? "Disable" : "Enable")
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(source)">
+                                        Delete
+                                    </button>
+                                </td>
+                            }
+                        </tr>
+
+                        @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
+                        {
+                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                                @* Administrators only: a provider's failure text routinely quotes the
+                                   resource that failed, which is the same infrastructure detail the
+                                   API withholds from non-admin readers. *@
+                                <td colspan="7" class="pt-0 border-top-0">
+                                    <div class="alert alert-danger py-2 mb-0 small">
+                                        <span class="bi-exclamation-triangle me-1"></span>
+                                        @source.LastSyncError
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@if (pendingDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete source</h5>
+                    <button type="button" class="btn-close" @onclick="() => pendingDelete = null"></button>
+                </div>
+                <div class="modal-body">
+                    <p>
+                        Delete <strong>@pendingDelete.Name</strong> and its
+                        @pendingDelete.DocumentCount indexed document(s)?
+                    </p>
+                    <p class="text-muted small mb-0">
+                        The data in the external system is untouched — only what Connapse indexed
+                        from it is removed. Re-creating the source will sync it again.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => pendingDelete = null">Cancel</button>
+                    <button class="btn btn-danger" @onclick="Delete">Delete source</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Source> sources = [];
+    private Dictionary<Guid, string> connectionNames = [];
+    private bool loading = true;
+    private bool isAdmin;
+
+    private Guid? syncing;
+    private Source? pendingDelete;
+    private string? message;
+    private bool messageSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        isAdmin = authState.User.IsInRole("Owner") || authState.User.IsInRole("Admin");
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+
+        sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
+        connectionNames = (await ConnectionStore.ListAsync(take: int.MaxValue))
+            .ToDictionary(c => c.Id, c => c.Name);
+
+        loading = false;
+    }
+
+    private string ConnectionName(Guid connectionId) =>
+        connectionNames.TryGetValue(connectionId, out var name)
+            ? name
+            // The FK makes this unreachable through normal deletion, but a source whose
+            // connection vanished is skipped silently by the sync service — worth naming
+            // rather than rendering a blank cell.
+            : "(missing connection)";
+
+    private static string DescribeScope(Source source) =>
+        SourceScopeSummary.Describe(source.ScopeJson) ?? "—";
+
+    private static string FormatLastSync(Source source) =>
+        source.LastSyncedAt is { } at
+            ? $"{at:u}"
+            : "Never";
+
+    private static RenderFragment StatusBadge(Source source) => builder =>
+    {
+        (string css, string text) = source switch
+        {
+            { Enabled: false } => ("text-bg-secondary", "Disabled"),
+            { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", "Synced"),
+            { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", "Failed"),
+            { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", "Syncing"),
+            _ => ("text-bg-light", "Never synced"),
+        };
+
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", $"badge {css}");
+        builder.AddContent(2, text);
+        builder.CloseElement();
+    };
+
+    private async Task SyncNow(Source source)
+    {
+        message = null;
+        syncing = source.Id;
+
+        try
+        {
+            var connection = await ConnectionStore.GetAsync(source.ConnectionId);
+            if (connection is null)
+            {
+                Fail($"'{source.Name}' references a connection that no longer exists.");
+                return;
+            }
+
+            var result = await SyncService.SyncSourceAsync(source, connection, CancellationToken.None);
+
+            if (result.AlreadyRunning)
+            {
+                // Not a failure: the scheduled cycle got there first.
+                Warn($"A sync for '{source.Name}' is already in progress.");
+            }
+            else if (result.Error is not null)
+            {
+                Fail($"Sync failed for '{source.Name}': {result.Error}");
+            }
+            else
+            {
+                await AuditLogger.LogAsync("source.synced", "source", source.Id.ToString(),
+                    new { source.Name, result.Upserted, result.Deleted });
+
+                Succeed($"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit, so the
+            // operator would see the page die rather than a message.
+            Fail(ex.Message);
+        }
+        finally
+        {
+            syncing = null;
+        }
+    }
+
+    private async Task ToggleEnabled(Source source)
+    {
+        message = null;
+
+        try
+        {
+            var updated = await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: !source.Enabled));
+            if (updated is null)
+            {
+                Fail($"'{source.Name}' no longer exists — it was deleted elsewhere.");
+            }
+            else
+            {
+                await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
+                    new { source.Name, updated.Enabled });
+
+                Succeed($"'{source.Name}' {(updated.Enabled ? "enabled" : "disabled")}.");
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex.Message);
+        }
+    }
+
+    private void ConfirmDelete(Source source) => pendingDelete = source;
+
+    private async Task Delete()
+    {
+        if (pendingDelete is null) return;
+
+        var source = pendingDelete;
+        pendingDelete = null;
+        message = null;
+
+        try
+        {
+            bool deleted = await SourceStore.DeleteAsync(source.Id);
+            if (deleted)
+            {
+                await AuditLogger.LogAsync("source.deleted", "source", source.Id.ToString(),
+                    new { source.Name });
+
+                Succeed($"'{source.Name}' deleted. The external data is untouched.");
+            }
+            else
+            {
+                Fail($"'{source.Name}' no longer exists — it was deleted elsewhere.");
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex.Message);
+        }
+    }
+
+    private void Succeed(string text)
+    {
+        messageSuccess = true;
+        message = text;
+    }
+
+    private void Warn(string text)
+    {
+        messageSuccess = true;
+        message = text;
+    }
+
+    private void Fail(string text)
+    {
+        messageSuccess = false;
+        message = text;
+    }
+}
