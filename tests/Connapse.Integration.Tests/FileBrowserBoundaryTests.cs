@@ -79,7 +79,7 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
         Guid sourceId = await SeedSourceAsync();
 
         var response = await Admin.PostAsJsonAsync(
-            $"/api/containers/{sourceId}/folders", new { path = "/new-folder" });
+            $"/api/containers/{sourceId}/folders", new CreateFolderRequest("/new-folder"));
 
         // Writing into a source would mutate somebody else's system through Connapse.
         response.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.BadRequest);
@@ -116,14 +116,40 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
 
         var browse = await Admin.GetAsync($"/api/containers/{legacyId}/files?path=/");
         var write = await Admin.PostAsJsonAsync(
-            $"/api/containers/{legacyId}/folders", new { path = "/new-folder" });
+            $"/api/containers/{legacyId}/folders", new CreateFolderRequest("/new-folder"));
 
-        browse.StatusCode.Should().NotBe(HttpStatusCode.OK,
+        // The exact status, not merely "not OK" — that would also pass on a 500, which is a
+        // broken server rather than an enforced boundary.
+        browse.StatusCode.Should().Be(HttpStatusCode.NotFound,
             "an unmigrated external container must not be browsable through the container routes");
-        write.StatusCode.Should().NotBe(HttpStatusCode.OK,
-            "and it must certainly not be writable — that would mutate someone else's system");
+        // Writable would mean mutating someone else's system through Connapse.
+        write.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task DirectFileRoutes_LegacyNonManagedContainer_AreRefused()
+    {
+        // The listing route was the obvious hole and got fixed first. These are the ones that
+        // survive closing it: reading a document by id returns its metadata, and /content
+        // returns the bytes themselves out of the external system. Closing the listing while
+        // leaving these open would look like the boundary held.
+        Guid legacyId;
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+            var legacy = await containers.CreateAsync(new CreateContainerRequest(
+                ShortName("legacy"), null, ConnectorType.S3, """{"bucketName":"b","region":"us-east-1"}"""));
+            legacyId = Guid.Parse(legacy.Id);
+        }
+
+        string fileId = Guid.NewGuid().ToString();
+
+        (await Admin.GetAsync($"/api/containers/{legacyId}/files/{fileId}")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound, "document metadata must not be readable");
+
+        (await Admin.GetAsync($"/api/containers/{legacyId}/files/{fileId}/content")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound, "and its bytes certainly must not be");
+    }
     [Fact]
     public async Task CreateContainer_NonManagedConnectorType_IsRejected()
     {

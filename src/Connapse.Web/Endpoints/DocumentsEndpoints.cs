@@ -239,6 +239,8 @@ public static class DocumentsEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            if (RequireManagedStorage(container, containerId) is { } notManaged) return notManaged;
+
             // Cloud scope enforcement
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeDenied is not null) return scopeDenied;
@@ -329,6 +331,8 @@ public static class DocumentsEndpoints
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            if (RequireManagedStorage(container, containerId) is { } notManaged) return notManaged;
 
             // Cloud scope enforcement
             var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
@@ -470,6 +474,26 @@ public static class DocumentsEndpoints
     /// <summary>
     /// Enforces cloud scope: returns a 403 IResult if access is denied, null if allowed or not a cloud container.
     /// </summary>
+    /// <summary>
+    /// Refuses a container that is not managed storage.
+    /// <para>
+    /// The #350 backfill is allowed to fail without blocking boot and skips entirely when
+    /// another replica holds its advisory lock, so a row can still carry a Filesystem, S3, or
+    /// AzureBlob connector type. Every route that reads a document has to refuse those: listing
+    /// one enumerates somebody else''s system, and reading one returns its bytes. A helper
+    /// rather than the check inlined per route, so the next route added here is one call away
+    /// from being correct instead of one omission away from being a leak.
+    /// </para>
+    /// <para>
+    /// Returns NotFound rather than Forbidden deliberately: as far as the container routes are
+    /// concerned this id is not a container, which is also what a caller passing a source id
+    /// already gets.
+    /// </para>
+    /// </summary>
+    private static IResult? RequireManagedStorage(Container container, Guid containerId) =>
+        container.ConnectorType == ConnectorType.ManagedStorage
+            ? null
+            : Results.NotFound(new { error = $"Container {containerId} not found" });
     private static async Task<IResult?> EnforceCloudScope(
         HttpContext httpContext, Container container,
         ICloudScopeService cloudScopeService, CancellationToken ct)
