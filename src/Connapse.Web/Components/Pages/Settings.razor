@@ -90,6 +90,13 @@
                 Summary
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "connections" ? "active" : "")"
+                    @onclick='() => activeTab = "connections"'
+                    type="button">
+                Connections
+            </button>
+        </li>
     </ul>
 
     <!-- Tab Content -->
@@ -128,6 +135,12 @@
                                 Settings="summarySettings"
                                 ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model" />
             <button class="btn btn-primary mt-3" @onclick="SaveSummarySettings">Save Summary Settings</button>
+        }
+        else if (activeTab == "connections")
+        {
+            @* No Settings/OnSave pair: connections are entities in their own store, not a
+               settings record, so this tab loads and saves itself. *@
+            <ConnectionsSettingsTab />
         }
     </div>
 </div>
