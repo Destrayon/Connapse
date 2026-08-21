@@ -31,7 +31,11 @@
             <div class="col-md-3">
                 <label class="form-label">Scope</label>
                 <select class="form-select" @bind="selectedContainerId">
-                    <option value="">Everything</option>
+                    @* No "everything" option. It existed before as "All containers" and never
+                       worked — the search button is disabled while the scope is empty — and
+                       enabling it now would widen a path that applies no cloud scope at all,
+                       unlike the REST search route. Tracked separately rather than fixed by
+                       quietly broadening it. *@
                     @* Grouped rather than merged into one flat list: a container is storage
                        Connapse owns and a source mirrors somebody else's system, and which one
                        a result came from changes how much it can be trusted to be current. *@

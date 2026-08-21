@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Web.Endpoints;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -57,7 +58,7 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task BrowseRoute_ServesAContainerAndRefusesASource()
+    public async Task BrowseRoute_ManagedContainerAndSourceIds_ReturnsOkAndNotFound()
     {
         Guid containerId = await SeedContainerAsync();
         Guid sourceId = await SeedSourceAsync();
@@ -73,7 +74,7 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task FolderCreation_IsRefusedForASource()
+    public async Task CreateFolder_SourceId_IsRefused()
     {
         Guid sourceId = await SeedSourceAsync();
 
@@ -85,7 +86,7 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ContainerStats_ServeAContainerAndRefuseASource()
+    public async Task ContainerStats_ManagedContainerAndSourceIds_ReturnsOkAndNotFound()
     {
         Guid containerId = await SeedContainerAsync();
         Guid sourceId = await SeedSourceAsync();
@@ -98,18 +99,45 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task CreatingAContainer_RejectsEveryNonManagedConnectorType()
+    public async Task BrowseRoute_LegacyNonManagedContainer_IsRefused()
+    {
+        // The un-migrated window is real: the #350 backfill may fail without blocking boot, and
+        // skips entirely when another replica holds its advisory lock — so a row can still carry
+        // a Filesystem connector type. Seeded through the store rather than the API, because the
+        // API rejects this shape and that is precisely the state being simulated.
+        Guid legacyId;
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+            var legacy = await containers.CreateAsync(new CreateContainerRequest(
+                ShortName("legacy"), null, ConnectorType.Filesystem, """{"rootPath":"/tmp"}"""));
+            legacyId = Guid.Parse(legacy.Id);
+        }
+
+        var browse = await Admin.GetAsync($"/api/containers/{legacyId}/files?path=/");
+        var write = await Admin.PostAsJsonAsync(
+            $"/api/containers/{legacyId}/folders", new { path = "/new-folder" });
+
+        browse.StatusCode.Should().NotBe(HttpStatusCode.OK,
+            "an unmigrated external container must not be browsable through the container routes");
+        write.StatusCode.Should().NotBe(HttpStatusCode.OK,
+            "and it must certainly not be writable — that would mutate someone else's system");
+    }
+
+    [Fact]
+    public async Task CreateContainer_NonManagedConnectorType_IsRejected()
     {
         // The create form no longer offers these, but the form is not the boundary — this is.
         // A client posting directly must still be refused.
         foreach (var connectorType in new[] { ConnectorType.Filesystem, ConnectorType.S3, ConnectorType.AzureBlob })
         {
-            var response = await Admin.PostAsJsonAsync("/api/containers", new
-            {
-                name = ShortName("bad"),
-                connectorType,
-                connectorConfig = """{"rootPath":"/tmp"}""",
-            });
+            // The shared request record rather than an anonymous object: if the API contract
+            // changes shape, this fails to compile instead of silently posting the wrong body
+            // and still getting the 400 it expects.
+            var response = await Admin.PostAsJsonAsync("/api/containers", new CreateContainerApiRequest(
+                Name: ShortName("bad"),
+                ConnectorType: connectorType,
+                ConnectorConfig: """{"rootPath":"/tmp"}"""));
 
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
                 $"{connectorType} is a source, not a container");

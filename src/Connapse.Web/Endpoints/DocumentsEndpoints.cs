@@ -138,6 +138,14 @@ public static class DocumentsEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
+            // Managed storage only. The #350 backfill is allowed to fail without blocking boot
+            // and skips when another replica holds its advisory lock, so a row can still carry
+            // an external connector type — and browsing one lists every synced object to any
+            // reader, which is the leak epic #348 exists to close. The mutation routes already
+            // refuse these; this is the read side of the same boundary.
+            if (container.ConnectorType != ConnectorType.ManagedStorage)
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
             // Cloud scope enforcement
             var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
             if (scopeResult is { HasAccess: false })

@@ -846,9 +846,26 @@
             {
                 container = await ContainerStore.GetAsync(containerId);
                 if (container is null)
+                {
                     errorMessage = "Container not found.";
+                }
+                else if (container.ConnectorType != ConnectorType.ManagedStorage)
+                {
+                    // The un-migrated window is real: the #350 backfill is allowed to fail
+                    // without blocking boot, and skips entirely when another replica holds its
+                    // advisory lock. So a row can still carry a Filesystem, S3 or AzureBlob
+                    // connector type. Before this PR such a container was gated by IsReadOnly or
+                    // its per-container write flags; removing those left only the role check,
+                    // which would have made a legacy filesystem container fully writable here.
+                    // The REST mutation paths already carry the equivalent check.
+                    container = null;
+                    errorMessage = "This is an external source, not a container. "
+                        + "Its contents are searchable but not browsable.";
+                }
                 else
+                {
                     errorMessage = null;
+                }
             }
             else
                 errorMessage = "Invalid container ID.";
