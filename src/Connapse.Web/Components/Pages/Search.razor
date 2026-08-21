@@ -5,6 +5,7 @@
 @using Connapse.Core.Interfaces
 @using Microsoft.Extensions.Options
 @inject IContainerStore ContainerStore
+@inject ISourceStore SourceStore
 @inject IKnowledgeSearch SearchService
 @inject IOptionsMonitor<SearchSettings> SearchSettings
 @inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
@@ -28,12 +29,29 @@
                        @onkeypress="HandleKeyPress" />
             </div>
             <div class="col-md-3">
-                <label class="form-label">Container</label>
+                <label class="form-label">Scope</label>
                 <select class="form-select" @bind="selectedContainerId">
-                    <option value="">All containers</option>
-                    @foreach (var c in containers)
+                    <option value="">Everything</option>
+                    @* Grouped rather than merged into one flat list: a container is storage
+                       Connapse owns and a source mirrors somebody else's system, and which one
+                       a result came from changes how much it can be trusted to be current. *@
+                    @if (containers.Count > 0)
                     {
-                        <option value="@c.Id">@c.Name</option>
+                        <optgroup label="Containers">
+                            @foreach (var c in containers)
+                            {
+                                <option value="@c.Id">@c.Name</option>
+                            }
+                        </optgroup>
+                    }
+                    @if (sources.Count > 0)
+                    {
+                        <optgroup label="Sources">
+                            @foreach (var s in sources)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </optgroup>
                     }
                 </select>
             </div>
@@ -178,6 +196,7 @@
     private SearchResult? searchResult;
     private string? errorMessage;
     private List<Container> containers = new();
+    private List<Source> sources = new();
     private string? crossModelInfo;
 
     protected override async Task OnInitializedAsync()
@@ -191,10 +210,15 @@
         try
         {
             containers = (await ContainerStore.ListAsync(take: int.MaxValue)).ToList();
+            sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
 
-            // Auto-select the first container if there's only one
-            if (containers.Count == 1)
+            // Auto-select only when there is exactly one scope in total. Picking the first
+            // container while sources also exist would silently narrow the search to storage
+            // Connapse owns and quietly exclude everything it mirrors.
+            if (containers.Count == 1 && sources.Count == 0)
                 selectedContainerId = containers[0].Id;
+            else if (containers.Count == 0 && sources.Count == 1)
+                selectedContainerId = sources[0].Id.ToString();
         }
         catch { /* Silently ignore - user can still type */ }
     }

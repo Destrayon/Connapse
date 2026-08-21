@@ -17,7 +17,6 @@
 @using Connapse.Web.Services
 @using Microsoft.AspNetCore.SignalR.Client
 @inject IngestionProgressNotifier ProgressNotifier
-@inject FileBrowserChangeNotifier FileChangeNotifier
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
@@ -58,13 +57,13 @@
                 <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
             </li>
         </ul>
-        @if (canEdit && AllowCreateFolder && activeTab == "files")
+        @if (canEdit && activeTab == "files")
         {
             <button class="btn btn-sm btn-outline-primary" @onclick="ShowCreateFolderModal">
                 <span class="bi-folder-plus me-1"></span> New Folder
             </button>
         }
-        @if (canEdit && AllowUpload && activeTab == "files")
+        @if (canEdit && activeTab == "files")
         {
             <label class="btn btn-sm btn-primary upload-btn-label" for="fileUploadInput">
                 <span class="bi-upload me-1"></span> Upload
@@ -175,28 +174,6 @@
                                         ResolvedModelPlaceholder="@LlmOptions.CurrentValue.Model"
                                         ContainerId="@ParseContainerIdOrEmpty()" />
                 </div>
-                @* UI Permissions — Filesystem containers only *@
-                @if (container?.ConnectorType == ConnectorType.Filesystem)
-                {
-                    <div class="col-12 mt-2">
-                        <h6 class="text-accent mb-3">UI Permissions</h6>
-                        <div class="d-flex gap-4 flex-wrap">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="allowUpload" @bind="settingsAllowUpload" disabled="@(!canEdit)" />
-                                <label class="form-check-label" for="allowUpload">Allow Upload</label>
-                            </div>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="allowDelete" @bind="settingsAllowDelete" disabled="@(!canEdit)" />
-                                <label class="form-check-label" for="allowDelete">Allow Delete</label>
-                            </div>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="allowCreateFolder" @bind="settingsAllowCreateFolder" disabled="@(!canEdit)" />
-                                <label class="form-check-label" for="allowCreateFolder">Allow Create Folder</label>
-                            </div>
-                        </div>
-                        <small class="text-muted d-block mt-1">Control which file management actions are available in the UI for this container.</small>
-                    </div>
-                }
             </div>
             <div class="d-flex gap-2 mt-4">
                 @if (canEdit)
@@ -246,13 +223,13 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
             </svg>
-            <p>@(canEdit && (AllowUpload || AllowCreateFolder) ? "This folder is empty. Upload files or create a subfolder." : "This folder is empty.")</p>
+            <p>@(canEdit ? "This folder is empty. Upload files or create a subfolder." : "This folder is empty.")</p>
         </div>
     }
     else
     {
         @* Selection toolbar *@
-        @if (canEdit && AllowDelete && selectedEntryKeys.Count > 0)
+        @if (canEdit && selectedEntryKeys.Count > 0)
         {
             <div class="selection-toolbar">
                 <span class="selection-count">@selectedEntryKeys.Count selected</span>
@@ -271,7 +248,7 @@
         <table class="file-table">
             <thead>
                 <tr>
-                    @if (canEdit && AllowDelete)
+                    @if (canEdit)
                     {
                         <th class="col-check" @onclick="ToggleSelectAll"
                             title="@(AllSelected ? "Unselect all" : "Select all")">
@@ -284,7 +261,7 @@
                     <th class="col-size">Size</th>
                     <th class="col-status">Status</th>
                     <th class="col-modified">Modified</th>
-                    @if (canEdit && AllowDelete)
+                    @if (canEdit)
                     {
                         <th class="col-actions"></th>
                     }
@@ -295,7 +272,7 @@
                 {
                     <tr class="file-row @(entry.IsFolder ? "folder-row" : "") @(IsSelected(entry) ? "row-selected" : "")"
                         @onclick="() => HandleEntryClick(entry)">
-                        @if (canEdit && AllowDelete)
+                        @if (canEdit)
                         {
                             <td class="col-check" @onclick="() => ToggleSelection(entry)"
                                 @onclick:stopPropagation="true">
@@ -364,7 +341,7 @@
                                 @entry.LastModified.Value.ToString("MMM d, yyyy")
                             }
                         </td>
-                        @if (canEdit && AllowDelete)
+                        @if (canEdit)
                         {
                             <td class="col-actions">
                                 <button class="btn btn-sm btn-outline-danger action-btn"
@@ -452,7 +429,7 @@
                 </div>
             }
         </div>
-        @if (canEdit && AllowDelete)
+        @if (canEdit)
         {
             <div class="detail-panel-footer">
                 <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteEntry(selectedBrowseEntry!)">
@@ -464,7 +441,7 @@
 }
 
 @* Create Folder Modal *@
-@if (canEdit && AllowCreateFolder && showFolderModal)
+@if (canEdit && showFolderModal)
 {
     <div class="modal-backdrop" @onclick="HideFolderModal"></div>
     <div class="modal-dialog-centered">
@@ -500,7 +477,7 @@
 }
 
 @* Delete Confirmation Modal *@
-@if (canEdit && AllowDelete && entryToDelete is not null)
+@if (canEdit && entryToDelete is not null)
 {
     <div class="modal-backdrop" @onclick="CancelDeleteEntry"></div>
     <div class="modal-dialog-centered">
@@ -535,7 +512,7 @@
 }
 
 @* Bulk Delete Confirmation Modal *@
-@if (canEdit && AllowDelete && showBulkDeleteModal)
+@if (canEdit && showBulkDeleteModal)
 {
     <div class="modal-backdrop" @onclick="CancelBulkDelete"></div>
     <div class="modal-dialog-centered">
@@ -608,19 +585,11 @@
     private int globalTopK = 10;
     private double globalMinScore = 0.5;
 
+    // The only gate left. IsReadOnly and the three Filesystem permission flags are gone:
+    // this browser serves managed containers exclusively, and Connapse owns every byte in
+    // one. What it does not own is a source, and a source has no file listing at all — so
+    // "may this be written to?" no longer has a per-container answer, only a per-user one.
     private bool canEdit;
-    private FilesystemConnectorConfig? filesystemConfig;
-
-    // Permission helpers — false when the connector is read-only or Filesystem config disables the action
-    private bool IsReadOnly => container?.ConnectorType is ConnectorType.S3 or ConnectorType.AzureBlob;
-    private bool AllowUpload => !IsReadOnly && (filesystemConfig?.AllowUpload ?? true);
-    private bool AllowDelete => !IsReadOnly && (filesystemConfig?.AllowDelete ?? true);
-    private bool AllowCreateFolder => !IsReadOnly && (filesystemConfig?.AllowCreateFolder ?? true);
-
-    // Settings tab — connector permission toggles (Filesystem only)
-    private bool settingsAllowDelete;
-    private bool settingsAllowUpload;
-    private bool settingsAllowCreateFolder;
 
     private Container? container;
     private List<BrowseEntryDto> entries = new();
@@ -647,7 +616,7 @@
 
     // Pending delete tracking — entries in this set are filtered from display.
     // This is the sole coordination mechanism between delete operations and
-    // background handlers (HandleIngestionProgress, OnFileChanged, RefreshEntries).
+    // background handlers (HandleIngestionProgress, RefreshEntries).
     private readonly HashSet<string> _pendingDeleteIds = new();
 
     // Upload tracking (maps JobId to document id for progress updates)
@@ -675,9 +644,6 @@
         // server-to-server SignalR client (which has no auth cookies and fails negotiate).
         ProgressNotifier.ProgressReceived += OnProgressReceived;
         ProgressNotifier.StateChanged += OnStateChanged;
-
-        // Subscribe to real-time file-list changes from the filesystem watcher.
-        FileChangeNotifier.FileChanged += OnFileChanged;
 
         await LoadContainer();
         await LoadEntries();
@@ -780,83 +746,9 @@
     /// Fired by ConnectorWatcherService when a file is added or deleted from a
     /// Filesystem container. Adds/removes the entry in real time without a full reload.
     /// </summary>
-    private async void OnFileChanged(FileBrowserFileEvent ev)
-    {
-        if (_disposed) return;
-        if (ev.ContainerId != ContainerId) return;
-
-        try
-        {
-            await InvokeAsync(() =>
-            {
-            if (ev.IsDeleted)
-            {
-                // Remove by document ID (preferred) or by matching virtual path
-                entries.RemoveAll(e =>
-                    (ev.DocumentId is not null && e.Id == ev.DocumentId) ||
-                    string.Equals(e.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase));
-
-                if (selectedBrowseEntry is not null &&
-                    (string.Equals(selectedBrowseEntry.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase) ||
-                     (ev.DocumentId is not null && selectedBrowseEntry.Id == ev.DocumentId)))
-                {
-                    selectedFile = null;
-                    selectedBrowseEntry = null;
-                }
-            }
-            else
-            {
-                // Only show the file if it lives in the currently browsed directory.
-                // e.g. VirtualPath "/subdir/file.pdf" → dir "/subdir/"
-                //      VirtualPath "/file.pdf"         → dir "/"
-                var trimmed = ev.VirtualPath.TrimStart('/');
-                var lastSlash = trimmed.LastIndexOf('/');
-                var fileVirtualDir = lastSlash < 0 ? "/" : "/" + trimmed[..lastSlash] + "/";
-                var normalizedCurrentPath = currentPath == "/" ? "/" : "/" + currentPath.Trim('/') + "/";
-
-                if (!string.Equals(fileVirtualDir, normalizedCurrentPath, StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                // Update existing entry (re-ingestion) or insert a new one (new file)
-                var existingIdx = entries.FindIndex(e =>
-                    string.Equals(e.Path, ev.VirtualPath, StringComparison.OrdinalIgnoreCase) ||
-                    (ev.DocumentId is not null && e.Id == ev.DocumentId));
-
-                if (existingIdx >= 0)
-                {
-                    entries[existingIdx] = entries[existingIdx] with { Status = "Queued", Id = ev.DocumentId };
-                }
-                else
-                {
-                    var newEntry = new BrowseEntryDto(
-                        ev.FileName,
-                        ev.VirtualPath,
-                        false,
-                        null,
-                        DateTime.UtcNow,
-                        "Queued",
-                        ev.DocumentId);
-
-                    var insertIdx = entries.FindIndex(e =>
-                        !e.IsFolder &&
-                        string.Compare(e.Name, ev.FileName, StringComparison.OrdinalIgnoreCase) > 0);
-                    if (insertIdx < 0) insertIdx = entries.Count;
-                    entries.Insert(insertIdx, newEntry);
-                }
-            }
-
-            StateHasChanged();
-        });
-        }
-        catch (Exception)
-        {
-            // Swallow to prevent async void from crashing the Blazor circuit.
-        }
-    }
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (canEdit && AllowUpload && !jsInitialized && !isLoading)
+        if (canEdit && !jsInitialized && !isLoading)
         {
             try
             {
@@ -956,7 +848,7 @@
                 if (container is null)
                     errorMessage = "Container not found.";
                 else
-                    filesystemConfig = ParseFilesystemConfig(container);
+                    errorMessage = null;
             }
             else
                 errorMessage = "Invalid container ID.";
@@ -966,19 +858,6 @@
             // Transient error (e.g. DB timeout under ingestion load) — don't clobber the
             // container that was already loaded; just log silently and leave state as-is.
         }
-    }
-
-    private static FilesystemConnectorConfig? ParseFilesystemConfig(Container? container)
-    {
-        if (container?.ConnectorType != ConnectorType.Filesystem || string.IsNullOrEmpty(container.ConnectorConfig))
-            return null;
-        try
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<FilesystemConnectorConfig>(
-                container.ConnectorConfig,
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        }
-        catch { return null; }
     }
 
     private async Task LoadEntries()
@@ -1748,11 +1627,6 @@
             // Summary: fall back to resolved (global) value when no per-container override
             var globalSummary = await SettingsResolver.GetSummarySettingsAsync(containerId);
             summarySettings = overrides?.Summary ?? globalSummary;
-
-            // Filesystem permission toggles
-            settingsAllowUpload = filesystemConfig?.AllowUpload ?? true;
-            settingsAllowDelete = filesystemConfig?.AllowDelete ?? true;
-            settingsAllowCreateFolder = filesystemConfig?.AllowCreateFolder ?? true;
         }
         catch (Exception ex)
         {
@@ -1805,22 +1679,6 @@
             };
 
             await ContainerStore.SaveSettingsOverridesAsync(containerId, overrides);
-
-            // Persist Filesystem permission toggles
-            if (container?.ConnectorType == ConnectorType.Filesystem && filesystemConfig is not null)
-            {
-                var updatedConfig = filesystemConfig with
-                {
-                    AllowDelete = settingsAllowDelete,
-                    AllowUpload = settingsAllowUpload,
-                    AllowCreateFolder = settingsAllowCreateFolder
-                };
-                var configJson = System.Text.Json.JsonSerializer.Serialize(updatedConfig,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
-                await ContainerStore.UpdateConnectorConfigAsync(containerId, configJson);
-                filesystemConfig = updatedConfig;
-                container = container with { ConnectorConfig = configJson };
-            }
 
             settingsSaved = true;
         }
@@ -1892,7 +1750,6 @@
         _rollupPollCts?.Dispose();
         ProgressNotifier.ProgressReceived -= OnProgressReceived;
         ProgressNotifier.StateChanged -= OnStateChanged;
-        FileChangeNotifier.FileChanged -= OnFileChanged;
         if (_hubConnection is not null)
         {
             try { await _hubConnection.DisposeAsync(); }

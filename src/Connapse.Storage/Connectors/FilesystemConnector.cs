@@ -8,19 +8,21 @@ using Connapse.Core.Utilities;
 namespace Connapse.Storage.Connectors;
 
 /// <summary>
-/// Per-container configuration stored as JSON in containers.connector_config.
+/// Scope for a filesystem source: where to read from and what to pick up.
+/// <para>
+/// The AllowUpload, AllowDelete, and AllowCreateFolder flags are gone (#352). They existed
+/// when a filesystem directory could be a browsable container, and encoded a per-container
+/// answer to "may this be written to?". A filesystem directory is now a source, and the rule
+/// is uniform with no exceptions: if Connapse does not own the bytes, they are not mutated
+/// through Connapse. The flags were UI hints rather than enforcement in any case — write
+/// capability is a type guarantee now, since only MinioConnector implements IWritableConnector.
+/// </para>
 /// </summary>
 public record FilesystemConnectorConfig
 {
     public string RootPath { get; init; } = "";
     public IReadOnlyList<string> IncludePatterns { get; init; } = [];
     public IReadOnlyList<string> ExcludePatterns { get; init; } = [];
-    /// <summary>When false, hides delete buttons in the UI for this container.</summary>
-    public bool AllowDelete { get; init; } = true;
-    /// <summary>When false, hides the upload button and disables drag-and-drop for this container.</summary>
-    public bool AllowUpload { get; init; } = true;
-    /// <summary>When false, hides the New Folder button for this container.</summary>
-    public bool AllowCreateFolder { get; init; } = true;
 }
 
 /// <summary>
