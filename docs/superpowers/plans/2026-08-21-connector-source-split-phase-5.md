@@ -1,11 +1,11 @@
-# Phase 5 — Remove compatibility shims and drop the connector columns
+﻿# Phase 5 — Remove compatibility shims and drop the connector columns
 
 Closes #353, and with it epic #348. Milestone v0.4.0.
 
 ## The decision this phase rests on
 
 Dropping `containers.connector_type` and `containers.connector_config` is only safe if the
-#350 backfill has already turned every external container into a source. It has not run
+backfill from issue #350 has already turned every external container into a source. It has not run
 anywhere: the backfill shipped in this same unreleased milestone, and the latest release is
 v0.3.2 from March. Worse, `MigrateAsync()` runs in the startup block before hosted services
 start, so a drop migration would remove the columns *before* the backfill ever read them.

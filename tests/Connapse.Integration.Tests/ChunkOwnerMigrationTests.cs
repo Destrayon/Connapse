@@ -10,17 +10,19 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// Applies the composite-owner FK migration to a database that already holds documents,
-/// chunks and vectors.
+/// Applies migrations to a database that already holds documents, chunks and vectors — the
+/// composite-owner FK, and the #353 drop of the container connector columns.
 /// <para>
-/// Every other test starts from an empty schema, so the constraint had only ever been added
-/// to empty tables — the upgrade path rested on reasoning about <c>NOT VALID</c> rather than
-/// on evidence. This runs the real upgrade: migrate to the release before it, write rows the
-/// way an existing deployment would hold them, then migrate the rest of the way.
+/// Every other test starts from an empty schema, so both had only ever been applied to empty
+/// tables and the upgrade path rested on reasoning rather than evidence. This runs the real
+/// upgrade: migrate to a release before them, write rows the way an existing deployment would
+/// hold them, then migrate the rest of the way.
 /// </para>
 /// <para>
 /// Owns a PostgreSQL container because it must control which migrations have been applied;
-/// the shared fixture arrives already at head.
+/// the shared fixture arrives already at head. That is also why the contexts here are built
+/// from explicit options rather than resolved from <c>IDbContextFactory</c> — the injected
+/// factory points at the shared database, which is exactly the one this cannot use.
 /// </para>
 /// </summary>
 [Trait("Category", "Integration")]
@@ -102,6 +104,54 @@ public class ChunkOwnerMigrationTests : IAsyncLifetime
         // The pre-existing bad row is still there — tolerated, not silently repaired.
         (await context.Chunks.CountAsync(c => c.DocumentId == divergedDocument))
             .Should().Be(1, "the migration must not delete or rewrite data behind the operator's back");
+    }
+
+    [Fact]
+    public async Task DropConnectorColumns_OnPopulatedDatabase_RemovesThemAndKeepsRows()
+    {
+        // The only place the #353 drop runs over a database that already holds rows. Every
+        // other test builds its schema from empty, so "the columns can be dropped" and "the
+        // rows survive it" were both true only by inference. The MigrateAsync above happens to
+        // apply this migration too; asserting it makes that coverage deliberate rather than
+        // incidental, and pins that the drop is not silently destructive.
+        await using var context = CreateContext();
+        var migrator = context.GetService<IMigrator>();
+
+        await migrator.MigrateAsync(BeforeConstraint);
+
+        var documentId = Guid.NewGuid();
+        var owner = Guid.NewGuid();
+        await SeedOwnedRowsAsync(context, documentId, owner, chunkOwner: owner);
+
+        await migrator.MigrateAsync();
+
+        int remaining = await CountDroppedColumnsAsync(context);
+        remaining.Should().Be(0, "both columns are dropped by 20260822041224_DropContainerConnectorColumns");
+
+        (await context.Containers.CountAsync(c => c.Id == owner))
+            .Should().Be(1, "dropping a column must not take the row with it");
+
+        (await context.Chunks.CountAsync(c => c.DocumentId == documentId))
+            .Should().Be(1, "nor anything the container owned");
+    }
+
+    /// <summary>
+    /// Asks the database how many of the two dropped columns still exist. Raw SQL against
+    /// <c>information_schema</c> rather than the model, because the model already believes they
+    /// are gone — only the database can answer whether the migration actually removed them.
+    /// </summary>
+    private static async Task<int> CountDroppedColumnsAsync(KnowledgeDbContext context)
+    {
+        var connection = context.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT count(*) FROM information_schema.columns "
+            + "WHERE table_name = 'containers' AND column_name IN ('connector_type', 'connector_config')";
+
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     [Fact]

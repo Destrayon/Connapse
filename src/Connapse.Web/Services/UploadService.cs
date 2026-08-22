@@ -4,16 +4,15 @@ using Connapse.Core.Utilities;
 
 namespace Connapse.Web.Services;
 
-public class UploadService : IUploadService
+public class UploadService(
+    IContainerStore containerStore,
+    IManagedStorageProvider managedStorage,
+    IFolderStore folderStore,
+    IIngestionQueue ingestionQueue,
+    IDocumentStore documentStore,
+    IFileTypeValidator fileTypeValidator,
+    IAuditLogger auditLogger) : IUploadService
 {
-    private readonly IContainerStore _containerStore;
-    private readonly IManagedStorageProvider _managedStorage;
-    private readonly IFolderStore _folderStore;
-    private readonly IIngestionQueue _ingestionQueue;
-    private readonly IDocumentStore _documentStore;
-    private readonly IFileTypeValidator _fileTypeValidator;
-    private readonly IAuditLogger _auditLogger;
-
     private static readonly Dictionary<string, string> ContentTypeMap = new(StringComparer.OrdinalIgnoreCase)
     {
         [".txt"] = "text/plain",
@@ -30,24 +29,6 @@ public class UploadService : IUploadService
         [".htm"] = "text/html",
     };
 
-    public UploadService(
-        IContainerStore containerStore,
-        IManagedStorageProvider managedStorage,
-        IFolderStore folderStore,
-        IIngestionQueue ingestionQueue,
-        IDocumentStore documentStore,
-        IFileTypeValidator fileTypeValidator,
-        IAuditLogger auditLogger)
-    {
-        _containerStore = containerStore;
-        _managedStorage = managedStorage;
-        _folderStore = folderStore;
-        _ingestionQueue = ingestionQueue;
-        _documentStore = documentStore;
-        _fileTypeValidator = fileTypeValidator;
-        _auditLogger = auditLogger;
-    }
-
     public async Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default)
     {
         // 1-4: Input validation (cheap, no I/O)
@@ -56,13 +37,13 @@ public class UploadService : IUploadService
             return new UploadResult(false, Error: validationError);
 
         // 5: Container existence
-        var container = await _containerStore.GetAsync(request.ContainerId, ct);
+        var container = await containerStore.GetAsync(request.ContainerId, ct);
         if (container is null)
             return new UploadResult(false, Error: "Container not found.");
 
         // 6: Write access. Managed storage is the only writable backend, so resolving an
         // IWritableConnector *is* the permission check, so no runtime guard is needed.
-        if (_managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
+        if (managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new UploadResult(false, Error: "This container is not writable.");
 
         return await ExecuteUploadAsync(request, container, connector, null, ct);
@@ -71,12 +52,12 @@ public class UploadService : IUploadService
     public async Task<BulkUploadResult> BulkUploadAsync(BulkUploadRequest request, CancellationToken ct = default)
     {
         // Container-level validation (once)
-        var container = await _containerStore.GetAsync(request.ContainerId, ct);
+        var container = await containerStore.GetAsync(request.ContainerId, ct);
         if (container is null)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "Container not found.")).ToList());
 
-        if (_managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
+        if (managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "This container is not writable.")).ToList());
 
@@ -128,9 +109,9 @@ public class UploadService : IUploadService
                 return $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels.";
         }
 
-        if (!_fileTypeValidator.IsSupported(request.FileName))
+        if (!fileTypeValidator.IsSupported(request.FileName))
         {
-            var supported = string.Join(", ", _fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+            var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
             return $"Unsupported file extension. Supported types: {supported}";
         }
 
@@ -164,20 +145,20 @@ public class UploadService : IUploadService
         // Ensure intermediate folders
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
         if (folderPath != "/")
-            await EnsureIntermediateFoldersAsync(_folderStore, request.ContainerId, folderPath, ct);
+            await EnsureIntermediateFoldersAsync(folderStore, request.ContainerId, folderPath, ct);
 
         // Resolve job path
         var jobPath = connector.ResolveJobPath(relativePath);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
-        var existingDoc = await _documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
+        var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
         if (existingDoc is not null)
-            await _ingestionQueue.CancelJobForDocumentAsync(existingDoc.Id);
+            await ingestionQueue.CancelJobForDocumentAsync(existingDoc.Id);
 
         // Eagerly create/update the document row. The upsert atomically increments
         // the generation counter, so any in-flight job for a prior generation will
         // detect it's stale and skip chunk insertion.
-        var storeResult = await _documentStore.StoreAsync(new Document(
+        var storeResult = await documentStore.StoreAsync(new Document(
             documentId,
             request.ContainerId.ToString(),
             request.FileName,
@@ -223,10 +204,10 @@ public class UploadService : IUploadService
             Generation: storeResult.Generation,
             BatchId: batchId);
 
-        await _ingestionQueue.EnqueueAsync(job, ct);
+        await ingestionQueue.EnqueueAsync(job, ct);
 
         // Audit log
-        await _auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
+        await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
             new { FileName = request.FileName, ContainerId = request.ContainerId, Via = request.IngestedVia }, ct);
 
         return new UploadResult(true, winnerDocId, jobId);
