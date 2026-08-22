@@ -19,21 +19,17 @@ public record Container(
     string Id,
     string Name,
     string? Description,
-    ConnectorType ConnectorType,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
     ContainerSettingsOverrides? SettingsOverrides = null,
-    string? ConnectorConfig = null,
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
     string? SummaryDocSetHash = null);
 
 public record CreateContainerRequest(
     string Name,
-    string? Description = null,
-    ConnectorType ConnectorType = ConnectorType.ManagedStorage,
-    string? ConnectorConfig = null);
+    string? Description = null);
 
 public record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
@@ -154,7 +154,6 @@ public class McpToolsBulkDeleteTests
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,
-        ConnectorType: type,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 

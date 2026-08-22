@@ -1,4 +1,4 @@
-@page "/containers/{ContainerId}"
+﻿@page "/containers/{ContainerId}"
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Connapse.Core
@@ -11,7 +11,6 @@
 @inject IDocumentStore DocumentStore
 @inject IFolderStore FolderStore
 @inject IKnowledgeFileSystem FileSystem
-@inject IConnectorFactory ConnectorFactory
 @inject IIngestionQueue IngestionQueue
 @inject IContainerSettingsResolver SettingsResolver
 @using Connapse.Web.Services
@@ -845,27 +844,10 @@
             if (Guid.TryParse(ContainerId, out var containerId))
             {
                 container = await ContainerStore.GetAsync(containerId);
-                if (container is null)
-                {
-                    errorMessage = "Container not found.";
-                }
-                else if (container.ConnectorType != ConnectorType.ManagedStorage)
-                {
-                    // The un-migrated window is real: the #350 backfill is allowed to fail
-                    // without blocking boot, and skips entirely when another replica holds its
-                    // advisory lock. So a row can still carry a Filesystem, S3 or AzureBlob
-                    // connector type. Before this PR such a container was gated by IsReadOnly or
-                    // its per-container write flags; removing those left only the role check,
-                    // which would have made a legacy filesystem container fully writable here.
-                    // The REST mutation paths already carry the equivalent check.
-                    container = null;
-                    errorMessage = "This is an external source, not a container. "
-                        + "Its contents are searchable but not browsable.";
-                }
-                else
-                {
-                    errorMessage = null;
-                }
+                // A source id simply does not resolve here any more: sources live in their own
+                // table and this store only reads containers. The guard that used to catch an
+                // un-migrated external container went with the column it read (#353).
+                errorMessage = container is null ? "Container not found." : null;
             }
             else
                 errorMessage = "Invalid container ID.";
@@ -938,17 +920,6 @@
         if (!Guid.TryParse(ContainerId, out var containerId))
             return new();
 
-        // For Filesystem containers, enumerate directly from disk and overlay DB status.
-        if (container?.ConnectorType == ConnectorType.Filesystem)
-        {
-            try
-            {
-                var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
-                return await FetchFilesystemBrowseEntries(fsConnector, containerId);
-            }
-            catch { /* Fall through to DB listing if connector config is invalid */ }
-        }
-
         var browsePath = PathUtilities.NormalizeFolderPath(currentPath);
         var result = new List<BrowseEntryDto>();
 
@@ -970,60 +941,6 @@
                 doc.FileName, doc.Path, IsFolder: false, SizeBytes: doc.SizeBytes,
                 LastModified: doc.CreatedAt, Status: doc.Metadata.GetValueOrDefault("Status"),
                 Id: doc.Id, IngestionState: doc.IngestionState, ContentType: doc.ContentType));
-        }
-
-        result.Sort((a, b) =>
-        {
-            if (a.IsFolder != b.IsFolder) return a.IsFolder ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-        });
-
-        return result;
-    }
-
-    /// <summary>
-    /// For Filesystem containers: list directories and files directly from disk.
-    /// Overlays document status from the DB by matching absolute paths.
-    /// </summary>
-    private async Task<List<BrowseEntryDto>> FetchFilesystemBrowseEntries(FilesystemConnector connector, Guid containerId)
-    {
-        var rootPath = connector.RootPath;
-
-        // Convert the current virtual path (/subfolder/) to an absolute disk path
-        var absCurrentPath = currentPath == "/"
-            ? rootPath
-            : Path.Combine(rootPath, currentPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar));
-
-        var result = new List<BrowseEntryDto>();
-
-        if (!Directory.Exists(absCurrentPath))
-            return result;
-
-        // Subdirectories → virtual path (/subfolder/) for navigation
-        foreach (var dir in Directory.EnumerateDirectories(absCurrentPath))
-        {
-            var info = new DirectoryInfo(dir);
-            var rel = Path.GetRelativePath(rootPath, dir).Replace('\\', '/');
-            result.Add(new BrowseEntryDto(info.Name, "/" + rel + "/", true, null, info.LastWriteTimeUtc, null, null));
-        }
-
-        // Files → look up DB document by virtual path to get ingestion status
-        foreach (var file in Directory.EnumerateFiles(absCurrentPath))
-        {
-            var info = new FileInfo(file);
-            var rel = Path.GetRelativePath(rootPath, file).Replace('\\', '/');
-            var virtualPath = "/" + rel;
-            var doc = await DocumentStore.GetByPathAsync(containerId, virtualPath);
-            result.Add(new BrowseEntryDto(
-                info.Name,
-                virtualPath,
-                false,
-                info.Length,
-                info.LastWriteTimeUtc,
-                doc?.Metadata.GetValueOrDefault("Status"),
-                doc?.Id,
-                doc?.IngestionState,
-                doc?.ContentType));
         }
 
         result.Sort((a, b) =>
@@ -1304,22 +1221,6 @@
 
             var folderPath = PathUtilities.NormalizeFolderPath(currentPath + newFolderName.Trim().TrimEnd('/') + "/");
 
-            if (container?.ConnectorType == ConnectorType.Filesystem)
-            {
-                // Filesystem containers: create the directory on disk; no DB folder record needed.
-                try
-                {
-                    var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
-                    var relPath = folderPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar);
-                    Directory.CreateDirectory(Path.Combine(fsConnector.RootPath, relPath));
-                }
-                catch (Exception ex)
-                {
-                    folderError = $"Failed to create directory: {ex.Message}";
-                    return;
-                }
-            }
-            else
             {
                 if (await FolderStore.ExistsAsync(containerId, folderPath))
                 {
@@ -1423,29 +1324,6 @@
     {
         var normalizedPath = PathUtilities.NormalizeFolderPath(entry.Path);
 
-        if (container?.ConnectorType == ConnectorType.Filesystem)
-        {
-            // Delete the directory from disk; the watcher will remove associated DB docs async,
-            // but we also clean them up here for immediate UI consistency.
-            try
-            {
-                var fsConnector = (FilesystemConnector)ConnectorFactory.Create(container);
-                var relPath = normalizedPath.TrimStart('/').TrimEnd('/').Replace('/', Path.DirectorySeparatorChar);
-                var absPath = Path.Combine(fsConnector.RootPath, relPath);
-                if (Directory.Exists(absPath))
-                    Directory.Delete(absPath, recursive: true);
-            }
-            catch { /* Directory already deleted or not found */ }
-
-            // Cancel in-flight jobs and remove documents from DB
-            var fsDocs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
-            foreach (var doc in fsDocs)
-            {
-                await IngestionQueue.CancelJobForDocumentAsync(doc.Id);
-                await DocumentStore.DeleteAsync(doc.Id);
-            }
-        }
-        else
         {
             var docs = await DocumentStore.ListAsync(containerId, pathPrefix: normalizedPath);
 

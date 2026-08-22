@@ -2,8 +2,6 @@ namespace Connapse.Core.Interfaces;
 
 public interface IConnectorFactory
 {
-    IConnector Create(Container container);
-
     /// <summary>
     /// Builds a read-only connector for a source by recombining its connection's credential
     /// and endpoint with the source's own scope — what a container held in a single

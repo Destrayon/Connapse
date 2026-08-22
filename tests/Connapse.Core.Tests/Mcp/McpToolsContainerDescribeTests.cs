@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
@@ -47,7 +47,7 @@ public class McpToolsContainerDescribeTests
 
         result.Should().Contain("Container: research-papers");
         result.Should().Contain($"ID: {ContainerId}");
-        result.Should().Contain("Type: ManagedStorage");
+        result.Should().Contain("Type: managed storage");
         result.Should().Contain("Description: Academic research papers");
         result.Should().Contain("Summary: A collection of AI and machine learning research.");
         result.Should().Contain("Summary generated:");
@@ -148,7 +148,6 @@ public class McpToolsContainerDescribeTests
             Id: ContainerId.ToString(),
             Name: "research-papers",
             Description: description,
-            ConnectorType: ConnectorType.ManagedStorage,
             CreatedAt: new DateTime(2026, 1, 10, 8, 0, 0, DateTimeKind.Utc),
             UpdatedAt: new DateTime(2026, 4, 1, 9, 0, 0, DateTimeKind.Utc),
             Summary: summary,

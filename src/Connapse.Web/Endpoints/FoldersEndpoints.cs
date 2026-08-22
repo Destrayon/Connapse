@@ -1,5 +1,4 @@
-using System.Security.Claims;
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Microsoft.AspNetCore.Mvc;
@@ -15,29 +14,15 @@ public static class FoldersEndpoints
 
         // POST /api/containers/{containerId}/folders - Create folder
         group.MapPost("/", async (
-            HttpContext httpContext,
             Guid containerId,
             [FromBody] CreateFolderRequest request,
             [FromServices] IContainerStore containerStore,
             [FromServices] IFolderStore folderStore,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            // Backfill safety net (#350/#351): a legacy external container can still exist if
-            // the startup backfill has not succeeded. Its contents mirror someone else's
-            // system and must stay immutable. Cloud scope does not cover this — it is an
-            // access check and would pass for a user with a linked identity.
-            if (container.ConnectorType != ConnectorType.ManagedStorage)
-                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
-
-            // Cloud scope enforcement
-            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeResult is { HasAccess: false })
-                return CloudAccessDenied(scopeResult, containerId);
 
             if (string.IsNullOrWhiteSpace(request.Path))
                 return Results.BadRequest(new { error = "Folder path is required" });
@@ -51,15 +36,6 @@ public static class FoldersEndpoints
                 return Results.BadRequest(new { error = "path_too_deep", message = $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels" });
 
             var normalizedPath = PathUtilities.NormalizeFolderPath(request.Path);
-
-            // Verify path is within allowed prefixes
-            if (scopeResult is not null && !scopeResult.IsPathAllowed(normalizedPath))
-                return Results.Json(new
-                {
-                    error = "cloud_scope_violation",
-                    message = "You do not have access to create folders at this path.",
-                    allowedPrefixes = scopeResult.AllowedPrefixes
-                }, statusCode: 403);
 
             if (normalizedPath == "/")
                 return Results.BadRequest(new { error = "Cannot create root folder" });
@@ -75,7 +51,6 @@ public static class FoldersEndpoints
 
         // DELETE /api/containers/{containerId}/folders - Delete folder
         group.MapDelete("/", async (
-            HttpContext httpContext,
             Guid containerId,
             [FromQuery] string path,
             [FromQuery] bool cascade,
@@ -84,38 +59,16 @@ public static class FoldersEndpoints
             [FromServices] IDocumentStore documentStore,
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            // Backfill safety net (#350/#351): a legacy external container can still exist if
-            // the startup backfill has not succeeded. Its contents mirror someone else's
-            // system and must stay immutable. Cloud scope does not cover this — it is an
-            // access check and would pass for a user with a linked identity.
-            if (container.ConnectorType != ConnectorType.ManagedStorage)
-                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
-
-            // Cloud scope enforcement
-            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeResult is { HasAccess: false })
-                return CloudAccessDenied(scopeResult, containerId);
-
             if (string.IsNullOrWhiteSpace(path))
                 return Results.BadRequest(new { error = "Folder path is required" });
 
             var normalizedPath = PathUtilities.NormalizeFolderPath(path);
-
-            // Verify path is within allowed prefixes
-            if (scopeResult is not null && !scopeResult.IsPathAllowed(normalizedPath))
-                return Results.Json(new
-                {
-                    error = "cloud_scope_violation",
-                    message = "You do not have access to delete folders at this path.",
-                    allowedPrefixes = scopeResult.AllowedPrefixes
-                }, statusCode: 403);
 
             if (!await folderStore.ExistsAsync(containerId, normalizedPath, ct))
                 return Results.NotFound(new { error = $"Folder '{normalizedPath}' not found" });
@@ -145,29 +98,6 @@ public static class FoldersEndpoints
         .WithDescription("Delete a folder, optionally cascading to nested files and subfolders");
 
         return app;
-    }
-
-    private static async Task<CloudScopeResult?> ResolveCloudScope(
-        HttpContext httpContext, Container container,
-        ICloudScopeService cloudScopeService, CancellationToken ct)
-    {
-        var userId = GetUserId(httpContext);
-        if (userId is null) return null;
-        return await cloudScopeService.GetScopesAsync(userId.Value, container, ct);
-    }
-
-    private static IResult CloudAccessDenied(CloudScopeResult scopeResult, Guid containerId) =>
-        Results.Json(new
-        {
-            error = "cloud_access_denied",
-            message = scopeResult.Error ?? "Access denied.",
-            containerId = containerId.ToString()
-        }, statusCode: 403);
-
-    private static Guid? GetUserId(HttpContext httpContext)
-    {
-        var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(idClaim, out var userId) ? userId : null;
     }
 }
 

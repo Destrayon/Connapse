@@ -1,20 +1,18 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 
 namespace Connapse.Web.Services;
 
-public class UploadService : IUploadService
+public class UploadService(
+    IContainerStore containerStore,
+    IManagedStorageProvider managedStorage,
+    IFolderStore folderStore,
+    IIngestionQueue ingestionQueue,
+    IDocumentStore documentStore,
+    IFileTypeValidator fileTypeValidator,
+    IAuditLogger auditLogger) : IUploadService
 {
-    private readonly IContainerStore _containerStore;
-    private readonly IConnectorFactory _connectorFactory;
-    private readonly IFolderStore _folderStore;
-    private readonly IIngestionQueue _ingestionQueue;
-    private readonly IDocumentStore _documentStore;
-    private readonly IFileTypeValidator _fileTypeValidator;
-    private readonly ICloudScopeService _cloudScopeService;
-    private readonly IAuditLogger _auditLogger;
-
     private static readonly Dictionary<string, string> ContentTypeMap = new(StringComparer.OrdinalIgnoreCase)
     {
         [".txt"] = "text/plain",
@@ -31,26 +29,6 @@ public class UploadService : IUploadService
         [".htm"] = "text/html",
     };
 
-    public UploadService(
-        IContainerStore containerStore,
-        IConnectorFactory connectorFactory,
-        IFolderStore folderStore,
-        IIngestionQueue ingestionQueue,
-        IDocumentStore documentStore,
-        IFileTypeValidator fileTypeValidator,
-        ICloudScopeService cloudScopeService,
-        IAuditLogger auditLogger)
-    {
-        _containerStore = containerStore;
-        _connectorFactory = connectorFactory;
-        _folderStore = folderStore;
-        _ingestionQueue = ingestionQueue;
-        _documentStore = documentStore;
-        _fileTypeValidator = fileTypeValidator;
-        _cloudScopeService = cloudScopeService;
-        _auditLogger = auditLogger;
-    }
-
     public async Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default)
     {
         // 1-4: Input validation (cheap, no I/O)
@@ -59,24 +37,14 @@ public class UploadService : IUploadService
             return new UploadResult(false, Error: validationError);
 
         // 5: Container existence
-        var container = await _containerStore.GetAsync(request.ContainerId, ct);
+        var container = await containerStore.GetAsync(request.ContainerId, ct);
         if (container is null)
             return new UploadResult(false, Error: "Container not found.");
 
         // 6: Write access. Managed storage is the only writable backend, so resolving an
-        // IWritableConnector *is* the permission check, so no runtime guard is needed. This
-        // cannot fail for a real container: creation is restricted to ManagedStorage and
-        // the Phase 2 backfill moved every external one to a source.
-        if (_connectorFactory.Create(container) is not IWritableConnector connector)
+        // IWritableConnector *is* the permission check, so no runtime guard is needed.
+        if (managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new UploadResult(false, Error: "This container is not writable.");
-
-        // 7: Cloud scope enforcement
-        if (request.UserId.HasValue)
-        {
-            var scope = await _cloudScopeService.GetScopesAsync(request.UserId.Value, container, ct);
-            if (scope is not null && !scope.HasAccess)
-                return new UploadResult(false, Error: "Access denied by cloud identity scope.");
-        }
 
         return await ExecuteUploadAsync(request, container, connector, null, ct);
     }
@@ -84,24 +52,14 @@ public class UploadService : IUploadService
     public async Task<BulkUploadResult> BulkUploadAsync(BulkUploadRequest request, CancellationToken ct = default)
     {
         // Container-level validation (once)
-        var container = await _containerStore.GetAsync(request.ContainerId, ct);
+        var container = await containerStore.GetAsync(request.ContainerId, ct);
         if (container is null)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "Container not found.")).ToList());
 
-        if (_connectorFactory.Create(container) is not IWritableConnector connector)
+        if (managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "This container is not writable.")).ToList());
-
-        // Cloud scope (once for the container)
-        var firstUserId = request.Files.FirstOrDefault()?.UserId;
-        if (firstUserId.HasValue)
-        {
-            var scope = await _cloudScopeService.GetScopesAsync(firstUserId.Value, container, ct);
-            if (scope is not null && !scope.HasAccess)
-                return new BulkUploadResult(0, request.Files.Count, Results: request.Files
-                    .Select(_ => new UploadResult(false, Error: "Access denied by cloud identity scope.")).ToList());
-        }
 
         var batchId = Guid.NewGuid().ToString();
         var results = new List<UploadResult>();
@@ -151,9 +109,9 @@ public class UploadService : IUploadService
                 return $"Path exceeds maximum depth of {ValidationConstants.MaxPathDepth} levels.";
         }
 
-        if (!_fileTypeValidator.IsSupported(request.FileName))
+        if (!fileTypeValidator.IsSupported(request.FileName))
         {
-            var supported = string.Join(", ", _fileTypeValidator.SupportedExtensions.OrderBy(e => e));
+            var supported = string.Join(", ", fileTypeValidator.SupportedExtensions.OrderBy(e => e));
             return $"Unsupported file extension. Supported types: {supported}";
         }
 
@@ -187,20 +145,20 @@ public class UploadService : IUploadService
         // Ensure intermediate folders
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
         if (folderPath != "/")
-            await EnsureIntermediateFoldersAsync(_folderStore, request.ContainerId, folderPath, ct);
+            await EnsureIntermediateFoldersAsync(folderStore, request.ContainerId, folderPath, ct);
 
         // Resolve job path
         var jobPath = connector.ResolveJobPath(relativePath);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
-        var existingDoc = await _documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
+        var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
         if (existingDoc is not null)
-            await _ingestionQueue.CancelJobForDocumentAsync(existingDoc.Id);
+            await ingestionQueue.CancelJobForDocumentAsync(existingDoc.Id);
 
         // Eagerly create/update the document row. The upsert atomically increments
         // the generation counter, so any in-flight job for a prior generation will
         // detect it's stale and skip chunk insertion.
-        var storeResult = await _documentStore.StoreAsync(new Document(
+        var storeResult = await documentStore.StoreAsync(new Document(
             documentId,
             request.ContainerId.ToString(),
             request.FileName,
@@ -246,10 +204,10 @@ public class UploadService : IUploadService
             Generation: storeResult.Generation,
             BatchId: batchId);
 
-        await _ingestionQueue.EnqueueAsync(job, ct);
+        await ingestionQueue.EnqueueAsync(job, ct);
 
         // Audit log
-        await _auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
+        await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
             new { FileName = request.FileName, ContainerId = request.ContainerId, Via = request.IngestedVia }, ct);
 
         return new UploadResult(true, winnerDocId, jobId);

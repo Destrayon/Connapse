@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -126,7 +126,6 @@ public static class DocumentsEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IFolderStore folderStore,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var effectiveSkip = skip ?? 0;
@@ -138,40 +137,13 @@ public static class DocumentsEndpoints
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            // Managed storage only. The #350 backfill is allowed to fail without blocking boot
-            // and skips when another replica holds its advisory lock, so a row can still carry
-            // an external connector type — and browsing one lists every synced object to any
-            // reader, which is the leak epic #348 exists to close. The mutation routes already
-            // refuse these; this is the read side of the same boundary.
-            if (container.ConnectorType != ConnectorType.ManagedStorage)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            // Cloud scope enforcement
-            var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeResult is { HasAccess: false })
-                return CloudAccessDenied(scopeResult, containerId);
-
             var browsePath = PathUtilities.NormalizeFolderPath(path ?? "/");
-
-            // If scoped to specific prefixes, block browsing outside allowed areas
-            if (scopeResult is not null && !scopeResult.IsPathAllowed(browsePath))
-                return Results.Json(new
-                {
-                    error = "cloud_scope_violation",
-                    message = "You do not have access to this path.",
-                    allowedPrefixes = scopeResult.AllowedPrefixes
-                }, statusCode: 403);
-
             var entries = new List<BrowseEntry>();
 
             // Get explicit folders at this level (load all — scope filtering is in-memory)
             var folders = await folderStore.ListAsync(containerId, parentPath: browsePath, take: int.MaxValue, ct: ct);
             foreach (var folder in folders)
             {
-                // Filter out folders outside allowed prefixes
-                if (scopeResult is not null && !scopeResult.IsPathAllowed(folder.Path))
-                    continue;
-
                 var folderName = PathUtilities.GetFileName(folder.Path.TrimEnd('/'));
                 entries.Add(new BrowseEntry(
                     Name: folderName,
@@ -190,10 +162,6 @@ public static class DocumentsEndpoints
                 // Only include documents directly at this level (not in subfolders)
                 var docParent = PathUtilities.GetParentPath(doc.Path);
                 if (!string.Equals(docParent, browsePath, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                // Filter out documents outside allowed prefixes
-                if (scopeResult is not null && !scopeResult.IsPathAllowed(doc.Path))
                     continue;
 
                 entries.Add(new BrowseEntry(
@@ -232,18 +200,11 @@ public static class DocumentsEndpoints
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            if (RequireManagedStorage(container, containerId) is { } notManaged) return notManaged;
-
-            // Cloud scope enforcement
-            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeDenied is not null) return scopeDenied;
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
@@ -266,24 +227,11 @@ public static class DocumentsEndpoints
             [FromServices] IKnowledgeFileSystem fileSystem,
             [FromServices] IIngestionQueue ingestionQueue,
             [FromServices] IAuditLogger auditLogger,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            // Backfill safety net (#350/#351). Every container should be managed storage by
-            // now, but the backfill runs at startup and is allowed to fail without blocking
-            // boot, so a legacy external container can still be present. Its contents mirror
-            // someone else's system and must stay immutable. Not covered by cloud scope,
-            // which is an access check and would pass for a user with a linked identity.
-            if (container.ConnectorType != ConnectorType.ManagedStorage)
-                return Results.BadRequest(new { error = "read_only_container", message = $"This container is backed by {container.ConnectorType} and is read-only. It is pending migration to a source." });
-
-            // Cloud scope enforcement
-            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeDenied is not null) return scopeDenied;
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
@@ -323,20 +271,13 @@ public static class DocumentsEndpoints
             string fileId,
             [FromServices] IContainerStore containerStore,
             [FromServices] IDocumentStore documentStore,
-            [FromServices] IConnectorFactory connectorFactory,
+            [FromServices] IManagedStorageProvider managedStorage,
             [FromServices] IEnumerable<IDocumentParser> parsers,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            if (RequireManagedStorage(container, containerId) is { } notManaged) return notManaged;
-
-            // Cloud scope enforcement
-            var scopeDenied = await EnforceCloudScope(httpContext, container, cloudScopeService, ct);
-            if (scopeDenied is not null) return scopeDenied;
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString())
@@ -352,7 +293,7 @@ public static class DocumentsEndpoints
             }
 
             // Read file content from storage
-            var connector = connectorFactory.Create(container);
+            var connector = managedStorage.CreateConnector(container.Id);
             string content;
             try
             {
@@ -458,59 +399,6 @@ public static class DocumentsEndpoints
 
         return app;
     }
-
-    /// <summary>
-    /// Resolves cloud scope for the current user. Returns null for non-cloud containers.
-    /// </summary>
-    private static async Task<CloudScopeResult?> ResolveCloudScope(
-        HttpContext httpContext, Container container,
-        ICloudScopeService cloudScopeService, CancellationToken ct)
-    {
-        var userId = GetUserId(httpContext);
-        if (userId is null) return null;
-        return await cloudScopeService.GetScopesAsync(userId.Value, container, ct);
-    }
-
-    /// <summary>
-    /// Enforces cloud scope: returns a 403 IResult if access is denied, null if allowed or not a cloud container.
-    /// </summary>
-    /// <summary>
-    /// Refuses a container that is not managed storage.
-    /// <para>
-    /// The #350 backfill is allowed to fail without blocking boot and skips entirely when
-    /// another replica holds its advisory lock, so a row can still carry a Filesystem, S3, or
-    /// AzureBlob connector type. Every route that reads a document has to refuse those: listing
-    /// one enumerates somebody else''s system, and reading one returns its bytes. A helper
-    /// rather than the check inlined per route, so the next route added here is one call away
-    /// from being correct instead of one omission away from being a leak.
-    /// </para>
-    /// <para>
-    /// Returns NotFound rather than Forbidden deliberately: as far as the container routes are
-    /// concerned this id is not a container, which is also what a caller passing a source id
-    /// already gets.
-    /// </para>
-    /// </summary>
-    private static IResult? RequireManagedStorage(Container container, Guid containerId) =>
-        container.ConnectorType == ConnectorType.ManagedStorage
-            ? null
-            : Results.NotFound(new { error = $"Container {containerId} not found" });
-    private static async Task<IResult?> EnforceCloudScope(
-        HttpContext httpContext, Container container,
-        ICloudScopeService cloudScopeService, CancellationToken ct)
-    {
-        var scopeResult = await ResolveCloudScope(httpContext, container, cloudScopeService, ct);
-        if (scopeResult is { HasAccess: false })
-            return CloudAccessDenied(scopeResult, Guid.Parse(container.Id));
-        return null;
-    }
-
-    private static IResult CloudAccessDenied(CloudScopeResult scopeResult, Guid containerId) =>
-        Results.Json(new
-        {
-            error = "cloud_access_denied",
-            message = scopeResult.Error ?? "Access denied.",
-            containerId = containerId.ToString()
-        }, statusCode: 403);
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {

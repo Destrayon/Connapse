@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
@@ -19,7 +19,7 @@ public class McpToolsGetDocumentTests
 
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IConnector _connector;
     private readonly IServiceProvider _services;
 
@@ -27,15 +27,15 @@ public class McpToolsGetDocumentTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
-        _connectorFactory = Substitute.For<IConnectorFactory>();
+        _managedStorage = Substitute.For<IManagedStorageProvider>();
         _connector = Substitute.For<IConnector>();
 
         _containerStore
             .GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(MakeContainer());
 
-        _connectorFactory
-            .Create(Arg.Any<Container>())
+        _managedStorage
+            .CreateConnector(Arg.Any<string>())
             .Returns(_connector);
 
         _connector
@@ -45,7 +45,7 @@ public class McpToolsGetDocumentTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IConnectorFactory)).Returns(_connectorFactory);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
         _services = services;
     }
 
@@ -171,7 +171,7 @@ public class McpToolsGetDocumentTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IConnectorFactory)).Returns(_connectorFactory);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(new[] { parser });
 
         var result = await McpTools.GetDocument(services, ContainerId.ToString(), DocId);
@@ -193,7 +193,7 @@ public class McpToolsGetDocumentTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IConnectorFactory)).Returns(_connectorFactory);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(_managedStorage);
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(Array.Empty<IDocumentParser>());
 
         var result = await McpTools.GetDocument(services, ContainerId.ToString(), DocId);
@@ -206,7 +206,6 @@ public class McpToolsGetDocumentTests
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,
-        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Hangfire;
@@ -16,7 +16,7 @@ public sealed class IngestionJobs : IIngestionJobs
     private readonly IKnowledgeIngester _ingester;
     private readonly IDocumentStore _docStore;
     private readonly IContainerStore _containerStore;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IEnumerable<IDocumentParser> _parsers;
     private readonly IPerDocSummarizer _summarizer;
     private readonly IContainerSettingsResolver _settingsResolver;
@@ -28,7 +28,7 @@ public sealed class IngestionJobs : IIngestionJobs
         IKnowledgeIngester ingester,
         IDocumentStore docStore,
         IContainerStore containerStore,
-        IConnectorFactory connectorFactory,
+        IManagedStorageProvider managedStorage,
         IEnumerable<IDocumentParser> parsers,
         IPerDocSummarizer summarizer,
         IContainerSettingsResolver settingsResolver,
@@ -39,7 +39,7 @@ public sealed class IngestionJobs : IIngestionJobs
         _ingester = ingester;
         _docStore = docStore;
         _containerStore = containerStore;
-        _connectorFactory = connectorFactory;
+        _managedStorage = managedStorage;
         _parsers = parsers;
         _summarizer = summarizer;
         _settingsResolver = settingsResolver;
@@ -173,7 +173,7 @@ public sealed class IngestionJobs : IIngestionJobs
                     return;
                 }
 
-                IConnector connector = _connectorFactory.Create(container);
+                IConnector connector = _managedStorage.CreateConnector(container.Id);
                 string jobPath = connector.ResolveJobPath(doc.Path.TrimStart('/'));
                 await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
 

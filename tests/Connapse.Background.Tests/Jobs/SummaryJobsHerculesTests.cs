@@ -1,4 +1,4 @@
-using Connapse.Background.Jobs;
+﻿using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Llm;
@@ -132,7 +132,7 @@ public class SummaryJobsHerculesTests
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
         var vectorStore = Substitute.For<IVectorStore>();
         var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
@@ -141,7 +141,7 @@ public class SummaryJobsHerculesTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
-            vectorStore, perDocSummarizer, connectorFactory, parsers,
+            vectorStore, perDocSummarizer, managedStorage, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         collected = new Mocks(
@@ -173,12 +173,10 @@ public class SummaryJobsHerculesTests
                     Id: id.ToString(),
                     Name: "test",
                     Description: null,
-                    ConnectorType: ConnectorType.Filesystem,
                     CreatedAt: DateTime.UtcNow,
                     UpdatedAt: DateTime.UtcNow,
                     DocumentCount: 0,
                     SettingsOverrides: null,
-                    ConnectorConfig: null,
                     Summary: null,
                     SummaryGeneratedAt: null,
                     SummaryDocSetHash: summaryDocSetHash)));

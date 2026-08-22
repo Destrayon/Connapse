@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
@@ -203,7 +203,6 @@ public class McpToolsContainerListTests
         Id: Guid.NewGuid().ToString(),
         Name: name,
         Description: description,
-        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow,
         DocumentCount: docCount,

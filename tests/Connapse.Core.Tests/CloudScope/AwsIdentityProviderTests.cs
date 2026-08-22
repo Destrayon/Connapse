@@ -10,21 +10,16 @@ public class AwsIdentityProviderTests
 {
     private readonly AwsIdentityProvider _provider = new(NullLogger<AwsIdentityProvider>.Instance);
 
-    private static Container MakeS3Container() => new(
-        Id: Guid.NewGuid().ToString(),
-        Name: "s3-test",
-        Description: null,
-        ConnectorType: ConnectorType.S3,
-
-        CreatedAt: DateTime.UtcNow,
-        UpdatedAt: DateTime.UtcNow,
-        ConnectorConfig: """{"bucketName":"test","region":"us-east-1"}""");
+    // The AWS provider never reads the location: it decides on the SSO account set alone, and
+    // the bucket is irrelevant to that. Passed explicitly so the parameter's presence is
+    // visible rather than defaulted away.
+    private const string S3Config = """{"region":"us-east-1","bucketName":"b"}""";
 
     [Fact]
     public async Task DiscoverScopesAsync_NullPrincipalArn_ReturnsDeny()
     {
         var data = new CloudIdentityData(null, null, null, null, null);
-        var result = await _provider.DiscoverScopesAsync(data, MakeS3Container());
+        var result = await _provider.DiscoverScopesAsync(data, S3Config);
 
         result.HasAccess.Should().BeFalse();
         result.Error.Should().NotBeNullOrEmpty();
@@ -34,7 +29,7 @@ public class AwsIdentityProviderTests
     public async Task DiscoverScopesAsync_NullPrincipalArn_DenyMessageMentionsSso()
     {
         var data = new CloudIdentityData(null, null, null, null, null);
-        var result = await _provider.DiscoverScopesAsync(data, MakeS3Container());
+        var result = await _provider.DiscoverScopesAsync(data, S3Config);
 
         result.Error.Should().Contain("SSO");
     }
@@ -43,7 +38,7 @@ public class AwsIdentityProviderTests
     public async Task DiscoverScopesAsync_EmptyPrincipalArn_ReturnsDeny()
     {
         var data = new CloudIdentityData("", null, null, null, null);
-        var result = await _provider.DiscoverScopesAsync(data, MakeS3Container());
+        var result = await _provider.DiscoverScopesAsync(data, S3Config);
 
         result.HasAccess.Should().BeFalse();
     }

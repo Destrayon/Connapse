@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -177,7 +177,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     /// </summary>
     private sealed class FixedConnectorFactory(IConnector connector) : IConnectorFactory
     {
-        public IConnector Create(Container container) => connector;
         public IConnector Create(Source source, Connection connection) => connector;
     }
 

@@ -36,8 +36,6 @@ public class PostgresContainerStore(
             Id = Guid.NewGuid(),
             Name = name,
             Description = request.Description?.Trim(),
-            ConnectorType = (int)request.ConnectorType,
-            ConnectorConfig = string.IsNullOrEmpty(request.ConnectorConfig) ? null : JsonDocument.Parse(request.ConnectorConfig),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -104,10 +102,10 @@ public class PostgresContainerStore(
         if (entity is null)
             return false;
 
-        var connectorType = (ConnectorType)entity.ConnectorType;
-        var isWatcherOnly = connectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob;
-
-        if (!isWatcherOnly && entity.Documents.Count > 0)
+        // Every container is managed storage now, so the "just stop watching" exemption that
+        // used to apply to Filesystem, S3 and AzureBlob rows has nothing left to apply to.
+        // Deleting a managed container deletes real bytes, which is why it must be empty first.
+        if (entity.Documents.Count > 0)
             throw new InvalidOperationException(
                 $"Container '{entity.Name}' is not empty ({entity.Documents.Count} documents). Delete all files first.");
 
@@ -148,18 +146,6 @@ public class PostgresContainerStore(
             ?? throw new InvalidOperationException($"Container {id} not found.");
 
         entity.SettingsOverridesJson = JsonDocument.Parse(JsonSerializer.Serialize(overrides, JsonOptions));
-        entity.UpdatedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync(ct);
-    }
-
-    public async Task UpdateConnectorConfigAsync(Guid id, string? connectorConfig, CancellationToken ct = default)
-    {
-        await using var context = await factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Containers.FirstOrDefaultAsync(c => c.Id == id, ct)
-            ?? throw new InvalidOperationException($"Container {id} not found.");
-
-        entity.ConnectorConfig = string.IsNullOrEmpty(connectorConfig) ? null : JsonDocument.Parse(connectorConfig);
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
     }
@@ -235,12 +221,10 @@ public class PostgresContainerStore(
             entity.Id.ToString(),
             entity.Name,
             entity.Description,
-            (ConnectorType)entity.ConnectorType,
             entity.CreatedAt,
             entity.UpdatedAt,
             documentCount,
             overrides,
-            entity.ConnectorConfig?.RootElement.GetRawText(),
             entity.Summary,
             entity.SummaryGeneratedAt,
             entity.SummaryDocSetHash);

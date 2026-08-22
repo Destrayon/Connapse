@@ -1,4 +1,4 @@
-using Connapse.Storage.Data;
+﻿using Connapse.Storage.Data;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +22,7 @@ public class OwnerBridgeSchemaTests(SharedWebAppFixture fixture)
     {
         var containerId = Guid.NewGuid();
         await context.Database.ExecuteSqlRawAsync(
-            "INSERT INTO containers (id, name, connector_type, created_at, updated_at) VALUES ({0}, {1}, 0, now(), now())",
+            "INSERT INTO containers (id, name, created_at, updated_at) VALUES ({0}, {1}, now(), now())",
             containerId, ShortName("owner-test"));
         return containerId;
     }

@@ -22,7 +22,7 @@ public class AzureIdentityProvider(ILogger<AzureIdentityProvider> logger) : IClo
 
     public async Task<CloudScopeResult> DiscoverScopesAsync(
         CloudIdentityData identityData,
-        Container container,
+        string? connectorConfigJson,
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(identityData.ObjectId))
@@ -31,12 +31,12 @@ public class AzureIdentityProvider(ILogger<AzureIdentityProvider> logger) : IClo
                 "Azure identity not linked. Connect your Azure account via Profile > Cloud Identities.");
         }
 
-        if (string.IsNullOrEmpty(container.ConnectorConfig))
-            return CloudScopeResult.Deny("Container has no connector configuration.");
+        if (string.IsNullOrEmpty(connectorConfigJson))
+            return CloudScopeResult.Deny("Source has no connector configuration.");
 
-        var config = JsonSerializer.Deserialize<AzureBlobConnectorConfig>(container.ConnectorConfig, JsonOptions);
+        var config = JsonSerializer.Deserialize<AzureBlobConnectorConfig>(connectorConfigJson, JsonOptions);
         if (config is null || string.IsNullOrEmpty(config.StorageAccountName))
-            return CloudScopeResult.Deny("Container connector configuration is invalid.");
+            return CloudScopeResult.Deny("Source connector configuration is invalid.");
 
         try
         {
