@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
@@ -95,7 +95,7 @@ public class McpTools
     }
 
     [McpServerTool(Name = "container_delete", Destructive = true),
-     Description("Delete a container. MinIO containers must be emptied first. Filesystem/S3/Azure files are not deleted — only the index is removed.")]
+     Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here.")]
     public static async Task<string> ContainerDelete(
         IServiceProvider services,
         [Description("Container ID or name")] string containerId,
@@ -404,13 +404,6 @@ public class McpTools
         if (resolvedId is null)
             return $"Error: Container '{containerId}' not found.";
 
-        var containerForDelete = await containerStore.GetAsync(resolvedId.Value, ct);
-
-        // Backfill safety net (#350/#351): a legacy external container can still exist if the
-        // startup backfill has not succeeded, and its contents must stay immutable.
-        if (containerForDelete is not null && containerForDelete.ConnectorType != ConnectorType.ManagedStorage)
-            return $"Error: Container '{containerId}' is backed by {containerForDelete.ConnectorType} and is read-only. It is pending migration to a source.";
-
         var documentStore = services.GetRequiredService<IDocumentStore>();
         var document = await documentStore.GetAsync(fileId, ct);
 
@@ -662,8 +655,8 @@ public class McpTools
         if (container is null)
             return $"Error: Container '{containerId}' could not be loaded.";
 
-        var connectorFactory = services.GetRequiredService<IConnectorFactory>();
-        var connector = connectorFactory.Create(container);
+        var managedStorage = services.GetRequiredService<IManagedStorageProvider>();
+        var connector = managedStorage.CreateConnector(container.Id);
 
         string content;
         try
@@ -764,7 +757,6 @@ public class McpTools
         var models = await modelDiscovery.GetModelsAsync(resolvedId.Value, ct);
 
         var text = $"Container: {container.Name}\n";
-        text += $"Type: {container.ConnectorType}\n";
 
         // Status breakdown only when there are non-ready documents
         if (stats.ProcessingCount > 0 || stats.FailedCount > 0)
@@ -828,7 +820,7 @@ public class McpTools
         }
         else
         {
-            text += $"Type: {container!.ConnectorType}\n";
+            text += "Type: managed storage (browsable and writable)\n";
         }
 
         if (!string.IsNullOrWhiteSpace(owner.Description))

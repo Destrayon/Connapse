@@ -1,4 +1,4 @@
-using Connapse.Core.Interfaces;
+﻿using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using FluentAssertions;
@@ -145,7 +145,6 @@ public class FindContainersWithStaleSummariesTests(SharedWebAppFixture fixture)
         {
             Id = id,
             Name = name,
-            ConnectorType = 0,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SummaryGeneratedAt = containerSummaryAt,

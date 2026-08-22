@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 
@@ -7,12 +7,11 @@ namespace Connapse.Web.Services;
 public class UploadService : IUploadService
 {
     private readonly IContainerStore _containerStore;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IFolderStore _folderStore;
     private readonly IIngestionQueue _ingestionQueue;
     private readonly IDocumentStore _documentStore;
     private readonly IFileTypeValidator _fileTypeValidator;
-    private readonly ICloudScopeService _cloudScopeService;
     private readonly IAuditLogger _auditLogger;
 
     private static readonly Dictionary<string, string> ContentTypeMap = new(StringComparer.OrdinalIgnoreCase)
@@ -33,21 +32,19 @@ public class UploadService : IUploadService
 
     public UploadService(
         IContainerStore containerStore,
-        IConnectorFactory connectorFactory,
+        IManagedStorageProvider managedStorage,
         IFolderStore folderStore,
         IIngestionQueue ingestionQueue,
         IDocumentStore documentStore,
         IFileTypeValidator fileTypeValidator,
-        ICloudScopeService cloudScopeService,
         IAuditLogger auditLogger)
     {
         _containerStore = containerStore;
-        _connectorFactory = connectorFactory;
+        _managedStorage = managedStorage;
         _folderStore = folderStore;
         _ingestionQueue = ingestionQueue;
         _documentStore = documentStore;
         _fileTypeValidator = fileTypeValidator;
-        _cloudScopeService = cloudScopeService;
         _auditLogger = auditLogger;
     }
 
@@ -64,19 +61,9 @@ public class UploadService : IUploadService
             return new UploadResult(false, Error: "Container not found.");
 
         // 6: Write access. Managed storage is the only writable backend, so resolving an
-        // IWritableConnector *is* the permission check, so no runtime guard is needed. This
-        // cannot fail for a real container: creation is restricted to ManagedStorage and
-        // the Phase 2 backfill moved every external one to a source.
-        if (_connectorFactory.Create(container) is not IWritableConnector connector)
+        // IWritableConnector *is* the permission check, so no runtime guard is needed.
+        if (_managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new UploadResult(false, Error: "This container is not writable.");
-
-        // 7: Cloud scope enforcement
-        if (request.UserId.HasValue)
-        {
-            var scope = await _cloudScopeService.GetScopesAsync(request.UserId.Value, container, ct);
-            if (scope is not null && !scope.HasAccess)
-                return new UploadResult(false, Error: "Access denied by cloud identity scope.");
-        }
 
         return await ExecuteUploadAsync(request, container, connector, null, ct);
     }
@@ -89,19 +76,9 @@ public class UploadService : IUploadService
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "Container not found.")).ToList());
 
-        if (_connectorFactory.Create(container) is not IWritableConnector connector)
+        if (_managedStorage.CreateConnector(container.Id) is not IWritableConnector connector)
             return new BulkUploadResult(0, request.Files.Count, Results: request.Files
                 .Select(_ => new UploadResult(false, Error: "This container is not writable.")).ToList());
-
-        // Cloud scope (once for the container)
-        var firstUserId = request.Files.FirstOrDefault()?.UserId;
-        if (firstUserId.HasValue)
-        {
-            var scope = await _cloudScopeService.GetScopesAsync(firstUserId.Value, container, ct);
-            if (scope is not null && !scope.HasAccess)
-                return new BulkUploadResult(0, request.Files.Count, Results: request.Files
-                    .Select(_ => new UploadResult(false, Error: "Access denied by cloud identity scope.")).ToList());
-        }
 
         var batchId = Guid.NewGuid().ToString();
         var results = new List<UploadResult>();

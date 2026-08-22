@@ -1,4 +1,4 @@
-using Connapse.Storage.Data;
+﻿using Connapse.Storage.Data;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -56,7 +56,7 @@ public class ChunkOwnerMigrationTests : IAsyncLifetime
     {
         var containerId = documentOwner;
         await context.Database.ExecuteSqlRawAsync(
-            "INSERT INTO containers (id, name, connector_type, created_at, updated_at) VALUES ({0}, {1}, 0, now(), now()) ON CONFLICT DO NOTHING",
+            "INSERT INTO containers (id, name, created_at, updated_at) VALUES ({0}, {1}, now(), now()) ON CONFLICT DO NOTHING",
             containerId, $"c-{containerId:N}"[..20]);
 
         await context.Database.ExecuteSqlRawAsync(

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
@@ -30,7 +30,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly EmbeddingCache _embeddingCache;
     private readonly IContainerStore _containerStore;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IDocumentStore _documentStore;
     private readonly ILogger<IngestionPipeline> _logger;
 
@@ -74,7 +74,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
         EmbeddingCache embeddingCache,
         IContainerStore containerStore,
-        IConnectorFactory connectorFactory,
+        IManagedStorageProvider managedStorage,
         IDocumentStore documentStore,
         ILogger<IngestionPipeline> logger)
     {
@@ -88,7 +88,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _embeddingSettings = embeddingSettings;
         _embeddingCache = embeddingCache;
         _containerStore = containerStore;
-        _connectorFactory = connectorFactory;
+        _managedStorage = managedStorage;
         _documentStore = documentStore;
         _logger = logger;
     }
@@ -521,7 +521,7 @@ public class IngestionPipeline : IKnowledgeIngester
             ?? throw new InvalidOperationException(
                 $"IngestByIdAsync: container {containerId} not found for document {documentId}");
 
-        IConnector connector = _connectorFactory.Create(container);
+        IConnector connector = _managedStorage.CreateConnector(container.Id);
         string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
 
         await using Stream stream = await connector.ReadFileAsync(jobPath, ct);

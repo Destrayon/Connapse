@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -21,7 +21,7 @@ public class SummaryJobsTests
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
         var vectorStore = Substitute.For<IVectorStore>();
         var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
@@ -35,12 +35,10 @@ public class SummaryJobsTests
                 Id: containerId.ToString(),
                 Name: "test",
                 Description: null,
-                ConnectorType: ConnectorType.Filesystem,
                 CreatedAt: DateTime.UtcNow,
                 UpdatedAt: DateTime.UtcNow,
                 DocumentCount: 5,
                 SettingsOverrides: null,
-                ConnectorConfig: null,
                 Summary: null,
                 SummaryGeneratedAt: null,
                 SummaryDocSetHash: null)));
@@ -50,7 +48,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
-            vectorStore, perDocSummarizer, connectorFactory, parsers,
+            vectorStore, perDocSummarizer, managedStorage, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
@@ -69,7 +67,7 @@ public class SummaryJobsTests
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
         var vectorStore = Substitute.For<IVectorStore>();
         var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
@@ -87,12 +85,10 @@ public class SummaryJobsTests
                 Id: containerId.ToString(),
                 Name: "test",
                 Description: null,
-                ConnectorType: ConnectorType.Filesystem,
                 CreatedAt: DateTime.UtcNow,
                 UpdatedAt: DateTime.UtcNow,
                 DocumentCount: 1,
                 SettingsOverrides: null,
-                ConnectorConfig: null,
                 Summary: "Old summary",
                 SummaryGeneratedAt: DateTime.UtcNow.AddHours(-1),
                 SummaryDocSetHash: expectedHash)));
@@ -126,7 +122,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
-            vectorStore, perDocSummarizer, connectorFactory, parsers,
+            vectorStore, perDocSummarizer, managedStorage, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.RollupContainerAsync(containerId, CancellationToken.None);
@@ -148,7 +144,7 @@ public class SummaryJobsTests
         var embeddingProvider = Substitute.For<IDocumentSummaryEmbeddingProvider>();
         var vectorStore = Substitute.For<IVectorStore>();
         var perDocSummarizer = Substitute.For<IPerDocSummarizer>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var parsers = Array.Empty<IDocumentParser>();
         SummaryLlmResolver llmResolver = CreateLlmResolverSubstitute();
         var tokenCounter = Substitute.For<ITokenCounter>();
@@ -161,7 +157,7 @@ public class SummaryJobsTests
 
         var jobs = new SummaryJobs(
             containerStore, docStore, settingsResolver, embeddingProvider,
-            vectorStore, perDocSummarizer, connectorFactory, parsers,
+            vectorStore, perDocSummarizer, managedStorage, parsers,
             llmResolver, tokenCounter, bgClient, logger);
 
         await jobs.SweepStaleContainersAsync(CancellationToken.None);

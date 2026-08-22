@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
@@ -19,7 +19,7 @@ public class ReindexService : IReindexService
 {
     private readonly KnowledgeDbContext _context;
     private readonly IKnowledgeFileSystem _fileSystem;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IContainerStore _containerStore;
     private readonly IIngestionQueue _queue;
     private readonly IOptionsMonitor<ChunkingSettings> _chunkingSettings;
@@ -29,7 +29,7 @@ public class ReindexService : IReindexService
     public ReindexService(
         KnowledgeDbContext context,
         IKnowledgeFileSystem fileSystem,
-        IConnectorFactory connectorFactory,
+        IManagedStorageProvider managedStorage,
         IContainerStore containerStore,
         IIngestionQueue queue,
         IOptionsMonitor<ChunkingSettings> chunkingSettings,
@@ -38,7 +38,7 @@ public class ReindexService : IReindexService
     {
         _context = context;
         _fileSystem = fileSystem;
-        _connectorFactory = connectorFactory;
+        _managedStorage = managedStorage;
         _containerStore = containerStore;
         _queue = queue;
         _chunkingSettings = chunkingSettings;
@@ -60,7 +60,7 @@ public class ReindexService : IReindexService
         {
             try
             {
-                return await _connectorFactory.Create(container).ExistsAsync(doc.Path, ct);
+                return await _managedStorage.CreateConnector(container.Id).ExistsAsync(doc.Path, ct);
             }
             catch (Exception ex)
             {
@@ -87,7 +87,7 @@ public class ReindexService : IReindexService
         {
             try
             {
-                return await _connectorFactory.Create(container).ReadFileAsync(doc.Path, ct);
+                return await _managedStorage.CreateConnector(container.Id).ReadFileAsync(doc.Path, ct);
             }
             catch (Exception ex)
             {

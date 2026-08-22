@@ -17,7 +17,7 @@ public class AwsIdentityProvider(ILogger<AwsIdentityProvider> logger) : ICloudId
 
     public async Task<CloudScopeResult> DiscoverScopesAsync(
         CloudIdentityData identityData,
-        Container container,
+        string? connectorConfigJson,
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(identityData.PrincipalArn))

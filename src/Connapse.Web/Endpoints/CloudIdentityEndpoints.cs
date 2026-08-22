@@ -156,7 +156,8 @@ public static class CloudIdentityEndpoints
             HttpContext httpContext,
             [FromServices] ICloudIdentityService service,
             [FromServices] IConnectorScopeCache scopeCache,
-            [FromServices] IContainerStore containerStore,
+            [FromServices] ISourceStore sourceStore,
+            [FromServices] IConnectionStore connectionStore,
             CancellationToken ct) =>
         {
             var userId = GetUserId(httpContext);
@@ -170,15 +171,28 @@ public static class CloudIdentityEndpoints
             // Evict cached scope entries for this user + provider
             if (deleted)
             {
-                var targetConnectorType = cloudProvider == CloudProvider.AWS
-                    ? ConnectorType.S3
-                    : ConnectorType.AzureBlob;
+                // Sources, not containers (#353). The scope cache is keyed on the thing whose
+                // access was cached, and that is now a source: containers are managed storage
+                // and were never cloud-scoped. A source's provider lives on its connection,
+                // so the match is made there.
+                var targetProvider = cloudProvider == CloudProvider.AWS
+                    ? ConnectionProvider.S3
+                    : ConnectionProvider.AzureBlob;
 
                 try
                 {
-                    var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
-                    foreach (var c in containers.Where(c => c.ConnectorType == targetConnectorType))
-                        scopeCache.Invalidate(userId.Value, Guid.Parse(c.Id));
+                    var connections = await connectionStore.ListAsync(take: int.MaxValue, ct: ct);
+                    var matching = connections
+                        .Where(c => c.Provider == targetProvider)
+                        .Select(c => c.Id)
+                        .ToHashSet();
+
+                    if (matching.Count > 0)
+                    {
+                        var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
+                        foreach (var s in sources.Where(s => matching.Contains(s.ConnectionId)))
+                            scopeCache.Invalidate(userId.Value, s.Id);
+                    }
                 }
                 catch { /* Best-effort eviction — cache will expire naturally */ }
             }

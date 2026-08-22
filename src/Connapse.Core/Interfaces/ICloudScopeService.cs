@@ -6,12 +6,19 @@ namespace Connapse.Core.Interfaces;
 public interface ICloudScopeService
 {
     /// <summary>
-    /// Resolves the scope result for a user accessing a container.
-    /// Returns null if the container type does not require scope enforcement
-    /// (MinIO, Filesystem — these use role-level RBAC only).
+    /// Resolves the scope result for a user reading a source, or null when the source's
+    /// provider needs no scope enforcement — a Filesystem source is local, so role-level
+    /// RBAC is the whole story.
+    /// <para>
+    /// Takes a source rather than a container since #353. Containers are managed storage
+    /// only, and managed storage is Connapse's own backend: there is no external IAM to
+    /// consult and never was. Leaving this pointed at containers would have made it
+    /// unconditionally return null — enforcement that reads as present but cannot fire.
+    /// </para>
     /// </summary>
     Task<CloudScopeResult?> GetScopesAsync(
         Guid userId,
-        Container container,
+        Source source,
+        Connection connection,
         CancellationToken ct = default);
 }

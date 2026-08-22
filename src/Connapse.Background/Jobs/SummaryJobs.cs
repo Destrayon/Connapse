@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Ingestion.Summarization;
@@ -24,7 +24,7 @@ public sealed class SummaryJobs : ISummaryJobs
     private readonly IDocumentSummaryEmbeddingProvider _embeddingProvider;
     private readonly IVectorStore _vectorStore;
     private readonly IPerDocSummarizer _perDocSummarizer;
-    private readonly IConnectorFactory _connectorFactory;
+    private readonly IManagedStorageProvider _managedStorage;
     private readonly IEnumerable<IDocumentParser> _parsers;
     private readonly SummaryLlmResolver _llmResolver;
     private readonly ITokenCounter _tokenCounter;
@@ -38,7 +38,7 @@ public sealed class SummaryJobs : ISummaryJobs
         IDocumentSummaryEmbeddingProvider embeddingProvider,
         IVectorStore vectorStore,
         IPerDocSummarizer perDocSummarizer,
-        IConnectorFactory connectorFactory,
+        IManagedStorageProvider managedStorage,
         IEnumerable<IDocumentParser> parsers,
         SummaryLlmResolver llmResolver,
         ITokenCounter tokenCounter,
@@ -51,7 +51,7 @@ public sealed class SummaryJobs : ISummaryJobs
         _embeddingProvider = embeddingProvider;
         _vectorStore = vectorStore;
         _perDocSummarizer = perDocSummarizer;
-        _connectorFactory = connectorFactory;
+        _managedStorage = managedStorage;
         _parsers = parsers;
         _llmResolver = llmResolver;
         _tokenCounter = tokenCounter;
@@ -304,7 +304,7 @@ public sealed class SummaryJobs : ISummaryJobs
         string parsedText;
         try
         {
-            IConnector connector = _connectorFactory.Create(container);
+            IConnector connector = _managedStorage.CreateConnector(container.Id);
             string jobPath = connector.ResolveJobPath(doc.Path.TrimStart('/'));
             await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
 

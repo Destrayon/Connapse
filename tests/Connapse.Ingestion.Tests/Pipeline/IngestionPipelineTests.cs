@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
@@ -97,7 +97,7 @@ public class IngestionPipelineTests
             _embeddingSettings,
             new EmbeddingCache(dbContext),
             Substitute.For<IContainerStore>(),
-            Substitute.For<IConnectorFactory>(),
+            Substitute.For<IManagedStorageProvider>(),
             Substitute.For<IDocumentStore>(),
             _logger);
 

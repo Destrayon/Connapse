@@ -22,6 +22,12 @@ namespace Connapse.Integration.Tests;
 /// becomes a real listing the first time someone widens a lookup — which is exactly the
 /// regression this file exists to catch.
 /// </para>
+/// <para>
+/// The legacy-container cases these tests used to carry are gone with #353: a container row can
+/// no longer record an external connector, so "an unmigrated external container" is not a state
+/// the schema can express. A source id posted at a container route still is, and that is the
+/// case every test below exercises.
+/// </para>
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
@@ -35,8 +41,7 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-        var container = await containers.CreateAsync(
-            new CreateContainerRequest(ShortName("cnt"), null, ConnectorType.ManagedStorage, null));
+        var container = await containers.CreateAsync(new CreateContainerRequest(ShortName("cnt")));
 
         return Guid.Parse(container.Id);
     }
@@ -99,74 +104,38 @@ public class FileBrowserBoundaryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task BrowseRoute_LegacyNonManagedContainer_IsRefused()
+    public async Task GetContainer_ManagedContainerAndSourceIds_ReturnsOkAndNotFound()
     {
-        // The un-migrated window is real: the #350 backfill may fail without blocking boot, and
-        // skips entirely when another replica holds its advisory lock — so a row can still carry
-        // a Filesystem connector type. Seeded through the store rather than the API, because the
-        // API rejects this shape and that is precisely the state being simulated.
-        Guid legacyId;
-        using (var scope = fixture.Factory.Services.CreateScope())
-        {
-            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-            var legacy = await containers.CreateAsync(new CreateContainerRequest(
-                ShortName("legacy"), null, ConnectorType.Filesystem, """{"rootPath":"/tmp"}"""));
-            legacyId = Guid.Parse(legacy.Id);
-        }
+        // #350's compatibility read answered this with the source projected into the container
+        // shape. #353 removed it, and this pins that: a source is served by /api/sources/{id},
+        // and asking the container route for one now gets nothing.
+        Guid containerId = await SeedContainerAsync();
+        Guid sourceId = await SeedSourceAsync();
 
-        var browse = await Admin.GetAsync($"/api/containers/{legacyId}/files?path=/");
-        var write = await Admin.PostAsJsonAsync(
-            $"/api/containers/{legacyId}/folders", new CreateFolderRequest("/new-folder"));
+        (await Admin.GetAsync($"/api/containers/{containerId}")).StatusCode
+            .Should().Be(HttpStatusCode.OK);
 
-        // The exact status, not merely "not OK" — that would also pass on a 500, which is a
-        // broken server rather than an enforced boundary.
-        browse.StatusCode.Should().Be(HttpStatusCode.NotFound,
-            "an unmigrated external container must not be browsable through the container routes");
-        // Writable would mean mutating someone else's system through Connapse.
-        write.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.BadRequest);
+        (await Admin.GetAsync($"/api/containers/{sourceId}")).StatusCode
+            .Should().Be(HttpStatusCode.NotFound,
+                "the compatibility read is gone; a source resolves only at /api/sources");
     }
 
     [Fact]
-    public async Task DirectFileRoutes_LegacyNonManagedContainer_AreRefused()
+    public async Task DirectFileRoutes_SourceId_AreRefused()
     {
         // The listing route was the obvious hole and got fixed first. These are the ones that
         // survive closing it: reading a document by id returns its metadata, and /content
         // returns the bytes themselves out of the external system. Closing the listing while
         // leaving these open would look like the boundary held.
-        Guid legacyId;
-        using (var scope = fixture.Factory.Services.CreateScope())
-        {
-            var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-            var legacy = await containers.CreateAsync(new CreateContainerRequest(
-                ShortName("legacy"), null, ConnectorType.S3, """{"bucketName":"b","region":"us-east-1"}"""));
-            legacyId = Guid.Parse(legacy.Id);
-        }
-
+        Guid sourceId = await SeedSourceAsync();
         string fileId = Guid.NewGuid().ToString();
 
-        (await Admin.GetAsync($"/api/containers/{legacyId}/files/{fileId}")).StatusCode
+        // The exact status, not merely "not OK" — that would also pass on a 500, which is a
+        // broken server rather than an enforced boundary.
+        (await Admin.GetAsync($"/api/containers/{sourceId}/files/{fileId}")).StatusCode
             .Should().Be(HttpStatusCode.NotFound, "document metadata must not be readable");
 
-        (await Admin.GetAsync($"/api/containers/{legacyId}/files/{fileId}/content")).StatusCode
+        (await Admin.GetAsync($"/api/containers/{sourceId}/files/{fileId}/content")).StatusCode
             .Should().Be(HttpStatusCode.NotFound, "and its bytes certainly must not be");
-    }
-    [Fact]
-    public async Task CreateContainer_NonManagedConnectorType_IsRejected()
-    {
-        // The create form no longer offers these, but the form is not the boundary — this is.
-        // A client posting directly must still be refused.
-        foreach (var connectorType in new[] { ConnectorType.Filesystem, ConnectorType.S3, ConnectorType.AzureBlob })
-        {
-            // The shared request record rather than an anonymous object: if the API contract
-            // changes shape, this fails to compile instead of silently posting the wrong body
-            // and still getting the 400 it expects.
-            var response = await Admin.PostAsJsonAsync("/api/containers", new CreateContainerApiRequest(
-                Name: ShortName("bad"),
-                ConnectorType: connectorType,
-                ConnectorConfig: """{"rootPath":"/tmp"}"""));
-
-            response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-                $"{connectorType} is a source, not a container");
-        }
     }
 }

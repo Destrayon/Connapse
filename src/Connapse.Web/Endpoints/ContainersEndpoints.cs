@@ -1,11 +1,7 @@
-using System.Security.Claims;
-using System.Text.Json;
-using Connapse.Background.Jobs;
+﻿using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
-using Connapse.Storage.ConnectionTesters;
-using Connapse.Storage.Connectors;
 using Connapse.Storage.Vectors;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -36,49 +32,15 @@ public static class ContainersEndpoints
 
             var normalizedName = trimmedName;
 
-            // External storage is modelled as a source (#348), not a container. Rejecting it
-            // here is what makes ContainerWriteGuard's runtime checks dead code rather than
-            // merely unused — without this, a new S3 container would still be writable once
-            // the guard is gone. Checked before config validation, which would otherwise mask
-            // a missing restriction behind a "config required" error.
-            if (request.ConnectorType != ConnectorType.ManagedStorage)
-            {
-                return Results.BadRequest(new
-                {
-                    error = $"Containers are managed storage only. To ingest from {request.ConnectorType}, "
-                          + "create a connection and a source instead."
-                });
-            }
-
-            // Validate connector config before creating
-            if (request.ConnectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob)
-            {
-                if (string.IsNullOrWhiteSpace(request.ConnectorConfig))
-                {
-                    var configHint = request.ConnectorType switch
-                    {
-                        ConnectorType.Filesystem => "rootPath",
-                        ConnectorType.S3 => "bucketName and region",
-                        ConnectorType.AzureBlob => "storageAccountName and containerName",
-                        _ => "configuration"
-                    };
-                    return Results.BadRequest(new { error = $"{request.ConnectorType} connector requires {configHint} (provide connector config JSON)." });
-                }
-
-                try { JsonDocument.Parse(request.ConnectorConfig); }
-                catch (JsonException ex)
-                    { return Results.BadRequest(new { error = $"Invalid connector config JSON: {ex.Message}" }); }
-            }
-
             var existing = await containerStore.GetByNameAsync(normalizedName, ct);
             if (existing is not null)
                 return Results.Conflict(new { error = $"Container '{normalizedName}' already exists" });
 
             var container = await containerStore.CreateAsync(
-                new CreateContainerRequest(normalizedName, request.Description, request.ConnectorType, request.ConnectorConfig), ct);
+                new CreateContainerRequest(normalizedName, request.Description), ct);
 
             await auditLogger.LogAsync("container.created", "container", container.Id.ToString(),
-                new { container.Name, container.ConnectorType }, ct);
+                new { container.Name }, ct);
 
             return Results.Created($"/api/containers/{container.Id}", container);
         })
@@ -112,26 +74,18 @@ public static class ContainersEndpoints
         group.MapGet("/{containerId:guid}", async (
             Guid containerId,
             [FromServices] IContainerStore containerStore,
-            [FromServices] ISourceStore sourceStore,
-            [FromServices] IConnectionStore connectionStore,
             CancellationToken ct) =>
         {
+            // No source fallback. #350's compatibility read projected a migrated source back
+            // into the Container shape so pre-migration IDs kept resolving here; it was always
+            // scoped to one release, and a source's own representation is served by
+            // /api/sources/{id}. Resolving one here would also reintroduce the confusion the
+            // epic exists to remove — a caller would get something shaped like a container
+            // that cannot be browsed or written to.
             var container = await containerStore.GetAsync(containerId, ct);
-            if (container is not null)
-                return Results.Ok(container);
-
-            // Compatibility read. Phase 2 (#350) migrated external containers into sources
-            // that reuse the container's GUID, so IDs held by agent prompts, CLI scripts,
-            // and bookmarks must keep resolving. Projected into the Container shape so
-            // existing clients see no change; removed in Phase 5 (#353) once callers have
-            // moved to /api/sources. Reads only — deleting or syncing a source through the
-            // containers route is deliberately not supported.
-            var migrated = await sourceStore.GetAsync(containerId, ct);
-            if (migrated is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            var connection = await connectionStore.GetAsync(migrated.ConnectionId, ct);
-            return Results.Ok(ToContainerShape(migrated, connection?.Provider));
+            return container is not null
+                ? Results.Ok(container)
+                : Results.NotFound(new { error = $"Container {containerId} not found" });
         })
         .WithName("GetContainer")
         .WithDescription("Get a specific container by ID")
@@ -152,7 +106,7 @@ public static class ContainersEndpoints
         .WithDescription("Get a specific container by name")
         .RequireAuthorization("RequireViewer");
 
-        // DELETE /api/containers/{containerId} - Delete container (must be empty for storage-backed connectors; Filesystem containers just stop being watched)
+        // DELETE /api/containers/{containerId} - Delete container (must be empty)
         group.MapDelete("/{containerId:guid}", async (
             Guid containerId,
             [FromServices] IContainerStore containerStore,
@@ -180,7 +134,7 @@ public static class ContainersEndpoints
             return Results.NoContent();
         })
         .WithName("DeleteContainer")
-        .WithDescription("Delete a container. MinIO containers must be empty first. Filesystem, S3, and AzureBlob containers just stop being indexed — the underlying data is not deleted.")
+        .WithDescription("Delete a container. It must be empty first — deleting a container deletes its stored objects.")
         .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/stats - Get container statistics
@@ -202,7 +156,6 @@ public static class ContainersEndpoints
             {
                 containerId = container.Id,
                 containerName = container.Name,
-                connectorType = container.ConnectorType.ToString(),
                 documents = new
                 {
                     total = stats.DocumentCount,
@@ -297,77 +250,27 @@ public static class ContainersEndpoints
         .WithDescription("Reindex all documents in a container")
         .RequireAuthorization("RequireEditor");
 
-        // POST /api/containers/test-connection - Test connector config before creating a container
-        group.MapPost("/test-connection", async (
-            [FromBody] TestConnectorConfigRequest request,
-            [FromServices] S3ConnectionTester s3Tester,
-            [FromServices] AzureBlobConnectionTester azureTester,
-            [FromServices] MinioConnectionTester minioTester,
-            CancellationToken ct) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.ConnectorConfig))
-                return Results.BadRequest(new { error = "ConnectorConfig is required" });
-
-            try
-            {
-                var timeout = request.TimeoutSeconds.HasValue ? TimeSpan.FromSeconds(request.TimeoutSeconds.Value) : (TimeSpan?)null;
-                var result = request.ConnectorType switch
-                {
-                    ConnectorType.S3 => await s3Tester.TestConnectionAsync(
-                        request.ConnectorConfig, timeout, ct),
-                    ConnectorType.AzureBlob => await azureTester.TestConnectionAsync(
-                        request.ConnectorConfig, timeout, ct),
-                    ConnectorType.ManagedStorage => await minioTester.TestConnectionAsync(
-                        request.ConnectorConfig, timeout, ct),
-                    _ => ConnectionTestResult.CreateFailure(
-                        $"Connector type '{request.ConnectorType}' does not support connection testing from this endpoint")
-                };
-                return Results.Ok(result);
-            }
-            catch (JsonException ex)
-            {
-                return Results.BadRequest(new { error = $"Invalid connector config JSON: {ex.Message}" });
-            }
-        })
-        .WithName("TestConnectorConfig")
-        .WithDescription("Test connectivity for S3, AzureBlob, or MinIO connector config before creating a container")
-        .RequireAuthorization("RequireEditor");
-
-        // POST /api/containers/{containerId}/sync - Sync files from remote connector
+        // POST /api/containers/{containerId}/sync - Reconcile managed storage with the document table
         group.MapPost("/{containerId:guid}/sync", async (
-            HttpContext httpContext,
             Guid containerId,
             [FromServices] IContainerStore containerStore,
-            [FromServices] IConnectorFactory connectorFactory,
+            [FromServices] IManagedStorageProvider managedStorage,
             [FromServices] IDocumentStore documentStore,
             [FromServices] IIngestionQueue queue,
             [FromServices] IOptionsMonitor<ChunkingSettings> chunkingSettings,
             [FromServices] IAuditLogger auditLogger,
-            [FromServices] ICloudScopeService cloudScopeService,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
-            // Cloud scope enforcement — user must have a linked identity for the provider
-            var userId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (Guid.TryParse(userId, out var uid))
-            {
-                var scopeResult = await cloudScopeService.GetScopesAsync(uid, container, ct);
-                if (scopeResult is { HasAccess: false })
-                    return Results.Json(new
-                    {
-                        error = "cloud_access_denied",
-                        message = scopeResult.Error ?? "Access denied.",
-                        containerId = containerId.ToString()
-                    }, statusCode: 403);
-            }
-
-            if (container.ConnectorType == ConnectorType.Filesystem)
-                return Results.BadRequest(new { error = "Filesystem containers use live watch. Sync is not needed." });
-
-            var connector = connectorFactory.Create(container);
+            // Managed storage directly, rather than through IConnectorFactory. A container has
+            // no connector type to dispatch on any more, and the cloud-scope check that used to
+            // guard this route only ever fired for S3 and AzureBlob containers — which are
+            // sources now, synced by SourceSyncService. Kept because objects can still land in
+            // the bucket out of band, and this is the only route that picks them up.
+            var connector = managedStorage.CreateConnector(container.Id);
             var remoteFiles = await connector.ListFilesAsync(ct: ct);
 
             var existingDocs = await documentStore.ListAsync(containerId, take: int.MaxValue, ct: ct);
@@ -459,7 +362,7 @@ public static class ContainersEndpoints
             });
         })
         .WithName("SyncContainer")
-        .WithDescription("Sync files from a remote connector (S3, AzureBlob, MinIO). Lists remote files, compares to DB, enqueues new/changed.")
+        .WithDescription("Reconcile a container's managed storage with the document table. Lists stored objects, compares to DB, enqueues anything new or unfinished.")
         .RequireAuthorization("RequireEditor");
 
         return app;
@@ -481,40 +384,14 @@ public static class ContainersEndpoints
             _ => null
         };
 
-    /// <summary>
-    /// Projects a migrated Source back into the Container shape so clients holding a
-    /// pre-migration ID see an unchanged response body. Sources have no folder tree and
-    /// no connector config of their own, so those fields come back empty — the scope now
-    /// lives on the source and is served by /api/sources.
-    /// </summary>
-    private static Container ToContainerShape(Source source, ConnectionProvider? provider) => new(
-        Id: source.Id.ToString(),
-        Name: source.Name,
-        Description: source.Description,
-        ConnectorType: provider is null ? ConnectorType.ManagedStorage : (ConnectorType)(int)provider,
-        CreatedAt: source.CreatedAt,
-        UpdatedAt: source.UpdatedAt,
-        DocumentCount: source.DocumentCount,
-        SettingsOverrides: source.SettingsOverrides,
-        ConnectorConfig: null,
-        Summary: source.Summary,
-        SummaryGeneratedAt: source.SummaryGeneratedAt,
-        SummaryDocSetHash: source.SummaryDocSetHash);
 }
 
 // Request DTOs for container endpoints
 public record CreateContainerApiRequest(
     string Name,
-    string? Description = null,
-    ConnectorType ConnectorType = ConnectorType.ManagedStorage,
-    string? ConnectorConfig = null);
+    string? Description = null);
 
 public record ContainerReindexRequest(
     bool? Force = null,
     bool? DetectSettingsChanges = null,
     ChunkingStrategy? Strategy = null);
-
-public record TestConnectorConfigRequest(
-    ConnectorType ConnectorType,
-    string ConnectorConfig,
-    int? TimeoutSeconds = null);

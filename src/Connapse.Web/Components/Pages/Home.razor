@@ -80,7 +80,6 @@ else
                     }
                 </div>
                 <h3 class="container-card-name">@container.Name</h3>
-                <span class="connector-badge">@GetConnectorLabel(container.ConnectorType)</span>
                 @if (!string.IsNullOrEmpty(container.Description))
                 {
                     <p class="container-card-desc">@container.Description</p>
@@ -163,13 +162,10 @@ else
             </div>
             <div class="modal-body-custom">
                 <p>Are you sure you want to delete <strong>@containerToDelete.Name</strong>?</p>
-                @if (containerToDelete.ConnectorType is ConnectorType.Filesystem or ConnectorType.S3 or ConnectorType.AzureBlob)
-                {
-                    <div class="alert alert-info py-2">
-                        This will remove the container and its search index. Your actual files will not be deleted — they remain in their original location.
-                    </div>
-                }
-                else if (containerToDelete.DocumentCount > 0)
+                @* The "your files stay where they are" reassurance went with the external
+                   connectors it described (#353). A container's storage is Connapse's own, so
+                   deleting one really does delete the bytes — which is why it must be empty. *@
+                @if (containerToDelete.DocumentCount > 0)
                 {
                     <div class="alert alert-warning py-2">
                         This container has @containerToDelete.DocumentCount file(s). It must be empty before deletion.
@@ -306,10 +302,8 @@ else
                 return;
             }
 
-            // Always managed storage: ContainersEndpoints rejects every other ConnectorType,
-            // and there is no connector config to build for it.
             var container = await ContainerStore.CreateAsync(new CreateContainerRequest(
-                normalizedName, newContainerDescription?.Trim(), ConnectorType.ManagedStorage, null));
+                normalizedName, newContainerDescription?.Trim()));
 
             showCreateModal = false;
             await LoadContainers();
@@ -376,14 +370,5 @@ else
         }
     }
 
-
-    private static string GetConnectorLabel(ConnectorType type) => type switch
-    {
-        ConnectorType.ManagedStorage          => "Managed Storage",
-        ConnectorType.Filesystem     => "Filesystem",
-        ConnectorType.S3             => "AWS S3",
-        ConnectorType.AzureBlob      => "Azure Blob",
-        _                            => type.ToString()
-    };
 
 }

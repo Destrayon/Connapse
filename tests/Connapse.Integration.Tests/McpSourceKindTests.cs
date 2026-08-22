@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Web.Mcp;
@@ -41,7 +41,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
     {
         var containers = sp.GetRequiredService<IContainerStore>();
         return await containers.CreateAsync(
-            new CreateContainerRequest(ShortName("cnt"), null, ConnectorType.ManagedStorage, null));
+            new CreateContainerRequest(ShortName("cnt")));
     }
 
     // ── Discoverable ──────────────────────────────────────────────────────

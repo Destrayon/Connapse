@@ -1,4 +1,4 @@
-using Connapse.Background.Jobs;
+﻿using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using NSubstitute;
@@ -52,7 +52,7 @@ public class IngestionJobsHerculesTests
             Substitute.For<IKnowledgeIngester>(),
             docStore,
             Substitute.For<IContainerStore>(),
-            Substitute.For<IConnectorFactory>(),
+            Substitute.For<IManagedStorageProvider>(),
             Array.Empty<IDocumentParser>(),
             summarizer,
             settingsResolver,
@@ -112,7 +112,7 @@ public class IngestionJobsHerculesTests
             Substitute.For<IKnowledgeIngester>(),
             docStore,
             Substitute.For<IContainerStore>(),
-            Substitute.For<IConnectorFactory>(),
+            Substitute.For<IManagedStorageProvider>(),
             Array.Empty<IDocumentParser>(),
             summarizer,
             settingsResolver,

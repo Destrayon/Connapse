@@ -1,4 +1,4 @@
-using Connapse.Background.Jobs;
+﻿using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using NSubstitute;
@@ -29,10 +29,10 @@ public class IngestionJobsTests
             }));
 
         var containerStore = Substitute.For<IContainerStore>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
             settingsResolver, bgClient, stateBroadcaster, logger);
 
         string documentId = Guid.NewGuid().ToString();
@@ -75,10 +75,10 @@ public class IngestionJobsTests
             }));
 
         var containerStore = Substitute.For<IContainerStore>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
             settingsResolver, bgClient, stateBroadcaster, logger);
 
         string documentId = Guid.NewGuid().ToString();
@@ -148,7 +148,6 @@ public class IngestionJobsTests
             Id: containerId.ToString(),
             Name: "test",
             Description: null,
-            ConnectorType: ConnectorType.ManagedStorage,
             CreatedAt: DateTime.UtcNow,
             UpdatedAt: DateTime.UtcNow);
         var connector = Substitute.For<IConnector>();
@@ -165,11 +164,11 @@ public class IngestionJobsTests
         var containerStore = Substitute.For<IContainerStore>();
         containerStore.GetAsync(containerId, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Container?>(container));
-        var connectorFactory = Substitute.For<IConnectorFactory>();
-        connectorFactory.Create(Arg.Any<Container>()).Returns(connector);
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
+        managedStorage.CreateConnector(Arg.Any<string>()).Returns(connector);
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
             settingsResolver, bgClient, stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 
@@ -212,10 +211,10 @@ public class IngestionJobsTests
             .Returns(Task.FromResult(new SummarySettings { Enabled = false }));
 
         var containerStore = Substitute.For<IContainerStore>();
-        var connectorFactory = Substitute.For<IConnectorFactory>();
+        var managedStorage = Substitute.For<IManagedStorageProvider>();
         var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
         var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, connectorFactory, parsers, summarizer,
+            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
             settingsResolver, bgClient, stateBroadcaster, logger);
         await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
 

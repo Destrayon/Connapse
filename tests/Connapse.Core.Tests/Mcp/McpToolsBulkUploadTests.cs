@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
@@ -189,7 +189,6 @@ public class McpToolsBulkUploadTests
         Id: ContainerId.ToString(),
         Name: "test",
         Description: null,
-        ConnectorType: ConnectorType.ManagedStorage,
         CreatedAt: DateTime.UtcNow,
         UpdatedAt: DateTime.UtcNow);
 }

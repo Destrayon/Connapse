@@ -87,11 +87,6 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionProgressB
 builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
     sp.GetRequiredService<IngestionProgressBroadcaster>());
 
-// Migrates legacy external containers into connection + source pairs (#350). Idempotent,
-// and registered before SourceSyncService because a migrated container must be a source
-// before anything tries to poll it.
-builder.Services.AddHostedService<SourceBackfillHostedService>();
-
 // Polls every enabled source and reconciles it with its remote. Replaces
 // ConnectorWatcherService, which enumerated containers — after the #350 backfill moved
 // external storage into `sources`, it found nothing and syncing stopped entirely.
