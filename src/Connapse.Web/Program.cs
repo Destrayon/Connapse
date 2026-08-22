@@ -79,12 +79,6 @@ builder.Services.AddSingleton<IngestionProgressNotifier>();
 // Downstream apps (e.g. multi-tenant Cloud) override via services.Replace().
 builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
 
-// In-process event bus so FileBrowser can receive real-time file-list changes without
-// polling. Its only publisher was ConnectorWatcherService, and it only ever fired for
-// Filesystem/S3/Azure containers — none of which exist as containers any more. Nothing
-// publishes to it today; the sources UI (#352) decides whether it gets one or is removed.
-builder.Services.AddSingleton<FileBrowserChangeNotifier>();
-
 // Add background services
 // Singleton-as-hosted-service so the same instance also serves IIngestionStateBroadcaster
 // for Connapse.Background Hangfire jobs (which can't reference Web directly).
