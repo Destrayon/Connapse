@@ -1,4 +1,4 @@
-# MCP Tools Reference
+﻿# MCP Tools Reference
 
 Connapse exposes 11 tools via the [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. All tools require authentication — see [Using with Claude (MCP)](../README.md#using-with-claude-mcp) for setup.
 
@@ -52,7 +52,7 @@ ID: <uuid>
 
 ## container_list
 
-List all containers with document counts. Use to discover available knowledge bases before searching.
+Lists every searchable knowledge scope. Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly.
 
 ### Parameters
 
@@ -61,13 +61,28 @@ None.
 ### Return Format
 
 ```
-Found 2 container(s):
+Found 3 knowledge scope(s):
 
-- my-docs (15 files) — Project documentation
+- my-docs [managed] (15 files) — Project documentation
   ID: <uuid>
-- research (8 files) — Research papers
+- research [managed] (8 files) — Research papers
+  ID: <uuid>
+- company-docs [source] (128 files) — Shared reference material
   ID: <uuid>
 ```
+
+### The `kind` discriminator
+
+Every entry is one of two kinds:
+
+| Kind | What it is | `list_files` |
+|------|-----------|--------------|
+| `managed` | Storage Connapse owns | Works |
+| `source` | An external system Connapse mirrors read-only | **Does not apply** |
+
+Both are searchable, and `search_knowledge` accepts either — search is scoped by owner id, which is the same column whichever kind owns the document.
+
+`list_files` is container-only by design, not by omission. A source has no file listing because enumerating one would list every synced object out of somebody else's system to any Connapse reader, regardless of what they can see in the source system itself. Reading `kind` before calling `list_files` saves a wasted call.
 
 Returns `No containers found.` when empty.
 
@@ -83,7 +98,7 @@ None.
 
 ## container_delete
 
-Delete a container. MinIO containers must be emptied first. Filesystem/S3/Azure files are not deleted — only the index is removed.
+Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here — use `DELETE /api/sources/{id}`.
 
 ### Parameters
 
@@ -100,7 +115,7 @@ Container '<name>' deleted.
 ### Error Cases
 
 - `Error: Container '<id>' not found.`
-- `Error: Container '<id>' is not empty. Delete all files first.` (MinIO only)
+- `Error: Container '<id>' is not empty. Delete all files first.`
 
 ### Usage Example
 
@@ -122,7 +137,6 @@ Get container statistics: document counts, chunk count, storage size, and embedd
 
 ```
 Container: my-docs
-Type: MinIO
 Documents: 15
 Chunks: 342
 Storage: 2.4 MB
@@ -181,7 +195,7 @@ The file will be parsed, chunked, and embedded in the background.
 - `Error: Provide either 'content' (base64) or 'textContent' (raw text).`
 - `Error: Container '<id>' not found.`
 - `Error: 'content' must be valid base64-encoded data.`
-- Write guard errors for read-only containers (S3, AzureBlob)
+- `Error: Container '<id>' not found.` for a source id — write tools resolve containers only
 
 ### Usage Example
 
@@ -331,7 +345,7 @@ File 'readme.md' (ID: <uuid>) deleted from database, but the backing storage fil
 
 - `Error: Container '<id>' not found.`
 - `Error: File '<id>' not found in this container.`
-- Write guard errors for read-only containers (S3, AzureBlob)
+- `Error: Container '<id>' not found.` for a source id — write tools resolve containers only
 
 ### Usage Example
 
@@ -446,19 +460,15 @@ Returns `No results found.` when no matches.
 
 ---
 
-## Write Guards
+## What is writable
 
-Write operations (`upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) are subject to per-connector permissions:
+Write operations — `container_create`, `container_delete`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` — apply to **containers only**.
 
-| Connector | Upload | Delete | Notes |
-|-----------|--------|--------|-------|
-| MinIO | Yes | Yes | Full read/write access |
-| InMemory | Yes | Yes | Full read/write access |
-| Filesystem | Configurable | Configurable | Per-container `allowUpload` / `allowDelete` flags (default: allowed) |
-| S3 | No | No | Read-only — synced from source |
-| AzureBlob | No | No | Read-only — synced from source |
+There is no permission table any more, because there is no runtime decision left to make. Only the managed-storage connector implements `IWritableConnector`, so a source is *incapable* of being written to rather than told not to at runtime. The per-connector permission flags and `ContainerWriteGuard` that used to be documented here were removed with the connector columns they read.
 
-Write tools return a descriptive error when the container's connector blocks the operation.
+The practical consequence for an agent: **every write tool resolves containers only.** Passing a source id returns `Error: Container '<id>' not found.` — the same answer as an id that does not exist, because as far as these tools are concerned it is not a container.
+
+Read tools split differently: `search_knowledge` and `container_describe` accept either kind, `list_files` and `get_document` accept containers only. `container_list` tells you which is which via `kind`.
 
 ---
 

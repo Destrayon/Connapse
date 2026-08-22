@@ -1,4 +1,4 @@
-# API Reference
+﻿# API Reference
 
 > Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
 
@@ -492,7 +492,7 @@ When an agent authenticates via API key, it receives two implicit scopes. These 
 | Scope | Grants |
 |-------|--------|
 | `knowledge:read` | Search and read documents across all containers via MCP |
-| `agent:ingest` | Upload and delete files via MCP (subject to connector write guards) |
+| `agent:ingest` | Upload and delete files in containers via MCP |
 
 Agents have **unrestricted access to all containers** in the system. There is no per-container access control for agent API keys.
 
@@ -503,7 +503,7 @@ Agents interact with Connapse through the MCP endpoint (`POST /mcp`). All 11 MCP
 #### What agents can do
 
 - Create, list, and delete containers (via MCP)
-- Upload and delete files, subject to connector write guards (via MCP)
+- Upload and delete files in containers (via MCP)
 - Search across any container (via MCP)
 - List files and retrieve document content (via MCP)
 
@@ -534,25 +534,17 @@ All container endpoints require authentication. RBAC rules:
 ```json
 {
   "name": "my-project",
-  "description": "Project knowledge base",
-  "connectorType": "MinIO",
-  "connectorConfig": null
+  "description": "Project knowledge base"
 }
 ```
 
 **Fields**:
 - `name` (required): lowercase alphanumeric + hyphens, 2-128 chars, globally unique
 - `description` (optional): Container description
-- `connectorType` (optional, default: `MinIO`): `MinIO` (Managed Storage — MinIO by default, overridable per deployment) | `Filesystem` | `S3` | `AzureBlob`
-- `connectorConfig` (conditional): JSON string with connector-specific config
 
-**Connector Config Requirements**:
-| Connector | Required Fields | Example |
-|-----------|----------------|---------|
-| MinIO | None (global config) | — |
-| Filesystem | `rootPath` | `{"rootPath":"C:\\docs"}` |
-| S3 | `bucketName`, `region` | `{"bucketName":"docs","region":"us-east-1"}` |
-| AzureBlob | `storageAccountName`, `containerName` | `{"storageAccountName":"acct","containerName":"docs"}` |
+A container is always managed storage — Connapse's own backend, configured globally under Settings > Storage. There is no connector to choose. To index an external system, create a connection and a source instead: see [Sources](#sources) and [connectors.md](connectors.md).
+
+> **Changed in v0.4.0.** `connectorType` and `connectorConfig` were removed. A request that still sends them is accepted, the fields are ignored, and a managed container is created — the response carries no connector field back.
 
 **Response** (201 Created):
 ```json
@@ -560,7 +552,6 @@ All container endpoints require authentication. RBAC rules:
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "name": "my-project",
   "description": "Project knowledge base",
-  "connectorType": "MinIO",
   "documentCount": 0,
   "createdAt": "2026-02-26T10:00:00Z",
   "updatedAt": "2026-02-26T10:00:00Z"
@@ -583,7 +574,6 @@ All container endpoints require authentication. RBAC rules:
       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
       "name": "my-project",
       "description": "Project knowledge base",
-      "connectorType": "MinIO",
       "documentCount": 42,
       "createdAt": "2026-02-26T10:00:00Z",
       "updatedAt": "2026-02-26T10:00:00Z"
@@ -625,7 +615,6 @@ All container endpoints require authentication. RBAC rules:
 {
   "containerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "containerName": "my-project",
-  "connectorType": "MinIO",
   "documents": {
     "total": 42,
     "ready": 40,
@@ -681,7 +670,7 @@ Upload one or more files into a container.
 - Files stream directly to MinIO (not buffered in memory)
 - Ingestion is asynchronous — track progress via SignalR or poll the file endpoint
 - Duplicate filenames in the same folder auto-increment: `file (1).pdf`, `file (2).pdf`
-- **Write guard**: S3 and AzureBlob containers block uploads (read-only). Filesystem containers respect the `allowUpload` flag. Returns `400` with `{ "error": "write_denied" }` when blocked. See [connectors.md — Write Guards](connectors.md#write-guards).
+- **Containers only**: a source id returns `404`. Sources mirror somebody else's system and are never written to through Connapse. See [connectors.md](connectors.md).
 
 ---
 
@@ -770,7 +759,7 @@ Returns whether the file needs reindexing and the reason.
 
 Cascade deletes chunks, vectors, and removes the file from MinIO.
 
-**Write guard**: S3 and AzureBlob containers block deletes. Filesystem containers respect the `allowDelete` flag. Returns `400` with `{ "error": "write_denied" }` when blocked. See [connectors.md — Write Guards](connectors.md#write-guards).
+**Containers only**: a source id returns `404`.
 
 **Response** (204 No Content)
 
@@ -787,7 +776,7 @@ Cascade deletes chunks, vectors, and removes the file from MinIO.
 { "path": "/docs/2026/" }
 ```
 
-**Write guard**: S3 and AzureBlob containers block folder creation. Filesystem containers respect the `allowCreateFolder` flag. Returns `400` with `{ "error": "write_denied" }` when blocked.
+**Containers only**: a source id returns `404`. A source has no folder tree to add to.
 
 **Response** (200 OK): Returns `Folder` object.
 
@@ -799,7 +788,7 @@ Cascade deletes chunks, vectors, and removes the file from MinIO.
 
 Cascade deletes all nested files, subfolders, chunks, vectors, and MinIO objects.
 
-**Write guard**: S3 and AzureBlob containers block folder deletion. Filesystem containers respect the `allowDelete` flag. Returns `400` with `{ "error": "write_denied" }` when blocked.
+**Containers only**: a source id returns `404`.
 
 **Response** (204 No Content)
 
@@ -1044,19 +1033,11 @@ Connapse exposes an MCP server for AI agent integration.
 - `bulk_delete` `fileIds` is a JSON array of document ID strings: `["id1","id2"]`.
 - `get_document` `fileId` accepts either a document UUID or a virtual path (e.g., `/docs/readme.md`).
 
-### Write Guards
+### What is writable
 
-Write operations (`upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) are subject to container write guards:
+Write tools (`container_create`, `container_delete`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete`) resolve **containers only**.
 
-| Connector Type | Upload | Delete | Notes |
-|---------------|--------|--------|-------|
-| **Managed Storage** | Allowed | Allowed | Default connector (`MinIO` wire value); full read/write |
-| **InMemory** | Allowed | Allowed | Ephemeral storage |
-| **Filesystem** | Configurable | Configurable | Per-container `allowUpload`/`allowDelete` flags (default: allowed) |
-| **S3** | Blocked | Blocked | Read-only; files are synced from the source bucket |
-| **AzureBlob** | Blocked | Blocked | Read-only; files are synced from the source container |
-
-When a write is blocked, the tool returns an error message explaining why (e.g., "S3 containers are read-only. Files are synced from the source.").
+There is no permission table any more: only the managed-storage connector implements `IWritableConnector`, so a source is incapable of being written to rather than blocked at runtime. Passing a source id returns `Error: Container '<id>' not found.` — the same answer as an id that does not exist.
 
 ### bulk_upload
 
@@ -1113,7 +1094,7 @@ Failures:
 - All files share a single batch ID for tracking
 - Uses `Semantic` chunking strategy
 - Intermediate folders are created automatically
-- Subject to [write guards](#write-guards)
+- Containers only — see [What is writable](#what-is-writable)
 
 ---
 
@@ -1158,7 +1139,7 @@ Failures:
 - Files not found or belonging to a different container are reported as failures
 - Storage deletion failures are non-fatal warnings (DB record is still removed)
 - Does not clean up empty parent folders
-- Subject to [write guards](#write-guards)
+- Containers only — see [What is writable](#what-is-writable)
 
 ---
 
@@ -1199,47 +1180,95 @@ All API errors follow RFC 7807 Problem Details format.
 
 ---
 
-## Container Connector Endpoints (v0.3.0)
+## Sources
 
-### Test Connector Connection
+Base path: `/api/sources`
 
-Test a cloud connector configuration before creating a container.
+A **source** is an external system Connapse mirrors read-only — an S3 bucket, an Azure Blob container, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
-**Endpoint**: `POST /api/containers/test-connection`
+**Connections have no REST surface.** They hold the credential boundary and are managed in Settings > Connections by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
+
+| Method | Route | Role |
+|--------|-------|------|
+| GET | `/api/sources` | Viewer |
+| GET | `/api/sources/{id}` | Viewer |
+| POST | `/api/sources` | **Admin** |
+| PATCH | `/api/sources/{id}` | **Admin** |
+| DELETE | `/api/sources/{id}` | **Admin** |
+| POST | `/api/sources/{id}/sync` | **Admin** |
+
+### Create Source
+
+**Endpoint**: `POST /api/sources`
 
 **Request Body**:
 ```json
 {
-  "connectorType": "S3",
-  "connectorConfig": "{\"bucketName\":\"docs\",\"region\":\"us-east-1\"}",
-  "timeoutSeconds": 15
+  "name": "company-docs",
+  "description": "Shared reference material",
+  "connectionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "scopeJson": "{\"bucketName\":\"company-knowledge\",\"prefix\":\"docs/\"}"
 }
 ```
 
-**Response** (200 OK):
+Scope keys by provider:
+
+| Provider | Keys |
+|----------|------|
+| S3 | `bucketName`, `prefix` |
+| AzureBlob | `containerName`, `prefix` |
+| Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
+
+The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
+
+### Source Response
+
 ```json
 {
-  "success": true,
-  "message": "Connected successfully",
-  "details": { "bucketName": "docs", "region": "us-east-1", "objectsFound": 3 },
-  "elapsed": "00:00:01.234"
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "name": "company-docs",
+  "description": "Shared reference material",
+  "connectionId": "8a1b...",
+  "enabled": true,
+  "lastSyncStatus": "Succeeded",
+  "lastSyncedAt": "2026-02-26T10:05:00Z",
+  "syncIntervalSeconds": 300,
+  "documentCount": 128,
+  "summary": null,
+  "lastSyncError": null,
+  "createdAt": "2026-02-26T10:00:00Z",
+  "updatedAt": "2026-02-26T10:05:00Z",
+  "kind": "source"
 }
 ```
 
-**Supported connectors**: S3, AzureBlob, Managed Storage (wire value: `MinIO`).
+**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`).
+
+`kind` is always `"source"`, so a client consuming both these and the container routes can tell them apart on one field. It matches the MCP contract.
+
+### Sync a Source
+
+**Endpoint**: `POST /api/sources/{id}/sync`
+
+Runs one reconciliation cycle immediately rather than waiting for the next scheduled poll. A source already syncing is reported as such rather than queued.
+
+### Delete a Source
+
+**Endpoint**: `DELETE /api/sources/{id}`
+
+Removes the source and its indexed documents. **The external data is untouched.**
 
 ---
 
+## Container Connector Endpoints
+
 ### Sync Container
 
-Trigger an on-demand sync for cloud containers.
+Reconcile a container's managed storage against the document table. Lists stored objects, compares to the database, and enqueues anything new or unfinished — useful when objects have landed in the bucket out of band.
 
 **Endpoint**: `POST /api/containers/{id}/sync`
 
-**Notes**:
-- Returns 400 for Filesystem ("live watch is enough")
-- Returns 404 for non-existent containers
-- Cloud scope enforcement: user must have a linked identity for the container's cloud provider
+**Auth**: Editor minimum
 
 **Response** (200 OK):
 ```json
@@ -1250,6 +1279,8 @@ Trigger an on-demand sync for cloud containers.
   "skippedCount": 37
 }
 ```
+
+> **Changed in v0.4.0.** `POST /api/containers/test-connection` was removed — it validated connector config before creating a container, which no longer happens. Connection testing lives in Settings > Connections. This route also no longer talks to any external system: external syncing is `POST /api/sources/{id}/sync`.
 
 ---
 

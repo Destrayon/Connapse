@@ -155,14 +155,24 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 All domain types live in the `Connapse.Core` namespace (files in `Models/` folder):
 
 ```csharp
-// Containers & Storage
-enum ConnectorType { MinIO = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 } // MinIO = 0 is the Managed Storage type — value kept for backwards compatibility
-record Container(string Id, string Name, string? Description, ConnectorType ConnectorType,
-    string? ConnectorConfig, DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
+// Containers — Connapse's own storage. Browsable and writable; no connector to choose,
+// because managed storage is what a container is.
+record Container(string Id, string Name, string? Description,
+    DateTime CreatedAt, DateTime UpdatedAt, int DocumentCount);
 record ContainerSettingsOverrides { ChunkingSettings? Chunking, EmbeddingSettings? Embedding,
     SearchSettings? Search, UploadSettings? Upload };
-record CreateContainerRequest(string Name, string? Description,
-    ConnectorType? ConnectorType, string? ConnectorConfig);
+record CreateContainerRequest(string Name, string? Description);
+
+// Connections & Sources — somebody else's storage, mirrored read-only. A connection holds
+// the credential and what it may reach; a source names a scope within one. See connectors.md.
+enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4 }
+record Connection(Guid Id, string Name, ConnectionProvider Provider, string? ConfigJson,
+    Guid? CreatedByUserId, DateTime CreatedAt, DateTime UpdatedAt, bool HasSecret, int SourceCount);
+record Source(Guid Id, string Name, string? Description, Guid ConnectionId, string? ScopeJson, ...);
+
+// ConnectorType is the connector's own self-description (IConnector.Type), not a container
+// column — those were dropped in #353.
+enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
 record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 record Document(string Id, string ContainerId, string FileName, string? ContentType, string Path,
     long SizeBytes, DateTime CreatedAt, Dictionary<string, string> Metadata);
@@ -736,16 +746,21 @@ A **Container** is a logical knowledge base; a **Connector** is the storage tech
 
 ### IConnector Interface
 
-All connectors implement `IConnector`: `ReadFileAsync`, `WriteFileAsync`, `DeleteFileAsync`, `ListFilesAsync`, `ExistsAsync`, `WatchAsync`. Paths are virtual (`/docs/file.pdf`), not filesystem-absolute.
+All connectors implement `IConnector`: `ReadFileAsync`, `ListFilesAsync`, `ExistsAsync`, `ResolveJobPath`, `WatchAsync`. Paths are virtual (`/docs/file.pdf`), not filesystem-absolute.
 
-### ConnectorWatcherService
+`IConnector` has **no write surface**. Writes live on `IWritableConnector`, which only the managed-storage connector implements — so a source is incapable of being written to rather than told not to at runtime. That is why `ContainerWriteGuard` no longer exists.
 
-`BackgroundService` (Singleton + HostedService) that manages all container watching:
+### SourceSyncService
 
-- **Filesystem**: `FileSystemWatcher` with 750ms debounce, 5-min rescan safety net
-- **Cloud (S3/AzureBlob/MinIO)**: 5-min `PeriodicTimer` polling, in-memory snapshot for change detection
-- First poll: detects creates + deletes; subsequent polls: also detects LastModified/SizeBytes changes
-- New remote files pre-registered as "Pending" in DB before ingestion starts (immediate UI feedback)
+`BackgroundService` (Singleton + HostedService) that polls every enabled source and reconciles it against its remote. It replaced `ConnectorWatcherService`, which enumerated *containers* — once external storage moved into `sources`, that service matched nothing and syncing had silently stopped.
+
+- **Interval** 5 minutes by default, overridable per source
+- **Change detection** compares remote last-modified and size, stored on the document so a restart does not re-ingest everything
+- **One cycle at a time per source** — a source already syncing is skipped rather than queued, so a slow remote cannot stack cycles
+- **Cursors advance by compare-and-swap**, so a cycle racing a configuration change cannot overwrite newer state
+- New remote files are pre-registered as "Pending" before ingestion starts, for immediate UI feedback
+
+Registered as a singleton *and* a hosted service, so `POST /api/sources/{id}/sync` can run one cycle on demand against the same instance.
 
 ### Per-Container Settings
 
