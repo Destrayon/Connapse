@@ -168,4 +168,38 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
         await sources.UpdateWithheldDeletionsAsync(source.Id, null);
         (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull();
     }
+
+    [Fact]
+    public async Task GetSource_AfterWithholding_ReportsTheCount()
+    {
+        var source = await SeedSourceAsync();
+
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+            await sources.UpdateWithheldDeletionsAsync(source.Id, 40);
+        }
+
+        var response = await fixture.AdminClient.GetAsync($"/api/sources/{source.Id}");
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("withheldDeletions").GetInt32().Should().Be(40);
+    }
+
+    [Fact]
+    public async Task GetSource_WithNothingWithheld_ReportsNull()
+    {
+        // Null rather than 0, because the page keys the approval button off "is there a
+        // pending decision" — a zero would leave it showing forever.
+        var source = await SeedSourceAsync();
+
+        var response = await fixture.AdminClient.GetAsync($"/api/sources/{source.Id}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("withheldDeletions").ValueKind
+            .Should().Be(System.Text.Json.JsonValueKind.Null);
+    }
 }

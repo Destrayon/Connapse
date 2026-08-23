@@ -193,6 +193,7 @@ public static class SourcesEndpoints
             [FromServices] IConnectionStore connectionStore,
             [FromServices] SourceSyncService syncService,
             [FromServices] IAuditLogger auditLogger,
+            [FromQuery] bool applyWithheldDeletions,
             CancellationToken ct) =>
         {
             var source = await sourceStore.GetAsync(sourceId, ct);
@@ -206,7 +207,7 @@ public static class SourcesEndpoints
             if (connection is null)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
 
-            var result = await syncService.SyncSourceAsync(source, connection, ct);
+            var result = await syncService.SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
 
             // Nothing went wrong — the scheduled cycle got there first. 409 rather than 200
             // so a script driving this does not read "0 upserted" as "nothing to do".
@@ -218,8 +219,10 @@ public static class SourcesEndpoints
                 });
             }
 
-            await auditLogger.LogAsync("source.synced", "source", sourceId.ToString(),
-                new { source.Name, result.Upserted, result.Deleted }, ct);
+            await auditLogger.LogAsync(
+                applyWithheldDeletions ? "source.deletions_applied" : "source.synced",
+                "source", source.Id.ToString(),
+                new { source.Name, result.Upserted, result.Deleted, result.WithheldDeletions }, ct);
 
             return Results.Ok(new
             {
