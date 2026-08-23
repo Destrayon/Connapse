@@ -1483,5 +1483,6 @@ Auth endpoints are under `/api/v1/auth/` and `/api/v1/agents/`. Container endpoi
 ## References
 
 - [architecture.md](architecture.md) — System architecture and design
+- [connectors.md](connectors.md) — Connections, sources, and containers
 - [deployment.md](deployment.md) — Deployment and configuration
-- [.claude/state/api-surface.md](../.claude/state/api-surface.md) — Internal interface documentation
+- [mcp-tools.md](mcp-tools.md) — Tool reference for agents
