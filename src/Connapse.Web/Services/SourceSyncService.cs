@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -92,7 +93,15 @@ public class SourceSyncService(
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
-    internal async Task<SourceSyncResult> SyncSourceAsync(Source source, Connection connection, CancellationToken ct)
+    /// <param name="applyWithheldDeletions">
+    /// Applies deletions an administrator has already approved. The vanished set is recomputed
+    /// rather than replayed, so a source whose remote recovered in the meantime deletes
+    /// nothing — but it is capped at the count that was withheld, so a remote that degraded
+    /// further cannot have the larger set applied on the strength of the smaller approval.
+    /// Inert when nothing was withheld: the flag cannot lift a guard that never tripped.
+    /// </param>
+    internal async Task<SourceSyncResult> SyncSourceAsync(
+        Source source, Connection connection, CancellationToken ct, bool applyWithheldDeletions = false)
     {
         if (!source.Enabled)
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null);
@@ -127,7 +136,8 @@ public class SourceSyncService(
 
             return connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
-                : await SyncViaListAndDiffAsync(source, connector, sourceStore, scope.ServiceProvider, ct);
+                : await SyncViaListAndDiffAsync(
+                    source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
         }
         catch (Exception ex)
         {
@@ -204,7 +214,8 @@ public class SourceSyncService(
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(
-        Source source, IConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct)
+        Source source, IConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct,
+        bool applyWithheldDeletions = false)
     {
         IReadOnlyList<ConnectorFile> remote = await connector.ListFilesAsync(null, ct);
 
@@ -220,15 +231,65 @@ public class SourceSyncService(
         var remotePaths = remote.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
         var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
 
+        // Upserts apply regardless. A source that trips the guard must keep ingesting new
+        // content, or the safety mechanism becomes the outage it exists to prevent.
         int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, vanished, context, sp, ct);
+
+        // An approval authorises the deletion set the administrator was shown a count of, not
+        // whatever the next listing happens to produce. Recomputing stays — a remote that
+        // recovered must still delete nothing — but the recomputed set may not *exceed* what
+        // was approved. Without that ceiling the override is unbounded in precisely the
+        // situation it is most likely to be used: a remote that is still degrading. Approve 40
+        // and the cycle could apply 1,000.
+        //
+        // Bound by count rather than by identity. The administrator never sees which paths —
+        // the page shows a number and a source is never browsable — so the consent being given
+        // is "delete what is missing, about this many", and a count expresses that honestly.
+        // Hashing the path set would invalidate approval on any ordinary churn, and would mean
+        // storing path-derived data this design deliberately keeps out of the database.
+        //
+        // Null when nothing was withheld, so the flag cannot lift a guard that never tripped:
+        // a first-ever sync carrying applyWithheldDeletions=true is still guarded.
+        int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
+
+        bool withhold = approved is null
+            ? DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count)
+            : vanished.Count > approved.Value;
+
+        int deleted = 0;
+        if (withhold)
+        {
+            if (approved is { } ceiling)
+            {
+                logger.LogWarning(
+                    "Source {SourceId} approval superseded: {Approved} deletion(s) were approved but "
+                    + "the listing now shows {Vanished} of {Indexed}; withholding pending fresh approval",
+                    source.Id, ceiling, vanished.Count, indexedPaths.Count);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Source {SourceId} reconcile would delete {Vanished} of {Indexed} document(s); "
+                    + "withholding pending administrator approval",
+                    source.Id, vanished.Count, indexedPaths.Count);
+            }
+        }
+        else
+        {
+            deleted = await DeleteByPathsAsync(source, vanished, context, sp, ct);
+        }
+
+        await sourceStore.UpdateWithheldDeletionsAsync(
+            source.Id, withhold ? vanished.Count : null, ct);
 
         // No cursor to advance on this path, so record the outcome directly. The stored
         // cursor stays null, which is what marks this source as fallback-synced.
         await sourceStore.UpdateSyncStateAsync(
             source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
 
-        return new SourceSyncResult(upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null);
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
+            WithheldDeletions: withhold ? vanished.Count : 0);
     }
 
     /// <summary>

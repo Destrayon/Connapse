@@ -162,6 +162,28 @@
                                 </td>
                             </tr>
                         }
+
+                        @if (source.WithheldDeletions is { } withheld && isAdmin)
+                        {
+                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                                @* Administrators only, matching the sync-error row: the count
+                                   is harmless, but the action it offers is destructive. *@
+                                <td colspan="7" class="pt-0 border-top-0">
+                                    <div class="alert alert-warning py-2 mb-0 small d-flex align-items-center justify-content-between">
+                                        <span>
+                                            <span class="bi-exclamation-triangle me-1"></span>
+                                            The last sync would have deleted <strong>@withheld</strong> document(s) —
+                                            more than expected, so they were kept. If the source really did lose them, apply the deletions.
+                                        </span>
+                                        <button class="btn btn-sm btn-outline-danger ms-3 text-nowrap"
+                                                @onclick="() => SyncNow(source, applyWithheldDeletions: true)"
+                                                disabled="@(!source.Enabled || syncing == source.Id)">
+                                            Apply deletions
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
             </table>
@@ -403,7 +425,7 @@
         builder.CloseElement();
     };
 
-    private async Task SyncNow(Source source)
+    private async Task SyncNow(Source source, bool applyWithheldDeletions = false)
     {
         message = null;
         syncing = source.Id;
@@ -417,7 +439,7 @@
                 return;
             }
 
-            var result = await SyncService.SyncSourceAsync(source, connection, CancellationToken.None);
+            var result = await SyncService.SyncSourceAsync(source, connection, CancellationToken.None, applyWithheldDeletions);
 
             if (result.AlreadyRunning)
             {
@@ -430,10 +452,14 @@
             }
             else
             {
-                await AuditLogger.LogAsync("source.synced", "source", source.Id.ToString(),
+                await AuditLogger.LogAsync(
+                    applyWithheldDeletions ? "source.deletions_applied" : "source.synced",
+                    "source", source.Id.ToString(),
                     new { source.Name, result.Upserted, result.Deleted });
 
-                Succeed($"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
+                Succeed(result.WithheldDeletions > 0
+                    ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld."
+                    : $"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
             }
 
             await LoadAsync();

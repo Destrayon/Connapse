@@ -33,7 +33,8 @@ public record SourceSyncResult(
     bool UsedDeltaPath,
     bool RequiredResync,
     string? Error,
-    bool AlreadyRunning = false);
+    bool AlreadyRunning = false,
+    int WithheldDeletions = 0);
 
 /// <summary>
 /// Thrown when a reindex would move a document between ownership domains — source to

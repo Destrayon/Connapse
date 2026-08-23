@@ -168,6 +168,22 @@ Deleting a source removes its indexed documents. The external data is untouched.
 
 Containers have their own `POST /api/containers/{id}/sync`, which reconciles managed storage against the document table. It exists because objects can land in the bucket out of band; it does not talk to any external system.
 
+### Deletions are guarded
+
+A sync reconciles by absence: anything indexed but missing from the remote listing is treated as deleted. That inference is only as good as the listing — and a listing can come back empty *and successful*, from a narrowed bucket policy returning `200 OK` with no keys, or a directory that is temporarily unmounted.
+
+So a reconcile that would delete more than **both 10 documents and 10% of what the source has indexed** applies its additions and **withholds the deletions**, recording how many. The Sources page shows the count to administrators with an "Apply deletions" button.
+
+Two details worth knowing:
+
+- **Additions still apply.** A source that trips the guard keeps ingesting, because a safety check that stops a source working is an outage.
+- **Approving re-runs the sync**, it does not replay the earlier list. If the remote recovered in the meantime, nothing is deleted.
+- **Approving is a ceiling, not a licence.** It authorises up to the number you were shown. If the remote degraded further between reading the count and approving it, the larger set is withheld again and needs fresh approval — so a worsening outage cannot have the whole index applied on the strength of a smaller approval.
+
+The threshold is fixed and not configurable. Small sources are never blocked — losing five of five files applies immediately, since re-ingesting them is cheap.
+
+The guard bounds a single reconcile, not the source's history. A listing that persistently returns just under the threshold — say 9% missing every cycle — never trips it, and the index erodes a little on every sync.
+
 ---
 
 ## Why the split

@@ -540,6 +540,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.SyncIntervalSeconds)
                 .HasColumnName("sync_interval_seconds");
 
+            entity.Property(e => e.WithheldDeletions)
+                .HasColumnName("withheld_deletions");
+
             entity.Property(e => e.Summary)
                 .HasColumnName("summary");
 
