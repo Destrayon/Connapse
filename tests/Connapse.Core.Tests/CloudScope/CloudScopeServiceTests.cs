@@ -58,7 +58,9 @@ public class CloudScopeServiceTests
             Name: "src",
             Description: null,
             ConnectionId: connectionId,
-            ScopeJson: scope,
+            // Matches what the create route stores for a source with no scope, so the tests
+            // that omit one exercise the same value production would hold.
+            ScopeJson: scope ?? "{}",
             CreatedAt: DateTime.UtcNow,
             UpdatedAt: DateTime.UtcNow);
 

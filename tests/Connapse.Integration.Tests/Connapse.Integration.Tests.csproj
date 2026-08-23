@@ -12,6 +12,18 @@
     <PackageReference Include="FluentAssertions" Version="8.8.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.7" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <!--
+      Direct reference purely to lift the transitive SSH.NET that Testcontainers brings in.
+      2024.2.0 carries GHSA-q939-rpr3-3284 (CVE-2026-48798, CVSS 7.1) — a path traversal in
+      ScpClient.Download()'s recursive mode, where a malicious server returns filenames
+      containing "../" and the client writes outside the target directory.
+
+      Nothing here is exposed: SSH.NET is test-only, and no Connapse code calls SCP at all.
+      The reference exists so `dotnet build` stops reporting a high-severity advisory on every
+      run — a standing warning that is not actionable trains people to ignore the ones that are.
+      Remove this once Testcontainers ships a version that references 2026.0.0 or later.
+    -->
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="Testcontainers.Azurite" Version="4.3.0" />
     <PackageReference Include="Testcontainers.LocalStack" Version="4.3.0" />
     <PackageReference Include="Testcontainers.Minio" Version="4.3.0" />
