@@ -1,351 +1,197 @@
-# Connectors
+# Connections, Sources, and Containers
 
 > Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.
 
-Connapse uses **Connectors** to interface with different storage backends. A **Container** is a logical knowledge base; a **Connector** is the technology that backs it.
+Connapse keeps two kinds of storage apart, because they answer to different owners.
 
-## Connector Types
+| | **Container** | **Source** |
+|---|---|---|
+| Whose data | Connapse's own | Somebody else's |
+| Browsable | Yes — full file tree | No |
+| Writable | Yes — upload, delete, create folders | Never |
+| Searchable | Yes | Yes |
+| Created by | Any editor | Administrators only |
+| Backed by | Managed storage | A **connection** to S3, Azure Blob, or a filesystem |
 
-| Type | Config Required | Live Watch | Sync | Use Case |
-|------|----------------|------------|------|----------|
-| **Managed Storage** | No (global) | Polling (5 min) | Yes | Default — provider-abstracted storage (MinIO by default, overridable per deployment) |
-| **Filesystem** | `rootPath` | FileSystemWatcher | No (auto) | Local directories, shared drives |
-| **S3** | `bucketName`, `region` | Polling (5 min) | Yes | AWS S3 buckets (IAM-only) |
-| **AzureBlob** | `storageAccountName`, `containerName` | Polling (5 min) | Yes | Azure Blob Storage (managed identity) |
+A **connection** is the third piece: an administrator registers one credential and endpoint, and any number of sources point at scopes within it. One connection to an AWS account, many sources naming different buckets.
+
+This split replaced a single `Container` type carrying a `connectorType` column. If you are looking for that column, or for `ContainerWriteGuard`, or for per-container upload permission flags, they were removed in [#348](https://github.com/Destrayon/Connapse/issues/348) — see [Why the split](#why-the-split) at the end.
 
 ---
 
-## Managed Storage (default)
+## Containers
 
-Managed Storage is the default connector. It uses an `IManagedStorageProvider` abstraction — backed by MinIO by default, and overridable per deployment. No per-container configuration is needed; the backing store is configured globally.
+A container is Connapse's own storage, provided through an `IManagedStorageProvider` abstraction — MinIO by default, overridable per deployment. There is nothing to configure per container; the backing store is configured globally under **Settings > Storage**.
 
-The enum value remains `MinIO = 0` for backwards compatibility.
-
-**How it works:**
-- Requests route through `IManagedStorageProvider`, which dispatches to the active backend (MinIO or an override)
-- Files are stored with per-container key prefixes in a shared instance
-- Background polling detects remote changes every 5 minutes
-
-**Setup:**
-1. MinIO runs automatically via Docker (development) or is configured in `appsettings.json`
-2. Global settings: Settings > Storage > MinIO endpoint, access key, secret key
-3. Create a container with no connector type specified (defaults to Managed Storage)
-
-**API:**
 ```http
 POST /api/containers
-{ "name": "my-knowledge-base" }
+{ "name": "my-knowledge-base", "description": "optional" }
 ```
+
+That is the whole request. A container has no connector to choose, because managed storage is what a container *is*.
+
+Deleting a container deletes its stored objects, so it must be empty first.
 
 ---
 
-## Filesystem
+## Connections
 
-The Filesystem connector watches a local directory for changes in real time using `FileSystemWatcher`.
+A connection holds **how to authenticate** and **what the credential is allowed to reach**. It never holds a bucket name — that is the source's job.
 
-**Configuration:**
+Connections are created and edited in **Settings > Connections**, by administrators, in the UI only. There is no REST route for them, and that is deliberate: see [Why connections are UI-only](#why-connections-are-ui-only).
+
+### No stored cloud credentials
+
+There is no secret field on a connection form, because Connapse does not accept pasted cloud keys.
+
+- **S3** authenticates through the AWS default credential chain — an instance profile, an IRSA role, or an SSO session. `roleArn` optionally names a role to assume on top of that.
+- **Azure Blob** authenticates through `DefaultAzureCredential` — a managed identity, a workload identity, or a developer sign-in. `managedIdentityClientId` optionally selects a specific user-assigned identity.
+- **Filesystem** has no credential at all; it runs as whatever account the server runs as.
+
+The consequence worth internalising: **rotating credentials is an operation you perform in AWS or Azure, and Connapse needs no involvement.** There is nothing stored here to rotate.
+
+### Configuration by provider
+
+**S3**
+
 ```json
 {
-  "rootPath": "C:\\Documents\\Knowledge",
-  "includePatterns": ["*.pdf", "*.docx", "*.md"],
-  "excludePatterns": ["*.tmp", "~*"],
-  "allowDelete": true,
-  "allowUpload": true,
-  "allowCreateFolder": true
-}
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `rootPath` | Yes | — | Absolute path to the watched directory |
-| `includePatterns` | No | `[]` (all files) | Glob patterns for files to include |
-| `excludePatterns` | No | `[]` | Glob patterns for files to exclude |
-| `allowDelete` | No | `true` | Allow deleting files through the UI |
-| `allowUpload` | No | `true` | Allow uploading files through the UI |
-| `allowCreateFolder` | No | `true` | Allow creating folders through the UI |
-
-**How live watch works:**
-1. `FileSystemWatcher` monitors the root path for Created, Changed, Deleted, Renamed events
-2. Events are debounced with a **750ms** quiet period (prevents duplicate processing)
-3. New external files are automatically ingested; UI uploads are skipped (the upload endpoint owns them)
-4. Changed files are re-ingested unless already Pending/Queued/Processing
-5. Deleted files have their documents and chunks removed from the database
-6. Renamed files reuse the original document ID (avoids unique constraint issues)
-7. A full rescan runs every **5 minutes** as a safety net
-
-**Glob matching:** Patterns match against filename only (not full path). Supports `*` (any characters) and `?` (single character). Case-insensitive.
-
-**API:**
-```http
-POST /api/containers
-{
-  "name": "local-docs",
-  "connectorType": "Filesystem",
-  "connectorConfig": "{\"rootPath\":\"C:\\\\Documents\\\\Knowledge\"}"
-}
-```
-
-> **Note:** Filesystem containers do not support manual sync — the live watcher handles everything automatically.
-
----
-
-## S3
-
-The S3 connector reads from AWS S3 buckets using IAM credentials only — no access keys are stored.
-
-**Configuration:**
-```json
-{
-  "bucketName": "company-knowledge",
   "region": "us-east-1",
-  "prefix": "docs/",
-  "roleArn": "arn:aws:iam::123456789012:role/ConnaspseReader"
+  "roleArn": "arn:aws:iam::123456789012:role/ConnapseReader",
+  "allowedLocations": ["company-knowledge", "shared-docs/public/"]
 }
 ```
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `bucketName` | Yes | — | S3 bucket name |
-| `region` | Yes | `us-east-1` | AWS region |
-| `prefix` | No | — | Key prefix to scope access within the bucket |
-| `roleArn` | No | — | IAM role ARN for cross-account access via STS AssumeRole |
+**Azure Blob**
 
-**Authentication:** Uses `DefaultAWSCredentials` — IAM roles, environment variables, or instance profiles. No stored access keys.
-
-**How sync works:**
-- Background polling every **5 minutes** compares remote files against the database
-- First poll detects creates and deletes
-- Subsequent polls also detect changes (LastModified/SizeBytes differences)
-- New files are pre-registered as "Pending" in the database (visible in UI immediately)
-- On-demand sync available via `POST /api/containers/{id}/sync`
-
-**Cross-account access:** Set `roleArn` to assume a role in another AWS account. The connector uses STS `AssumeRole` to get temporary credentials.
-
-**API:**
-```http
-POST /api/containers
-{
-  "name": "s3-knowledge",
-  "connectorType": "S3",
-  "connectorConfig": "{\"bucketName\":\"company-knowledge\",\"region\":\"us-east-1\"}"
-}
-```
-
-**Test before creating:**
-```http
-POST /api/containers/test-connection
-{
-  "connectorType": "S3",
-  "connectorConfig": "{\"bucketName\":\"company-knowledge\",\"region\":\"us-east-1\"}",
-  "timeoutSeconds": 15
-}
-```
-
----
-
-## Azure Blob
-
-The Azure Blob connector reads from Azure Blob Storage containers using managed identity — no connection strings stored.
-
-**Configuration:**
 ```json
 {
   "storageAccountName": "companydata",
-  "containerName": "knowledge",
-  "prefix": "docs/",
-  "managedIdentityClientId": "12345678-1234-1234-1234-123456789012"
+  "managedIdentityClientId": "00000000-0000-0000-0000-000000000000",
+  "allowedLocations": ["knowledge", "archive/2026/"]
 }
 ```
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `storageAccountName` | Yes | — | Azure Storage account name |
-| `containerName` | Yes | — | Blob container name |
-| `prefix` | No | — | Blob prefix to scope access |
-| `managedIdentityClientId` | No | — | Client ID for user-assigned managed identity |
-
-**Authentication:** Uses `DefaultAzureCredential` — managed identity, Azure CLI, environment variables. For user-assigned managed identities, set `managedIdentityClientId`.
-
-**How sync works:** Same as S3 — 5-minute background polling + on-demand sync endpoint.
-
-**API:**
-```http
-POST /api/containers
-{
-  "name": "azure-knowledge",
-  "connectorType": "AzureBlob",
-  "connectorConfig": "{\"storageAccountName\":\"companydata\",\"containerName\":\"knowledge\"}"
-}
-```
-
-**Test before creating:**
-```http
-POST /api/containers/test-connection
-{
-  "connectorType": "AzureBlob",
-  "connectorConfig": "{\"storageAccountName\":\"companydata\",\"containerName\":\"knowledge\"}",
-  "timeoutSeconds": 15
-}
-```
-
-> **Note:** `DefaultAzureCredential` tries multiple authentication methods sequentially, so the first connection test may take longer than expected.
-
----
-
-## Write Guards
-
-Write operations (upload, delete, create folder) are subject to **container write guards** enforced by `ContainerWriteGuard`. This applies consistently across both the REST API and MCP tools.
-
-### Permissions by Connector Type
-
-| Connector Type | Upload | Delete | Create Folder | Notes |
-|---------------|--------|--------|---------------|-------|
-| **Managed Storage** | Allowed | Allowed | Allowed | Default connector; full read/write |
-| **InMemory** | Allowed | Allowed | Allowed | Ephemeral storage |
-| **Filesystem** | Configurable | Configurable | Configurable | Per-container flags (default: allowed) |
-| **S3** | Blocked | Blocked | Blocked | Read-only; files are synced from the source bucket |
-| **AzureBlob** | Blocked | Blocked | Blocked | Read-only; files are synced from the source container |
-
-### Filesystem Permission Flags
-
-Filesystem containers support three per-container permission flags in their connector config:
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `allowUpload` | `true` | Allow uploading files through the API/UI |
-| `allowDelete` | `true` | Allow deleting files through the API/UI |
-| `allowCreateFolder` | `true` | Allow creating folders through the API/UI |
-
-Set these to `false` to make a Filesystem container partially or fully read-only:
+**Filesystem**
 
 ```json
 {
-  "rootPath": "C:\\Documents\\Knowledge",
-  "allowUpload": false,
-  "allowDelete": false,
-  "allowCreateFolder": false
+  "allowedRoot": "/srv/knowledge"
 }
 ```
 
-### Error Responses
+### The two allowlists
 
-When a write operation is blocked:
+`allowedLocations` and `allowedRoot` bound what any source using the connection may be pointed at. They exist because **IAM cannot make this distinction on its own**: every source sharing a connection presents the same principal to AWS or Azure, so as far as the cloud provider is concerned they are indistinguishable. The allowlist is the only place that difference can be expressed.
 
-- **REST API**: Returns `400 Bad Request` with `{ "error": "write_denied", "message": "..." }`
-- **MCP**: Returns an error message as plain text (e.g., `"Error: S3 containers are read-only. Files are synced from the source."`)
+A location may name a whole container (`company-knowledge`) or a container and prefix (`shared-docs/public/`). A prefix entry permits only sources at or below it.
 
-### Affected Endpoints
+**Currently permissive when empty.** A connection declaring no allowlist warns once per scope and is accepted, because [#350](https://github.com/Destrayon/Connapse/issues/350) backfilled existing containers into connections and none of them declare one. This becomes deny-by-default before connections are ever creatable programmatically. A connection declaring entries that are *all blank* is denied, not treated as unconfigured.
 
-| Endpoint | Operation |
-|----------|-----------|
-| `POST /api/containers/{id}/files` | Upload |
-| `DELETE /api/containers/{id}/files/{fileId}` | Delete |
-| `POST /api/containers/{id}/folders` | CreateFolder |
-| `DELETE /api/containers/{id}/folders` | Delete |
-| MCP `upload_file` / `bulk_upload` | Upload |
-| MCP `delete_file` / `bulk_delete` | Delete |
+Deployments can bound `allowedRoot` further with `Sources:Security:AllowedFilesystemRoots`. When configured, the Connections tab renders the root as a dropdown rather than a free-text field.
 
----
-
-## Per-Container Settings
-
-Each container can override global settings for chunking, embedding, search, and upload.
-
-**Override hierarchy** (highest priority wins):
-1. Container-specific overrides
-2. Global database settings
-3. Application defaults
-
-**Endpoints:**
-```http
-GET  /api/containers/{id}/settings   # Current overrides (null = using global)
-PUT  /api/containers/{id}/settings   # Save overrides
-```
-
-**Example — override embedding model for one container:**
 ```json
-PUT /api/containers/{id}/settings
 {
-  "embedding": {
-    "provider": "OpenAI",
-    "model": "text-embedding-3-small",
-    "dimensions": 1536
+  "Sources": {
+    "Security": {
+      "AllowedFilesystemRoots": ["/srv/knowledge", "/mnt/shared"]
+    }
   }
 }
 ```
 
-**Override categories:**
-- `chunking` — Strategy, chunk size, overlap
-- `embedding` — Provider, model, dimensions
-- `search` — Mode, TopK, cross-model settings
-- `upload` — Max file size, allowed types
+The two checks are independent and both are needed: an allowlist does not stop a symlink, and link resolution does not stop `allowedRoot: "/"`.
 
-> **Warning:** Changing the embedding model for a container that already has indexed documents will cause search quality degradation until all documents are re-embedded. Use the reindex endpoint to trigger re-embedding.
+### Filesystem confinement
+
+A filesystem source's `subPath` is resolved beneath its connection's `allowedRoot`, and the result is verified to still be inside it — resolving links on **every path segment**, not just the leaf.
+
+This is deliberate and was a real vulnerability ([#365](https://github.com/Destrayon/Connapse/issues/365)). `Path.GetFullPath` is purely lexical: it never touches the filesystem, so a junction or symlink sitting *inside* the allowed root passed the old prefix check and the connector then walked straight through it to the target. On Windows, creating a junction needs no elevation.
+
+Two limits an operator has to handle outside Connapse, because no path check can reach them:
+
+- **Bind mounts and hard links** are invisible to link resolution — the resolved path genuinely *is* inside the root.
+- **Time-of-check/time-of-use.** A path verified as inside the root can be replaced before it is opened; the fix needs an anchored open with per-platform interop, which .NET has no cross-platform primitive for.
+
+Run the server under a low-privilege account, and keep configuration and the DataProtection key ring outside every configured root.
 
 ---
 
-## Connection Testing
+## Sources
 
-Test cloud connector configurations before creating a container:
+A source names **what to index** inside a connection.
 
 ```http
-POST /api/containers/test-connection
+POST /api/sources
 {
-  "connectorType": "S3",
-  "connectorConfig": "{ ... }",
-  "timeoutSeconds": 15
+  "name": "company-docs",
+  "connectionId": "…",
+  "scopeJson": "{\"bucketName\":\"company-knowledge\",\"prefix\":\"docs/\"}"
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Connected successfully",
-  "details": {
-    "bucketName": "company-knowledge",
-    "region": "us-east-1",
-    "objectsFound": 3,
-    "hasMore": true
-  },
-  "elapsed": "00:00:01.234"
-}
-```
+Scope keys by provider:
 
-**Supported connectors:** S3, AzureBlob, Managed Storage (MinIO). Filesystem doesn't need connection tests.
+| Provider | Keys |
+|---|---|
+| S3 | `bucketName`, `prefix` |
+| Azure Blob | `containerName`, `prefix` |
+| Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 
-**What gets tested:**
-- **S3:** `ListObjectsV2` with MaxKeys=5 — verifies bucket exists and credentials have read access
-- **AzureBlob:** `GetBlobsAsync` with limit of 5 — verifies container exists and identity has access
-- **Managed Storage (MinIO):** `ListBuckets` + bucket existence check — verifies endpoint and credentials
+### API
+
+| Method | Route | Role |
+|---|---|---|
+| GET | `/api/sources` | Viewer |
+| GET | `/api/sources/{id}` | Viewer |
+| POST | `/api/sources` | **Admin** |
+| PATCH | `/api/sources/{id}` | **Admin** |
+| DELETE | `/api/sources/{id}` | **Admin** |
+| POST | `/api/sources/{id}/sync` | **Admin** |
+
+Reads are viewer-level; every mutation is administrator-only, because a source chooses what external data gets indexed.
+
+**The response never contains the scope.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token. Returning either would turn a read route into reconnaissance. `lastSyncError` is administrator-only for the same reason — a provider's failure text routinely echoes what failed, as in `Access Denied for bucket payroll-data`.
+
+Deleting a source removes its indexed documents. The external data is untouched.
+
+### Sync
+
+`SourceSyncService` polls every enabled source and reconciles it against its remote. It replaced `ConnectorWatcherService`, which enumerated *containers* — after external storage moved into `sources`, that service matched nothing and syncing had silently stopped.
+
+- **Default interval** 5 minutes, overridable per source with `syncIntervalSeconds`.
+- **Change detection** compares the remote's last-modified time and size, stored on the document so a restart does not re-ingest everything.
+- **One cycle at a time per source.** A source already syncing is skipped rather than queued, so a slow remote cannot stack cycles.
+- **Cursors advance by compare-and-swap**, so a cycle that raced with a configuration change cannot overwrite the newer state.
+
+`POST /api/sources/{id}/sync` runs one cycle immediately instead of waiting for the next poll.
+
+Containers have their own `POST /api/containers/{id}/sync`, which reconciles managed storage against the document table. It exists because objects can land in the bucket out of band; it does not talk to any external system.
 
 ---
 
-## Background Sync
+## Why the split
 
-The `ConnectorWatcherService` manages file change detection for all containers.
+Three problems, all of them presentation problems:
 
-**Filesystem containers:** Real-time `FileSystemWatcher` with 750ms debounce + 5-minute rescan safety net.
+1. **Rendering an S3 bucket as a browsable folder tree implied ownership Connapse does not have.** A file tree with an upload button says "this is yours."
+2. **The tree exposed every synced object to any Connapse user**, regardless of what they could see in the source system — a far wider surface than search results.
+3. **Synced buckets competed with real containers in one list**, so "where does this file live?" had no consistent answer.
 
-**Cloud containers (S3, AzureBlob, Managed Storage):** 5-minute polling loop that:
-1. Lists all remote files via `ListFilesAsync`
-2. Compares against database documents and an in-memory snapshot
-3. Detects creates, deletes, and changes (after first poll)
-4. Pre-registers new files as "Pending" in the database
-5. Enqueues ingestion jobs for new/changed files
-6. Removes deleted documents from the database
+Write capability is now a **type guarantee** rather than a runtime check: only the managed-storage connector implements `IWritableConnector`, so a source is *incapable* of being written to. `ContainerWriteGuard` and the per-container permission flags were deleted because there is no longer a runtime decision for them to make.
 
-**On-demand sync:** `POST /api/containers/{id}/sync` triggers an immediate sync for cloud containers. Returns:
-```json
-{
-  "batchId": "abc123",
-  "totalFiles": 42,
-  "enqueuedCount": 5,
-  "skippedCount": 37,
-  "message": "Sync complete: 5 enqueued, 37 skipped"
-}
-```
+## Why connections are UI-only
 
-**Startup behavior:**
-- Existing Filesystem containers start watching automatically
-- Existing cloud containers start polling automatically
+Sources have admin-scoped REST routes so infrastructure-as-code still works. Connections do not, and the asymmetry is intentional.
+
+A connection is the credential boundary. Creating one programmatically means an API call can introduce a new principal for Connapse to authenticate as — and today the allowlists that would bound it are permissive when empty. Until they are deny-by-default, an unconstrained root is only reachable by an administrator sitting in the admin UI, which is a materially smaller surface than a token.
+
+A source, by contrast, can only ever name a scope *within* a connection an administrator already approved.
+
+---
+
+## Related
+
+- [Architecture](architecture.md) — where these types live in the layer graph
+- [API reference](api.md) — full request and response shapes
+- [MCP tools](mcp-tools.md) — how sources and containers appear to agents

@@ -73,4 +73,9 @@ searchable through MCP alone, unscoped. Filed separately rather than fixed insid
   which is the migration proving it ran).
 - **2026-08-21** — Phase 5 split out: `docs/connectors.md` is a document about the old model and
   needs rewriting rather than patching, so it ships as a stacked docs PR rather than pushing this
-  one further past the 300-line convention. Next action: open the code PR, then the docs branch.
+  one further past the 300-line convention.
+- **2026-08-21** — Both PRs open. #375 (code, closes #353) targets `main`; #377 (docs, closes #376,
+  filed for the untracked doc debt) is stacked on it. `connectors.md` rewritten as
+  "Connections, Sources, and Containers"; `api.md` gains a Sources section; `architecture.md` and
+  `mcp-tools.md` updated; one README line. Verified no reference to a deleted component survives
+  outside sentences that describe it as removed. **Epic #348 is complete pending review.**

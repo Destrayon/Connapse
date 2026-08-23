@@ -202,7 +202,7 @@ The MCP server exposes:
 
 > **Full reference:** See [docs/mcp-tools.md](docs/mcp-tools.md) for parameter tables, return formats, error cases, and usage examples.
 
-> **Write guards**: Amazon S3 and Azure Blob Storage containers are read-only (synced from source). Filesystem containers respect per-container permission flags. Upload and delete tools will return an error for containers that block writes.
+> **Containers and sources**: `container_list` tags each scope `managed` or `source`. A **source** is an external system Connapse mirrors read-only — searchable, but never browsable and never writable. `list_files` and every write tool resolve containers only; pass a source id and they report it as not found. See [docs/connectors.md](docs/connectors.md).
 
 <details>
 <summary><strong>Example prompts</strong> — what to ask your agent</summary>
