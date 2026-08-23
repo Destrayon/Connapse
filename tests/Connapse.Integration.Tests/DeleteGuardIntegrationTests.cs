@@ -147,7 +147,13 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
         await SeedDocumentsAsync(source.Id, count: 40);
 
         await SyncWithConnectorAsync(source, new EmptyListingConnector());
-        var result = await SyncWithConnectorAsync(source, new EmptyListingConnector(), applyWithheldDeletions: true);
+
+        // Reloaded, because the approval path reads the withheld count off the source it is
+        // given and the first cycle only wrote it to the database. Both real callers — the
+        // sync route and the Sources page — load the source immediately before syncing, so
+        // passing the stale object here would test something no caller does.
+        var reloaded = await ReloadAsync(source.Id);
+        var result = await SyncWithConnectorAsync(reloaded, new EmptyListingConnector(), applyWithheldDeletions: true);
 
         result.Deleted.Should().Be(40);
         result.WithheldDeletions.Should().Be(0);
@@ -279,5 +285,96 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
         using var doc = System.Text.Json.JsonDocument.Parse(body);
         doc.RootElement.GetProperty("withheldDeletions").ValueKind
             .Should().Be(System.Text.Json.JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Sync_WithOverrideButNothingWithheld_StillAppliesTheGuard()
+    {
+        // The flag must not lift a guard that never tripped. Otherwise a caller passing
+        // applyWithheldDeletions=true on a source's very first sync bypasses the guard
+        // entirely, and nobody ever sees a count to approve.
+        var source = await SeedSourceAsync();
+        await SeedDocumentsAsync(source.Id, count: 40);
+
+        var result = await SyncWithConnectorAsync(
+            source, new EmptyListingConnector(), applyWithheldDeletions: true);
+
+        result.Deleted.Should().Be(0, "no approval exists, so the guard still applies");
+        result.WithheldDeletions.Should().Be(40);
+
+        using var scope = fixture.Factory.Services.CreateScope();
+        var documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        (await documents.ListAsync(source.Id, take: int.MaxValue)).Should().HaveCount(40);
+    }
+
+    [Fact]
+    public async Task Sync_WithOverride_AfterRemoteDegradedFurther_WithholdsAgain()
+    {
+        // The asymmetry in "recompute rather than replay": recomputing is safer when the
+        // remote recovered, and *more* dangerous when it degraded further. An administrator
+        // shown 20 must not have 40 applied because the listing worsened between reading the
+        // number and pressing the button. The approval is a ceiling, not a licence.
+        var source = await SeedSourceAsync();
+        await SeedDocumentsAsync(source.Id, count: 40);
+
+        // First cycle: half the files are still visible, so 20 vanish and are withheld.
+        var stillPresent = Enumerable.Range(0, 20)
+            .Select(i => new ConnectorFile($"/doc-{i}.md", 1, DateTime.UtcNow, "text/markdown"))
+            .ToList();
+
+        var withheld = await SyncWithConnectorAsync(source, new FixedListingConnector(stillPresent));
+        withheld.WithheldDeletions.Should().Be(20, "20 of 40 vanished, which trips the guard");
+
+        // The administrator approves those 20 — but by the time the cycle runs, the remote has
+        // gone completely dark and all 40 now look deleted.
+        var reloaded = await ReloadAsync(source.Id);
+        var approval = await SyncWithConnectorAsync(
+            reloaded, new EmptyListingConnector(), applyWithheldDeletions: true);
+
+        approval.Deleted.Should().Be(0, "40 exceeds the 20 that were approved");
+        approval.WithheldDeletions.Should().Be(40, "the larger set is re-withheld for fresh approval");
+
+        using var scope = fixture.Factory.Services.CreateScope();
+        var documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+        (await documents.ListAsync(source.Id, take: int.MaxValue)).Should().HaveCount(40);
+    }
+
+    [Fact]
+    public async Task Sync_WithOverride_AfterRemotePartlyRecovered_AppliesTheSmallerSet()
+    {
+        // The other side of the ceiling: fewer deletions than approved is within what the
+        // administrator sanctioned, so it applies rather than needing a second approval.
+        var source = await SeedSourceAsync();
+        await SeedDocumentsAsync(source.Id, count: 40);
+
+        var withheld = await SyncWithConnectorAsync(source, new EmptyListingConnector());
+        withheld.WithheldDeletions.Should().Be(40);
+
+        var mostReturned = Enumerable.Range(0, 35)
+            .Select(i => new ConnectorFile($"/doc-{i}.md", 1, DateTime.UtcNow, "text/markdown"))
+            .ToList();
+
+        var reloaded = await ReloadAsync(source.Id);
+        var approval = await SyncWithConnectorAsync(
+            reloaded, new FixedListingConnector(mostReturned), applyWithheldDeletions: true);
+
+        approval.Deleted.Should().Be(5, "5 is within the 40 approved");
+        approval.WithheldDeletions.Should().Be(0);
+
+        using var scope = fixture.Factory.Services.CreateScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        (await sources.GetAsync(source.Id))!.WithheldDeletions.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Re-reads a source so its <c>WithheldDeletions</c> reflects the previous cycle. The
+    /// approval path reads that count off the passed-in source, and both real callers load it
+    /// fresh immediately before syncing.
+    /// </summary>
+    private async Task<Source> ReloadAsync(Guid sourceId)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        return (await sources.GetAsync(sourceId))!;
     }
 }

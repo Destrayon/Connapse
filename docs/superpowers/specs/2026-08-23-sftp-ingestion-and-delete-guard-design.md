@@ -68,7 +68,11 @@ Instead:
 - `SourceSyncResult.WithheldDeletions` — `int`.
 - `SourceResponse.WithheldDeletions` — visible to any viewer. It is a count, not a path, so unlike `LastSyncError` it leaks nothing about the remote and does not need the admin-only treatment.
 
-**Only the count is stored, never the paths.** The override re-runs the sync with the guard lifted and recomputes the vanished set. This is strictly safer than replaying a stored list: if the mount returned in the meantime, the recomputed set is empty and nothing is deleted. A stored list would delete files that are present again.
+**Only the count is stored, never the paths.** The override re-runs the sync and recomputes the vanished set rather than replaying a stored list: if the mount returned in the meantime, the recomputed set is empty and nothing is deleted, where a stored list would delete files that are present again.
+
+**Corrected after adversarial review — recomputing is not *strictly* safer, and the count is a ceiling.** An earlier draft of this spec claimed recomputing was safer than replaying, full stop. It is safer when the remote **recovered** and more dangerous when it **degraded further**: an administrator shown 40 could have 1,000 applied if the listing worsened between reading the number and pressing the button. So the stored count binds the approval — a recomputed set larger than what was approved is withheld again, and the flag is inert when nothing was withheld, so it cannot lift a guard that never tripped.
+
+Bound by count rather than by path identity, deliberately. The administrator never sees which paths — the page shows a number and a source is never browsable — so the consent being given is "delete what is missing, about this many". Hashing the path set would invalidate approval on ordinary churn and would mean storing path-derived data this design keeps out of the database.
 
 ### Behaviour when the guard trips
 

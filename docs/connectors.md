@@ -178,6 +178,7 @@ Two details worth knowing:
 
 - **Additions still apply.** A source that trips the guard keeps ingesting, because a safety check that stops a source working is an outage.
 - **Approving re-runs the sync**, it does not replay the earlier list. If the remote recovered in the meantime, nothing is deleted.
+- **Approving is a ceiling, not a licence.** It authorises up to the number you were shown. If the remote degraded further between reading the count and approving it, the larger set is withheld again and needs fresh approval — so a worsening outage cannot have the whole index applied on the strength of a smaller approval.
 
 The threshold is fixed and not configurable. Small sources are never blocked — losing five of five files applies immediately, since re-ingesting them is cheap.
 

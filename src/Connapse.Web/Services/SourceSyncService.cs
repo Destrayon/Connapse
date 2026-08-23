@@ -94,9 +94,11 @@ public class SourceSyncService(
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
     /// <param name="applyWithheldDeletions">
-    /// Lifts the deletion guard for this one cycle. The vanished set is recomputed rather
-    /// than replayed from what was withheld earlier, so a source whose remote has recovered
-    /// in the meantime deletes nothing.
+    /// Applies deletions an administrator has already approved. The vanished set is recomputed
+    /// rather than replayed, so a source whose remote recovered in the meantime deletes
+    /// nothing — but it is capped at the count that was withheld, so a remote that degraded
+    /// further cannot have the larger set applied on the strength of the smaller approval.
+    /// Inert when nothing was withheld: the flag cannot lift a guard that never tripped.
     /// </param>
     internal async Task<SourceSyncResult> SyncSourceAsync(
         Source source, Connection connection, CancellationToken ct, bool applyWithheldDeletions = false)
@@ -233,16 +235,44 @@ public class SourceSyncService(
         // content, or the safety mechanism becomes the outage it exists to prevent.
         int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
 
-        bool withhold = !applyWithheldDeletions
-            && DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count);
+        // An approval authorises the deletion set the administrator was shown a count of, not
+        // whatever the next listing happens to produce. Recomputing stays — a remote that
+        // recovered must still delete nothing — but the recomputed set may not *exceed* what
+        // was approved. Without that ceiling the override is unbounded in precisely the
+        // situation it is most likely to be used: a remote that is still degrading. Approve 40
+        // and the cycle could apply 1,000.
+        //
+        // Bound by count rather than by identity. The administrator never sees which paths —
+        // the page shows a number and a source is never browsable — so the consent being given
+        // is "delete what is missing, about this many", and a count expresses that honestly.
+        // Hashing the path set would invalidate approval on any ordinary churn, and would mean
+        // storing path-derived data this design deliberately keeps out of the database.
+        //
+        // Null when nothing was withheld, so the flag cannot lift a guard that never tripped:
+        // a first-ever sync carrying applyWithheldDeletions=true is still guarded.
+        int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
+
+        bool withhold = approved is null
+            ? DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count)
+            : vanished.Count > approved.Value;
 
         int deleted = 0;
         if (withhold)
         {
-            logger.LogWarning(
-                "Source {SourceId} reconcile would delete {Vanished} of {Indexed} document(s); "
-                + "withholding pending administrator approval",
-                source.Id, vanished.Count, indexedPaths.Count);
+            if (approved is { } ceiling)
+            {
+                logger.LogWarning(
+                    "Source {SourceId} approval superseded: {Approved} deletion(s) were approved but "
+                    + "the listing now shows {Vanished} of {Indexed}; withholding pending fresh approval",
+                    source.Id, ceiling, vanished.Count, indexedPaths.Count);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Source {SourceId} reconcile would delete {Vanished} of {Indexed} document(s); "
+                    + "withholding pending administrator approval",
+                    source.Id, vanished.Count, indexedPaths.Count);
+            }
         }
         else
         {
