@@ -160,7 +160,7 @@
                                         </span>
                                         <button class="btn btn-sm btn-outline-danger ms-3 text-nowrap"
                                                 @onclick="() => SyncNow(source, applyWithheldDeletions: true)"
-                                                disabled="@(syncing == source.Id)">
+                                                disabled="@(!source.Enabled || syncing == source.Id)">
                                             Apply deletions
                                         </button>
                                     </div>

@@ -181,6 +181,8 @@ Two details worth knowing:
 
 The threshold is fixed and not configurable. Small sources are never blocked — losing five of five files applies immediately, since re-ingesting them is cheap.
 
+The guard bounds a single reconcile, not the source's history. A listing that persistently returns just under the threshold — say 9% missing every cycle — never trips it, and the index erodes a little on every sync.
+
 ---
 
 ## Why the split
