@@ -19,6 +19,13 @@ public class SourceEntity
     public string? LastSyncError { get; set; }
     public int? SyncIntervalSeconds { get; set; } // null inherits the connection default
 
+    /// <summary>
+    /// How many deletions the last reconcile declined to apply, or null when none are pending.
+    /// Null rather than zero: the Sources page distinguishes "nothing pending" from "an
+    /// administrator decided", and zero would leave the approval button showing forever.
+    /// </summary>
+    public int? WithheldDeletions { get; set; }
+
     // Auto-generated summary (agent-optimized prose for routing)
     public string? Summary { get; set; }
     public DateTime? SummaryGeneratedAt { get; set; }

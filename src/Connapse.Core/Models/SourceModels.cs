@@ -20,7 +20,8 @@ public record Source(
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
     string? SummaryDocSetHash = null,
-    int DocumentCount = 0);
+    int DocumentCount = 0,
+    int? WithheldDeletions = null);
 
 public record CreateSourceRequest(
     string Name,
