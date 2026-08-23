@@ -1,4 +1,4 @@
-@page "/sources"
+﻿@page "/sources"
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Connapse.Core
@@ -10,6 +10,7 @@
 @inject SourceSyncService SyncService
 @inject IAuditLogger AuditLogger
 @inject AuthenticationStateProvider AuthStateProvider
+@inject SourceScopePreflight Preflight
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -37,11 +38,27 @@
         </div>
         @if (isAdmin)
         {
-            <a class="btn btn-outline-secondary" href="/settings">
-                <span class="bi-gear me-1"></span> Connections
-            </a>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-secondary" href="/settings">
+                    <span class="bi-gear me-1"></span> Connections
+                </a>
+                <button class="btn btn-primary" @onclick="BeginCreate" disabled="@(connections.Count == 0)">
+                    <span class="bi-plus-lg me-1"></span> New source
+                </button>
+            </div>
         }
     </div>
+
+    @if (isAdmin && connections.Count == 0 && !loading)
+    {
+        @* A source only exists inside a connection, so offering the button with nothing to
+           attach it to would open a modal whose first field has no options. *@
+        <div class="alert alert-info">
+            <span class="bi-info-circle me-2"></span>
+            No connections yet. <a href="/settings" class="alert-link">Add one</a> before creating a source —
+            a connection holds the credential, a source picks a scope inside it.
+        </div>
+    }
 
     @if (message is not null)
     {
@@ -63,7 +80,7 @@
                 <p class="text-muted mb-2">No sources yet.</p>
                 <p class="text-muted small mb-0">
                     A source points at a scope inside a connection — a bucket, a blob container, or a
-                    directory. @(isAdmin ? "Add a connection first, then create a source inside it." : "Ask an administrator to add one.")
+                    directory. @(isAdmin ? "Create one to start mirroring it." : "Ask an administrator to add one.")
                 </p>
             </div>
         </div>
@@ -152,6 +169,124 @@
     }
 </div>
 
+@if (form is not null)
+{
+    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">New source</h5>
+                    <button type="button" class="btn-close" @onclick="CancelCreate"></button>
+                </div>
+                <div class="modal-body">
+                    @if (createError is not null)
+                    {
+                        <div class="alert alert-danger py-2 small">
+                            <span class="bi-x-circle me-1"></span> @createError
+                        </div>
+                    }
+                    @if (createWarning is not null)
+                    {
+                        @* Accepted but worth seeing. The allowlists are permissive when empty
+                           today and refuse later, and this is the one moment an operator is
+                           looking at the connection and could narrow it. *@
+                        <div class="alert alert-warning py-2 small">
+                            <span class="bi-exclamation-triangle me-1"></span> @createWarning
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label">Connection</label>
+                        <select class="form-select" value="@form.ConnectionId"
+                                @onchange="OnConnectionChanged">
+                            @foreach (var connection in connections)
+                            {
+                                <option value="@connection.Id">@connection.Name (@connection.Provider)</option>
+                            }
+                        </select>
+                        <div class="form-text">
+                            The connection holds the credential. This source picks a scope inside it.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input class="form-control" @bind="form.Name" placeholder="company-docs" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Description (optional)</label>
+                        <input class="form-control" @bind="form.Description"
+                               placeholder="What is in here, and who it is for" />
+                    </div>
+
+                    @* Which scope fields exist is decided by the connection's provider, because
+                       the keys ConnectorFactory reads differ per provider and writing the wrong
+                       one produces a source that silently syncs nothing. *@
+                    @if (selectedProvider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">
+                                @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
+                            </label>
+                            <input class="form-control font-monospace" @bind="form.Container"
+                                   placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Prefix (optional)</label>
+                            <input class="form-control font-monospace" @bind="form.Prefix" placeholder="docs/" />
+                            <div class="form-text">Narrows the source to a subtree. Everything below it is indexed.</div>
+                        </div>
+                    }
+                    else if (selectedProvider is ConnectionProvider.Filesystem)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Sub-path (optional)</label>
+                            <input class="form-control font-monospace" @bind="form.SubPath" placeholder="team-a" />
+                            <div class="form-text">
+                                Resolved beneath the connection's allowed root. Leave empty for the root itself.
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Include patterns (optional)</label>
+                                <textarea class="form-control font-monospace" rows="3"
+                                          @bind="form.IncludePatterns" placeholder="*.pdf&#10;*.md"></textarea>
+                                <div class="form-text">One per line.</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Exclude patterns (optional)</label>
+                                <textarea class="form-control font-monospace" rows="3"
+                                          @bind="form.ExcludePatterns" placeholder="*.tmp"></textarea>
+                                <div class="form-text">One per line.</div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="mb-0">
+                        <label class="form-label">Sync interval in seconds (optional)</label>
+                        <input type="number" class="form-control" min="60" @bind="form.SyncIntervalSeconds"
+                               placeholder="300" />
+                        <div class="form-text">Leave empty to use the configured default.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CancelCreate" disabled="@creating">Cancel</button>
+                    <button class="btn btn-primary" @onclick="Create" disabled="@creating">
+                        @if (creating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Create source
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (pendingDelete is not null)
 {
     <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
@@ -182,6 +317,7 @@
 
 @code {
     private List<Source> sources = [];
+    private List<Connection> connections = [];
     private Dictionary<Guid, string> connectionNames = [];
     private bool loading = true;
     private bool isAdmin;
@@ -190,6 +326,14 @@
     private Source? pendingDelete;
     private string? message;
     private bool messageSuccess;
+
+    private SourceForm? form;
+    private bool creating;
+    private string? createError;
+    private string? createWarning;
+
+    private ConnectionProvider? selectedProvider =>
+        connections.FirstOrDefault(c => c.Id == form?.ConnectionId)?.Provider;
 
     protected override async Task OnInitializedAsync()
     {
@@ -206,8 +350,8 @@
         try
         {
             sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
-            connectionNames = (await ConnectionStore.ListAsync(take: int.MaxValue))
-                .ToDictionary(c => c.Id, c => c.Name);
+            connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
+            connectionNames = connections.ToDictionary(c => c.Id, c => c.Name);
         }
         catch (Exception ex)
         {
@@ -217,6 +361,7 @@
             // even after a later action succeeds.
             Fail($"Could not load sources: {ex.Message}");
             sources = [];
+            connections = [];
             connectionNames = [];
         }
         finally
@@ -329,6 +474,120 @@
         catch (Exception ex)
         {
             Fail(ex.Message);
+        }
+    }
+
+    private void BeginCreate()
+    {
+        message = null;
+        createError = null;
+        createWarning = null;
+        form = new SourceForm { ConnectionId = connections.First().Id };
+    }
+
+    private void CancelCreate()
+    {
+        form = null;
+        createError = null;
+        createWarning = null;
+    }
+
+    private void OnConnectionChanged(ChangeEventArgs args)
+    {
+        if (form is null) return;
+
+        if (Guid.TryParse(args.Value?.ToString(), out var id))
+            form.ConnectionId = id;
+
+        // The scope fields differ per provider, so anything typed for the previous one is now
+        // meaningless — carrying a bucket name over into a filesystem source would write a key
+        // the connector never reads.
+        form.Container = null;
+        form.Prefix = null;
+        form.SubPath = null;
+        form.IncludePatterns = null;
+        form.ExcludePatterns = null;
+
+        createError = null;
+        createWarning = null;
+    }
+
+    private async Task Create()
+    {
+        if (form is null) return;
+
+        createError = null;
+        createWarning = null;
+
+        var connection = connections.FirstOrDefault(c => c.Id == form.ConnectionId);
+        if (connection is null)
+        {
+            createError = "That connection no longer exists. Reload the page.";
+            return;
+        }
+
+        if (form.Validate(connection.Provider) is { } invalid)
+        {
+            createError = invalid;
+            return;
+        }
+
+        string scopeJson = form.ToScopeJson(connection.Provider);
+
+        // Checked before creating rather than at the first sync. ConnectorFactory re-checks on
+        // every cycle and remains the enforcement point — this exists so a refusal is legible
+        // now instead of surfacing as a failed sync five minutes later.
+        var preflight = Preflight.Check(connection, scopeJson);
+        if (preflight.IsRefused)
+        {
+            createError = preflight.Error;
+            return;
+        }
+
+        creating = true;
+
+        try
+        {
+            var created = await SourceStore.CreateAsync(new CreateSourceRequest(
+                form.Name.Trim(),
+                form.ConnectionId,
+                scopeJson,
+                string.IsNullOrWhiteSpace(form.Description) ? null : form.Description.Trim(),
+                form.SyncIntervalSeconds));
+
+            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
+                new { created.Name, created.ConnectionId });
+
+            form = null;
+            Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync now.");
+
+            if (preflight.Warning is not null)
+            {
+                // Survives the modal closing: the operator should still see it.
+                message += " " + preflight.Warning;
+            }
+
+            await LoadAsync();
+        }
+        catch (ArgumentException ex)
+        {
+            // The store validates the name shape and the connection's existence.
+            createError = ex.Message;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Duplicate name is the expected case here.
+            createError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit, so the
+            // operator would see the page die rather than a message.
+            createError = ex.Message;
+        }
+        finally
+        {
+            creating = false;
         }
     }
 
