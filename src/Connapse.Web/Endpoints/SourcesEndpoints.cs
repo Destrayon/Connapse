@@ -193,8 +193,8 @@ public static class SourcesEndpoints
             [FromServices] IConnectionStore connectionStore,
             [FromServices] SourceSyncService syncService,
             [FromServices] IAuditLogger auditLogger,
-            [FromQuery] bool applyWithheldDeletions,
-            CancellationToken ct) =>
+            [FromQuery] bool applyWithheldDeletions = false,
+            CancellationToken ct = default) =>
         {
             var source = await sourceStore.GetAsync(sourceId, ct);
             if (source is null)
@@ -230,7 +230,8 @@ public static class SourcesEndpoints
                 result.Deleted,
                 result.UsedDeltaPath,
                 result.RequiredResync,
-                result.Error
+                result.Error,
+                result.WithheldDeletions
             });
         })
         .WithName("SyncSource")
