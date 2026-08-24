@@ -163,6 +163,14 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         {
             if (element is JsonValue value && value.TryGetValue<string>(out var text))
                 values.Add(text);
+            else
+                // Kept as a blank rather than skipped. Dropping it shrinks a declared-but-broken
+                // allowlist — [42] — down to an empty one, which reads as "declared nothing" and
+                // is only a warning. A blank placeholder keeps the array non-empty, and
+                // StorageLocationPolicy refuses an allowlist whose entries are all blank. Same
+                // collapse the all-blank case already guards against, arriving by a different
+                // route.
+                values.Add(string.Empty);
         }
 
         return values;

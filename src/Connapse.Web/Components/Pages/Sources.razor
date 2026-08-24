@@ -562,9 +562,9 @@
                 string.IsNullOrWhiteSpace(form.Description) ? null : form.Description.Trim(),
                 form.SyncIntervalSeconds));
 
-            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                new { created.Name, created.ConnectionId });
-
+            // The source exists from here on, so the outcome is settled before anything else
+            // is attempted. Reporting success first is what stops a later failure describing a
+            // created source as a failed one.
             form = null;
             Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync now.");
 
@@ -572,6 +572,20 @@
             {
                 // Survives the modal closing: the operator should still see it.
                 message += " " + preflight.Warning;
+            }
+
+            try
+            {
+                await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
+                    new { created.Name, created.ConnectionId });
+            }
+            catch (Exception auditEx)
+            {
+                // Previously this landed in the generic catch below, which set createError and
+                // left the form open — so the operator saw a failure for a source that had been
+                // created, and retrying hit the store's duplicate-name refusal. The audit write
+                // is worth surfacing, but it is not the operation being reported on.
+                message += $" (the audit entry could not be written: {auditEx.Message})";
             }
 
             await LoadAsync();

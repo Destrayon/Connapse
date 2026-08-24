@@ -236,4 +236,36 @@ public class SourceScopePreflightTests
         result.IsRefused.Should().BeFalse(
             "the connector factory reads a blank config as an empty object, and preflight must match");
     }
+    /// <summary>
+    /// The same collapse the all-blank case guards against, arriving by another route. Skipping
+    /// non-string elements shrinks a declared-but-broken allowlist down to an empty one, which
+    /// reads as "declared nothing" and only warns — so a broken allowlist would be presented as
+    /// an absent one.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"allowedLocations":[42]}""")]
+    [InlineData("""{"allowedLocations":[null]}""")]
+    [InlineData("""{"allowedLocations":[{"bucket":"b"}]}""")]
+    [InlineData("""{"allowedLocations":[42,"other-bucket"]}""")]
+    public void Check_AllowedLocationsHoldingNonStrings_IsRefusedNotWarned(string configJson)
+    {
+        var result = Build().Check(Conn(ConnectionProvider.S3, configJson), """{"bucketName":"b"}""");
+
+        result.IsRefused.Should().BeTrue(
+            "a malformed allowlist must not be mistaken for an absent one");
+    }
+
+    /// <summary>
+    /// The other half: a well-formed allowlist that genuinely covers the bucket still passes, so
+    /// the fix above cannot have made every array refuse.
+    /// </summary>
+    [Fact]
+    public void Check_WellFormedAllowedLocations_StillAllowTheirBucket()
+    {
+        var result = Build().Check(
+            Conn(ConnectionProvider.S3, """{"allowedLocations":["b","other"]}"""),
+            """{"bucketName":"b"}""");
+
+        result.IsRefused.Should().BeFalse();
+    }
 }
