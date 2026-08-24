@@ -532,22 +532,29 @@
             return;
         }
 
-        string scopeJson = form.ToScopeJson(connection.Provider);
-
-        // Checked before creating rather than at the first sync. ConnectorFactory re-checks on
-        // every cycle and remains the enforcement point — this exists so a refusal is legible
-        // now instead of surfacing as a failed sync five minutes later.
-        var preflight = Preflight.Check(connection, scopeJson);
-        if (preflight.IsRefused)
-        {
-            createError = preflight.Error;
-            return;
-        }
-
         creating = true;
 
         try
         {
+            // Inside the try, not above it. Both of these can throw — ToScopeJson refuses a
+            // provider it does not know, and the preflight's filesystem branch rejects a blank
+            // allowed root — and an exception escaping an async event handler tears down the
+            // Blazor circuit, which is the outcome the handlers below exist to prevent.
+            //
+            // Not hypothetical: the moment a provider is added to the enum without a case
+            // here, picking a connection of that kind kills the page instead of saying so.
+            string scopeJson = form.ToScopeJson(connection.Provider);
+
+            // Checked before creating rather than at the first sync. ConnectorFactory re-checks
+            // on every cycle and remains the enforcement point — this exists so a refusal is
+            // legible now instead of surfacing as a failed sync five minutes later.
+            var preflight = Preflight.Check(connection, scopeJson);
+            if (preflight.IsRefused)
+            {
+                createError = preflight.Error;
+                return;
+            }
+
             var created = await SourceStore.CreateAsync(new CreateSourceRequest(
                 form.Name.Trim(),
                 form.ConnectionId,

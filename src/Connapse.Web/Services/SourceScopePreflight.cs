@@ -39,6 +39,17 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         if (scope is null)
             return ScopePreflightResult.Refuse("The scope could not be read as JSON.");
 
+        // Blank and malformed both parse to null, and they must not mean the same thing here.
+        // Blank is fine — ConnectorFactory reads it as "{}" — but malformed makes the factory
+        // throw on the first sync, while an empty credential looks to the check below like a
+        // connection declaring no allowlist, which is merely a warning. Preflight would then
+        // wave through a source that cannot possibly work, which is the one thing it exists
+        // to prevent.
+        if (credential is null && !string.IsNullOrWhiteSpace(connection.ConfigJson))
+            return ScopePreflightResult.Refuse(
+                $"Connection '{connection.Name}' has configuration that is not valid JSON, so no "
+                + "source using it can sync. Re-save the connection to repair it.");
+
         return connection.Provider switch
         {
             ConnectionProvider.S3 => CheckLocation(credential, scope, "bucketName", "bucket", connection.Name),

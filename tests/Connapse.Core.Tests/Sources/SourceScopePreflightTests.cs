@@ -201,4 +201,39 @@ public class SourceScopePreflightTests
             Directory.Delete(root, recursive: true);
         }
     }
+    // ── Malformed connection configuration ─────────────────────────────────
+
+    /// <summary>
+    /// Blank and malformed both parse to null, and conflating them defeats the point of
+    /// preflighting at all: ConnectorFactory throws on malformed JSON at the first sync, while
+    /// an empty credential reads here as "declares no allowlist", which is only a warning. The
+    /// source would be accepted and then never work.
+    /// </summary>
+    [Theory]
+    [InlineData(ConnectionProvider.S3, """{"bucketName":"b"}""")]
+    [InlineData(ConnectionProvider.AzureBlob, """{"containerName":"c"}""")]
+    [InlineData(ConnectionProvider.Filesystem, """{"subPath":"docs"}""")]
+    public void Check_MalformedConnectionConfig_IsRefused(ConnectionProvider provider, string scope)
+    {
+        var result = Build().Check(Conn(provider, "{not valid json"), scope);
+
+        result.IsRefused.Should().BeTrue();
+        result.Error.Should().Contain("not valid JSON");
+    }
+
+    /// <summary>
+    /// Blank must keep its meaning. The factory reads a blank config as "{}", so preflight has
+    /// to agree — refusing here would block connections that work perfectly well.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Check_BlankConnectionConfig_IsNotTreatedAsMalformed(string? configJson)
+    {
+        var result = Build().Check(Conn(ConnectionProvider.S3, configJson), """{"bucketName":"b"}""");
+
+        result.IsRefused.Should().BeFalse(
+            "the connector factory reads a blank config as an empty object, and preflight must match");
+    }
 }
