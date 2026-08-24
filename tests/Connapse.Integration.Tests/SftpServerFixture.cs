@@ -106,6 +106,18 @@ public sealed class SftpServerFixture : IAsyncLifetime
         ExecAsync($"chown root '{Home}{sftpPath}' && chmod 700 '{Home}{sftpPath}'");
 
     /// <summary>
+    /// Appends a public key to the account's <c>authorized_keys</c>, the way the generated
+    /// setup command does on a real host. Lets a test prove a Connapse-generated key pair
+    /// actually authenticates.
+    /// </summary>
+    public Task AuthorizeKeyAsync(string publicKeyLine) =>
+        ExecAsync(
+            $"mkdir -p '{Home}/.ssh' && "
+            + $"printf '%s\\n' '{publicKeyLine}' >> '{Home}/.ssh/authorized_keys' && "
+            + $"chown -R {Username} '{Home}/.ssh' && "
+            + $"chmod 700 '{Home}/.ssh' && chmod 600 '{Home}/.ssh/authorized_keys'");
+
+    /// <summary>
     /// Replaces the server's host keys and restarts sshd, so the next connection presents a
     /// different key. This is what a rekey looks like to a client, and what an interposition
     /// looks like too — the connector cannot tell them apart, which is the point of pinning.

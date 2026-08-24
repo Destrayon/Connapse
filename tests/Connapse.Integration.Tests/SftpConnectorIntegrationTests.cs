@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
 using FluentAssertions;
 using Xunit;
@@ -306,6 +307,62 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
             .WithMessage("*partial listing*");
     }
 
+    // ── Generated key pairs ────────────────────────────────────────────────
+
+    /// <summary>
+    /// The test that makes <see cref="SshKeyPairGenerator"/> trustworthy.
+    /// </summary>
+    /// <remarks>
+    /// A wrong <c>authorized_keys</c> encoding produces a line that looks entirely correct
+    /// and simply fails to authenticate, with nothing anywhere pointing at the cause. Unit
+    /// tests can check the blob's structure but cannot tell you whether a real OpenSSH server
+    /// accepts it. This installs a generated public key the way the setup command will, and
+    /// connects with the matching private half.
+    /// </remarks>
+    [Fact]
+    public async Task GeneratedKeyPair_AuthenticatesAgainstARealServer()
+    {
+        var pair = SshKeyPairGenerator.Generate("connapse-generated");
+        await _server.AuthorizeKeyAsync(pair.PublicKeyLine);
+
+        using var connector = new SftpConnector(new SftpConnectorConfig
+        {
+            Host = _server.Host,
+            Port = _server.Port,
+            Username = SftpServerFixture.Username,
+            AllowedRoot = AllowedRoot,
+            Credential = new SftpCredential { PrivateKey = pair.PrivateKeyPem },
+        });
+
+        (await connector.ListFilesAsync()).Should().NotBeEmpty(
+            "a generated pair must authenticate, or the setup flow hands operators a key that "
+            + "silently does not work");
+    }
+
+    /// <summary>
+    /// The negative half. Without it the test above could pass because the server accepts
+    /// anything — the fixture's own key is already authorized, so a generated key that was
+    /// never really used would look identical.
+    /// </summary>
+    [Fact]
+    public async Task GeneratedKeyPair_NotInstalledOnTheServer_IsRefused()
+    {
+        var pair = SshKeyPairGenerator.Generate("never-installed");
+
+        using var connector = new SftpConnector(new SftpConnectorConfig
+        {
+            Host = _server.Host,
+            Port = _server.Port,
+            Username = SftpServerFixture.Username,
+            AllowedRoot = AllowedRoot,
+            Credential = new SftpCredential { PrivateKey = pair.PrivateKeyPem },
+        });
+
+        Func<Task> act = () => connector.ListFilesAsync();
+
+        await act.Should().ThrowAsync<Exception>();
+    }
+
     // ── Host key pinning ───────────────────────────────────────────────────
 
     /// <summary>Records what was pinned, so a test can assert on it.</summary>
@@ -412,4 +469,5 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
         return store.Recorded.Single().Fingerprint;
     }
 }
+
 
