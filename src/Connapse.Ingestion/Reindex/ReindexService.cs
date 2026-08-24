@@ -432,29 +432,21 @@ public class ReindexService : IReindexService
         ReindexReason reason,
         CancellationToken ct)
     {
-        // Delete existing chunks and vectors before reindex
-        // The cascade delete will handle chunk_vectors
-        var existingChunks = await _context.Chunks
-            .Where(c => c.DocumentId == doc.Id)
-            .ToListAsync(ct);
-
-        if (existingChunks.Count > 0)
-        {
-            _context.Chunks.RemoveRange(existingChunks);
-            await _context.SaveChangesAsync(ct);
-
-            _logger.LogDebug(
-                "Removed {ChunkCount} existing chunks for document {DocumentId}",
-                existingChunks.Count,
-                doc.Id);
-        }
+        // The chunks stay where they are. IngestionPipeline purges them itself on a reindex,
+        // once the file has been read and the row updated — which is the only moment at which
+        // dropping them is safe. Deleting here instead meant every way the work could fail
+        // afterwards — the enqueue throwing, Hangfire being down, the SFTP server refusing the
+        // connection — left a document with no chunks and no job coming to rebuild them. The
+        // document stayed searchable-looking and returned nothing.
+        //
+        // ChunkCount is left alone for the same reason: it describes chunks that still exist.
 
         // Update document status
         var docEntity = await _context.Documents.FindAsync([doc.Id], ct);
+        string? previousStatus = docEntity?.Status;
         if (docEntity != null)
         {
             docEntity.Status = "Pending";
-            docEntity.ChunkCount = 0;
             await _context.SaveChangesAsync(ct);
         }
 
@@ -462,6 +454,19 @@ public class ReindexService : IReindexService
         var strategy = options.Strategy ?? Enum.Parse<ChunkingStrategy>(
             _chunkingSettings.CurrentValue.Strategy,
             ignoreCase: true);
+
+        // The owner the row actually has, read from the row. Nullable<Guid>.ToString() yields
+        // "" rather than throwing, so a source-owned document used to be enqueued with a blank
+        // ContainerId and no Owner at all — and the pipeline, seeing neither, routed it down
+        // the container branch and threw. By then the chunks above were already deleted, and
+        // the next sync saw an unchanged remote signature and did not restore them, so a
+        // forced reindex quietly removed source documents from search for good.
+        var owner = doc.SourceId is Guid sourceId
+            ? OwnerRef.ForSource(sourceId)
+            : doc.ContainerId is Guid containerId
+                ? OwnerRef.ForContainer(containerId)
+                : throw new InvalidOperationException(
+                    $"Document {doc.Id} has neither a container nor a source and cannot be reindexed.");
 
         // Create and enqueue ingestion job
         var job = new IngestionJob(
@@ -472,13 +477,32 @@ public class ReindexService : IReindexService
                 DocumentId: doc.Id.ToString(),
                 FileName: doc.FileName,
                 ContentType: doc.ContentType,
-                ContainerId: doc.ContainerId.ToString(),
+                ContainerId: owner.ContainerId?.ToString(),
                 Path: doc.Path,
                 Strategy: strategy,
-                Metadata: doc.Metadata),
+                Metadata: doc.Metadata)
+            {
+                Owner = owner,
+            },
             BatchId: batchId);
 
-        await _queue.EnqueueAsync(job, ct);
+        try
+        {
+            await _queue.EnqueueAsync(job, ct);
+        }
+        catch
+        {
+            // Pending means "a job is coming". If none is, the document is stranded: the sync
+            // engine skips Pending documents, so it would never be looked at again. Put the
+            // status back so the next cycle can.
+            if (docEntity != null && previousStatus != null)
+            {
+                docEntity.Status = previousStatus;
+                await _context.SaveChangesAsync(CancellationToken.None);
+            }
+
+            throw;
+        }
 
         _logger.LogInformation(
             "Enqueued document {DocumentId} ({FileName}) for reindex, reason: {Reason}",

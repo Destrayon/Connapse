@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Web.Components.Settings;
 using FluentAssertions;
 using Xunit;
@@ -239,4 +240,315 @@ public class ConnectionFormTests
         new ConnectionForm { Name = "c", Provider = ConnectionProvider.S3 }
             .Validate().Should().BeNull();
     }
+
+    // ── SFTP ───────────────────────────────────────────────────────────────
+
+    private static ConnectionForm SftpForm() => new()
+    {
+        Name = "files",
+        Provider = ConnectionProvider.Sftp,
+        Host = "files.example.com",
+        Port = "2222",
+        Username = "connapse",
+        AllowedRoot = "/srv/knowledge",
+        PrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n",
+    };
+
+    [Fact]
+    public void Sftp_ConfigRoundTrips()
+    {
+        string json = SftpForm().ToConfigJson();
+        var back = ConnectionForm.FromConnection(Stored(ConnectionProvider.Sftp, json));
+
+        back.Host.Should().Be("files.example.com");
+        back.Port.Should().Be("2222");
+        back.Username.Should().Be("connapse");
+        back.AllowedRoot.Should().Be("/srv/knowledge");
+    }
+
+    [Fact]
+    public void Sftp_NoPort_DefaultsTo22InTheStoredConfig()
+    {
+        var form = SftpForm() with { Port = null };
+
+        JsonNode.Parse(form.ToConfigJson())!["port"]!.GetValue<int>().Should().Be(22);
+    }
+
+    /// <summary>
+    /// The pin belongs to the connector, which records it on first connect and compares against
+    /// it afterwards. An ordinary save must carry it through — dropping it would silently re-arm
+    /// trust on first use, which is the one thing pinning exists to prevent.
+    /// </summary>
+    [Fact]
+    public void Sftp_SavingAnExistingConnection_PreservesThePinnedHostKey()
+    {
+        var stored = Stored(ConnectionProvider.Sftp,
+            """{"host":"h","port":22,"username":"u","allowedRoot":"/srv","hostKeyFingerprint":"SHA256:pinned"}""");
+
+        var form = ConnectionForm.FromConnection(stored);
+        form.HostKeyFingerprint.Should().Be("SHA256:pinned");
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()
+            .Should().Be("SHA256:pinned");
+    }
+
+    [Fact]
+    public void Sftp_ForgettingTheHostKey_DropsItFromTheStoredConfig()
+    {
+        var stored = Stored(ConnectionProvider.Sftp,
+            """{"host":"h","port":22,"username":"u","allowedRoot":"/srv","hostKeyFingerprint":"SHA256:pinned"}""");
+
+        var form = ConnectionForm.FromConnection(stored);
+        form.ForgetHostKey = true;
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"].Should().BeNull();
+    }
+
+    /// <summary>
+    /// A secret is never read back into the form, so an operator opening and saving a connection
+    /// must not wipe its key. Null means "leave the stored one alone", which is the store's own
+    /// rule.
+    /// </summary>
+    [Fact]
+    public void Sftp_FromConnection_LeavesTheKeyBlankSoSavingDoesNotWipeIt()
+    {
+        var form = ConnectionForm.FromConnection(
+            Stored(ConnectionProvider.Sftp, """{"host":"h","username":"u","allowedRoot":"/srv"}""", hasSecret: true));
+
+        form.PrivateKey.Should().BeNull();
+        form.ToSecretJson().Should().BeNull();
+    }
+
+    [Fact]
+    public void Sftp_SecretCarriesTheKeyAndPassphrase()
+    {
+        var form = SftpForm() with { Passphrase = "hunter2" };
+
+        var secret = JsonNode.Parse(form.ToSecretJson()!)!;
+
+        secret["privateKey"]!.GetValue<string>().Should().Contain("OPENSSH PRIVATE KEY");
+        secret["passphrase"]!.GetValue<string>().Should().Be("hunter2");
+    }
+
+    /// <summary>
+    /// #371 removed the secret field because Connapse does not accept pasted cloud keys. SFTP
+    /// brings it back for one provider only, and this is where that stays true.
+    /// </summary>
+    [Theory]
+    [InlineData(ConnectionProvider.S3)]
+    [InlineData(ConnectionProvider.AzureBlob)]
+    [InlineData(ConnectionProvider.Filesystem)]
+    public void NonSftpProviders_NeverProduceASecret(ConnectionProvider provider)
+    {
+        var form = new ConnectionForm
+        {
+            Name = "c",
+            Provider = provider,
+            StorageAccountName = "a",
+            AllowedRoot = "/data",
+
+            // Set deliberately: even with a key sitting in the form, these providers must not
+            // store one.
+            PrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n",
+        };
+
+        form.ToSecretJson().Should().BeNull();
+    }
+
+    /// <summary>
+    /// SFTP is bounded by a root, not by a bucket allowlist. Written as a positive check on the
+    /// cloud providers rather than "not Filesystem", which is what would have swept SFTP into
+    /// the wrong branch.
+    /// </summary>
+    [Fact]
+    public void Sftp_DoesNotWriteAllowedLocations()
+    {
+        var form = SftpForm() with { AllowedLocations = "some-bucket" };
+
+        JsonNode.Parse(form.ToConfigJson())!["allowedLocations"].Should().BeNull();
+    }
+
+    [Fact]
+    public void Sftp_IsNotACloudProvider()
+    {
+        SftpForm().IsCloudProvider.Should().BeFalse();
+        new ConnectionForm { Provider = ConnectionProvider.S3 }.IsCloudProvider.Should().BeTrue();
+        new ConnectionForm { Provider = ConnectionProvider.AzureBlob }.IsCloudProvider.Should().BeTrue();
+        new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
+    }
+
+    // ── Connect this computer ──────────────────────────────────────────────
+
+    private static SftpHostSetupResult Reported(
+        string user = "Diviel",
+        string home = "/C:/Users/Diviel",
+        string fingerprint = "SHA256:hostkey") => new(user, home, fingerprint);
+
+    private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
+
+    [Fact]
+    public void ForLocalMachine_UsesEveryValueTheHostReported()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", GeneratedKey);
+
+        form.Provider.Should().Be(ConnectionProvider.Sftp);
+        form.Username.Should().Be("Diviel");
+        form.Host.Should().Be("host.docker.internal");
+        form.Port.Should().Be("22");
+        form.HostKeyFingerprint.Should().Be("SHA256:hostkey");
+        form.PrivateKey.Should().Be(GeneratedKey);
+        form.Name.Should().Be("Diviel@host.docker.internal");
+    }
+
+    /// <summary>
+    /// The restriction that was there by accident. Windows OpenSSH applies no chroot, so a
+    /// second drive is perfectly reachable — and confining the flow to the profile would rule
+    /// out where most people actually keep things.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_RootOnAnotherDrive_IsAllowed()
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", "/D:/CodeProjects", GeneratedKey)
+            .AllowedRoot.Should().Be("/D:/CodeProjects");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? root)
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", root, GeneratedKey)
+            .AllowedRoot.Should().Be("/C:/Users/Diviel");
+    }
+
+    /// <summary>
+    /// An operator will paste what Explorer shows them, because that is what is on the
+    /// clipboard. SFTP takes neither the backslashes nor the bare drive letter.
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\CodeProjects", "/D:/CodeProjects")]
+    [InlineData("D:/CodeProjects", "/D:/CodeProjects")]
+    [InlineData(@"C:\Users\Diviel\Documents", "/C:/Users/Diviel/Documents")]
+    public void NormaliseRemoteRoot_ConvertsAWindowsPathFromExplorer(string entered, string expected)
+    {
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("/D:/Projects/", "/D:/Projects")]
+    [InlineData("/home/me/docs", "/home/me/docs")]
+    [InlineData("home/me", "/home/me")]
+    [InlineData("/", "/")]
+    public void NormaliseRemoteRoot_ProducesAnAbsoluteUnDoubledPath(string entered, string expected)
+    {
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
+    }
+
+    /// <summary>
+    /// A drive root trims to "/D:" and must stay that, not collapse to the filesystem root —
+    /// which would silently widen the connection from one drive to the whole machine.
+    /// </summary>
+    [Fact]
+    public void NormaliseRemoteRoot_DriveRoot_StaysTheDrive()
+    {
+        ConnectionForm.NormaliseRemoteRoot("/D:/", "/fallback").Should().Be("/D:");
+    }
+
+    [Theory]
+    [InlineData("/", true)]
+    [InlineData("/D:", true)]
+    [InlineData("/D:/", true)]
+    [InlineData("/C:/Users/Diviel", false)]
+    [InlineData("/D:/CodeProjects", false)]
+    [InlineData("/home/me", false)]
+    [InlineData(null, false)]
+    public void IsBroadRemoteRoot_FlagsWholeDrivesAndTheFilesystemRoot(string? root, bool expected)
+    {
+        ConnectionForm.IsBroadRemoteRoot(root).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The whole flow exists to avoid typing, so what it produces must be savable as-is.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_ProducesAConnectionThatValidatesAndStoresItsKey()
+    {
+        var pair = SshKeyPairGenerator.Generate();
+
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", pair.PrivateKeyPem);
+
+        form.Validate(isNew: true).Should().BeNull();
+        form.ToSecretJson().Should().NotBeNull();
+
+        var config = JsonNode.Parse(form.ToConfigJson())!;
+        config["host"]!.GetValue<string>().Should().Be("host.docker.internal");
+        config["port"]!.GetValue<int>().Should().Be(22);
+        config["hostKeyFingerprint"]!.GetValue<string>().Should().Be("SHA256:hostkey");
+    }
+
+    /// <summary>
+    /// Carrying the fingerprint into the stored config is what makes the first connection
+    /// verified rather than trusted — the entire reason the operator pastes anything back.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_PinsTheFingerprintBeforeTheFirstConnection()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(fingerprint: "SHA256:fromTheHost"), "h", null, GeneratedKey);
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()
+            .Should().Be("SHA256:fromTheHost");
+    }
+
+    [Theory]
+    [InlineData(nameof(ConnectionForm.Host))]
+    [InlineData(nameof(ConnectionForm.Username))]
+    [InlineData(nameof(ConnectionForm.AllowedRoot))]
+    public void Sftp_MissingARequiredField_IsRefused(string missing)
+    {
+        var form = SftpForm();
+
+        switch (missing)
+        {
+            case nameof(ConnectionForm.Host): form.Host = null; break;
+            case nameof(ConnectionForm.Username): form.Username = null; break;
+            case nameof(ConnectionForm.AllowedRoot): form.AllowedRoot = null; break;
+        }
+
+        form.Validate().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Sftp_NewConnectionWithoutAKey_IsRefused()
+    {
+        (SftpForm() with { PrivateKey = null }).Validate(isNew: true)
+            .Should().Be("A private key is required.");
+    }
+
+    [Fact]
+    public void Sftp_ExistingConnectionWithoutAKey_IsAllowed()
+    {
+        (SftpForm() with { PrivateKey = null }).Validate(isNew: false)
+            .Should().BeNull("an operator editing a connection should not have to retype the key");
+    }
+
+    /// <summary>
+    /// An unparseable port becomes 0 and is refused, rather than silently falling back to 22 and
+    /// connecting somewhere the operator did not ask for.
+    /// </summary>
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("0")]
+    [InlineData("70000")]
+    [InlineData("-1")]
+    public void Sftp_UnusablePort_IsRefused(string port)
+    {
+        (SftpForm() with { Port = port }).Validate()
+            .Should().Be("The port must be between 1 and 65535.");
+    }
 }
+
+

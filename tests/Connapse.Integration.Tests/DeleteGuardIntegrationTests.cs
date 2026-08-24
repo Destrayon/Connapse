@@ -63,7 +63,7 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     /// </summary>
     private sealed class FixedConnectorFactory(IConnector connector) : IConnectorFactory
     {
-        public IConnector Create(Source source, Connection connection) => connector;
+        public IConnector Create(Source source, Connection connection, string? secret = null) => connector;
     }
 
     private async Task<SourceSyncResult> SyncWithConnectorAsync(

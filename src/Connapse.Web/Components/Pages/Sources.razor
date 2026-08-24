@@ -261,13 +261,25 @@
                             <div class="form-text">Narrows the source to a subtree. Everything below it is indexed.</div>
                         </div>
                     }
-                    else if (selectedProvider is ConnectionProvider.Filesystem)
+                    @* SFTP shares this branch rather than getting its own. Its scope is the same
+                       shape — a subpath beneath the connection's root, plus patterns — and that
+                       was a deliberate choice when the provider was designed, so that this form,
+                       the preflight, and the scope summary each gained a case rather than a
+                       parallel implementation. *@
+                    else if (selectedProvider is ConnectionProvider.Filesystem or ConnectionProvider.Sftp)
                     {
                         <div class="mb-3">
                             <label class="form-label">Sub-path (optional)</label>
-                            <input class="form-control font-monospace" @bind="form.SubPath" placeholder="team-a" />
+                            <input class="form-control font-monospace" @bind="form.SubPath"
+                                   placeholder="@(selectedProvider is ConnectionProvider.Sftp ? "Documents" : "team-a")" />
                             <div class="form-text">
                                 Resolved beneath the connection's allowed root. Leave empty for the root itself.
+                                @if (selectedProvider is ConnectionProvider.Sftp)
+                                {
+                                    <text>
+                                        Resolved on the remote server, so a symlink cannot lead outside the root.
+                                    </text>
+                                }
                             </div>
                         </div>
 

@@ -55,6 +55,7 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
             ConnectionProvider.S3 => CheckLocation(credential, scope, "bucketName", "bucket", connection.Name),
             ConnectionProvider.AzureBlob => CheckLocation(credential, scope, "containerName", "blob container", connection.Name),
             ConnectionProvider.Filesystem => CheckRoot(credential, scope, connection.Name),
+            ConnectionProvider.Sftp => CheckSftpScope(credential, scope, connection.Name),
             _ => ScopePreflightResult.Refuse(
                 $"Connection '{connection.Name}' uses a provider this form does not understand.")
         };
@@ -86,6 +87,52 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
             _ => ScopePreflightResult.Refuse(
                 $"'{Join(container, prefix)}' is outside the locations connection '{connectionName}' permits.")
         };
+    }
+
+    /// <summary>
+    /// Checks an SFTP scope as far as it can be checked without a network call.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does <b>not</b> reuse <see cref="CheckRoot"/>. That path calls
+    /// <see cref="PathConfinement"/> and <see cref="SourceSecuritySettings.EvaluateRoot"/>, both
+    /// of which touch the local disk and read the deployment's own allowed-roots setting —
+    /// answers about the machine Connapse runs on, not the one being connected to. Against a
+    /// remote path they would resolve nothing and silently degrade to a lexical prefix check,
+    /// which is the mistake <c>SftpPathConfinement</c> exists to avoid.
+    /// <para>
+    /// So this catches only what is wrong on its face. The real confinement happens on the
+    /// server, through <c>SSH_FXP_REALPATH</c>, at the first connect — the same division of
+    /// labour as everywhere else here: this makes the obvious case legible early, and the
+    /// connector remains the thing that actually decides.
+    /// </para>
+    /// </remarks>
+    private static ScopePreflightResult CheckSftpScope(
+        JsonObject? credential, JsonObject scope, string connectionName)
+    {
+        if (string.IsNullOrWhiteSpace(Str(credential, "allowedRoot")))
+            return ScopePreflightResult.Refuse($"Connection '{connectionName}' has no allowed root configured.");
+
+        string? subPath = Str(scope, "subPath");
+        if (string.IsNullOrWhiteSpace(subPath))
+            return ScopePreflightResult.Allowed;
+
+        string cleaned = subPath.Replace('\\', '/');
+
+        if (cleaned.StartsWith('/'))
+        {
+            return ScopePreflightResult.Refuse(
+                "A sub-path is relative to the connection's allowed root, so it cannot start with '/'.");
+        }
+
+        // Refused on the segment, not on the substring: a file legitimately named "..config"
+        // contains ".." without being a traversal.
+        if (cleaned.Split('/').Any(segment => segment == ".."))
+        {
+            return ScopePreflightResult.Refuse(
+                "A sub-path cannot contain '..' — it must stay inside the connection's allowed root.");
+        }
+
+        return ScopePreflightResult.Allowed;
     }
 
     private ScopePreflightResult CheckRoot(JsonObject? credential, JsonObject scope, string connectionName)

@@ -1,4 +1,4 @@
-namespace Connapse.Core.Interfaces;
+﻿namespace Connapse.Core.Interfaces;
 
 public interface IDocumentStore
 {
@@ -25,6 +25,22 @@ public interface IDocumentStore
     /// as they transition through Pending → Indexed → SummaryIndexed → (Failed).
     /// </summary>
     Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records that a document's ingestion failed, in both the enrichment state and the job
+    /// lifecycle status.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="UpdateIngestionStateAsync"/> because that one also carries
+    /// summarization outcomes, and a summary that failed does not make an indexed document a
+    /// failed one. This is only for the ingestion job itself.
+    /// <para>
+    /// Both columns matter: the sync engine reads <c>Status</c>, and treats "Pending" as a job
+    /// that is still coming. A job that died before the pipeline loaded the row leaves that
+    /// status behind, and the document is then skipped on every future cycle.
+    /// </para>
+    /// </remarks>
+    Task MarkIngestionFailedAsync(string documentId, string? errorMessage, CancellationToken ct = default);
 
     /// <summary>
     /// Returns container IDs whose docs have summaries newer than the container's own summary

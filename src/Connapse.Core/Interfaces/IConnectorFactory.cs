@@ -11,5 +11,16 @@ public interface IConnectorFactory
     /// connection does not own the source.
     /// </para>
     /// </summary>
-    IConnector Create(Source source, Connection connection);
+    /// <param name="secret">
+    /// The connection's decrypted secret, for the providers that have one. Passed in rather
+    /// than read from <paramref name="connection"/> because <see cref="Connection"/> is the
+    /// read model returned from the connections API, and keeping credentials off it is the
+    /// reason <see cref="IConnectionStore.GetSecretAsync"/> exists as a separate call.
+    /// <para>
+    /// Null for S3, Azure Blob and Filesystem, which authenticate from ambient identity or
+    /// need nothing at all. A provider that requires one and is handed null fails at connect
+    /// time, which is the loud failure it should be.
+    /// </para>
+    /// </param>
+    IConnector Create(Source source, Connection connection, string? secret = null);
 }
