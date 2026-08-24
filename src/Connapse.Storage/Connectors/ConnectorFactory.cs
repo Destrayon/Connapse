@@ -30,7 +30,7 @@ public class ConnectorFactory(
     /// </summary>
     private readonly HashSet<string> _warnedUnrestricted = [];
 
-    public IConnector Create(Source source, Connection connection)
+    public IConnector Create(Source source, Connection connection, string? secret = null)
     {
         if (source.ConnectionId != connection.Id)
             throw new ArgumentException(

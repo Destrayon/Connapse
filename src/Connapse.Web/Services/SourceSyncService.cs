@@ -132,7 +132,20 @@ public class SourceSyncService(
         IConnector? connector = null;
         try
         {
-            connector = connectorFactory.Create(source, connection);
+            // Fetched here rather than in SyncAllAsync because the sync-now endpoint calls
+            // this method directly, and a credential that only the timer supplied would make
+            // "sync now" behave differently from the poll.
+            //
+            // Skipped entirely unless the connection actually stores one: HasSecret is on the
+            // read model, so the common providers cost no query and no decrypt per cycle. A
+            // key ring that cannot decrypt throws, which the catch below records as a sync
+            // failure — the right outcome, since retrying will not help.
+            string? secret = connection.HasSecret
+                ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
+                    .GetSecretAsync(connection.Id, ct)
+                : null;
+
+            connector = connectorFactory.Create(source, connection, secret);
 
             return connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
