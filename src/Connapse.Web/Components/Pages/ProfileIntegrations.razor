@@ -34,8 +34,9 @@
         <h2 class="h5 mb-0">Cloud Identities</h2>
     </div>
     <p class="text-muted small mb-4">
-        Link your cloud provider accounts to access S3 and Azure Blob Storage containers with your own permissions.
-        Only identity metadata is stored — no access keys or tokens.
+        Link your cloud accounts so search results from an S3 or Azure Blob source are narrowed to
+        what your own cloud permissions allow. Only identity metadata is stored — no access keys or
+        tokens, and linking does not grant Connapse access to your storage.
     </p>
 
     <div class="row g-3">
@@ -128,7 +129,8 @@
                     else
                     {
                         <p class="text-muted small mb-0">
-                            Sign in with your AWS IAM Identity Center account to access S3 containers with your own permissions.
+                            Sign in with AWS IAM Identity Center so results from S3 sources are limited to the
+                            accounts your SSO identity covers.
                         </p>
                     }
                 </div>
@@ -238,7 +240,8 @@
                     else
                     {
                         <p class="text-muted small mb-0">
-                            Connect your Azure identity to access Blob Storage containers with your own RBAC permissions.
+                            Connect your Azure identity so results from Blob Storage sources are limited by your
+                            own RBAC permissions.
                         </p>
                     }
                 </div>
