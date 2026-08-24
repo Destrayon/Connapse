@@ -18,12 +18,15 @@
       ScpClient.Download()'s recursive mode, where a malicious server returns filenames
       containing "../" and the client writes outside the target directory.
 
-      Nothing here is exposed: SSH.NET is test-only, and no Connapse code calls SCP at all.
-      The reference exists so `dotnet build` stops reporting a high-severity advisory on every
-      run — a standing warning that is not actionable trains people to ignore the ones that are.
+      This used to say SSH.NET was test-only. That stopped being true when the SFTP connector
+      landed: Connapse.Storage now references it directly, on the same patched version. The
+      advisory is still not reachable, because it is in the SCP client and nothing here calls
+      SCP — but "test-only" was the wrong reason, and a stale reason is worse than none.
+
       Remove this once Testcontainers ships a version that references 2026.0.0 or later.
     -->
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <PackageReference Include="Testcontainers" Version="4.3.0" />
     <PackageReference Include="Testcontainers.Azurite" Version="4.3.0" />
     <PackageReference Include="Testcontainers.LocalStack" Version="4.3.0" />
     <PackageReference Include="Testcontainers.Minio" Version="4.3.0" />

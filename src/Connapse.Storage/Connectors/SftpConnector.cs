@@ -243,10 +243,17 @@ public sealed class SftpConnector : IConnector, IDisposable
             {
                 await client.ConnectAsync(ct);
             }
-            catch
+            catch (Exception ex)
             {
                 client.Dispose();
-                throw;
+
+                // Refusing the key makes SSH.NET fail the handshake with a message about key
+                // exchange, which tells an operator nothing about what actually happened or
+                // what to do. Replace it with the one that names both fingerprints.
+                string? refusal = DescribeHostKeyRefusalIfAny();
+                throw refusal is null
+                    ? ex
+                    : new SftpHostKeyMismatchException(refusal, ex);
             }
 
             // Only now, with authentication behind us. A fingerprint captured in the callback
@@ -334,7 +341,7 @@ public sealed class SftpConnector : IConnector, IDisposable
     /// A refused host key surfaces from SSH.NET as a connection failure whose message does not
     /// say why. This turns it into one that names both fingerprints and the fix.
     /// </summary>
-    internal string? DescribeHostKeyRefusalIfAny()
+    public string? DescribeHostKeyRefusalIfAny()
     {
         if (_observedFingerprint is null || string.IsNullOrWhiteSpace(_config.PinnedHostKeyFingerprint))
             return null;
@@ -360,6 +367,17 @@ public sealed class SftpConnector : IConnector, IDisposable
 }
 
 /// <summary>
+/// The server presented a host key that does not match the one pinned to the connection.
+/// <para>
+/// Its own type rather than a bare <see cref="InvalidOperationException"/>, because this is
+/// the one sync failure that is never transient: retrying cannot fix it, and an operator has
+/// to decide whether they performed the rekey themselves.
+/// </para>
+/// </summary>
+public class SftpHostKeyMismatchException(string message, Exception inner)
+    : Exception(message, inner);
+
+/// <summary>
 /// Adapts SSH.NET to <see cref="ISftpRealPathResolver"/>.
 /// </summary>
 /// <remarks>
@@ -380,3 +398,4 @@ internal sealed class SftpRealPathResolver(SftpClient client) : ISftpRealPathRes
         return client.WorkingDirectory;
     }
 }
+
