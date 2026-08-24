@@ -268,4 +268,77 @@ public class SourceScopePreflightTests
 
         result.IsRefused.Should().BeFalse();
     }
+    // ── SFTP ───────────────────────────────────────────────────────────────
+
+    private const string SftpConn = """{"host":"h","port":22,"username":"u","allowedRoot":"/D:/CodeProjects"}""";
+
+    [Fact]
+    public void Check_SftpOrdinarySubPath_IsAllowed()
+    {
+        var result = Build().Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":"Connapse"}""");
+
+        result.IsRefused.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Check_SftpNoSubPath_IsAllowed()
+    {
+        Build().Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":""}""")
+            .IsRefused.Should().BeFalse("blank means the connection's root itself");
+    }
+
+    /// <summary>
+    /// A sub-path is relative to the connection's root, so an absolute one is nonsense rather
+    /// than a path — and the server would resolve it somewhere else entirely.
+    /// </summary>
+    [Fact]
+    public void Check_SftpAbsoluteSubPath_IsRefused()
+    {
+        Build().Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":"/etc"}""")
+            .IsRefused.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("../secrets")]
+    [InlineData("docs/../../etc")]
+    [InlineData(@"docs\..\..\etc")]
+    public void Check_SftpTraversingSubPath_IsRefused(string subPath)
+    {
+        var scope = $$"""{"subPath":{{System.Text.Json.JsonSerializer.Serialize(subPath)}}}""";
+
+        Build().Check(Conn(ConnectionProvider.Sftp, SftpConn), scope)
+            .IsRefused.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Refused on the segment, not the substring: a folder legitimately named "..config"
+    /// contains ".." without being a traversal, and refusing it would be wrong.
+    /// </summary>
+    [Fact]
+    public void Check_SftpSubPathContainingDotsInAName_IsAllowed()
+    {
+        Build().Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":"..config/notes"}""")
+            .IsRefused.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Check_SftpConnectionWithNoAllowedRoot_IsRefused()
+    {
+        Build().Check(Conn(ConnectionProvider.Sftp, """{"host":"h","username":"u"}"""), """{"subPath":"docs"}""")
+            .IsRefused.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// The deployment's local allowed-roots setting governs the machine Connapse runs on. An
+    /// SFTP root names a directory on somebody else's, so it must not be judged against it —
+    /// doing so would refuse every remote path that happens not to exist locally.
+    /// </summary>
+    [Fact]
+    public void Check_SftpRoot_IsNotJudgedAgainstTheLocalAllowedRoots()
+    {
+        var preflight = Build("/srv/only-this-local-path");
+
+        preflight.Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":"Connapse"}""")
+            .IsRefused.Should().BeFalse();
+    }
 }
