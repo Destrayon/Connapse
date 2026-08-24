@@ -45,11 +45,15 @@ public static class StorageLocationPolicy
     public static IReadOnlyList<string>? ReadAllowedLocations(
         JsonElement credential, string name = PropertyName)
     {
-        if (credential.ValueKind != JsonValueKind.Object
-            || !credential.TryGetProperty(name, out var value))
-        {
+        // A configuration that is not an object at all — "[]", a bare string, a number — cannot
+        // be said to omit anything. Returning null there would read as "declares no allowlist"
+        // and take the grace path, which is the same fail-open this reader exists to close,
+        // one level further out.
+        if (credential.ValueKind != JsonValueKind.Object)
+            return [string.Empty];
+
+        if (!credential.TryGetProperty(name, out var value))
             return null;
-        }
 
         if (value.ValueKind != JsonValueKind.Array)
             return [string.Empty];
@@ -62,6 +66,9 @@ public static class StorageLocationPolicy
     public static IReadOnlyList<string>? ReadAllowedLocations(
         JsonObject? credential, string name = PropertyName)
     {
+        // Null here means the configuration was blank or unparseable, which the callers already
+        // handle — a JsonObject that exists is by definition an object, so the non-object case
+        // the JsonElement overload guards against cannot arise on this side.
         if (credential is null || !credential.TryGetPropertyValue(name, out var node))
             return null;
 

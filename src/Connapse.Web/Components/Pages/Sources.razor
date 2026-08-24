@@ -574,19 +574,19 @@
                 message += " " + preflight.Warning;
             }
 
-            try
-            {
-                await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                    new { created.Name, created.ConnectionId });
-            }
-            catch (Exception auditEx)
-            {
-                // Previously this landed in the generic catch below, which set createError and
-                // left the form open — so the operator saw a failure for a source that had been
-                // created, and retrying hit the store's duplicate-name refusal. The audit write
-                // is worth surfacing, but it is not the operation being reported on.
-                message += $" (the audit entry could not be written: {auditEx.Message})";
-            }
+            // Ordered after the outcome, not wrapped in a handler. AuditLogger.LogAsync catches
+            // its own failures and logs them, so it cannot throw and a catch here would be dead
+            // code claiming to handle something that never happens.
+            //
+            // The ordering still earns its place: it does not depend on that contract. If the
+            // audit logger were ever made to propagate, a created source would still be reported
+            // as created rather than as a failure.
+            //
+            // An audit write that fails is invisible to the operator. That is a real gap and
+            // #397 covers it — it needs IAuditLogger to report failure, which is every call
+            // site, not this one.
+            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
+                new { created.Name, created.ConnectionId });
 
             await LoadAsync();
         }

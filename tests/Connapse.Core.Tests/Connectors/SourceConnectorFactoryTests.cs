@@ -444,4 +444,37 @@ public class SourceConnectorFactoryTests
 
         _factory.Create(source, connection).Type.Should().Be(ConnectorType.S3);
     }
+    /// <summary>
+    /// A configuration that parses but is not an object. It reached an exception before this
+    /// guard too, but only because JsonElement.TryGetProperty throws on a non-object — an
+    /// accident of which field the object initialiser happened to read first. The message now
+    /// says what is wrong, and reordering cannot lose the check.
+    /// </summary>
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""["my-bucket"]""")]
+    [InlineData("\"a string\"")]
+    [InlineData("42")]
+    public void Create_ConnectionConfigThatIsNotAnObject_IsRefused(string config)
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, config);
+        var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*not a JSON object*");
+    }
+
+    [Fact]
+    public void Create_SourceScopeThatIsNotAnObject_IsRefused()
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
+        var source = MakeSource(connection.Id, "[]");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*not a JSON object*");
+    }
 }

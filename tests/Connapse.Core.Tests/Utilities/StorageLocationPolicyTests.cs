@@ -235,4 +235,23 @@ public class StorageLocationPolicyTests
                 .Should().Be(StorageLocationDecision.Denied);
         }
     }
+    /// <summary>
+    /// A configuration that is not an object at all cannot be said to omit anything, so it must
+    /// not read as "declares no allowlist". Same fail-open as a dropped entry, one level out.
+    /// </summary>
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("""["my-bucket"]""")]
+    [InlineData("\"a string\"")]
+    [InlineData("42")]
+    [InlineData("null")]
+    [InlineData("true")]
+    public void ReadAllowedLocations_ConfigurationRootIsNotAnObject_IsDeclaredAndUnusable(string json)
+    {
+        var read = ReadElement(json);
+
+        read.Should().NotBeNull();
+        StorageLocationPolicy.Evaluate(read, "any-bucket", null)
+            .Should().Be(StorageLocationDecision.Denied);
+    }
 }

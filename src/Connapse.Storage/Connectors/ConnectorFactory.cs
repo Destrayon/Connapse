@@ -41,6 +41,14 @@ public class ConnectorFactory(
         using var scope = JsonDocument.Parse(
             string.IsNullOrWhiteSpace(source.ScopeJson) ? "{}" : source.ScopeJson);
 
+        // Refused here rather than left to the first reader that touches it. A non-object
+        // configuration — "[]", a bare string — does reach an exception today, but only because
+        // JsonElement.TryGetProperty happens to throw on a non-object, which is an accident of
+        // which field is read first and says nothing useful to an operator. Making it explicit
+        // means the guard cannot be lost by reordering an object initialiser.
+        RequireJsonObject(credential, $"Connection '{connection.Name}' has configuration that");
+        RequireJsonObject(scope, $"Source '{source.Name}' has a scope that");
+
         return connection.Provider switch
         {
             ConnectionProvider.S3 => new S3Connector(new S3ConnectorConfig
@@ -89,6 +97,13 @@ public class ConnectorFactory(
 
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
+    }
+
+    private static void RequireJsonObject(JsonDocument doc, string subject)
+    {
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException(
+                $"{subject} is not a JSON object, so nothing in it can be read.");
     }
 
     private static string? Str(JsonDocument doc, string name) =>
