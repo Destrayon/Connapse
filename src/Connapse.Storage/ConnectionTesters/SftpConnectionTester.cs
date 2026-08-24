@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
 
@@ -42,8 +42,10 @@ public class SftpConnectionTester : IConnectionTester
         if (settings is not SftpConnectionTestSettings s)
             return new ConnectionTestResult { Success = false, Message = "Invalid settings type for the SFTP tester." };
 
+        TimeSpan budget = timeout ?? TimeSpan.FromSeconds(15);
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(15));
+        cts.CancelAfter(budget);
 
         // No host key store: a test must never pin. Pinning is the sync's job, and doing it
         // here would record a fingerprint from a form the operator has not saved.
@@ -55,6 +57,13 @@ public class SftpConnectionTester : IConnectionTester
             AllowedRoot = s.AllowedRoot,
             PinnedHostKeyFingerprint = s.PinnedHostKeyFingerprint,
             Credential = new SftpCredential { PrivateKey = s.PrivateKey, Passphrase = s.Passphrase },
+
+            // The same budget the token carries, handed to the session itself. The token
+            // covers the awaits; this covers the waits inside SSH.NET that the token cannot
+            // reach. Without it a server that authenticates and then stalls its SFTP
+            // subsystem holds this scope — and its Blazor circuit — well past the timeout
+            // the operator was promised.
+            OperationTimeout = budget,
         });
 
         try
@@ -82,6 +91,20 @@ public class SftpConnectionTester : IConnectionTester
                 Message = $"Timed out reaching {s.Host}:{s.Port}. Connapse has to be able to open a "
                           + "TCP connection to that address from where it runs — inside a container, "
                           + "the host machine is not 'localhost'."
+            };
+        }
+        catch (Exception ex) when (ex is Renci.SshNet.Common.SshOperationTimeoutException
+                                      or TimeoutException)
+        {
+            // Reached the server, and it stopped answering partway through. Distinct from the
+            // timeout above, which never got a connection at all — the remedies have nothing
+            // in common, so saying "check that the address is reachable" here would send the
+            // operator after a problem they do not have.
+            return new ConnectionTestResult
+            {
+                Success = false,
+                Message = $"{s.Host}:{s.Port} accepted the connection but stopped responding. "
+                          + "The SSH service is running but its SFTP subsystem is not answering."
             };
         }
         catch (Exception ex)

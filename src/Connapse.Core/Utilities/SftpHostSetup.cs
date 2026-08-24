@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>The operator's own machine, which decides what the setup command looks like.</summary>
 public enum HostPlatform { Windows, MacOS, Linux }
@@ -133,9 +133,17 @@ public static class SftpHostSetup
         Set-Service -Name sshd -StartupType Automatic
         if ((Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
 
-        if (-not (Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -DisplayName 'OpenSSH Server (sshd)' `
-                -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
+        # Reachable from this machine's own networks, and no further. An unscoped rule would
+        # also accept port 22 from whatever else is on a hotel or cafe network, and from the
+        # internet on any host whose router forwards the port — a much larger change than
+        # "let Connapse read my files", made silently while the operator was doing something
+        # else. LocalSubnet still covers the Docker and WSL virtual switches, which is how a
+        # Connapse container reaches its host.
+        if (-not (Get-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -DisplayName 'Connapse SFTP (sshd)' `
+                -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 `
+                -Profile Any -RemoteAddress LocalSubnet | Out-Null
+            Write-Host 'Opened inbound TCP 22 to this machine''s local subnets only.' -ForegroundColor Cyan
         }
 
         # 2. Work out which authorized_keys file sshd will actually read.
@@ -177,7 +185,21 @@ public static class SftpHostSetup
             icacls $keyFile /inheritance:r /grant 'SYSTEM:F' 'Administrators:F' | Out-Null
         }
 
-        # 4. Report back what only this machine knows.
+        # 4. Say whether this host still accepts passwords over SSH.
+        #    The restrictions on Connapse's key bind that key and nothing else, so they do not
+        #    make the host key-only. Reported rather than changed: turning off password
+        #    authentication is a decision about every account on the machine, and making it
+        #    silently could lock someone out of a login they were relying on.
+        $sshdConfig = Join-Path $env:ProgramData 'ssh\sshd_config'
+        $passwordAuth = 'unknown'
+        if (Test-Path $sshdConfig) {
+            $setting = Select-String -Path $sshdConfig -Pattern '^\s*PasswordAuthentication\s+(\S+)' |
+                       Select-Object -Last 1
+            # OpenSSH defaults this to yes when the directive is absent or commented out.
+            $passwordAuth = if ($setting) { $setting.Matches[0].Groups[1].Value } else { 'yes' }
+        }
+
+        # 5. Report back what only this machine knows.
         #    Wrapped, because the key is already installed by this point and a failure to read
         #    the fingerprint must not throw away a setup that otherwise worked. An empty
         #    fingerprint costs the operator verified-first-use, not the connection.
@@ -204,6 +226,11 @@ public static class SftpHostSetup
         Write-Host 'Copy the block above, including both marker lines, back into Connapse.'
         if (-not $fingerprint) {
             Write-Host 'The host key fingerprint could not be read, so the first connection will be trusted rather than verified. Everything else is set up.' -ForegroundColor Yellow
+        }
+        if ($passwordAuth -eq 'yes' -or $passwordAuth -eq 'unknown') {
+            Write-Host ''
+            Write-Host 'This machine also accepts SSH logins by password, for every account on it.' -ForegroundColor Yellow
+            Write-Host "To allow keys only, set 'PasswordAuthentication no' in $sshdConfig and run: Restart-Service sshd" -ForegroundColor Yellow
         }
         """;
 
@@ -234,7 +261,14 @@ public static class SftpHostSetup
         KEY='{{publicKeyLine}}'
         grep -qxF "$KEY" ~/.ssh/authorized_keys || echo "$KEY" >> ~/.ssh/authorized_keys
 
-        # 3. Report back what only this machine knows.
+        # 3. Say whether this host still accepts passwords over SSH.
+        #    The restrictions on Connapse's key bind that key and nothing else, so they do not
+        #    make the host key-only. Reported rather than changed: turning off password
+        #    authentication is a decision about every account on the machine.
+        #    OpenSSH defaults this to yes when the directive is absent or commented out.
+        PASSWORD_AUTH=$(awk 'tolower($1)=="passwordauthentication" {v=$2} END {print (v?v:"yes")}'                         /etc/ssh/sshd_config 2>/dev/null || echo unknown)
+
+        # 4. Report back what only this machine knows.
         HOSTKEY=$(ls /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || ls /etc/ssh/ssh_host_rsa_key.pub)
         FINGERPRINT=$(ssh-keygen -lf "$HOSTKEY" | awk '{print $2}')
 
@@ -244,6 +278,12 @@ public static class SftpHostSetup
         printf 'fingerprint=%s\n' "$FINGERPRINT"
         printf '{{EndMarker}}\n\n'
         echo 'Copy the block above, including both marker lines, back into Connapse.'
+
+        if [ "$PASSWORD_AUTH" != "no" ]; then
+            echo ''
+            echo 'This machine also accepts SSH logins by password, for every account on it.'
+            echo "To allow keys only, set 'PasswordAuthentication no' in /etc/ssh/sshd_config and restart the SSH service."
+        fi
         """;
     }
 

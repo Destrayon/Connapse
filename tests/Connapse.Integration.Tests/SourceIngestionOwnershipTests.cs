@@ -1,9 +1,12 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Reindex;
 using Connapse.Storage.Data;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Connapse.Integration.Tests;
@@ -200,5 +203,80 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
 
         doc.Metadata!["RemoteLastModified"].Should().Be("2026-08-16T00:00:00.0000000Z");
         doc.Metadata["RemoteSize"].Should().Be("1234");
+    }
+
+    [Fact]
+    public async Task ForcedReindex_OfSourceOwnedDocument_EnqueuesItAsSourceOwned()
+    {
+        // The reindex deletes a document's chunks before enqueueing it. If the job it then
+        // enqueues cannot be routed, the chunks are gone for good: the pipeline throws, and
+        // the next sync sees an unchanged remote signature and does not re-ingest the file.
+        // So what the job carries is the whole safety property here.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+        using var content = new MemoryStream("content to be force-reindexed"u8.ToArray());
+        var created = await pipeline.IngestAsync(content, new IngestionOptions(
+            FileName: "reindexed.md", ContentType: "text/markdown", Path: "/reindexed.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        var queue = new CapturingIngestionQueue();
+        await using var ctx = await factory.CreateDbContextAsync();
+        var reindex = new ReindexService(
+            ctx,
+            scope.ServiceProvider.GetRequiredService<IKnowledgeFileSystem>(),
+            scope.ServiceProvider.GetRequiredService<IManagedStorageProvider>(),
+            scope.ServiceProvider.GetRequiredService<IContainerStore>(),
+            queue,
+            scope.ServiceProvider.GetRequiredService<IOptionsMonitor<ChunkingSettings>>(),
+            scope.ServiceProvider.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>(),
+            NullLogger<ReindexService>.Instance);
+
+        await reindex.ReindexAsync(
+            new ReindexOptions { Force = true, DocumentIds = [created.DocumentId] },
+            CancellationToken.None);
+
+        IngestionJob job = queue.Jobs.Should().ContainSingle().Subject;
+        job.Options.Owner.Should().Be(OwnerRef.ForSource(sourceId),
+            "the pipeline routes source documents by Owner, and nothing else on the job says so");
+        job.Options.ContainerId.Should().BeNull(
+            "Nullable<Guid>.ToString() yields \"\", which reads as a container id that is merely blank");
+    }
+
+    private sealed class CapturingIngestionQueue : IIngestionQueue
+    {
+        public List<IngestionJob> Jobs { get; } = [];
+
+        public Task EnqueueAsync(IngestionJob job, CancellationToken ct = default)
+        {
+            Jobs.Add(job);
+            return Task.CompletedTask;
+        }
+
+        public Task<IngestionJob?> DequeueAsync(CancellationToken ct = default) =>
+            Task.FromResult<IngestionJob?>(null);
+
+        public Task<IngestionJobStatus?> GetStatusAsync(string jobId) =>
+            Task.FromResult<IngestionJobStatus?>(null);
+
+        public Task<bool> CancelJobForDocumentAsync(string documentId) => Task.FromResult(false);
+
+        public int QueueDepth => Jobs.Count;
+
+        public void UpdateJobStatus(
+            string jobId, IngestionJobState state, IngestionPhase? currentPhase = null,
+            double percentComplete = 0, string? errorMessage = null)
+        { }
+
+        public IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses() =>
+            new Dictionary<string, IngestionJobStatus>();
+
+        public void RegisterJobCancellation(string jobId, CancellationTokenSource cts) { }
+
+        public void UnregisterJobCancellation(string jobId) { }
     }
 }

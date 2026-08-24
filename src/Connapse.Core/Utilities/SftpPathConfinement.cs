@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>
 /// Resolves a remote path so a caller can decide whether it escapes a root, using the
@@ -16,7 +16,13 @@ public interface ISftpRealPathResolver
     /// <c>SSH_FXP_REALPATH</c>, resolving <c>..</c> segments and symlinks there.
     /// Throws when the server refuses or the session is unusable.
     /// </summary>
-    string GetCanonicalPath(string path);
+    /// <remarks>
+    /// Asynchronous because this is a request to a machine that may never answer it. A server
+    /// can complete authentication and then stall its SFTP subsystem, and a blocking call has
+    /// nothing to interrupt it — so the caller's timeout would cover the handshake and nothing
+    /// after it, which is the part that actually waits.
+    /// </remarks>
+    Task<string> GetCanonicalPathAsync(string path, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -50,13 +56,14 @@ public static class SftpPathConfinement
     /// null when it escapes, when the input is unusable, or when the server will not resolve
     /// it.
     /// </summary>
-    public static string? CombineWithin(ISftpRealPathResolver resolver, string root, string? relative)
+    public static async Task<string?> CombineWithinAsync(
+        ISftpRealPathResolver resolver, string root, string? relative, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
 
         if (string.IsNullOrWhiteSpace(relative))
-            return ResolveWithin(resolver, root, root);
+            return await ResolveWithinAsync(resolver, root, root, ct);
 
         // An absolute relative path is refused rather than honoured. This mirrors
         // PathConfinement.CombineWithin: treating it as a path under the root would hand back
@@ -66,7 +73,7 @@ public static class SftpPathConfinement
 
         string joined = root.TrimEnd(Separator) + Separator + relative;
 
-        return ResolveWithin(resolver, root, joined);
+        return await ResolveWithinAsync(resolver, root, joined, ct);
     }
 
     /// <summary>
@@ -74,7 +81,8 @@ public static class SftpPathConfinement
     /// <paramref name="root"/>, or null when it escapes. Both sides are canonicalised, so a
     /// root that is itself a symlink cannot make a contained path look like an escape.
     /// </summary>
-    public static string? ResolveWithin(ISftpRealPathResolver resolver, string root, string candidate)
+    public static async Task<string?> ResolveWithinAsync(
+        ISftpRealPathResolver resolver, string root, string candidate, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
@@ -85,8 +93,8 @@ public static class SftpPathConfinement
 
         try
         {
-            canonicalRoot = resolver.GetCanonicalPath(root);
-            canonicalCandidate = resolver.GetCanonicalPath(candidate);
+            canonicalRoot = await resolver.GetCanonicalPathAsync(root, ct);
+            canonicalCandidate = await resolver.GetCanonicalPathAsync(candidate, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

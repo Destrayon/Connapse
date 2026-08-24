@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Connapse.Storage.Connectors;
@@ -96,4 +96,17 @@ public record SftpConnectorConfig
     /// nothing is recorded.
     /// </summary>
     public Guid ConnectionId { get; init; }
+
+    /// <summary>
+    /// How long a single SFTP request may take before the session gives up, and how long the
+    /// initial handshake may take.
+    /// </summary>
+    /// <remarks>
+    /// A backstop, not the primary mechanism — cancellation tokens are. It covers the case a
+    /// token cannot: SSH.NET waits on its own semaphores inside a request, and a server that
+    /// answers the handshake and then stops answering leaves the caller holding an SSH session
+    /// and a socket with nothing to release them. The default is infinite, which is the wrong
+    /// default for a server nobody here controls.
+    /// </remarks>
+    public TimeSpan OperationTimeout { get; init; } = TimeSpan.FromMinutes(2);
 }

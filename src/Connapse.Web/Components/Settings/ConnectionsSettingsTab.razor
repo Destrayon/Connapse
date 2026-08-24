@@ -1,4 +1,4 @@
-@using Connapse.Core
+﻿@using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @inject IJSRuntime JS
@@ -88,7 +88,7 @@
                         <span class="bi-clipboard me-1"></span> Copy command
                     </button>
                     <span class="small text-muted ms-2">
-                        Safe to run more than once. It adds one key and changes nothing else.
+                        Safe to run more than once.
                     </span>
 
                     @* The key is installed with restrict and a forced internal-sftp command, so it
@@ -101,6 +101,19 @@
                         It still signs in as the account you run this under, so prefer an ordinary
                         account over an administrator one: an administrator's SFTP session can read
                         anything on the machine, whatever folder you pick below.
+                    </div>
+
+                    @* Naming it, because it is the part that reaches past Connapse. Turning on
+                       an SSH server affects every account on the machine and every way of
+                       signing in to it, not only the key installed above — so an operator who
+                       reads "adds one key" and nothing else has been told the smaller half. *@
+                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                        <span class="bi-exclamation-triangle me-1"></span>
+                        It also <strong>turns on this computer's SSH server</strong> and allows
+                        inbound port 22 from your local networks — the Docker network among them,
+                        which is how Connapse reaches you. Other accounts on the machine can then
+                        sign in over SSH too, by password if the host allows it. The command reports
+                        whether it does, and prints the one line that turns that off.
                     </div>
                 </div>
             </div>

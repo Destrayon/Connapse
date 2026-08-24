@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
 
@@ -436,5 +436,34 @@ public class SftpHostSetupTests
         SftpHostSetup.GenerateScript(Key, HostPlatform.Windows)
             .Should().Contain("could not be read",
                 "a silent empty fingerprint would look like the script half-worked");
+    }
+
+    [Fact]
+    public void GenerateScript_Windows_ScopesTheFirewallRuleToLocalSubnets()
+    {
+        // An unscoped New-NetFirewallRule accepts port 22 from any address on any profile —
+        // the rest of a hotel network, and the internet on any host whose router forwards it.
+        // Nothing about indexing local files needs that, and the operator is not being asked.
+        string script = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows);
+
+        script.Should().Contain("-RemoteAddress LocalSubnet",
+            "the rule must not accept port 22 from arbitrary networks");
+        script.Should().Contain("New-NetFirewallRule");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Windows)]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_ReportsWhetherTheHostStillAcceptsPasswords(HostPlatform platform)
+    {
+        // The restrictions on Connapse's key bind that key alone. Turning on sshd exposes every
+        // other account too, and by password if the host allows it — which the operator cannot
+        // know unless the script says so.
+        string script = SftpHostSetup.GenerateScript(Key, platform);
+
+        script.Should().Contain("PasswordAuthentication",
+            "enabling SSH without naming the host's password policy hides half the change");
+        script.Should().Contain("accepts SSH logins by password");
     }
 }
