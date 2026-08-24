@@ -96,6 +96,23 @@ public sealed class SftpConnector : IConnector, IDisposable
     }
 
     /// <summary>
+    /// Opens the session, verifies the host key, and resolves the allowed root and subpath on
+    /// the server. Returns the resolved path this connector would read from.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the connection test, which needs exactly the three things that go wrong —
+    /// reachability, authentication, and whether the root is really there — and none of the
+    /// walking. An explicit method rather than leaning on a side effect of
+    /// <see cref="ExistsAsync"/>, so a later change to that method cannot quietly turn the test
+    /// button into one that always passes.
+    /// </remarks>
+    public async Task<string> ProbeAsync(CancellationToken ct = default)
+    {
+        var (_, root) = await EnsureConnectedAsync(ct);
+        return root;
+    }
+
+    /// <summary>
     /// Refuses a path whose final component is a symlink.
     /// </summary>
     /// <remarks>

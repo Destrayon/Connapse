@@ -10,6 +10,7 @@
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject S3ConnectionTester S3Tester
 @inject AzureBlobConnectionTester AzureTester
+@inject SftpConnectionTester SftpTester
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -92,7 +93,25 @@
                                     <td class="small text-muted">@DescribeScope(c)</td>
                                     <td>@c.SourceCount</td>
                                     <td class="small">
-                                        @if (c.HasSecret)
+                                        @if (c.Provider == ConnectionProvider.Sftp)
+                                        {
+                                            @* SFTP is the one provider that legitimately stores a
+                                               credential: an SSH key for a server the operator runs,
+                                               not a cloud identity. *@
+                                            @if (c.HasSecret)
+                                            {
+                                                <span class="text-success" title="SSH key, encrypted at rest">
+                                                    <span class="bi-key-fill me-1"></span>SSH key
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger" title="This connection cannot authenticate">
+                                                    <span class="bi-exclamation-triangle me-1"></span>No key
+                                                </span>
+                                            }
+                                        }
+                                        else if (c.HasSecret)
                                         {
                                             @* Only reachable for a connection created before this tab
                                                existed. Shown rather than hidden so an operator can see
@@ -137,6 +156,7 @@
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
+                <option value="@ConnectionProvider.Sftp">SFTP</option>
             </select>
             @if (!isNew)
             {
@@ -166,6 +186,101 @@
                 <label class="form-label">Managed identity client ID <span class="text-muted">(optional)</span></label>
                 <input class="form-control" @bind="form.ManagedIdentityClientId" placeholder="00000000-0000-0000-0000-000000000000" />
                 <div class="form-text">Selects a specific identity. Leave blank to use the default — which may have wider access.</div>
+            </div>
+        }
+        else if (form.Provider == ConnectionProvider.Sftp)
+        {
+            <div class="col-md-8">
+                <label class="form-label">Host</label>
+                <input class="form-control" @bind="form.Host" placeholder="files.example.com" />
+                <div class="form-text">
+                    To index files on the machine you are sitting at, run an SSH server there and use
+                    <code>host.docker.internal</code> — see
+                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md" target="_blank" rel="noopener">the connector documentation</a>.
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Port</label>
+                <input class="form-control" type="number" @bind="form.Port" placeholder="22" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Username</label>
+                <input class="form-control" @bind="form.Username" placeholder="connapse" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Allowed root</label>
+                @* Free text, and unlike the local filesystem provider it is not checked against
+                   Sources:Security:AllowedFilesystemRoots — that setting names directories on
+                   this machine, and this one names a directory on somebody else's. The bound
+                   that does apply is enforced on the server, through SSH_FXP_REALPATH. *@
+                <input class="form-control" @bind="form.AllowedRoot" placeholder="/srv/knowledge" />
+                <div class="form-text">
+                    Every source on this connection is confined beneath this directory, resolved on
+                    the server so a symlink cannot lead out of it. Windows OpenSSH presents drives
+                    with a leading slash, as in <code>/C:/Users/you/Documents</code>.
+                </div>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">
+                    Private key
+                    @if (!isNew)
+                    {
+                        <span class="text-muted">— leave blank to keep the stored key</span>
+                    }
+                </label>
+                <textarea class="form-control font-monospace" rows="5" @bind="form.PrivateKey"
+                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"></textarea>
+                <div class="form-text">
+                    Encrypted at rest and never shown again. This is an SSH key for a server you run —
+                    the rule that Connapse stores no cloud credentials is about AWS and Azure
+                    identities, which are not stored and are not asked for.
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Key passphrase <span class="text-muted">(optional)</span></label>
+                <input class="form-control" type="password" @bind="form.Passphrase"
+                       placeholder="Only if the key is encrypted" />
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Host key</label>
+                @if (string.IsNullOrWhiteSpace(form.HostKeyFingerprint))
+                {
+                    <div class="form-control-plaintext text-muted small">
+                        Not yet recorded — the first successful sync will trust and pin whatever this
+                        server presents.
+                    </div>
+                }
+                else
+                {
+                    <div class="input-group">
+                        <input class="form-control font-monospace" readonly value="@form.HostKeyFingerprint" />
+                        <button class="btn btn-outline-warning" type="button"
+                                @onclick="() => form.ForgetHostKey = !form.ForgetHostKey">
+                            @(form.ForgetHostKey ? "Keep" : "Forget")
+                        </button>
+                    </div>
+                    <div class="form-text">
+                        @if (form.ForgetHostKey)
+                        {
+                            <span class="text-warning">
+                                Will be cleared on save, and the next connection will trust whatever
+                                answers. Only do this if you rekeyed the server yourself.
+                            </span>
+                        }
+                        else
+                        {
+                            <span>
+                                Compare against <code>ssh-keyscan @(string.IsNullOrWhiteSpace(form.Host) ? "host" : form.Host) | ssh-keygen -lf -</code>.
+                                Syncing stops if this stops matching.
+                            </span>
+                        }
+                    </div>
+                }
             </div>
         }
         else
@@ -203,7 +318,7 @@
             </div>
         }
 
-        @if (form.Provider != ConnectionProvider.Filesystem)
+        @if (form.IsCloudProvider)
         {
             <div class="col-12">
                 <label class="form-label">
@@ -224,7 +339,7 @@
 
 
         @* ── Test ──────────────────────────────────────────────────── *@
-        @if (form.Provider != ConnectionProvider.Filesystem)
+        @if (form.IsCloudProvider)
         {
             <div class="col-md-6">
                 <label class="form-label">
@@ -246,7 +361,7 @@
                 <span>@(isNew ? "Create connection" : "Save changes")</span>
             </button>
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
-            @if (form.Provider != ConnectionProvider.Filesystem)
+            @if (form.IsCloudProvider || form.Provider == ConnectionProvider.Sftp)
             {
                 <button class="btn btn-info" @onclick="Test" disabled="@testing">
                     @if (testing)
@@ -339,7 +454,7 @@
     {
         statusMessage = null;
 
-        if (form.Validate() is { } problem)
+        if (form.Validate(isNew) is { } problem)
         {
             Fail(problem);
             return;
@@ -350,10 +465,14 @@
         {
             string config = form.ToConfigJson();
 
+            // Null for every provider but SFTP, and null again for an SFTP connection saved
+            // without retyping its key — which the store reads as "leave the stored one alone".
+            string? secret = form.ToSecretJson();
+
             if (isNew)
             {
                 await ConnectionStore.CreateAsync(
-                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, Secret: null),
+                    new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
                 Succeed($"Connection '{form.Name.Trim()}' created.");
             }
@@ -362,7 +481,7 @@
                 // Null result means the row is gone — deleted from another session between this
                 // form opening and saving. Reporting "saved" there would be a lie.
                 var updated = await ConnectionStore.UpdateAsync(editing!.Id,
-                    new UpdateConnectionRequest(form.Name.Trim(), config, Secret: null));
+                    new UpdateConnectionRequest(form.Name.Trim(), config, secret));
 
                 if (updated is null)
                 {
@@ -427,6 +546,39 @@
 
         try
         {
+            if (form.Provider == ConnectionProvider.Sftp)
+            {
+                // Tested against the key in the form, not the stored one, so an operator can
+                // check a key before committing to it. Editing an existing connection without
+                // retyping the key therefore cannot be tested — said plainly rather than
+                // silently testing something else.
+                if (string.IsNullOrWhiteSpace(form.PrivateKey))
+                {
+                    testSuccess = false;
+                    testMessage = "Paste the private key to test. Testing uses the key in this form, "
+                                  + "not the stored one.";
+                    return;
+                }
+
+                var sftpResult = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
+                {
+                    Host = form.Host?.Trim() ?? "",
+                    Port = int.TryParse(form.Port, out int p) ? p : 22,
+                    Username = form.Username?.Trim() ?? "",
+                    AllowedRoot = form.AllowedRoot?.Trim() ?? "",
+                    PrivateKey = form.PrivateKey.Trim(),
+                    Passphrase = NullIfBlank(form.Passphrase),
+
+                    // Honoured unless the operator has chosen to forget it, so a test reports a
+                    // changed host key the same way a sync would.
+                    PinnedHostKeyFingerprint = form.ForgetHostKey ? null : NullIfBlank(form.HostKeyFingerprint),
+                }, TimeSpan.FromSeconds(15));
+
+                testSuccess = sftpResult.Success;
+                testMessage = sftpResult.Message;
+                return;
+            }
+
             string? target = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
             if (target is null)
             {
@@ -483,6 +635,7 @@
             ConnectionProvider.Filesystem => form.AllowedRoot ?? "—",
             ConnectionProvider.S3 => form.Region ?? "—",
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
+            ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             _ => "—"
         };
     }
@@ -501,3 +654,4 @@
         statusMessage = message;
     }
 }
+

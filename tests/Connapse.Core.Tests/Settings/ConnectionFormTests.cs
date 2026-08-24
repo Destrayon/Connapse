@@ -239,4 +239,187 @@ public class ConnectionFormTests
         new ConnectionForm { Name = "c", Provider = ConnectionProvider.S3 }
             .Validate().Should().BeNull();
     }
+
+    // ── SFTP ───────────────────────────────────────────────────────────────
+
+    private static ConnectionForm SftpForm() => new()
+    {
+        Name = "files",
+        Provider = ConnectionProvider.Sftp,
+        Host = "files.example.com",
+        Port = "2222",
+        Username = "connapse",
+        AllowedRoot = "/srv/knowledge",
+        PrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n",
+    };
+
+    [Fact]
+    public void Sftp_ConfigRoundTrips()
+    {
+        string json = SftpForm().ToConfigJson();
+        var back = ConnectionForm.FromConnection(Stored(ConnectionProvider.Sftp, json));
+
+        back.Host.Should().Be("files.example.com");
+        back.Port.Should().Be("2222");
+        back.Username.Should().Be("connapse");
+        back.AllowedRoot.Should().Be("/srv/knowledge");
+    }
+
+    [Fact]
+    public void Sftp_NoPort_DefaultsTo22InTheStoredConfig()
+    {
+        var form = SftpForm() with { Port = null };
+
+        JsonNode.Parse(form.ToConfigJson())!["port"]!.GetValue<int>().Should().Be(22);
+    }
+
+    /// <summary>
+    /// The pin belongs to the connector, which records it on first connect and compares against
+    /// it afterwards. An ordinary save must carry it through — dropping it would silently re-arm
+    /// trust on first use, which is the one thing pinning exists to prevent.
+    /// </summary>
+    [Fact]
+    public void Sftp_SavingAnExistingConnection_PreservesThePinnedHostKey()
+    {
+        var stored = Stored(ConnectionProvider.Sftp,
+            """{"host":"h","port":22,"username":"u","allowedRoot":"/srv","hostKeyFingerprint":"SHA256:pinned"}""");
+
+        var form = ConnectionForm.FromConnection(stored);
+        form.HostKeyFingerprint.Should().Be("SHA256:pinned");
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()
+            .Should().Be("SHA256:pinned");
+    }
+
+    [Fact]
+    public void Sftp_ForgettingTheHostKey_DropsItFromTheStoredConfig()
+    {
+        var stored = Stored(ConnectionProvider.Sftp,
+            """{"host":"h","port":22,"username":"u","allowedRoot":"/srv","hostKeyFingerprint":"SHA256:pinned"}""");
+
+        var form = ConnectionForm.FromConnection(stored);
+        form.ForgetHostKey = true;
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"].Should().BeNull();
+    }
+
+    /// <summary>
+    /// A secret is never read back into the form, so an operator opening and saving a connection
+    /// must not wipe its key. Null means "leave the stored one alone", which is the store's own
+    /// rule.
+    /// </summary>
+    [Fact]
+    public void Sftp_FromConnection_LeavesTheKeyBlankSoSavingDoesNotWipeIt()
+    {
+        var form = ConnectionForm.FromConnection(
+            Stored(ConnectionProvider.Sftp, """{"host":"h","username":"u","allowedRoot":"/srv"}""", hasSecret: true));
+
+        form.PrivateKey.Should().BeNull();
+        form.ToSecretJson().Should().BeNull();
+    }
+
+    [Fact]
+    public void Sftp_SecretCarriesTheKeyAndPassphrase()
+    {
+        var form = SftpForm() with { Passphrase = "hunter2" };
+
+        var secret = JsonNode.Parse(form.ToSecretJson()!)!;
+
+        secret["privateKey"]!.GetValue<string>().Should().Contain("OPENSSH PRIVATE KEY");
+        secret["passphrase"]!.GetValue<string>().Should().Be("hunter2");
+    }
+
+    /// <summary>
+    /// #371 removed the secret field because Connapse does not accept pasted cloud keys. SFTP
+    /// brings it back for one provider only, and this is where that stays true.
+    /// </summary>
+    [Theory]
+    [InlineData(ConnectionProvider.S3)]
+    [InlineData(ConnectionProvider.AzureBlob)]
+    [InlineData(ConnectionProvider.Filesystem)]
+    public void NonSftpProviders_NeverProduceASecret(ConnectionProvider provider)
+    {
+        var form = new ConnectionForm
+        {
+            Name = "c",
+            Provider = provider,
+            StorageAccountName = "a",
+            AllowedRoot = "/data",
+
+            // Set deliberately: even with a key sitting in the form, these providers must not
+            // store one.
+            PrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n",
+        };
+
+        form.ToSecretJson().Should().BeNull();
+    }
+
+    /// <summary>
+    /// SFTP is bounded by a root, not by a bucket allowlist. Written as a positive check on the
+    /// cloud providers rather than "not Filesystem", which is what would have swept SFTP into
+    /// the wrong branch.
+    /// </summary>
+    [Fact]
+    public void Sftp_DoesNotWriteAllowedLocations()
+    {
+        var form = SftpForm() with { AllowedLocations = "some-bucket" };
+
+        JsonNode.Parse(form.ToConfigJson())!["allowedLocations"].Should().BeNull();
+    }
+
+    [Fact]
+    public void Sftp_IsNotACloudProvider()
+    {
+        SftpForm().IsCloudProvider.Should().BeFalse();
+        new ConnectionForm { Provider = ConnectionProvider.S3 }.IsCloudProvider.Should().BeTrue();
+        new ConnectionForm { Provider = ConnectionProvider.AzureBlob }.IsCloudProvider.Should().BeTrue();
+        new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(nameof(ConnectionForm.Host))]
+    [InlineData(nameof(ConnectionForm.Username))]
+    [InlineData(nameof(ConnectionForm.AllowedRoot))]
+    public void Sftp_MissingARequiredField_IsRefused(string missing)
+    {
+        var form = SftpForm();
+
+        switch (missing)
+        {
+            case nameof(ConnectionForm.Host): form.Host = null; break;
+            case nameof(ConnectionForm.Username): form.Username = null; break;
+            case nameof(ConnectionForm.AllowedRoot): form.AllowedRoot = null; break;
+        }
+
+        form.Validate().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Sftp_NewConnectionWithoutAKey_IsRefused()
+    {
+        (SftpForm() with { PrivateKey = null }).Validate(isNew: true)
+            .Should().Be("A private key is required.");
+    }
+
+    [Fact]
+    public void Sftp_ExistingConnectionWithoutAKey_IsAllowed()
+    {
+        (SftpForm() with { PrivateKey = null }).Validate(isNew: false)
+            .Should().BeNull("an operator editing a connection should not have to retype the key");
+    }
+
+    /// <summary>
+    /// An unparseable port becomes 0 and is refused, rather than silently falling back to 22 and
+    /// connecting somewhere the operator did not ask for.
+    /// </summary>
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("0")]
+    [InlineData("70000")]
+    [InlineData("-1")]
+    public void Sftp_UnusablePort_IsRefused(string port)
+    {
+        (SftpForm() with { Port = port }).Validate()
+            .Should().Be("The port must be between 1 and 65535.");
+    }
 }
