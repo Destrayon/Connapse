@@ -48,13 +48,16 @@ public class SourceConnectorFactoryTests
     /// recombination rather than the allowlist.
     /// </summary>
     private static ConnectorFactory BuildFactory(
-        SourceSecuritySettings settings, ILogger<ConnectorFactory>? logger = null)
+        SourceSecuritySettings settings,
+        ILogger<ConnectorFactory>? logger = null,
+        ISshHostKeyStore? hostKeyStore = null)
     {
         var monitor = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
         monitor.CurrentValue.Returns(settings);
 
         return new ConnectorFactory(
             monitor,
+            hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
             logger ?? NullLogger<ConnectorFactory>.Instance);
     }
 
@@ -477,4 +480,155 @@ public class SourceConnectorFactoryTests
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*not a JSON object*");
     }
+
+    // ── SFTP ───────────────────────────────────────────────────────────────
+
+    private const string SftpConfig =
+        """{"host":"files.example.com","port":2222,"username":"connapse","allowedRoot":"/srv/knowledge"}""";
+
+    private static string SftpSecret(string? passphrase = null) => passphrase is null
+        ? """{"privateKey":"-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-real-key\n"}"""
+        : $$"""{"privateKey":"-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-real-key\n","passphrase":"{{passphrase}}"}""";
+
+    [Fact]
+    public void Create_SftpSource_RecombinesTheConnectionAndScope()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, SftpConfig);
+        var source = MakeSource(connection.Id,
+            """{"subPath":"docs","includePatterns":["*.md"],"excludePatterns":["*.tmp"]}""");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret());
+
+        connector.Type.Should().Be(ConnectorType.Sftp);
+        connector.Config.Host.Should().Be("files.example.com");
+        connector.Config.Port.Should().Be(2222);
+        connector.Config.Username.Should().Be("connapse");
+        connector.Config.AllowedRoot.Should().Be("/srv/knowledge");
+        connector.Config.SubPath.Should().Be("docs");
+        connector.Config.IncludePatterns.Should().ContainSingle().Which.Should().Be("*.md");
+        connector.Config.ExcludePatterns.Should().ContainSingle().Which.Should().Be("*.tmp");
+        connector.Config.ConnectionId.Should().Be(connection.Id);
+    }
+
+    /// <summary>
+    /// The root names a directory on another machine, so the only place it can be resolved is
+    /// the server. Resolving it here would be the local-confinement mistake that
+    /// SftpPathConfinement exists to avoid, and it would fail open.
+    /// </summary>
+    [Fact]
+    public void Create_SftpSource_DoesNotResolveTheRootLocally()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, SftpConfig);
+        var source = MakeSource(connection.Id, """{"subPath":"docs"}""");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret());
+
+        connector.Config.AllowedRoot.Should().Be("/srv/knowledge",
+            "the root must reach the connector verbatim, to be resolved on the server");
+        connector.Config.SubPath.Should().Be("docs",
+            "the subPath is confined against the server-resolved root, not combined here");
+    }
+
+    [Fact]
+    public void Create_SftpConnectionWithNoPort_DefaultsTo22()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp,
+            """{"host":"h","username":"u","allowedRoot":"/srv"}""");
+        var source = MakeSource(connection.Id, "{}");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret());
+
+        connector.Config.Port.Should().Be(22);
+    }
+
+    [Fact]
+    public void Create_SftpConnectionCarriesThePinnedFingerprint()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp,
+            """{"host":"h","username":"u","allowedRoot":"/srv","hostKeyFingerprint":"SHA256:pinned"}""");
+        var source = MakeSource(connection.Id, "{}");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret());
+
+        connector.Config.PinnedHostKeyFingerprint.Should().Be("SHA256:pinned");
+    }
+
+    [Fact]
+    public void Create_SftpConnectionWithNoFingerprint_LeavesItNullForFirstUse()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, SftpConfig);
+        var source = MakeSource(connection.Id, "{}");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret());
+
+        connector.Config.PinnedHostKeyFingerprint.Should().BeNull();
+    }
+
+    [Fact]
+    public void Create_SftpCredentialWithPassphrase_IsCarriedThrough()
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, SftpConfig);
+        var source = MakeSource(connection.Id, "{}");
+
+        var connector = (SftpConnector)_factory.Create(source, connection, SftpSecret("hunter2"));
+
+        connector.Config.Credential!.Passphrase.Should().Be("hunter2");
+        connector.Config.Credential.PrivateKey.Should().Contain("OPENSSH PRIVATE KEY");
+    }
+
+    [Theory]
+    [InlineData("""{"username":"u","allowedRoot":"/srv"}""")]
+    [InlineData("""{"host":"h","allowedRoot":"/srv"}""")]
+    [InlineData("""{"host":"h","username":"u"}""")]
+    public void Create_SftpConnectionMissingARequiredField_Throws(string config)
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, config);
+        var source = MakeSource(connection.Id, "{}");
+
+        Action act = () => _factory.Create(source, connection, SftpSecret());
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    /// <summary>
+    /// The failure has to be loud and name the connection. A connector built with no key
+    /// would fail later, from inside the sync loop, with whatever SSH.NET says about an
+    /// empty authentication method.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not json at all")]
+    [InlineData("""{"passphrase":"only"}""")]
+    [InlineData("""{"privateKey":""}""")]
+    public void Create_SftpSourceWithNoUsableKey_ThrowsNamingTheConnection(string? secret)
+    {
+        var connection = MakeConnection(ConnectionProvider.Sftp, SftpConfig);
+        var source = MakeSource(connection.Id, "{}");
+
+        Action act = () => _factory.Create(source, connection, secret);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*conn*");
+    }
+
+    /// <summary>
+    /// The no-stored-cloud-credentials position, asserted rather than assumed: adding a
+    /// secret parameter to the factory must not make one reachable by the cloud providers.
+    /// </summary>
+    [Theory]
+    [InlineData(ConnectionProvider.S3, """{"region":"eu-west-1"}""", """{"bucketName":"b"}""")]
+    [InlineData(ConnectionProvider.AzureBlob, """{"storageAccountName":"a"}""", """{"containerName":"c"}""")]
+    public void Create_CloudProviders_IgnoreASuppliedSecret(
+        ConnectionProvider provider, string config, string scope)
+    {
+        var connection = MakeConnection(provider, config);
+        var source = MakeSource(connection.Id, scope);
+
+        var withSecret = _factory.Create(source, connection, "a pasted access key");
+        var without = _factory.Create(source, connection);
+
+        withSecret.Type.Should().Be(without.Type,
+            "a secret must not change how a cloud connector authenticates");
+    }
 }
+

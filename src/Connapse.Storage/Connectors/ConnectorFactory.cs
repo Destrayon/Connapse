@@ -12,6 +12,7 @@ namespace Connapse.Storage.Connectors;
 /// </summary>
 public class ConnectorFactory(
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
+    ISshHostKeyStore hostKeyStore,
     ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -95,6 +96,36 @@ public class ConnectorFactory(
                 ExcludePatterns = Arr(scope, "excludePatterns"),
             }),
 
+            ConnectionProvider.Sftp => new SftpConnector(new SftpConnectorConfig
+            {
+                Host = Str(credential, "host")
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no host."),
+                Port = Int(credential, "port") ?? 22,
+                Username = Str(credential, "username")
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no username."),
+
+                // Unlike the Filesystem provider, the root is not resolved here. It names a
+                // directory on another machine, so the only place it can be resolved is the
+                // server — the connector does that on connect, through SSH_FXP_REALPATH.
+                // Resolving it locally is exactly the mistake SftpPathConfinement exists to
+                // avoid, and it would fail open rather than closed.
+                AllowedRoot = Str(credential, "allowedRoot")
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no allowedRoot."),
+
+                PinnedHostKeyFingerprint = Str(credential, "hostKeyFingerprint"),
+                Credential = SftpCredential.TryParse(secret)
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no usable SSH private key stored."),
+                ConnectionId = connection.Id,
+
+                SubPath = Str(scope, "subPath"),
+                IncludePatterns = Arr(scope, "includePatterns"),
+                ExcludePatterns = Arr(scope, "excludePatterns"),
+            }, hostKeyStore),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
     }
@@ -105,6 +136,12 @@ public class ConnectorFactory(
             throw new InvalidOperationException(
                 $"{subject} is not a JSON object, so nothing in it can be read.");
     }
+
+    private static int? Int(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+        && v.TryGetInt32(out int i)
+            ? i
+            : null;
 
     private static string? Str(JsonDocument doc, string name) =>
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
