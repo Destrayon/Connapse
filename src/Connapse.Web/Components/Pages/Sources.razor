@@ -119,7 +119,19 @@
                                than content. Shown because an operator needs to know what a source
                                points at; it is never a listing of what is inside. *@
                             <td class="small text-muted font-monospace">@DescribeScope(source)</td>
-                            <td>@source.DocumentCount</td>
+                            <td>
+                                @source.DocumentCount
+                                @if (source.FailedDocumentCount > 0)
+                                {
+                                    @* The count alone reported work that produced nothing as though it
+                                       had succeeded: the sync did list and enqueue correctly, and the
+                                       failure downstream had no way back to this page. *@
+                                    <span class="badge text-bg-danger ms-1"
+                                          title="These files were found and queued, but could not be indexed. They are retried on the next sync.">
+                                        @source.FailedDocumentCount failed
+                                    </span>
+                                }
+                            </td>
                             <td class="small text-muted">@FormatLastSync(source)</td>
                             <td>@StatusBadge(source)</td>
                             @if (isAdmin)

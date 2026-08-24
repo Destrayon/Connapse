@@ -67,10 +67,15 @@ public class PostgresSourceStore(
         var result = await context.Sources
             .AsNoTracking()
             .Where(s => s.Id == id)
-            .Select(s => new { Source = s, DocumentCount = s.Documents.Count })
+            .Select(s => new
+            {
+                Source = s,
+                DocumentCount = s.Documents.Count,
+                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+            })
             .FirstOrDefaultAsync(ct);
 
-        return result is null ? null : MapToModel(result.Source, result.DocumentCount);
+        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount);
     }
 
     public async Task<Source?> GetByNameAsync(string name, CancellationToken ct = default)
@@ -82,10 +87,15 @@ public class PostgresSourceStore(
         var result = await context.Sources
             .AsNoTracking()
             .Where(s => s.Name == normalized)
-            .Select(s => new { Source = s, DocumentCount = s.Documents.Count })
+            .Select(s => new
+            {
+                Source = s,
+                DocumentCount = s.Documents.Count,
+                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+            })
             .FirstOrDefaultAsync(ct);
 
-        return result is null ? null : MapToModel(result.Source, result.DocumentCount);
+        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount);
     }
 
     public async Task<IReadOnlyList<Source>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
@@ -97,10 +107,15 @@ public class PostgresSourceStore(
             .OrderBy(s => s.Name)
             .Skip(skip)
             .Take(take)
-            .Select(s => new { Source = s, DocumentCount = s.Documents.Count })
+            .Select(s => new
+            {
+                Source = s,
+                DocumentCount = s.Documents.Count,
+                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+            })
             .ToListAsync(ct);
 
-        return results.Select(r => MapToModel(r.Source, r.DocumentCount)).ToList();
+        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount)).ToList();
     }
 
     public async Task<IReadOnlyList<Source>> ListByConnectionAsync(Guid connectionId, CancellationToken ct = default)
@@ -111,10 +126,15 @@ public class PostgresSourceStore(
             .AsNoTracking()
             .Where(s => s.ConnectionId == connectionId)
             .OrderBy(s => s.Name)
-            .Select(s => new { Source = s, DocumentCount = s.Documents.Count })
+            .Select(s => new
+            {
+                Source = s,
+                DocumentCount = s.Documents.Count,
+                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+            })
             .ToListAsync(ct);
 
-        return results.Select(r => MapToModel(r.Source, r.DocumentCount)).ToList();
+        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount)).ToList();
     }
 
     public async Task<Source?> UpdateAsync(Guid id, UpdateSourceRequest request, CancellationToken ct = default)
@@ -264,7 +284,8 @@ public class PostgresSourceStore(
         await context.SaveChangesAsync(ct);
     }
 
-    private static Source MapToModel(SourceEntity entity, int documentCount) => new(
+    private static Source MapToModel(
+        SourceEntity entity, int documentCount, int failedDocumentCount = 0) => new(
         Id: entity.Id,
         Name: entity.Name,
         Description: entity.Description,
@@ -284,5 +305,7 @@ public class PostgresSourceStore(
         Summary: entity.Summary,
         SummaryGeneratedAt: entity.SummaryGeneratedAt,
         SummaryDocSetHash: entity.SummaryDocSetHash,
-        DocumentCount: documentCount);
+        DocumentCount: documentCount,
+        FailedDocumentCount: failedDocumentCount);
 }
+

@@ -20,7 +20,16 @@ public record Source(
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
     string? SummaryDocSetHash = null,
-    int DocumentCount = 0);
+    int DocumentCount = 0,
+
+    // Appended rather than inserted: this record is constructed positionally in places, so a
+    // parameter added anywhere else shifts every argument after it.
+    //
+    // Counted separately because DocumentCount includes every row whatever its status, so a
+    // source where nothing could be embedded still reported its files and a green badge. The
+    // sync did succeed — it listed and enqueued correctly — and the failure downstream had no
+    // way back to the page (#400).
+    int FailedDocumentCount = 0);
 
 public record CreateSourceRequest(
     string Name,
