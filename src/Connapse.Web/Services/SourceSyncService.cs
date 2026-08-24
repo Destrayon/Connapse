@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -346,6 +346,9 @@ public class SourceSyncService(
         int count = 0;
         int skipped = 0;
 
+        var due = new List<ConnectorFile>();
+        var claims = new Dictionary<string, Guid>(StringComparer.Ordinal);
+
         foreach (var file in files)
         {
             existingByPath.TryGetValue(file.Path, out var existing);
@@ -360,7 +363,52 @@ public class SourceSyncService(
                 continue;
             }
 
-            string documentId = existing?.Id.ToString() ?? Guid.NewGuid().ToString();
+            due.Add(file);
+
+            if (existing is null)
+            {
+                // A row staking this path, written before anything is enqueued. Until one
+                // exists, "is this file already being worked on?" can only be answered from
+                // persisted documents — and the pipeline does not write one until the job
+                // actually runs. On a source whose ingestion outlasts the poll interval, every
+                // cycle therefore rediscovered the whole backlog as new, minted fresh ids, and
+                // enqueued it all again: the same files downloaded and embedded repeatedly,
+                // and a Hangfire queue growing faster than it drained.
+                //
+                // Status "Pending" is what the next cycle reads: HasRemoteChanged skips it.
+                claims[file.Path] = Guid.NewGuid();
+                context.Documents.Add(new DocumentEntity
+                {
+                    Id = claims[file.Path],
+                    SourceId = source.Id,
+                    FileName = Path.GetFileName(file.Path),
+                    ContentType = file.ContentType,
+                    Path = file.Path,
+                    ContentHash = string.Empty,
+                    SizeBytes = file.SizeBytes,
+                    Status = "Pending",
+                    CreatedAt = DateTime.UtcNow,
+
+                    // Deliberately no remote signature yet. It is what "already indexed at this
+                    // version" means, and writing it here would claim an ingestion that has not
+                    // happened — so a job that then failed would leave a document the next
+                    // cycle reads as up to date and never retries. The pipeline writes it once
+                    // it has the file.
+                    Metadata = [],
+                });
+            }
+        }
+
+        // One round trip, and before any enqueue: a claim that did not persist must not have a
+        // job pointing at it.
+        if (claims.Count > 0)
+            await context.SaveChangesAsync(ct);
+
+        foreach (var file in due)
+        {
+            existingByPath.TryGetValue(file.Path, out var existing);
+
+            string documentId = (existing?.Id ?? claims[file.Path]).ToString();
             string fileName = Path.GetFileName(file.Path);
 
             await queue.EnqueueAsync(new IngestionJob(

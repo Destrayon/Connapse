@@ -208,6 +208,59 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task SyncSourceAsync_SecondPollBeforeIngestionDrains_DoesNotEnqueueTheSameFilesAgain()
+    {
+        // "Is this file already being worked on?" used to be answerable only from persisted
+        // documents, and the pipeline does not write one until the job actually runs. On a
+        // source whose ingestion takes longer than the poll interval — a large SFTP tree is
+        // exactly that — every cycle rediscovered the entire backlog as new, minted fresh
+        // document ids, and enqueued it all over again. The same files downloaded and embedded
+        // repeatedly, and a queue growing faster than it could drain.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new FakeListConnector(File("/a.md"), File("/b.md"));
+        var service = BuildService(scope.ServiceProvider, connector);
+
+        var first = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        first.Upserted.Should().Be(2);
+
+        // Nothing has drained the queue in between — the second poll sees exactly what the
+        // first one did.
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        second.Upserted.Should().Be(0,
+            "the files are already claimed and queued; enqueueing them again duplicates the work");
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.CountAsync(d => d.SourceId == source.Id))
+            .Should().Be(2, "two remote files must not become four document rows");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_ClaimedButNotYetIngested_CarriesNoRemoteSignature()
+    {
+        // The signature means "indexed at this version of the remote". Writing it on the claim
+        // would assert an ingestion that has not happened, so a job that then failed would
+        // leave a document the next cycle reads as up to date and never retries.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(File("/claim.md")));
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using var after = await factory.CreateDbContextAsync();
+        var claim = await after.Documents.AsNoTracking()
+            .SingleAsync(d => d.SourceId == source.Id && d.Path == "/claim.md");
+
+        claim.Status.Should().Be("Pending");
+        claim.Metadata.Should().NotContainKey("RemoteLastModified");
+        claim.Metadata.Should().NotContainKey("RemoteSize");
+    }
+
+    [Fact]
     public async Task SyncSourceAsync_FallbackPath_DeletesDocumentsGoneFromRemote()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

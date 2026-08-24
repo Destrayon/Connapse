@@ -247,11 +247,107 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
             "Nullable<Guid>.ToString() yields \"\", which reads as a container id that is merely blank");
     }
 
-    private sealed class CapturingIngestionQueue : IIngestionQueue
+    [Fact]
+    public async Task ForcedReindex_WhenTheEnqueueFails_LeavesTheDocumentSearchable()
+    {
+        // The reindex used to delete a document's chunks up front. Everything that could go
+        // wrong afterwards — Hangfire down, the SFTP server refusing the connection — then left
+        // a document that looked indexed and matched nothing, with no job coming to rebuild it.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+        using var content = new MemoryStream("content that must survive a failed reindex"u8.ToArray());
+        var created = await pipeline.IngestAsync(content, new IngestionOptions(
+            FileName: "survives.md", ContentType: "text/markdown", Path: "/survives.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        var documentId = Guid.Parse(created.DocumentId);
+        await using var ctx = await factory.CreateDbContextAsync();
+        int chunksBefore = await ctx.Chunks.CountAsync(c => c.DocumentId == documentId);
+        chunksBefore.Should().BeGreaterThan(0, "the test is meaningless without an index to lose");
+
+        var reindex = new ReindexService(
+            ctx,
+            scope.ServiceProvider.GetRequiredService<IKnowledgeFileSystem>(),
+            scope.ServiceProvider.GetRequiredService<IManagedStorageProvider>(),
+            scope.ServiceProvider.GetRequiredService<IContainerStore>(),
+            new ThrowingIngestionQueue(),
+            scope.ServiceProvider.GetRequiredService<IOptionsMonitor<ChunkingSettings>>(),
+            scope.ServiceProvider.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>(),
+            NullLogger<ReindexService>.Instance);
+
+        var result = await reindex.ReindexAsync(
+            new ReindexOptions { Force = true, DocumentIds = [created.DocumentId] },
+            CancellationToken.None);
+
+        result.FailedCount.Should().Be(1, "the enqueue threw and that is not a success");
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Chunks.CountAsync(c => c.DocumentId == documentId))
+            .Should().Be(chunksBefore, "a reindex that never started must not cost the old index");
+
+        var doc = await after.Documents.AsNoTracking().SingleAsync(d => d.Id == documentId);
+        doc.Status.Should().NotBe("Pending",
+            "Pending means a job is coming; the sync engine skips those, so it would strand the document");
+    }
+
+    [Fact]
+    public async Task IngestionFailure_LeavesAStatusTheSyncEngineWillLookAtAgain()
+    {
+        // A reindex sets Status to "Pending" and a source job then fails before the pipeline
+        // loads the row — the SFTP server refused the connection, say. Only ingestion_state was
+        // written, so Status stayed "Pending", and HasRemoteChanged skips Pending documents on
+        // the assumption a job is still coming. Nothing was, and the document stopped updating
+        // even when its remote did.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid sourceId = await SeedSourceAsync(scope.ServiceProvider);
+
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+        using var content = new MemoryStream("a document whose next sync fails"u8.ToArray());
+        var created = await pipeline.IngestAsync(content, new IngestionOptions(
+            FileName: "stranded.md", ContentType: "text/markdown", Path: "/stranded.md")
+        {
+            Owner = OwnerRef.ForSource(sourceId)
+        }, CancellationToken.None);
+
+        var documentId = Guid.Parse(created.DocumentId);
+        var store = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+
+        await using (var pending = await factory.CreateDbContextAsync())
+        {
+            var row = await pending.Documents.SingleAsync(d => d.Id == documentId);
+            row.Status = "Pending";
+            await pending.SaveChangesAsync();
+        }
+
+        await store.MarkIngestionFailedAsync(created.DocumentId, "the server refused the connection");
+
+        await using var after = await factory.CreateDbContextAsync();
+        var doc = await after.Documents.AsNoTracking().SingleAsync(d => d.Id == documentId);
+
+        doc.Status.Should().Be("Failed",
+            "the sync engine reads Status, and skips anything still marked Pending");
+        doc.IngestionState.Should().Be(IngestionState.Failed);
+        doc.ErrorMessage.Should().Contain("refused");
+    }
+
+    /// <summary>A queue that is down, which is the failure the test above is about.</summary>
+    private sealed class ThrowingIngestionQueue : CapturingIngestionQueue
+    {
+        public override Task EnqueueAsync(IngestionJob job, CancellationToken ct = default) =>
+            throw new InvalidOperationException("the queue is unavailable");
+    }
+
+    private class CapturingIngestionQueue : IIngestionQueue
     {
         public List<IngestionJob> Jobs { get; } = [];
 
-        public Task EnqueueAsync(IngestionJob job, CancellationToken ct = default)
+        public virtual Task EnqueueAsync(IngestionJob job, CancellationToken ct = default)
         {
             Jobs.Add(job);
             return Task.CompletedTask;

@@ -259,6 +259,28 @@ public class PostgresDocumentStore : IDocumentStore
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task MarkIngestionFailedAsync(
+        string documentId, string? errorMessage, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity is null) return;
+
+        entity.IngestionState = IngestionState.Failed;
+        entity.Status = "Failed";
+        if (!string.IsNullOrEmpty(errorMessage))
+            entity.ErrorMessage = errorMessage;
+
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
