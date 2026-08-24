@@ -297,10 +297,14 @@ public class SftpHostSetupTests
             .Should().BeNull();
     }
 
+    /// <summary>
+    /// The identifying fields only. The fingerprint used to be required too, which dead-ended the
+    /// flow when it could not be read — see
+    /// <see cref="ParseResult_WithoutAFingerprint_StillParses"/>.
+    /// </summary>
     [Theory]
     [InlineData("user")]
     [InlineData("home")]
-    [InlineData("fingerprint")]
     public void ParseResult_MissingAnyField_IsNull(string omit)
     {
         string block = string.Join('\n',
@@ -318,5 +322,119 @@ public class SftpHostSetupTests
     {
         SftpHostSetup.ParseResult(Block(home: "/C:/Users/Diviel"))!
             .HomePath.Should().StartWith("/C:/");
+    }
+    // ── The installed key is restricted (Codex review on #405) ─────────────
+
+    /// <summary>
+    /// A bare entry grants everything the account can do — interactive shell, port forwarding,
+    /// agent forwarding. Connapse only reads files, and its path confinement is an application
+    /// rule: it bounds what Connapse does with the key, not what the key can do. Anyone holding
+    /// the stored private half is not bound by it at all.
+    /// </summary>
+    [Theory]
+    [InlineData(HostPlatform.Windows)]
+    [InlineData(HostPlatform.MacOS)]
+    [InlineData(HostPlatform.Linux)]
+    public void GenerateScript_InstallsTheKeyRestrictedToSftp(HostPlatform platform)
+    {
+        string script = SftpHostSetup.GenerateScript(Key, platform);
+
+        script.Should().Contain("restrict,", "restrict disables PTY, port, agent and X11 forwarding");
+        script.Should().Contain("""command="internal-sftp" """.TrimEnd(),
+            "a forced command replaces whatever the client asks for, so a shell request gets SFTP");
+        script.Should().Contain($"restrict,command=\"internal-sftp\" {Key}",
+            "the restrictions must prefix the key on the same authorized_keys line");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Windows)]
+    [InlineData(HostPlatform.MacOS)]
+    [InlineData(HostPlatform.Linux)]
+    public void GenerateScript_NeverInstallsABareKey(HostPlatform platform)
+    {
+        string script = SftpHostSetup.GenerateScript(Key, platform);
+
+        // The key must never appear without its restrictions immediately before it.
+        foreach (int index in AllIndexesOf(script, Key))
+        {
+            script[..index].Should().EndWith(SftpHostSetup.KeyRestrictions,
+                "an unrestricted copy of the key would defeat the restricted one");
+        }
+    }
+
+    private static IEnumerable<int> AllIndexesOf(string haystack, string needle)
+    {
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + 1, StringComparison.Ordinal))
+        {
+            yield return i;
+        }
+    }
+
+    // ── A missing fingerprint must not dead-end the flow ───────────────────
+
+    /// <summary>
+    /// Reading the fingerprint needs elevation and can still fail, by which point sshd is running
+    /// and the key is installed. Requiring one here left the operator with a configured host, an
+    /// authorized key, and no way to finish or undo.
+    /// </summary>
+    [Fact]
+    public void ParseResult_WithoutAFingerprint_StillParses()
+    {
+        string block = $"""
+        {SftpHostSetup.BeginMarker}
+        user=Diviel
+        home=/C:/Users/Diviel
+        fingerprint=
+        {SftpHostSetup.EndMarker}
+        """;
+
+        var result = SftpHostSetup.ParseResult(block);
+
+        result.Should().NotBeNull();
+        result!.Username.Should().Be("Diviel");
+        result.Fingerprint.Should().BeEmpty("blank means trust on first use, which is defined behaviour");
+    }
+
+    [Fact]
+    public void ParseResult_FingerprintLineAbsentEntirely_StillParses()
+    {
+        string block = $"""
+        {SftpHostSetup.BeginMarker}
+        user=Diviel
+        home=/C:/Users/Diviel
+        {SftpHostSetup.EndMarker}
+        """;
+
+        SftpHostSetup.ParseResult(block)!.Fingerprint.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// The identifying fields are still required: without a username or home path there is no
+    /// connection to build, and guessing either would point somewhere wrong.
+    /// </summary>
+    [Theory]
+    [InlineData("user")]
+    [InlineData("home")]
+    public void ParseResult_MissingAnIdentifyingField_IsStillNull(string omit)
+    {
+        string block = string.Join('\n',
+            $"""
+            {SftpHostSetup.BeginMarker}
+            user=Diviel
+            home=/C:/Users/Diviel
+            fingerprint=SHA256:abc
+            {SftpHostSetup.EndMarker}
+            """.Split('\n').Where(l => !l.TrimStart().StartsWith(omit + "=")));
+
+        SftpHostSetup.ParseResult(block).Should().BeNull();
+    }
+
+    [Fact]
+    public void GenerateScript_SaysSoWhenTheFingerprintCouldNotBeRead()
+    {
+        SftpHostSetup.GenerateScript(Key, HostPlatform.Windows)
+            .Should().Contain("could not be read",
+                "a silent empty fingerprint would look like the script half-worked");
     }
 }

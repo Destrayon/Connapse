@@ -99,6 +99,9 @@ public class IngestionPipelineTests
             Substitute.For<IContainerStore>(),
             Substitute.For<IManagedStorageProvider>(),
             Substitute.For<IDocumentStore>(),
+            Substitute.For<ISourceStore>(),
+            Substitute.For<IConnectionStore>(),
+            Substitute.For<IConnectorFactory>(),
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()

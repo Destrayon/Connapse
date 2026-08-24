@@ -90,6 +90,18 @@
                     <span class="small text-muted ms-2">
                         Safe to run more than once. It adds one key and changes nothing else.
                     </span>
+
+                    @* The key is installed with restrict and a forced internal-sftp command, so it
+                       cannot open a shell or forward ports. That bounds the kind of access, not its
+                       reach: it still authenticates as this account, so an administrator account
+                       yields a key that can read the whole machine over SFTP. *@
+                    <div class="alert alert-secondary py-2 mt-2 mb-0 small">
+                        <span class="bi-shield-lock me-1"></span>
+                        The key is installed <strong>SFTP-only</strong> — no shell, no port forwarding.
+                        It still signs in as the account you run this under, so prefer an ordinary
+                        account over an administrator one: an administrator's SFTP session can read
+                        anything on the machine, whatever folder you pick below.
+                    </div>
                 </div>
             </div>
         </div>
@@ -124,10 +136,25 @@
                         {
                             <div class="alert alert-success py-2 mt-2 mb-0 small">
                                 <span class="bi-check-circle me-1"></span>
-                                Read <strong>@parsed.Username</strong>, home
-                                <code>@parsed.HomePath</code>, host key
-                                <code>@parsed.Fingerprint</code>.
+                                Read <strong>@parsed.Username</strong>, home <code>@parsed.HomePath</code>@(string.IsNullOrWhiteSpace(parsed.Fingerprint) ? "." : ", host key ")
+                                @if (!string.IsNullOrWhiteSpace(parsed.Fingerprint))
+                                {
+                                    <code>@parsed.Fingerprint</code><text>.</text>
+                                }
                             </div>
+
+                            @if (string.IsNullOrWhiteSpace(parsed.Fingerprint))
+                            {
+                                @* Setup is finishable without it. Requiring one dead-ended the flow
+                                   with the host already configured and the key already installed. *@
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    No host key fingerprint came back, so the first connection will be
+                                    <strong>trusted</strong> rather than verified. Everything else is set up
+                                    and this is safe to continue with — re-running the command as
+                                    Administrator would capture it.
+                                </div>
+                            }
                         }
                     }
                 </div>

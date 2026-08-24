@@ -54,6 +54,31 @@ public static class SftpHostSetup
     public const string EndMarker = "----- END CONNAPSE SETUP -----";
 
     /// <summary>
+    /// Options prefixed to the <c>authorized_keys</c> entry, so the installed key can do nothing
+    /// but SFTP.
+    /// </summary>
+    /// <remarks>
+    /// Without these the entry is a bare public key, which grants everything the account can do:
+    /// an interactive shell, port forwarding, agent forwarding. Connapse only ever needs to read
+    /// files, and the path confinement it applies is an <i>application</i> rule — it bounds what
+    /// Connapse does with the credential, not what the credential can do. Anyone who obtained the
+    /// stored private key would not be bound by it at all.
+    /// <para>
+    /// <c>restrict</c> (OpenSSH 7.2+) disables port forwarding, agent forwarding, X11 and PTY
+    /// allocation. <c>command</c> replaces whatever the client asks for, so a session requesting
+    /// a shell gets the SFTP server instead. Both are supported by Win32-OpenSSH as well as
+    /// portable OpenSSH.
+    /// </para>
+    /// <para>
+    /// This does not make an administrator account safe to use — the key still authenticates as
+    /// that account, and an SFTP session for an administrator can read everything on the machine.
+    /// It bounds the <i>kind</i> of access, not its reach, which is why the wizard says to prefer
+    /// a non-administrator account.
+    /// </para>
+    /// </remarks>
+    public const string KeyRestrictions = """restrict,command="internal-sftp" """;
+
+    /// <summary>
     /// The command for <paramref name="platform"/>, with <paramref name="publicKeyLine"/>
     /// already embedded.
     /// </summary>
@@ -74,11 +99,14 @@ public static class SftpHostSetup
             throw new ArgumentException(
                 "A public key line cannot contain quotes or newlines.", nameof(publicKeyLine));
 
+        // The key is installed restricted, never bare. See KeyRestrictions.
+        string entry = KeyRestrictions + publicKeyLine;
+
         return platform switch
         {
-            HostPlatform.Windows => WindowsScript(publicKeyLine),
-            HostPlatform.MacOS => UnixScript(publicKeyLine, macOs: true),
-            HostPlatform.Linux => UnixScript(publicKeyLine, macOs: false),
+            HostPlatform.Windows => WindowsScript(entry),
+            HostPlatform.MacOS => UnixScript(entry, macOs: true),
+            HostPlatform.Linux => UnixScript(entry, macOs: false),
             _ => throw new ArgumentOutOfRangeException(nameof(platform)),
         };
     }
@@ -174,6 +202,9 @@ public static class SftpHostSetup
         Write-Host '{{EndMarker}}'
         Write-Host ''
         Write-Host 'Copy the block above, including both marker lines, back into Connapse.'
+        if (-not $fingerprint) {
+            Write-Host 'The host key fingerprint could not be read, so the first connection will be trusted rather than verified. Everything else is set up.' -ForegroundColor Yellow
+        }
         """;
 
     private static string UnixScript(string publicKeyLine, bool macOs)
@@ -267,9 +298,18 @@ public static class SftpHostSetup
             }
         }
 
-        return user is null || home is null || fingerprint is null
+        // The fingerprint is optional, and that is not a weakening — it is what stops the flow
+        // dead-ending. Reading it needs elevation and can still fail, by which point sshd is
+        // running and the key is installed. Requiring it here meant the block parsed to null,
+        // the UI disabled both test and save, and the operator was left with a configured host,
+        // an authorized Connapse key, and no way to finish or undo.
+        //
+        // Blank already has a defined meaning everywhere else: SshHostKeyPolicy reads it as
+        // trust-on-first-use. So an absent fingerprint costs the stronger verified-first-use and
+        // nothing else, which the panel says plainly rather than silently accepting.
+        return user is null || home is null
             ? null
-            : new SftpHostSetupResult(user, home, fingerprint, drives);
+            : new SftpHostSetupResult(user, home, fingerprint ?? string.Empty, drives);
     }
 
     /// <summary>
