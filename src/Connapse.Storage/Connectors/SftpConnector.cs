@@ -28,6 +28,8 @@ public sealed class SftpConnector : IConnector, IDisposable
     private readonly SftpConnectorConfig _config;
     private readonly ISshHostKeyStore? _hostKeyStore;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
+    private readonly Regex[] _include;
+    private readonly Regex[] _exclude;
 
     private SftpClient? _client;
 
@@ -45,6 +47,8 @@ public sealed class SftpConnector : IConnector, IDisposable
     {
         _config = config;
         _hostKeyStore = hostKeyStore;
+        _include = CompileGlobs(config.IncludePatterns);
+        _exclude = CompileGlobs(config.ExcludePatterns);
     }
 
     public ConnectorType Type => ConnectorType.Sftp;
@@ -86,7 +90,66 @@ public sealed class SftpConnector : IConnector, IDisposable
             ?? throw new UnauthorizedAccessException(
                 $"Path '{path}' resolves outside the connection's allowed root.");
 
+        await RefuseIfLinkAsync(client, confined, ct);
+
         return await client.OpenAsync(confined, FileMode.Open, FileAccess.Read, ct);
+    }
+
+    /// <summary>
+    /// Refuses a path whose final component is a symlink.
+    /// </summary>
+    /// <remarks>
+    /// Confinement canonicalises the <i>parent</i> and reattaches the name, so a link sitting at
+    /// the leaf passes every check made so far — the parent is inside the root and the name
+    /// carries no traversal — and <c>OpenAsync</c> would then follow it wherever it points.
+    /// <para>
+    /// Every leaf link is refused, not only those pointing outside. The walk already steps over
+    /// links rather than following them, so no path the ingestion queue holds is ever a link,
+    /// and nothing legitimate asks to read one. Resolving them here would make the read path
+    /// follow what the listing deliberately does not — two different answers to the same
+    /// question, which is how the local connector's #365 bug came about.
+    /// </para>
+    /// <para>
+    /// Asked of the <b>parent's listing</b>, not of the path. <c>GetAttributes</c> looks like
+    /// the obvious call and is the wrong one: SSH.NET canonicalises the path before issuing
+    /// LSTAT, so for a link it returns the <i>target's</i> attributes and reports
+    /// <c>IsSymbolicLink</c> as false. Verified against a real server — the first version of
+    /// this method used it and both link tests still passed through. A directory listing does
+    /// not follow links, which is why the walk can already tell them apart.
+    /// </para>
+    /// <para>
+    /// Costs one listing per read. Still check-then-open, so a link planted in the instant
+    /// between the two wins; closing that needs an anchored open, which SFTP has no verb for.
+    /// The same limit <see cref="PathConfinement"/> documents for local paths.
+    /// </para>
+    /// </remarks>
+    private static async Task RefuseIfLinkAsync(
+        SftpClient client, string confinedPath, CancellationToken ct)
+    {
+        int lastSlash = confinedPath.LastIndexOf(SftpPathConfinement.Separator);
+        string parent = lastSlash <= 0 ? "/" : confinedPath[..lastSlash];
+        string name = confinedPath[(lastSlash + 1)..];
+
+        ISftpFile? entry;
+        try
+        {
+            entry = await client.ListDirectoryAsync(parent, ct)
+                .FirstOrDefaultAsync(f => f.Name == name, ct);
+        }
+        catch (Exception ex) when (ex is SshException or IOException)
+        {
+            // A path we cannot inspect is a path we cannot vouch for.
+            throw new UnauthorizedAccessException(
+                $"Could not verify that '{confinedPath}' is an ordinary file.", ex);
+        }
+
+        if (entry is null)
+            throw new FileNotFoundException($"File not found at '{confinedPath}'.", confinedPath);
+
+        if (entry.IsSymbolicLink)
+            throw new UnauthorizedAccessException(
+                $"'{confinedPath}' is a symbolic link. Links are not followed, because the "
+                + "listing that produced this path steps over them.");
     }
 
     public async Task<bool> ExistsAsync(string path, CancellationToken ct = default)
@@ -165,20 +228,52 @@ public sealed class SftpConnector : IConnector, IDisposable
 
     private bool MatchesFilters(string fileName)
     {
-        if (_config.IncludePatterns.Count > 0
-            && !_config.IncludePatterns.Any(p => MatchesGlob(fileName, p)))
+        if (_include.Length > 0 && !_include.Any(r => Matches(r, fileName)))
             return false;
 
-        return !_config.ExcludePatterns.Any(p => MatchesGlob(fileName, p));
+        return !_exclude.Any(r => Matches(r, fileName));
     }
 
-    private static bool MatchesGlob(string fileName, string pattern)
+    /// <summary>
+    /// A pattern that times out is treated as not matching, and logged nowhere because there is
+    /// nothing to log to from here — but it must not take the sync down. Withholding a match is
+    /// the conservative direction for an include list; for an exclude list it means indexing a
+    /// file that was meant to be skipped, which is visible and recoverable.
+    /// </summary>
+    private static bool Matches(Regex regex, string fileName)
     {
-        var regexPattern = "^" + Regex.Escape(pattern)
-            .Replace(@"\*", ".*")
-            .Replace(@"\?", ".") + "$";
-        return Regex.IsMatch(fileName, regexPattern, RegexOptions.IgnoreCase);
+        try
+        {
+            return regex.IsMatch(fileName);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
+
+    /// <summary>
+    /// Glob patterns compiled once per connector rather than once per file per pattern.
+    /// </summary>
+    /// <remarks>
+    /// This connector is documented as handling trees of a hundred thousand files, and the old
+    /// code built a fresh <see cref="Regex"/> inside the walk — so a source with three patterns
+    /// compiled three hundred thousand regexes per cycle.
+    /// <para>
+    /// The timeout matters more than the caching. <see cref="Regex.Escape"/> leaves the
+    /// substituted <c>.*</c> live, so a pattern like <c>*a*a*a*a*a*b</c> becomes nested
+    /// wildcards and backtracks catastrophically against a long run of <c>a</c>. Patterns come
+    /// from a source's scope, so one bad entry would hang that source's sync thread on every
+    /// cycle, for ever, with no way to see why.
+    /// </para>
+    /// </remarks>
+    private static Regex[] CompileGlobs(IReadOnlyList<string> patterns) =>
+        [.. patterns.Select(p => new Regex(
+            "^" + Regex.Escape(p).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            GlobMatchTimeout))];
+
+    private static readonly TimeSpan GlobMatchTimeout = TimeSpan.FromMilliseconds(250);
 
     // ── Confinement ────────────────────────────────────────────────────────
 
@@ -256,24 +351,42 @@ public sealed class SftpConnector : IConnector, IDisposable
                     : new SftpHostKeyMismatchException(refusal, ex);
             }
 
-            // Only now, with authentication behind us. A fingerprint captured in the callback
-            // and recorded there would pin whatever answered the address, authenticated or
-            // not.
-            await PinFingerprintIfNewAsync(ct);
+            // Everything from here to the assignment can throw, and the client is already
+            // connected — so it has to be disposed on the way out or the session is orphaned.
+            //
+            // Not a theoretical leak. SourceSyncService builds a fresh connector every cycle
+            // and disposes it in a finally, but Dispose reads _client, which is still null
+            // until the assignment below. A source with a root that does not resolve, or a
+            // subPath that escapes it, would leak one SSH session and one socket every five
+            // minutes until the server hit MaxSessions and started refusing everyone —
+            // including every other source pointed at the same machine.
+            try
+            {
+                // Only now, with authentication behind us. A fingerprint captured in the
+                // callback and recorded there would pin whatever answered the address,
+                // authenticated or not.
+                await PinFingerprintIfNewAsync(ct);
 
-            string root = ConfineDirectory(client, _config.AllowedRoot)
-                ?? throw new InvalidOperationException(
-                    $"The allowed root '{_config.AllowedRoot}' could not be resolved on {_config.Host}.");
+                string root = ConfineDirectory(client, _config.AllowedRoot)
+                    ?? throw new InvalidOperationException(
+                        $"The allowed root '{_config.AllowedRoot}' could not be resolved on {_config.Host}.");
 
-            string scoped = SftpPathConfinement.CombineWithin(
-                                new SftpRealPathResolver(client), root, _config.SubPath)
-                            ?? throw new InvalidOperationException(
-                                $"The source's subPath '{_config.SubPath}' resolves outside the "
-                                + $"connection's allowed root '{_config.AllowedRoot}'.");
+                string scoped = SftpPathConfinement.CombineWithin(
+                                    new SftpRealPathResolver(client), root, _config.SubPath)
+                                ?? throw new InvalidOperationException(
+                                    $"The source's subPath '{_config.SubPath}' resolves outside the "
+                                    + $"connection's allowed root '{_config.AllowedRoot}'.");
 
-            _client = client;
-            _resolvedRoot = scoped;
-            return (client, scoped);
+                _client = client;
+                _resolvedRoot = scoped;
+                return (client, scoped);
+            }
+            catch
+            {
+                client.HostKeyReceived -= OnHostKeyReceived;
+                client.Dispose();
+                throw;
+            }
         }
         finally
         {

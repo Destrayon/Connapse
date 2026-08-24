@@ -85,12 +85,55 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ListFiles_HonoursIncludeAndExcludePatterns()
+    public async Task ListFiles_HonoursExcludePatterns()
     {
         using var connector = Connect(exclude: ["*.tmp"]);
 
         (await connector.ListFilesAsync()).Select(f => f.Path)
             .Should().BeEquivalentTo("/data/a.md", "/data/docs/b.md");
+    }
+
+    /// <summary>
+    /// Split out because the combined test only ever passed an exclude pattern, so include
+    /// filtering was named but never exercised — and an include list that matched nothing would
+    /// have emptied a source silently.
+    /// </summary>
+    [Fact]
+    public async Task ListFiles_HonoursIncludePatterns()
+    {
+        using var connector = Connect(include: ["*.md"]);
+
+        (await connector.ListFilesAsync()).Select(f => f.Path)
+            .Should().BeEquivalentTo("/data/a.md", "/data/docs/b.md");
+    }
+
+    [Fact]
+    public async Task ListFiles_IncludeAndExcludeTogether_ApplyBoth()
+    {
+        await _server.WriteFileAsync("/data/draft.md", "draft");
+
+        using var connector = Connect(include: ["*.md"], exclude: ["draft.*"]);
+
+        (await connector.ListFilesAsync()).Select(f => f.Path)
+            .Should().BeEquivalentTo("/data/a.md", "/data/docs/b.md");
+    }
+
+    /// <summary>
+    /// A pattern crafted to backtrack catastrophically. Compiled with a match timeout, so it
+    /// gives up instead of pinning the sync thread for this source on every cycle for ever.
+    /// Patterns come from a source's scope, so one bad entry is replayed indefinitely.
+    /// </summary>
+    [Fact]
+    public async Task ListFiles_PathologicalGlob_DoesNotHangTheSync()
+    {
+        await _server.WriteFileAsync("/data/" + new string('a', 90) + ".md", "x");
+
+        using var connector = Connect(exclude: ["*a*a*a*a*a*a*a*a*a*a*b"]);
+
+        var listing = connector.ListFilesAsync();
+
+        (await listing.WaitAsync(TimeSpan.FromSeconds(60))).Should().NotBeEmpty(
+            "the timeout must bound the match rather than the sync waiting on it");
     }
 
     [Fact]
@@ -166,6 +209,61 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
         paths.Should().NotContain(p => p.Contains("keys.txt"),
             "following the link would index a file outside the connection's allowed root");
         paths.Should().Contain("/data/a.md", "the ordinary tree must still be walked");
+    }
+
+    /// <summary>
+    /// The leaf itself being a link, rather than an ancestor. Confinement canonicalises the
+    /// parent and reattaches the name, so the parent check passes and the name is not a
+    /// traversal — nothing so far has looked at what the leaf actually is.
+    /// </summary>
+    /// <remarks>
+    /// The walk never lists a symlink, so this is only reachable when a file that was listed as
+    /// regular is swapped for a link before it is read. Narrow, but it is the same shape as the
+    /// escape the ancestor check exists to stop.
+    /// </remarks>
+    [Fact]
+    public async Task ReadFile_LeafIsASymlinkPointingOutsideTheRoot_IsRefused()
+    {
+        await _server.CreateSymlinkAsync("/data/looks-ordinary.md", "/secret/keys.txt");
+
+        using var connector = Connect();
+
+        Func<Task> act = () => connector.ReadFileAsync("/data/looks-ordinary.md");
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    /// <summary>
+    /// Refused even when the target is inside the root, and the consistency is the point: the
+    /// walk steps over links, so no path the ingestion queue holds is ever one. Resolving them
+    /// here would make the read path follow what the listing deliberately does not — two
+    /// answers to the same question, which is exactly how #365 happened locally.
+    /// </summary>
+    [Fact]
+    public async Task ReadFile_LeafIsASymlinkPointingInsideTheRoot_IsAlsoRefused()
+    {
+        await _server.CreateSymlinkAsync("/data/alias.md", "/data/a.md");
+
+        using var connector = Connect();
+
+        Func<Task> act = () => connector.ReadFileAsync("/data/alias.md");
+
+        (await act.Should().ThrowAsync<UnauthorizedAccessException>())
+            .WithMessage("*symbolic link*");
+    }
+
+    /// <summary>
+    /// And the ordinary case still works, so the check above cannot have made every read fail.
+    /// </summary>
+    [Fact]
+    public async Task ReadFile_OrdinaryFile_IsUnaffectedByTheLinkCheck()
+    {
+        using var connector = Connect();
+
+        await using var stream = await connector.ReadFileAsync("/data/a.md");
+        using var reader = new StreamReader(stream);
+
+        (await reader.ReadToEndAsync()).Should().Be("alpha");
     }
 
     [Fact]
