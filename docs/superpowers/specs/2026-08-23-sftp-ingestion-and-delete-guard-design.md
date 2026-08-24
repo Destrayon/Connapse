@@ -115,7 +115,11 @@ First successful connect records the fingerprint on the connection. Every later 
 
 **`PathConfinement` cannot be reused.** It calls `Directory.Exists`, `File.Exists` and `FileSystemInfo.ResolveLinkTarget` — local filesystem I/O. Against a remote path those either return false or resolve something on the *server running Connapse*, silently degrading confinement to a lexical prefix check. That is precisely the bug #365 fixed for local paths, and it would be reintroduced remotely.
 
-SFTP confinement uses the protocol's own `SSH_FXP_REALPATH` via `SftpClient.GetCanonicalPath`, so symlinks resolve **server-side** before the prefix comparison. Same shape as `PathConfinement`, different mechanism, its own tests.
+SFTP confinement uses the protocol's own `SSH_FXP_REALPATH`, so symlinks resolve **server-side** before the prefix comparison. Same shape as `PathConfinement`, different mechanism, its own tests.
+
+**Corrected during implementation — `SftpClient.GetCanonicalPath` does not exist.** This spec named it; SSH.NET keeps `GetCanonicalPath` internal to `ISftpSession` and exposes no public entry point for it. The route that works is `ChangeDirectory`, which issues the realpath request and leaves the resolved answer in `WorkingDirectory`.
+
+That has one consequence worth recording, because it shapes the code: `ChangeDirectory` only accepts directories, so a **file** path cannot be canonicalised directly. Files are confined through their parent instead, with the leaf separately rejected if it carries a separator or is a traversal segment. This is not a weakening — every way out of the root runs through a directory, either a `..` segment or a symlinked ancestor, and both live in the parent — but it is not what the spec described.
 
 ### Listing completeness
 
