@@ -60,7 +60,11 @@ public sealed record SourceForm
                 if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
                 break;
 
+            // One case for both. The SFTP scope was deliberately given the same shape as the
+            // filesystem one so that this form, the preflight and the scope summary each gained
+            // a provider here rather than a parallel implementation to keep in step.
             case ConnectionProvider.Filesystem:
+            case ConnectionProvider.Sftp:
                 // Always present, and empty means the root itself. ConnectorFactory treats a
                 // blank subPath as "the allowed root", so this is a meaningful value rather
                 // than a missing one.

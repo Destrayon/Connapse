@@ -32,6 +32,9 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IContainerStore _containerStore;
     private readonly IManagedStorageProvider _managedStorage;
     private readonly IDocumentStore _documentStore;
+    private readonly ISourceStore _sourceStore;
+    private readonly IConnectionStore _connectionStore;
+    private readonly IConnectorFactory _connectorFactory;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -76,6 +79,9 @@ public class IngestionPipeline : IKnowledgeIngester
         IContainerStore containerStore,
         IManagedStorageProvider managedStorage,
         IDocumentStore documentStore,
+        ISourceStore sourceStore,
+        IConnectionStore connectionStore,
+        IConnectorFactory connectorFactory,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -90,6 +96,9 @@ public class IngestionPipeline : IKnowledgeIngester
         _containerStore = containerStore;
         _managedStorage = managedStorage;
         _documentStore = documentStore;
+        _sourceStore = sourceStore;
+        _connectionStore = connectionStore;
+        _connectorFactory = connectorFactory;
         _logger = logger;
     }
 
@@ -489,6 +498,33 @@ public class IngestionPipeline : IKnowledgeIngester
         IngestionOptions options,
         CancellationToken ct = default)
     {
+        // A source-owned document is read through its connection's connector, not through
+        // managed storage — checked first, because everything below this resolves a container
+        // and a source does not have one (#398).
+        //
+        // Only this entry point was left container-shaped by the connector/source split.
+        // IngestAsync already honours OwnerRef.ForSource; the gap was getting the bytes.
+        if (options.Owner is { IsSource: true } sourceOwner)
+            return await IngestSourceDocumentAsync(documentId, sourceOwner.Id, options, ct);
+
+        // No owner in the options at all: the row is the only thing that knows which it is.
+        // Callers that omit it would otherwise be routed down the container branch and throw
+        // — and a reindex throws only after it has already deleted the document's chunks, so
+        // the cost of guessing wrong here is a document that is gone from search and that no
+        // later sync restores, because its remote signature still matches.
+        if (options.Owner is null)
+        {
+            Document? owned = await _documentStore.GetAsync(documentId, ct);
+            if (owned?.Owner is { IsSource: true } inferredOwner)
+            {
+                // Carried on the options, not just used for routing: IngestAsync writes the
+                // document through options.Owner, and a source-owned row recorded against
+                // container_id would violate ck_documents_single_owner.
+                return await IngestSourceDocumentAsync(
+                    documentId, inferredOwner.Id, options with { Owner = inferredOwner }, ct);
+            }
+        }
+
         // Resolve the container ID — prefer options.ContainerId, fall back to looking up the doc.
         Guid containerId;
         string virtualPath;
@@ -504,10 +540,10 @@ public class IngestionPipeline : IKnowledgeIngester
                 ?? throw new InvalidOperationException(
                     $"IngestByIdAsync: document {documentId} not found and no ContainerId in options");
 
-            // Source-owned documents have an empty ContainerId, so Guid.Parse would throw a
-            // bare FormatException here. Fail with something actionable instead. Re-ingesting
-            // a source document goes through the sync engine, which resolves its connector
-            // from the source's connection rather than from a container.
+            // Document.ContainerId carries COALESCE(container_id, source_id), so it parses
+            // even for a source-owned row — which is why source ownership is settled above,
+            // from doc.Owner, before this point. Reaching here with an unparseable value means
+            // the row has no usable owner at all.
             if (string.IsNullOrEmpty(doc.ContainerId) || !Guid.TryParse(doc.ContainerId, out var docContainerId))
                 throw new InvalidOperationException(
                     $"IngestByIdAsync: document {documentId} is not owned by a container. " +
@@ -526,6 +562,52 @@ public class IngestionPipeline : IKnowledgeIngester
 
         await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
         return await IngestAsync(stream, options, ct);
+    }
+
+    /// <summary>
+    /// Reads a source-owned document through its connection's connector and ingests it.
+    /// </summary>
+    /// <remarks>
+    /// The path is used as the sync engine recorded it, without <c>ResolveJobPath</c>. That
+    /// method exists to turn a virtual container path into a real one; a source's listing
+    /// already yields the connector's own absolute form — an OS path for Filesystem, a remote
+    /// path for SFTP — and putting it through resolution again would rebase a path that is
+    /// already rooted.
+    /// </remarks>
+    private async Task<IngestionResult> IngestSourceDocumentAsync(
+        string documentId, Guid sourceId, IngestionOptions options, CancellationToken ct)
+    {
+        string path = options.Path ?? options.FileName
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: options must provide Path or FileName for document {documentId}");
+
+        Source source = await _sourceStore.GetAsync(sourceId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: source {sourceId} not found for document {documentId}");
+
+        Connection connection = await _connectionStore.GetAsync(source.ConnectionId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: connection {source.ConnectionId} not found for source {sourceId}");
+
+        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
+        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
+        // rather than being swallowed.
+        string? secret = connection.HasSecret
+            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+            : null;
+
+        IConnector connector = _connectorFactory.Create(source, connection, secret);
+        try
+        {
+            await using Stream stream = await connector.ReadFileAsync(path, ct);
+            return await IngestAsync(stream, options, ct);
+        }
+        finally
+        {
+            // SftpConnector holds an SSH session and S3Connector a socket pool. One job runs
+            // per file, so skipping this abandons a connection per document.
+            if (connector is IDisposable disposable) disposable.Dispose();
+        }
     }
 
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(
@@ -646,3 +728,5 @@ internal static class IngestionPipelineStrategyResolver
         return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
     }
 }
+
+

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Connapse.Core;
@@ -73,7 +73,7 @@ public sealed class SftpConnector : IConnector, IDisposable
 
         string start = string.IsNullOrWhiteSpace(prefix)
             ? root
-            : ConfineDirectory(client, prefix)
+            : await ConfineDirectoryAsync(client, prefix, ct)
               ?? throw new UnauthorizedAccessException(
                   $"Prefix '{prefix}' resolves outside the connection's allowed root.");
 
@@ -86,13 +86,30 @@ public sealed class SftpConnector : IConnector, IDisposable
     {
         var (client, _) = await EnsureConnectedAsync(ct);
 
-        string confined = ConfineFile(client, path)
+        string confined = await ConfineFileAsync(client, path, ct)
             ?? throw new UnauthorizedAccessException(
                 $"Path '{path}' resolves outside the connection's allowed root.");
 
         await RefuseIfLinkAsync(client, confined, ct);
 
         return await client.OpenAsync(confined, FileMode.Open, FileAccess.Read, ct);
+    }
+
+    /// <summary>
+    /// Opens the session, verifies the host key, and resolves the allowed root and subpath on
+    /// the server. Returns the resolved path this connector would read from.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the connection test, which needs exactly the three things that go wrong —
+    /// reachability, authentication, and whether the root is really there — and none of the
+    /// walking. An explicit method rather than leaning on a side effect of
+    /// <see cref="ExistsAsync"/>, so a later change to that method cannot quietly turn the test
+    /// button into one that always passes.
+    /// </remarks>
+    public async Task<string> ProbeAsync(CancellationToken ct = default)
+    {
+        var (_, root) = await EnsureConnectedAsync(ct);
+        return root;
     }
 
     /// <summary>
@@ -156,7 +173,7 @@ public sealed class SftpConnector : IConnector, IDisposable
     {
         var (client, _) = await EnsureConnectedAsync(ct);
 
-        string? confined = ConfineFile(client, path);
+        string? confined = await ConfineFileAsync(client, path, ct);
         if (confined is null) return false;
 
         return await client.ExistsAsync(confined, ct);
@@ -277,8 +294,9 @@ public sealed class SftpConnector : IConnector, IDisposable
 
     // ── Confinement ────────────────────────────────────────────────────────
 
-    private string? ConfineDirectory(SftpClient client, string candidate) =>
-        SftpPathConfinement.ResolveWithin(new SftpRealPathResolver(client), _config.AllowedRoot, candidate);
+    private Task<string?> ConfineDirectoryAsync(SftpClient client, string candidate, CancellationToken ct) =>
+        SftpPathConfinement.ResolveWithinAsync(
+            new SftpRealPathResolver(client), _config.AllowedRoot, candidate, ct);
 
     /// <summary>
     /// Confines a file path by canonicalising its <i>parent</i> and reattaching the name.
@@ -290,7 +308,7 @@ public sealed class SftpConnector : IConnector, IDisposable
     /// a symlinked ancestor — and both of those are in the parent. The leaf is checked for
     /// separators instead, so it cannot smuggle a path component of its own.
     /// </remarks>
-    private string? ConfineFile(SftpClient client, string candidate)
+    private async Task<string?> ConfineFileAsync(SftpClient client, string candidate, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(candidate))
             return null;
@@ -306,7 +324,7 @@ public sealed class SftpConnector : IConnector, IDisposable
         if (name.Length == 0 || name is "." or ".." || name.Contains(SftpPathConfinement.Separator))
             return null;
 
-        string? resolvedParent = ConfineDirectory(client, parent);
+        string? resolvedParent = await ConfineDirectoryAsync(client, parent, ct);
         if (resolvedParent is null)
             return null;
 
@@ -331,7 +349,12 @@ public sealed class SftpConnector : IConnector, IDisposable
             _client = null;
             _resolvedRoot = null;
 
-            var client = new SftpClient(BuildConnectionInfo());
+            var client = new SftpClient(BuildConnectionInfo())
+            {
+                // Without this SSH.NET waits forever on an SFTP request. See the config's
+                // remarks: a cancellation token does not reach inside one.
+                OperationTimeout = _config.OperationTimeout,
+            };
             client.HostKeyReceived += OnHostKeyReceived;
 
             try
@@ -367,12 +390,12 @@ public sealed class SftpConnector : IConnector, IDisposable
                 // authenticated or not.
                 await PinFingerprintIfNewAsync(ct);
 
-                string root = ConfineDirectory(client, _config.AllowedRoot)
+                string root = await ConfineDirectoryAsync(client, _config.AllowedRoot, ct)
                     ?? throw new InvalidOperationException(
                         $"The allowed root '{_config.AllowedRoot}' could not be resolved on {_config.Host}.");
 
-                string scoped = SftpPathConfinement.CombineWithin(
-                                    new SftpRealPathResolver(client), root, _config.SubPath)
+                string scoped = await SftpPathConfinement.CombineWithinAsync(
+                                    new SftpRealPathResolver(client), root, _config.SubPath, ct)
                                 ?? throw new InvalidOperationException(
                                     $"The source's subPath '{_config.SubPath}' resolves outside the "
                                     + $"connection's allowed root '{_config.AllowedRoot}'.");
@@ -412,7 +435,10 @@ public sealed class SftpConnector : IConnector, IDisposable
             _config.Host,
             _config.Port,
             _config.Username,
-            new PrivateKeyAuthenticationMethod(_config.Username, key));
+            new PrivateKeyAuthenticationMethod(_config.Username, key))
+        {
+            Timeout = _config.OperationTimeout,
+        };
     }
 
     /// <summary>
@@ -505,9 +531,9 @@ public class SftpHostKeyMismatchException(string message, Exception inner)
 /// </remarks>
 internal sealed class SftpRealPathResolver(SftpClient client) : ISftpRealPathResolver
 {
-    public string GetCanonicalPath(string path)
+    public async Task<string> GetCanonicalPathAsync(string path, CancellationToken ct = default)
     {
-        client.ChangeDirectory(path);
+        await client.ChangeDirectoryAsync(path, ct);
         return client.WorkingDirectory;
     }
 }

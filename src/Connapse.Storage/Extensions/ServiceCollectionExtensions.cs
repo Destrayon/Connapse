@@ -184,6 +184,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
+        services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AwsSsoConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();

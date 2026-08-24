@@ -44,9 +44,20 @@ public class IngestionPipelineTests
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
     private readonly ILogger<IngestionPipeline> _logger;
 
+    // Fields rather than inline substitutes, so a test can say what the store returns. The
+    // source-routing tests need to: which branch IngestByIdAsync takes is decided by them.
+    private readonly IDocumentStore _documentStore;
+    private readonly ISourceStore _sourceStore;
+    private readonly IConnectionStore _connectionStore;
+    private readonly IConnectorFactory _connectorFactory;
+
     public IngestionPipelineTests()
     {
         _fileSystem = Substitute.For<IKnowledgeFileSystem>();
+        _documentStore = Substitute.For<IDocumentStore>();
+        _sourceStore = Substitute.For<ISourceStore>();
+        _connectionStore = Substitute.For<IConnectionStore>();
+        _connectorFactory = Substitute.For<IConnectorFactory>();
         _embeddingProvider = Substitute.For<IEmbeddingProvider>();
         _vectorStore = Substitute.For<IVectorStore>();
         _logger = NullLogger<IngestionPipeline>.Instance;
@@ -98,7 +109,10 @@ public class IngestionPipelineTests
             new EmbeddingCache(dbContext),
             Substitute.For<IContainerStore>(),
             Substitute.For<IManagedStorageProvider>(),
-            Substitute.For<IDocumentStore>(),
+            _documentStore,
+            _sourceStore,
+            _connectionStore,
+            _connectorFactory,
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()
@@ -265,6 +279,66 @@ public class IngestionPipelineTests
     /// <summary>
     /// Wrapper stream that reports CanSeek = false to test non-seekable stream handling.
     /// </summary>
+    // ── Source routing when the caller supplies no owner (#405 review) ─────────────
+
+    /// <summary>
+    /// Stands up the three stores IngestByIdAsync consults on the source path, and returns
+    /// the connector it should end up reading through.
+    /// </summary>
+    private IConnector ArrangeSourceDocument(string documentId, Guid sourceId, string path)
+    {
+        var connectionId = Guid.NewGuid();
+
+        _documentStore.GetAsync(documentId, Arg.Any<CancellationToken>())
+            .Returns(new Document(
+                documentId, sourceId.ToString(), "test.txt", "text/plain", path,
+                SizeBytes: 12, CreatedAt: DateTime.UtcNow, Metadata: new Dictionary<string, string>())
+            {
+                // What PostgresDocumentStore.MapToModel records: ContainerId carries
+                // COALESCE(container_id, source_id), so only this distinguishes the two.
+                Owner = OwnerRef.ForSource(sourceId),
+            });
+
+        _sourceStore.GetAsync(sourceId, Arg.Any<CancellationToken>())
+            .Returns(new Source(
+                sourceId, "src", null, connectionId, "{}", DateTime.UtcNow, DateTime.UtcNow));
+
+        _connectionStore.GetAsync(connectionId, Arg.Any<CancellationToken>())
+            .Returns(new Connection(
+                connectionId, "conn", ConnectionProvider.Filesystem, "{}", null,
+                DateTime.UtcNow, DateTime.UtcNow));
+
+        var connector = Substitute.For<IConnector>();
+        connector.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<Stream>(new MemoryStream("Test content"u8.ToArray())));
+
+        _connectorFactory.Create(Arg.Any<Source>(), Arg.Any<Connection>(), Arg.Any<string?>())
+            .Returns(connector);
+
+        return connector;
+    }
+
+    [Fact]
+    public async Task IngestByIdAsync_SourceOwnedDocumentWithNoOwnerInOptions_ReadsThroughTheSourceConnector()
+    {
+        // ReindexService enqueued jobs this way before #405: no Owner, and a ContainerId that
+        // is blank because Nullable<Guid>.ToString() returns "". The pipeline then took the
+        // container branch and threw — after the reindex had already deleted the document's
+        // chunks, and with the remote signature still matching so no later sync restored them.
+        using var dbContext = CreateInMemoryContext();
+        var pipeline = CreatePipeline(dbContext);
+
+        string documentId = Guid.NewGuid().ToString();
+        var sourceId = Guid.NewGuid();
+        IConnector connector = ArrangeSourceDocument(documentId, sourceId, "/remote/test.txt");
+
+        await pipeline.IngestByIdAsync(
+            documentId,
+            new IngestionOptions(DocumentId: documentId, FileName: "test.txt", Path: "/remote/test.txt"));
+
+        await connector.Received(1).ReadFileAsync("/remote/test.txt", Arg.Any<CancellationToken>());
+    }
+
     private sealed class NonSeekableStream : Stream
     {
         private readonly Stream _inner;

@@ -463,6 +463,19 @@ public class ReindexService : IReindexService
             _chunkingSettings.CurrentValue.Strategy,
             ignoreCase: true);
 
+        // The owner the row actually has, read from the row. Nullable<Guid>.ToString() yields
+        // "" rather than throwing, so a source-owned document used to be enqueued with a blank
+        // ContainerId and no Owner at all — and the pipeline, seeing neither, routed it down
+        // the container branch and threw. By then the chunks above were already deleted, and
+        // the next sync saw an unchanged remote signature and did not restore them, so a
+        // forced reindex quietly removed source documents from search for good.
+        var owner = doc.SourceId is Guid sourceId
+            ? OwnerRef.ForSource(sourceId)
+            : doc.ContainerId is Guid containerId
+                ? OwnerRef.ForContainer(containerId)
+                : throw new InvalidOperationException(
+                    $"Document {doc.Id} has neither a container nor a source and cannot be reindexed.");
+
         // Create and enqueue ingestion job
         var job = new IngestionJob(
             JobId: Guid.NewGuid().ToString(),
@@ -472,10 +485,13 @@ public class ReindexService : IReindexService
                 DocumentId: doc.Id.ToString(),
                 FileName: doc.FileName,
                 ContentType: doc.ContentType,
-                ContainerId: doc.ContainerId.ToString(),
+                ContainerId: owner.ContainerId?.ToString(),
                 Path: doc.Path,
                 Strategy: strategy,
-                Metadata: doc.Metadata),
+                Metadata: doc.Metadata)
+            {
+                Owner = owner,
+            },
             BatchId: batchId);
 
         await _queue.EnqueueAsync(job, ct);

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -357,6 +357,13 @@ public class PostgresDocumentStore : IDocumentStore
             entity.Summary,
             entity.SummaryGeneratedAt,
             entity.SummaryContentHash,
-            entity.IngestionState);
+            entity.IngestionState)
+        {
+            // Which of the two columns is set, kept alongside the collapsed OwnerId above so a
+            // caller can tell a source-owned row from a container-owned one.
+            Owner = entity.SourceId is Guid sourceId
+                ? OwnerRef.ForSource(sourceId)
+                : OwnerRef.ForContainer(entity.ContainerId!.Value),
+        };
     }
 }

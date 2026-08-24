@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
 
@@ -22,7 +22,10 @@ public class SftpPathConfinementTests
 
         public HashSet<string> Unresolvable { get; } = [];
 
-        public string GetCanonicalPath(string path)
+        public Task<string> GetCanonicalPathAsync(string path, CancellationToken ct = default) =>
+            Task.FromResult(Resolve(path));
+
+        private string Resolve(string path)
         {
             if (Unresolvable.Contains(path))
                 throw new InvalidOperationException($"The server refused to resolve '{path}'.");
@@ -56,48 +59,48 @@ public class SftpPathConfinementTests
     }
 
     [Fact]
-    public void CombineWithin_OrdinarySubPath_Resolves()
+    public async Task CombineWithin_OrdinarySubPath_Resolves()
     {
         var server = new FakeServer();
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "docs/reports")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "docs/reports"))
             .Should().Be("/srv/knowledge/docs/reports");
     }
 
     [Fact]
-    public void CombineWithin_NoSubPath_ResolvesToTheRoot()
+    public async Task CombineWithin_NoSubPath_ResolvesToTheRoot()
     {
         var server = new FakeServer();
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", null)
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", null))
             .Should().Be("/srv/knowledge");
     }
 
     [Fact]
-    public void CombineWithin_DotDotEscape_IsRefused()
+    public async Task CombineWithin_DotDotEscape_IsRefused()
     {
         var server = new FakeServer();
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "../../etc")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "../../etc"))
             .Should().BeNull();
     }
 
     [Fact]
-    public void CombineWithin_DotDotThatStaysInside_IsAllowed()
+    public async Task CombineWithin_DotDotThatStaysInside_IsAllowed()
     {
         var server = new FakeServer();
 
         // Refusing this would be over-strict: it resolves back inside the root.
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "docs/../reports")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "docs/../reports"))
             .Should().Be("/srv/knowledge/reports");
     }
 
     [Fact]
-    public void CombineWithin_AbsoluteSubPath_IsRefused()
+    public async Task CombineWithin_AbsoluteSubPath_IsRefused()
     {
         var server = new FakeServer();
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "/etc/shadow")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "/etc/shadow"))
             .Should().BeNull();
     }
 
@@ -106,11 +109,11 @@ public class SftpPathConfinementTests
     /// root, and the escape only appears once the server resolves the link.
     /// </summary>
     [Fact]
-    public void CombineWithin_ServerSideSymlinkPointingOutside_IsRefused()
+    public async Task CombineWithin_ServerSideSymlinkPointingOutside_IsRefused()
     {
         var server = new FakeServer(new() { ["/srv/knowledge/escape"] = "/etc" });
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "escape")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "escape"))
             .Should().BeNull();
     }
 
@@ -119,11 +122,11 @@ public class SftpPathConfinementTests
     /// nothing. Only its parent gives the escape away.
     /// </summary>
     [Fact]
-    public void CombineWithin_SymlinkedAncestorWithOrdinaryLeaf_IsRefused()
+    public async Task CombineWithin_SymlinkedAncestorWithOrdinaryLeaf_IsRefused()
     {
         var server = new FakeServer(new() { ["/srv/knowledge/escape"] = "/etc" });
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "escape/shadow")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "escape/shadow"))
             .Should().BeNull();
     }
 
@@ -133,11 +136,11 @@ public class SftpPathConfinementTests
     /// there.
     /// </summary>
     [Fact]
-    public void CombineWithin_SymlinkPointingBackInsideTheRoot_IsAllowed()
+    public async Task CombineWithin_SymlinkPointingBackInsideTheRoot_IsAllowed()
     {
         var server = new FakeServer(new() { ["/srv/knowledge/shortcut"] = "/srv/knowledge/docs" });
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "shortcut/a.md")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "shortcut/a.md"))
             .Should().Be("/srv/knowledge/docs/a.md");
     }
 
@@ -146,11 +149,11 @@ public class SftpPathConfinementTests
     /// Both sides are canonicalised for exactly this reason.
     /// </summary>
     [Fact]
-    public void CombineWithin_SymlinkedRoot_StillConfinesAgainstTheResolvedRoot()
+    public async Task CombineWithin_SymlinkedRoot_StillConfinesAgainstTheResolvedRoot()
     {
         var server = new FakeServer(new() { ["/srv/knowledge"] = "/mnt/vol1/knowledge" });
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "docs")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "docs"))
             .Should().Be("/mnt/vol1/knowledge/docs");
     }
 
@@ -199,22 +202,77 @@ public class SftpPathConfinementTests
     /// than compared as an unverified string.
     /// </summary>
     [Fact]
-    public void CombineWithin_ServerRefusesToResolve_IsRefused()
+    public async Task CombineWithin_ServerRefusesToResolve_IsRefused()
     {
         var server = new FakeServer();
         server.Unresolvable.Add("/srv/knowledge/docs");
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "docs")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "docs"))
             .Should().BeNull();
     }
 
     [Fact]
-    public void CombineWithin_ServerRefusesToResolveTheRoot_IsRefused()
+    public async Task CombineWithin_ServerRefusesToResolveTheRoot_IsRefused()
     {
         var server = new FakeServer();
         server.Unresolvable.Add("/srv/knowledge");
 
-        SftpPathConfinement.CombineWithin(server, "/srv/knowledge", "docs")
+        (await SftpPathConfinement.CombineWithinAsync(server, "/srv/knowledge", "docs"))
             .Should().BeNull();
+    }
+
+    /// <summary>
+    /// A server that answered the handshake and then went quiet. Real ones do this: sshd is up
+    /// and authenticating, its SFTP subsystem is wedged or the box is thrashing.
+    /// </summary>
+    private sealed class StallingServer : ISftpRealPathResolver
+    {
+        public async Task<string> GetCanonicalPathAsync(string path, CancellationToken ct = default)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return path;
+        }
+    }
+
+    [Fact]
+    public async Task ResolveWithin_ServerStopsAnswering_ObservesCancellation()
+    {
+        // The reason this seam is asynchronous. Canonicalisation used to go through SSH.NET's
+        // blocking ChangeDirectory, which no token can interrupt — so a connection test's
+        // 15-second budget covered the handshake and then waited indefinitely on the very
+        // request that stalls, holding its Blazor circuit and SSH session open.
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+
+        Func<Task> act = async () => await SftpPathConfinement.ResolveWithinAsync(
+            new StallingServer(), "/srv/knowledge", "/srv/knowledge/docs", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>(
+            "cancellation must reach the round-trip, not just the awaits around it");
+    }
+
+    [Fact]
+    public void SftpConnectorConfig_OperationTimeout_IsFinite()
+    {
+        // SSH.NET's own default is infinite. A session that inherits that has no way back from
+        // a server that stops answering: nothing releases the SSH session or its socket, and
+        // SourceSyncService builds a connector every cycle.
+        var config = new Connapse.Storage.Connectors.SftpConnectorConfig();
+
+        config.OperationTimeout.Should().BePositive().And.NotBe(Timeout.InfiniteTimeSpan);
+    }
+
+    [Fact]
+    public async Task ResolveWithin_Cancellation_IsNotSwallowedAsAnUnresolvablePath()
+    {
+        // The catch that refuses paths the server will not resolve must not also swallow a
+        // cancelled one: returning null there would report "outside the allowed root" for a
+        // path nobody ever asked about, and the caller would never learn it timed out.
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        Func<Task> act = async () => await SftpPathConfinement.CombineWithinAsync(
+            new StallingServer(), "/srv/knowledge", "docs", cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }
