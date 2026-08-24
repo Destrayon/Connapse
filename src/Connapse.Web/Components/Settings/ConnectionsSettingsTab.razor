@@ -1,5 +1,7 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
+@using Connapse.Core.Utilities
+@inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Connectors
 @using Microsoft.Extensions.Options
@@ -49,14 +51,156 @@
         </div>
     }
 
+    @* ── Connect this computer ─────────────────────────────────────── *@
+    @if (localSetup)
+    {
+        <div class="col-12">
+            <h5>Connect this computer</h5>
+            <p class="text-muted mb-0">
+                Connapse runs in a container, so it cannot see your files directly and cannot
+                configure your machine for you. It can do everything else: it has made a key,
+                and written the one command you need to run.
+            </p>
+        </div>
+
+        @* Step 1 *@
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">1 · Run this on your computer</h6>
+                    <div class="btn-group btn-group-sm mb-2" role="group">
+                        @foreach (var p in Enum.GetValues<HostPlatform>())
+                        {
+                            <button type="button"
+                                    class="btn @(setupPlatform == p ? "btn-secondary" : "btn-outline-secondary")"
+                                    @onclick="() => SelectPlatform(p)">@PlatformLabel(p)</button>
+                        }
+                    </div>
+                    @if (setupPlatform == HostPlatform.Windows)
+                    {
+                        <div class="small text-muted mb-2">
+                            Open PowerShell with <strong>Run as Administrator</strong>, then paste this in.
+                        </div>
+                    }
+                    <textarea class="form-control font-monospace" rows="12" readonly
+                              style="font-size:.78rem">@setupScript</textarea>
+                    <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="CopyScript">
+                        <span class="bi-clipboard me-1"></span> Copy command
+                    </button>
+                    <span class="small text-muted ms-2">
+                        Safe to run more than once. It adds one key and changes nothing else.
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        @* Step 2 *@
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">2 · Paste back what it printed</h6>
+                    <textarea class="form-control font-monospace" rows="5" @bind="pastedResult"
+                              @bind:event="oninput"
+                              placeholder="@SftpHostSetup.BeginMarker&#10;user=…&#10;home=…&#10;fingerprint=…&#10;@SftpHostSetup.EndMarker"></textarea>
+                    <div class="form-text">
+                        The whole terminal output is fine — Connapse finds the block. This carries your
+                        username, your folder path, and the server's key fingerprint, so nothing has to
+                        be typed. The fingerprint arriving this way means the very first connection is
+                        verified rather than trusted.
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(pastedResult))
+                    {
+                        var parsed = SftpHostSetup.ParseResult(pastedResult);
+                        @if (parsed is null)
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                <span class="bi-exclamation-triangle me-1"></span>
+                                No setup block found yet. Copy everything the command printed, including
+                                both <code>-----</code> marker lines.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-success py-2 mt-2 mb-0 small">
+                                <span class="bi-check-circle me-1"></span>
+                                Read <strong>@parsed.Username</strong>, home
+                                <code>@parsed.HomePath</code>, host key
+                                <code>@parsed.Fingerprint</code>.
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Step 3 *@
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <h6 class="card-title">3 · Choose what to index</h6>
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Folder</label>
+                            <div class="input-group">
+                                <span class="input-group-text font-monospace small">@(LocalHome() ?? "…")/</span>
+                                <input class="form-control" @bind="localSubPath" placeholder="Documents" />
+                            </div>
+                            <div class="form-text">
+                                Relative to your home folder. Sources you add later are confined beneath it.
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Reachable at</label>
+                            <input class="form-control font-monospace" @bind="localHost" />
+                            <div class="form-text">
+                                <code>host.docker.internal</code> works on Docker Desktop. A Linux host needs
+                                <code>--add-host=host.docker.internal:host-gateway</code>.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <button class="btn btn-primary me-2" @onclick="SaveLocalSetup" disabled="@(saving || !LocalSetupReady())">
+                @if (saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <span>Create connection</span>
+            </button>
+            <button class="btn btn-info me-2" @onclick="TestLocalSetup" disabled="@(testing || !LocalSetupReady())">
+                @if (testing) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <span>Test first</span>
+            </button>
+            <button class="btn btn-secondary" @onclick="CancelLocalSetup">Cancel</button>
+        </div>
+
+        @if (testMessage is not null)
+        {
+            <div class="col-12">
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                    @testMessage
+                </div>
+            </div>
+        }
+    }
     @* ── List ──────────────────────────────────────────────────────── *@
-    @if (editing is null)
+    else if (editing is null)
     {
         <div class="col-12 d-flex justify-content-between align-items-center">
             <h5 class="mb-0">Connections</h5>
-            <button class="btn btn-primary btn-sm" @onclick="StartCreate">
-                <span class="bi-plus-lg me-1"></span> Add connection
-            </button>
+            <div>
+                @* The local case gets its own entry point rather than being a provider hidden
+                   inside "Add connection". It is the one most people want, and reaching it
+                   through a generic SFTP form means understanding SFTP first. *@
+                <button class="btn btn-outline-primary btn-sm me-2" @onclick="StartLocalSetup">
+                    <span class="bi-laptop me-1"></span> Connect this computer
+                </button>
+                <button class="btn btn-primary btn-sm" @onclick="StartCreate">
+                    <span class="bi-plus-lg me-1"></span> Add connection
+                </button>
+            </div>
         </div>
 
         <div class="col-12">
@@ -418,6 +562,135 @@
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
         loading = false;
+    }
+
+    // ── Connect this computer ──────────────────────────────────────────────
+
+    private bool localSetup;
+    private HostPlatform setupPlatform = HostPlatform.Windows;
+    private SshKeyPair? localKeyPair;
+    private string setupScript = "";
+    private string? pastedResult;
+    private string localSubPath = "";
+    private string localHost = "host.docker.internal";
+
+    private static string PlatformLabel(HostPlatform p) => p switch
+    {
+        HostPlatform.Windows => "Windows",
+        HostPlatform.MacOS => "macOS",
+        _ => "Linux",
+    };
+
+    private void StartLocalSetup()
+    {
+        // Generated once per visit, not per keystroke: the script embeds the public key, and
+        // regenerating would invalidate a command the operator may have already run.
+        localKeyPair = SshKeyPairGenerator.Generate($"connapse@{Environment.MachineName}");
+
+        localSetup = true;
+        editing = null;
+        pastedResult = null;
+        localSubPath = "";
+        localHost = "host.docker.internal";
+        statusMessage = null;
+        testMessage = null;
+
+        RegenerateScript();
+    }
+
+    private void SelectPlatform(HostPlatform platform)
+    {
+        setupPlatform = platform;
+        RegenerateScript();
+    }
+
+    private void RegenerateScript() =>
+        setupScript = localKeyPair is null
+            ? ""
+            : SftpHostSetup.GenerateScript(localKeyPair.PublicKeyLine, setupPlatform);
+
+    private async Task CopyScript() =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", setupScript);
+
+    private SftpHostSetupResult? LocalResult() => SftpHostSetup.ParseResult(pastedResult);
+
+    private string? LocalHome() => LocalResult()?.HomePath;
+
+    private bool LocalSetupReady() =>
+        LocalResult() is not null && !string.IsNullOrWhiteSpace(localHost);
+
+    private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
+        ConnectionForm.ForLocalMachine(result, localHost, localSubPath, localKeyPair!.PrivateKeyPem);
+
+    private async Task TestLocalSetup()
+    {
+        if (LocalResult() is not { } result) return;
+
+        testing = true;
+        testMessage = null;
+        try
+        {
+            var form = BuildLocalForm(result);
+
+            var outcome = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
+            {
+                Host = form.Host!,
+                Port = 22,
+                Username = form.Username!,
+                AllowedRoot = form.AllowedRoot!,
+                PrivateKey = form.PrivateKey!,
+                PinnedHostKeyFingerprint = form.HostKeyFingerprint,
+            }, TimeSpan.FromSeconds(15));
+
+            testSuccess = outcome.Success;
+            testMessage = outcome.Message;
+        }
+        catch (Exception ex)
+        {
+            testSuccess = false;
+            testMessage = ex.Message;
+        }
+        finally
+        {
+            testing = false;
+        }
+    }
+
+    private async Task SaveLocalSetup()
+    {
+        if (LocalResult() is not { } result) return;
+
+        saving = true;
+        try
+        {
+            var form = BuildLocalForm(result);
+
+            await ConnectionStore.CreateAsync(
+                new CreateConnectionRequest(
+                    form.Name.Trim(), ConnectionProvider.Sftp, form.ToConfigJson(), form.ToSecretJson()),
+                createdByUserId: null);
+
+            Succeed($"Connected. Add a source on '{form.Name}' to start indexing.");
+            CancelLocalSetup();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex.Message);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private void CancelLocalSetup()
+    {
+        localSetup = false;
+        localKeyPair = null;
+        setupScript = "";
+        pastedResult = null;
+        testMessage = null;
     }
 
     private void StartCreate()

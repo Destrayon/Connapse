@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
 
 namespace Connapse.Web.Components.Settings;
@@ -71,6 +72,64 @@ public sealed record ConnectionForm
     public bool IsCloudProvider =>
         Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob;
 
+
+    /// <summary>
+    /// Builds the connection the "Connect this computer" flow creates, from what the host's
+    /// setup command reported.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the Razor component for the same reason the rest of this class is:
+    /// a dropped or mis-joined field produces a connection that points somewhere other than
+    /// intended, and the component has no test harness in this repository.
+    /// </remarks>
+    /// <param name="subPath">
+    /// Folder beneath the reported home directory. Blank means the home directory itself.
+    /// </param>
+    public static ConnectionForm ForLocalMachine(
+        SftpHostSetupResult result, string host, string? subPath, string privateKeyPem)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+
+        return new ConnectionForm
+        {
+            Name = $"{result.Username}@{host.Trim()}",
+            Provider = ConnectionProvider.Sftp,
+            Host = host.Trim(),
+            Port = "22",
+            Username = result.Username,
+
+            // The chosen folder, not the home directory. A source cannot escape its
+            // connection's root, so narrowing here is the difference between exposing one
+            // folder and exposing everything the account can read.
+            AllowedRoot = CombineRemote(result.HomePath, subPath),
+
+            HostKeyFingerprint = result.Fingerprint,
+            PrivateKey = privateKeyPem,
+        };
+    }
+
+    /// <summary>
+    /// Joins a subfolder onto a remote home path.
+    /// </summary>
+    /// <remarks>
+    /// SFTP paths use '/' whatever the server runs — Windows OpenSSH presents
+    /// <c>C:\Users\me</c> as <c>/C:/Users/me</c>, keeping the leading slash and the drive
+    /// letter. So this must not use <see cref="System.IO.Path"/>, which would apply the rules
+    /// of whichever machine Connapse happens to be running on.
+    /// </remarks>
+    public static string CombineRemote(string home, string? subPath)
+    {
+        string root = home.TrimEnd('/');
+
+        if (string.IsNullOrWhiteSpace(subPath))
+            return root;
+
+        string cleaned = subPath.Trim().Replace('\\', '/').Trim('/');
+
+        return cleaned.Length == 0 ? root : $"{root}/{cleaned}";
+    }
 
     /// <summary>
     /// Reads a stored connection into an editable form. A config that cannot be parsed yields an
@@ -281,4 +340,5 @@ public sealed record ConnectionForm
 
     private static bool Blank(string? s) => string.IsNullOrWhiteSpace(s);
 }
+
 

@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Web.Components.Settings;
 using FluentAssertions;
 using Xunit;
@@ -376,6 +377,123 @@ public class ConnectionFormTests
         new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
     }
 
+    // ── Connect this computer ──────────────────────────────────────────────
+
+    private static SftpHostSetupResult Reported(
+        string user = "Diviel",
+        string home = "/C:/Users/Diviel",
+        string fingerprint = "SHA256:hostkey") => new(user, home, fingerprint);
+
+    private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
+
+    [Fact]
+    public void ForLocalMachine_UsesEveryValueTheHostReported()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", GeneratedKey);
+
+        form.Provider.Should().Be(ConnectionProvider.Sftp);
+        form.Username.Should().Be("Diviel");
+        form.Host.Should().Be("host.docker.internal");
+        form.Port.Should().Be("22");
+        form.HostKeyFingerprint.Should().Be("SHA256:hostkey");
+        form.PrivateKey.Should().Be(GeneratedKey);
+        form.Name.Should().Be("Diviel@host.docker.internal");
+    }
+
+    /// <summary>
+    /// The Windows shape, and the reason the home path is reported rather than typed. A leading
+    /// slash before the drive letter is what OpenSSH presents, and getting it wrong is an
+    /// afternoon.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_WindowsHomePath_IsJoinedWithForwardSlashes()
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", "Documents", GeneratedKey)
+            .AllowedRoot.Should().Be("/C:/Users/Diviel/Documents");
+    }
+
+    /// <summary>
+    /// The root is the chosen folder, not the home directory. A source cannot escape its
+    /// connection's root, so this is the difference between exposing one folder and exposing
+    /// everything the account can read.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_NarrowsTheRootToTheChosenFolder()
+    {
+        var form = ConnectionForm.ForLocalMachine(Reported(), "h", "Documents/work", GeneratedKey);
+
+        form.AllowedRoot.Should().Be("/C:/Users/Diviel/Documents/work");
+        form.AllowedRoot.Should().NotBe("/C:/Users/Diviel");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("/")]
+    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? subPath)
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", subPath, GeneratedKey)
+            .AllowedRoot.Should().Be("/C:/Users/Diviel");
+    }
+
+    /// <summary>
+    /// An operator on Windows will type a Windows path, because that is what they see in
+    /// Explorer. SFTP does not take one.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_BackslashesInTheChosenFolder_AreConverted()
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", @"Documents\work", GeneratedKey)
+            .AllowedRoot.Should().Be("/C:/Users/Diviel/Documents/work");
+    }
+
+    [Theory]
+    [InlineData("/home/diviel", "docs", "/home/diviel/docs")]
+    [InlineData("/home/diviel/", "docs", "/home/diviel/docs")]
+    [InlineData("/home/diviel", "/docs/", "/home/diviel/docs")]
+    [InlineData("/C:/Users/me", null, "/C:/Users/me")]
+    public void CombineRemote_JoinsWithoutDoublingOrDroppingSeparators(
+        string home, string? subPath, string expected)
+    {
+        ConnectionForm.CombineRemote(home, subPath).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The whole flow exists to avoid typing, so what it produces must be savable as-is.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_ProducesAConnectionThatValidatesAndStoresItsKey()
+    {
+        var pair = SshKeyPairGenerator.Generate();
+
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", pair.PrivateKeyPem);
+
+        form.Validate(isNew: true).Should().BeNull();
+        form.ToSecretJson().Should().NotBeNull();
+
+        var config = JsonNode.Parse(form.ToConfigJson())!;
+        config["host"]!.GetValue<string>().Should().Be("host.docker.internal");
+        config["port"]!.GetValue<int>().Should().Be(22);
+        config["hostKeyFingerprint"]!.GetValue<string>().Should().Be("SHA256:hostkey");
+    }
+
+    /// <summary>
+    /// Carrying the fingerprint into the stored config is what makes the first connection
+    /// verified rather than trusted — the entire reason the operator pastes anything back.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_PinsTheFingerprintBeforeTheFirstConnection()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(fingerprint: "SHA256:fromTheHost"), "h", null, GeneratedKey);
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()
+            .Should().Be("SHA256:fromTheHost");
+    }
+
     [Theory]
     [InlineData(nameof(ConnectionForm.Host))]
     [InlineData(nameof(ConnectionForm.Username))]
@@ -423,3 +541,4 @@ public class ConnectionFormTests
             .Should().Be("The port must be between 1 and 65535.");
     }
 }
+
