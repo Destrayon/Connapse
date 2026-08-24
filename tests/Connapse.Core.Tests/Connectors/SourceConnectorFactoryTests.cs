@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
@@ -54,7 +54,6 @@ public class SourceConnectorFactoryTests
         monitor.CurrentValue.Returns(settings);
 
         return new ConnectorFactory(
-            Substitute.For<IManagedStorageProvider>(),
             monitor,
             logger ?? NullLogger<ConnectorFactory>.Instance);
     }
@@ -349,3 +348,4 @@ public class SourceConnectorFactoryTests
         name.Should().StartWith("connapse-");
     }
 }
+

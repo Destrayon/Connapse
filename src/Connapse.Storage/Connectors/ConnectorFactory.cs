@@ -11,7 +11,6 @@ namespace Connapse.Storage.Connectors;
 /// Creates IConnector instances from ContainerEntity configuration.
 /// </summary>
 public class ConnectorFactory(
-    IManagedStorageProvider managedStorageProvider,
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
     ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
