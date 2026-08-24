@@ -106,6 +106,35 @@ public sealed class SftpServerFixture : IAsyncLifetime
         ExecAsync($"chown root '{Home}{sftpPath}' && chmod 700 '{Home}{sftpPath}'");
 
     /// <summary>
+    /// Appends a public key to the account's <c>authorized_keys</c>, the way the generated
+    /// setup command does on a real host. Lets a test prove a Connapse-generated key pair
+    /// actually authenticates.
+    /// </summary>
+    public Task AuthorizeKeyAsync(string publicKeyLine) =>
+        ExecAsync(
+            $"mkdir -p '{Home}/.ssh' && "
+            + $"printf '%s\\n' '{publicKeyLine}' >> '{Home}/.ssh/authorized_keys' && "
+            + $"chown -R {Username} '{Home}/.ssh' && "
+            + $"chmod 700 '{Home}/.ssh' && chmod 600 '{Home}/.ssh/authorized_keys'");
+
+    /// <summary>
+    /// Reads the server's host key fingerprint the way the generated setup command does —
+    /// with <c>ssh-keygen -l</c>, on the machine itself, never over the network.
+    /// </summary>
+    /// <remarks>
+    /// This is the out-of-band channel that makes verified-first-use possible, so a test using
+    /// it is testing the real mechanism rather than a stand-in.
+    /// </remarks>
+    public async Task<string> ReadHostKeyFingerprintAsync()
+    {
+        string output = await ExecAsync(
+            "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null "
+            + "|| ssh-keygen -lf /etc/ssh/ssh_host_rsa_key.pub");
+
+        return output.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1].Trim();
+    }
+
+    /// <summary>
     /// Replaces the server's host keys and restarts sshd, so the next connection presents a
     /// different key. This is what a rekey looks like to a client, and what an interposition
     /// looks like too — the connector cannot tell them apart, which is the point of pinning.

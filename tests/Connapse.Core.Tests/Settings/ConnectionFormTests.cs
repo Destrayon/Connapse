@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Web.Components.Settings;
 using FluentAssertions;
 using Xunit;
@@ -376,6 +377,132 @@ public class ConnectionFormTests
         new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
     }
 
+    // ── Connect this computer ──────────────────────────────────────────────
+
+    private static SftpHostSetupResult Reported(
+        string user = "Diviel",
+        string home = "/C:/Users/Diviel",
+        string fingerprint = "SHA256:hostkey") => new(user, home, fingerprint);
+
+    private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
+
+    [Fact]
+    public void ForLocalMachine_UsesEveryValueTheHostReported()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", GeneratedKey);
+
+        form.Provider.Should().Be(ConnectionProvider.Sftp);
+        form.Username.Should().Be("Diviel");
+        form.Host.Should().Be("host.docker.internal");
+        form.Port.Should().Be("22");
+        form.HostKeyFingerprint.Should().Be("SHA256:hostkey");
+        form.PrivateKey.Should().Be(GeneratedKey);
+        form.Name.Should().Be("Diviel@host.docker.internal");
+    }
+
+    /// <summary>
+    /// The restriction that was there by accident. Windows OpenSSH applies no chroot, so a
+    /// second drive is perfectly reachable — and confining the flow to the profile would rule
+    /// out where most people actually keep things.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_RootOnAnotherDrive_IsAllowed()
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", "/D:/CodeProjects", GeneratedKey)
+            .AllowedRoot.Should().Be("/D:/CodeProjects");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? root)
+    {
+        ConnectionForm.ForLocalMachine(Reported(), "h", root, GeneratedKey)
+            .AllowedRoot.Should().Be("/C:/Users/Diviel");
+    }
+
+    /// <summary>
+    /// An operator will paste what Explorer shows them, because that is what is on the
+    /// clipboard. SFTP takes neither the backslashes nor the bare drive letter.
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\CodeProjects", "/D:/CodeProjects")]
+    [InlineData("D:/CodeProjects", "/D:/CodeProjects")]
+    [InlineData(@"C:\Users\Diviel\Documents", "/C:/Users/Diviel/Documents")]
+    public void NormaliseRemoteRoot_ConvertsAWindowsPathFromExplorer(string entered, string expected)
+    {
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("/D:/Projects/", "/D:/Projects")]
+    [InlineData("/home/me/docs", "/home/me/docs")]
+    [InlineData("home/me", "/home/me")]
+    [InlineData("/", "/")]
+    public void NormaliseRemoteRoot_ProducesAnAbsoluteUnDoubledPath(string entered, string expected)
+    {
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
+    }
+
+    /// <summary>
+    /// A drive root trims to "/D:" and must stay that, not collapse to the filesystem root —
+    /// which would silently widen the connection from one drive to the whole machine.
+    /// </summary>
+    [Fact]
+    public void NormaliseRemoteRoot_DriveRoot_StaysTheDrive()
+    {
+        ConnectionForm.NormaliseRemoteRoot("/D:/", "/fallback").Should().Be("/D:");
+    }
+
+    [Theory]
+    [InlineData("/", true)]
+    [InlineData("/D:", true)]
+    [InlineData("/D:/", true)]
+    [InlineData("/C:/Users/Diviel", false)]
+    [InlineData("/D:/CodeProjects", false)]
+    [InlineData("/home/me", false)]
+    [InlineData(null, false)]
+    public void IsBroadRemoteRoot_FlagsWholeDrivesAndTheFilesystemRoot(string? root, bool expected)
+    {
+        ConnectionForm.IsBroadRemoteRoot(root).Should().Be(expected);
+    }
+
+    /// <summary>
+    /// The whole flow exists to avoid typing, so what it produces must be savable as-is.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_ProducesAConnectionThatValidatesAndStoresItsKey()
+    {
+        var pair = SshKeyPairGenerator.Generate();
+
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(), "host.docker.internal", "Documents", pair.PrivateKeyPem);
+
+        form.Validate(isNew: true).Should().BeNull();
+        form.ToSecretJson().Should().NotBeNull();
+
+        var config = JsonNode.Parse(form.ToConfigJson())!;
+        config["host"]!.GetValue<string>().Should().Be("host.docker.internal");
+        config["port"]!.GetValue<int>().Should().Be(22);
+        config["hostKeyFingerprint"]!.GetValue<string>().Should().Be("SHA256:hostkey");
+    }
+
+    /// <summary>
+    /// Carrying the fingerprint into the stored config is what makes the first connection
+    /// verified rather than trusted — the entire reason the operator pastes anything back.
+    /// </summary>
+    [Fact]
+    public void ForLocalMachine_PinsTheFingerprintBeforeTheFirstConnection()
+    {
+        var form = ConnectionForm.ForLocalMachine(
+            Reported(fingerprint: "SHA256:fromTheHost"), "h", null, GeneratedKey);
+
+        JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()
+            .Should().Be("SHA256:fromTheHost");
+    }
+
     [Theory]
     [InlineData(nameof(ConnectionForm.Host))]
     [InlineData(nameof(ConnectionForm.Username))]
@@ -423,3 +550,5 @@ public class ConnectionFormTests
             .Should().Be("The port must be between 1 and 65535.");
     }
 }
+
+

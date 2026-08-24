@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
 
 namespace Connapse.Web.Components.Settings;
@@ -71,6 +72,92 @@ public sealed record ConnectionForm
     public bool IsCloudProvider =>
         Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob;
 
+
+    /// <summary>
+    /// Builds the connection the "Connect this computer" flow creates, from what the host's
+    /// setup command reported.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the Razor component for the same reason the rest of this class is:
+    /// a dropped or mis-joined field produces a connection that points somewhere other than
+    /// intended, and the component has no test harness in this repository.
+    /// </remarks>
+    /// <param name="allowedRoot">
+    /// Any absolute path on the host, not merely somewhere under the home directory. Windows
+    /// OpenSSH applies no chroot, so a second drive is reachable as <c>/D:/…</c> and confining
+    /// the flow to the profile would rule out where most people actually keep things.
+    /// Blank falls back to the reported home directory.
+    /// </param>
+    public static ConnectionForm ForLocalMachine(
+        SftpHostSetupResult result, string host, string? allowedRoot, string privateKeyPem)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+
+        return new ConnectionForm
+        {
+            Name = $"{result.Username}@{host.Trim()}",
+            Provider = ConnectionProvider.Sftp,
+            Host = host.Trim(),
+            Port = "22",
+            Username = result.Username,
+            AllowedRoot = NormaliseRemoteRoot(allowedRoot, result.HomePath),
+            HostKeyFingerprint = result.Fingerprint,
+            PrivateKey = privateKeyPem,
+        };
+    }
+
+    /// <summary>
+    /// Cleans an operator-entered remote path into the form SFTP expects, falling back to
+    /// <paramref name="fallback"/> when nothing was entered.
+    /// </summary>
+    /// <remarks>
+    /// Never uses <see cref="System.IO.Path"/>: that applies the rules of whichever machine
+    /// Connapse runs on, which is a Linux container, to a path describing somebody else's
+    /// Windows box. SFTP paths are always '/'-separated, and Windows OpenSSH presents drives
+    /// as <c>/C:/Users/me</c> — a leading slash before the drive letter.
+    /// <para>
+    /// A Windows path pasted from Explorer is accepted and converted, because that is what an
+    /// operator will have on their clipboard.
+    /// </para>
+    /// </remarks>
+    public static string NormaliseRemoteRoot(string? entered, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(entered))
+            return fallback.TrimEnd('/');
+
+        string path = entered.Trim().Replace('\\', '/');
+
+        // "D:/Projects" pasted from Explorer needs the leading slash SFTP presents.
+        if (path.Length >= 2 && char.IsLetter(path[0]) && path[1] == ':')
+            path = "/" + path;
+
+        if (!path.StartsWith('/'))
+            path = "/" + path;
+
+        // A drive root trims to "/D:" rather than "", which is still the drive and not the
+        // filesystem root — so only trim when something remains beneath it.
+        string trimmed = path.TrimEnd('/');
+
+        return trimmed.Length == 0 ? "/" : trimmed;
+    }
+
+    /// <summary>
+    /// True when a root is broad enough to be worth a second look — a drive root, or the
+    /// filesystem root. Permitted, since an administrator may genuinely mean it, but the UI
+    /// should say what it implies.
+    /// </summary>
+    public static bool IsBroadRemoteRoot(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return false;
+
+        string trimmed = root.Trim().TrimEnd('/');
+
+        // "/" and "/D:" — nothing beneath the drive or the filesystem root.
+        return trimmed.Length == 0
+            || (trimmed.Length == 3 && trimmed[0] == '/' && char.IsLetter(trimmed[1]) && trimmed[2] == ':');
+    }
 
     /// <summary>
     /// Reads a stored connection into an editable form. A config that cannot be parsed yields an
@@ -281,4 +368,5 @@ public sealed record ConnectionForm
 
     private static bool Blank(string? s) => string.IsNullOrWhiteSpace(s);
 }
+
 

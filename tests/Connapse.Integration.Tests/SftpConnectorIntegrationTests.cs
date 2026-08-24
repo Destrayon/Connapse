@@ -1,6 +1,9 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
+using System.Text;
 using Connapse.Storage.Connectors;
+using Renci.SshNet;
 using FluentAssertions;
 using Xunit;
 
@@ -306,6 +309,160 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
             .WithMessage("*partial listing*");
     }
 
+    // ── Generated key pairs ────────────────────────────────────────────────
+
+    /// <summary>
+    /// The test that makes <see cref="SshKeyPairGenerator"/> trustworthy.
+    /// </summary>
+    /// <remarks>
+    /// A wrong <c>authorized_keys</c> encoding produces a line that looks entirely correct
+    /// and simply fails to authenticate, with nothing anywhere pointing at the cause. Unit
+    /// tests can check the blob's structure but cannot tell you whether a real OpenSSH server
+    /// accepts it. This installs a generated public key the way the setup command will, and
+    /// connects with the matching private half.
+    /// </remarks>
+    [Fact]
+    public async Task GeneratedKeyPair_AuthenticatesAgainstARealServer()
+    {
+        var pair = SshKeyPairGenerator.Generate("connapse-generated");
+        await _server.AuthorizeKeyAsync(pair.PublicKeyLine);
+
+        using var connector = new SftpConnector(new SftpConnectorConfig
+        {
+            Host = _server.Host,
+            Port = _server.Port,
+            Username = SftpServerFixture.Username,
+            AllowedRoot = AllowedRoot,
+            Credential = new SftpCredential { PrivateKey = pair.PrivateKeyPem },
+        });
+
+        (await connector.ListFilesAsync()).Should().NotBeEmpty(
+            "a generated pair must authenticate, or the setup flow hands operators a key that "
+            + "silently does not work");
+    }
+
+    /// <summary>
+    /// The restrictions the setup command installs must not break the thing they protect.
+    /// </summary>
+    /// <remarks>
+    /// <c>restrict</c> plus a forced <c>internal-sftp</c> command is what stops the stored key
+    /// being usable for an interactive shell or port forwarding. It is also exactly the kind of
+    /// hardening that silently locks out the legitimate user — so this installs the key the way
+    /// the generated script does, prefix and all, and proves SFTP still works through it.
+    /// <para>
+    /// This covers the failure that would actually be ours: an option OpenSSH does not accept
+    /// makes the whole entry invalid and nothing authenticates. That it also <i>enforces</i> the
+    /// restriction is OpenSSH's contract, and is not asserted here — a test for it was written
+    /// and removed, because <c>atmoz/sftp</c> gives the account no shell to begin with, so it
+    /// passed identically with the restrictions stripped out and proved nothing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task RestrictedKeyEntry_StillAuthenticatesAndLists()
+    {
+        var pair = SshKeyPairGenerator.Generate("connapse-restricted");
+        await _server.AuthorizeKeyAsync(SftpHostSetup.KeyRestrictions + pair.PublicKeyLine);
+
+        using var connector = new SftpConnector(new SftpConnectorConfig
+        {
+            Host = _server.Host,
+            Port = _server.Port,
+            Username = SftpServerFixture.Username,
+            AllowedRoot = AllowedRoot,
+            Credential = new SftpCredential { PrivateKey = pair.PrivateKeyPem },
+        });
+
+        (await connector.ListFilesAsync()).Should().NotBeEmpty(
+            "the hardening must not lock out the access it exists to bound");
+    }
+
+    /// <summary>
+    /// The negative half. Without it the test above could pass because the server accepts
+    /// anything — the fixture's own key is already authorized, so a generated key that was
+    /// never really used would look identical.
+    /// </summary>
+    [Fact]
+    public async Task GeneratedKeyPair_NotInstalledOnTheServer_IsRefused()
+    {
+        var pair = SshKeyPairGenerator.Generate("never-installed");
+
+        using var connector = new SftpConnector(new SftpConnectorConfig
+        {
+            Host = _server.Host,
+            Port = _server.Port,
+            Username = SftpServerFixture.Username,
+            AllowedRoot = AllowedRoot,
+            Credential = new SftpCredential { PrivateKey = pair.PrivateKeyPem },
+        });
+
+        Func<Task> act = () => connector.ListFilesAsync();
+
+        await act.Should().ThrowAsync<Exception>();
+    }
+
+    // ── Verified first use ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// The check that keeps the setup wizard honest, and the one most likely to break without
+    /// anyone noticing.
+    /// </summary>
+    /// <remarks>
+    /// The generated setup command reads the fingerprint with <c>ssh-keygen -l</c> on the host
+    /// and the operator pastes it into Connapse. If that format ever disagreed with what
+    /// <see cref="SshHostKeyPolicy"/> stores, every wizard-configured connection would refuse
+    /// to connect — or worse, silently fall back to trusting whatever answered. Nothing else
+    /// compares the two sides.
+    /// </remarks>
+    [Fact]
+    public async Task FingerprintReadOnTheHost_MatchesWhatTheConnectorWouldRecord()
+    {
+        string fromTheHost = await _server.ReadHostKeyFingerprintAsync();
+        string fromTheConnector = await ObserveFingerprintAsync();
+
+        fromTheHost.Should().Be(fromTheConnector,
+            "the setup command and the connector must agree on the fingerprint format");
+    }
+
+    /// <summary>
+    /// The point of the round trip: with the fingerprint supplied out of band, the very first
+    /// connection is authenticated rather than trusted.
+    /// </summary>
+    [Fact]
+    public async Task PinSuppliedBeforeTheFirstConnect_IsHonouredOnThatConnect()
+    {
+        string fingerprint = await _server.ReadHostKeyFingerprintAsync();
+        var store = new RecordingHostKeyStore();
+
+        using var connector = Connect(
+            pinned: fingerprint, hostKeyStore: store, connectionId: Guid.NewGuid());
+
+        (await connector.ListFilesAsync()).Should().NotBeEmpty();
+
+        store.Recorded.Should().BeEmpty(
+            "nothing is trusted on first use when the pin was already known");
+    }
+
+    /// <summary>
+    /// The half that makes the above worth anything. A wrong fingerprint must stop the
+    /// <em>first</em> connection — if it only took effect from the second, the wizard would be
+    /// decoration.
+    /// </summary>
+    [Fact]
+    public async Task WrongPinSuppliedBeforeTheFirstConnect_RefusesThatConnect()
+    {
+        var store = new RecordingHostKeyStore();
+
+        using var connector = Connect(
+            pinned: "SHA256:aFingerprintFromSomewhereElse",
+            hostKeyStore: store,
+            connectionId: Guid.NewGuid());
+
+        Func<Task> act = () => connector.ListFilesAsync();
+
+        await act.Should().ThrowAsync<SftpHostKeyMismatchException>();
+        store.Recorded.Should().BeEmpty("a refused server must not have its key recorded");
+    }
+
     // ── Host key pinning ───────────────────────────────────────────────────
 
     /// <summary>Records what was pinned, so a test can assert on it.</summary>
@@ -412,4 +569,7 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
         return store.Recorded.Single().Fingerprint;
     }
 }
+
+
+
 
