@@ -41,6 +41,14 @@ public class ConnectorFactory(
         using var scope = JsonDocument.Parse(
             string.IsNullOrWhiteSpace(source.ScopeJson) ? "{}" : source.ScopeJson);
 
+        // Refused here rather than left to the first reader that touches it. A non-object
+        // configuration — "[]", a bare string — does reach an exception today, but only because
+        // JsonElement.TryGetProperty happens to throw on a non-object, which is an accident of
+        // which field is read first and says nothing useful to an operator. Making it explicit
+        // means the guard cannot be lost by reordering an object initialiser.
+        RequireJsonObject(credential, $"Connection '{connection.Name}' has configuration that");
+        RequireJsonObject(scope, $"Source '{source.Name}' has a scope that");
+
         return connection.Provider switch
         {
             ConnectionProvider.S3 => new S3Connector(new S3ConnectorConfig
@@ -48,7 +56,7 @@ public class ConnectorFactory(
                 Region = Str(credential, "region") ?? "us-east-1",
                 RoleArn = Str(credential, "roleArn"),
                 BucketName = RequirePermittedLocation(
-                    Arr(credential, "allowedLocations"),
+                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
                     Str(scope, "bucketName")
                         ?? throw new InvalidOperationException(
                             $"Source '{source.Name}' has no bucketName in its scope."),
@@ -64,7 +72,7 @@ public class ConnectorFactory(
                         $"Connection '{connection.Name}' has no storageAccountName."),
                 ManagedIdentityClientId = Str(credential, "managedIdentityClientId"),
                 ContainerName = RequirePermittedLocation(
-                    Arr(credential, "allowedLocations"),
+                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
                     Str(scope, "containerName")
                         ?? throw new InvalidOperationException(
                             $"Source '{source.Name}' has no containerName in its scope."),
@@ -91,11 +99,28 @@ public class ConnectorFactory(
         };
     }
 
+    private static void RequireJsonObject(JsonDocument doc, string subject)
+    {
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException(
+                $"{subject} is not a JSON object, so nothing in it can be read.");
+    }
+
     private static string? Str(JsonDocument doc, string name) =>
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
             : null;
 
+    /// <summary>
+    /// Reads a plain string array, dropping anything that is not a string.
+    /// </summary>
+    /// <remarks>
+    /// Only for include and exclude patterns, where the loose rule is right: a pattern is a
+    /// filter, and a malformed one that is ignored simply does not filter. Deliberately not
+    /// used for the allowlist — see <see cref="StorageLocationPolicy.ReadAllowedLocations"/>,
+    /// where dropping a malformed entry collapses a declared control into an absent one and
+    /// fails open.
+    /// </remarks>
     private static IReadOnlyList<string> Arr(JsonDocument doc, string name) =>
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray()
@@ -124,7 +149,7 @@ public class ConnectorFactory(
     /// </para>
     /// </summary>
     private string RequirePermittedLocation(
-        IReadOnlyList<string> allowedLocations, string container, string? prefix,
+        IReadOnlyList<string>? allowedLocations, string container, string? prefix,
         string connectionName, string sourceName)
     {
         switch (StorageLocationPolicy.Evaluate(allowedLocations, container, prefix))

@@ -562,9 +562,9 @@
                 string.IsNullOrWhiteSpace(form.Description) ? null : form.Description.Trim(),
                 form.SyncIntervalSeconds));
 
-            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
-                new { created.Name, created.ConnectionId });
-
+            // The source exists from here on, so the outcome is settled before anything else
+            // is attempted. Reporting success first is what stops a later failure describing a
+            // created source as a failed one.
             form = null;
             Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync now.");
 
@@ -573,6 +573,20 @@
                 // Survives the modal closing: the operator should still see it.
                 message += " " + preflight.Warning;
             }
+
+            // Ordered after the outcome, not wrapped in a handler. AuditLogger.LogAsync catches
+            // its own failures and logs them, so it cannot throw and a catch here would be dead
+            // code claiming to handle something that never happens.
+            //
+            // The ordering still earns its place: it does not depend on that contract. If the
+            // audit logger were ever made to propagate, a created source would still be reported
+            // as created rather than as a failure.
+            //
+            // An audit write that fails is invisible to the operator. That is a real gap and
+            // #397 covers it — it needs IAuditLogger to report failure, which is every call
+            // site, not this one.
+            await AuditLogger.LogAsync("source.created", "source", created.Id.ToString(),
+                new { created.Name, created.ConnectionId });
 
             await LoadAsync();
         }

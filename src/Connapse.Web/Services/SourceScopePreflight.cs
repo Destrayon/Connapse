@@ -67,7 +67,7 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         if (string.IsNullOrWhiteSpace(container))
             return ScopePreflightResult.Refuse($"A {noun} name is required.");
 
-        var allowed = StringArray(credential, "allowedLocations");
+        var allowed = StorageLocationPolicy.ReadAllowedLocations(credential);
         string? prefix = Str(scope, "prefix");
 
         return StorageLocationPolicy.Evaluate(allowed, container, prefix) switch
@@ -140,33 +140,10 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
             ? s
             : null;
 
-    /// <summary>
-    /// Reads a JSON string array, mirroring <c>ConnectorFactory</c>'s reader exactly.
-    /// <para>
-    /// <strong>Blank entries are kept.</strong> <see cref="StorageLocationPolicy"/> draws a
-    /// deliberate line between "declared nothing" (fail open, for one release) and "declared
-    /// only blanks" (a malformed allowlist, refused). Filtering blanks here collapses the
-    /// second into the first and turns a typo into an open door — which is the exact hole the
-    /// policy's own comment warns about.
-    /// </para>
-    /// <para>
-    /// Non-string elements are skipped rather than throwing: a stored array holding a number is
-    /// a bad config, not a reason to break the form.
-    /// </para>
-    /// </summary>
-    private static List<string> StringArray(JsonObject? node, string name)
-    {
-        var values = new List<string>();
-        if (node?[name] is not JsonArray array) return values;
-
-        foreach (var element in array)
-        {
-            if (element is JsonValue value && value.TryGetValue<string>(out var text))
-                values.Add(text);
-        }
-
-        return values;
-    }
+    // The allowlist reader used to live here, mirroring ConnectorFactory's by hand. It is now
+    // StorageLocationPolicy.ReadAllowedLocations, which both call — because the two copies did
+    // drift, and drifted the wrong way round: the form refused a malformed allowlist while the
+    // sync-time enforcement point quietly permitted it.
 }
 
 /// <summary>
