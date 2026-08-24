@@ -84,11 +84,15 @@ public class FilesystemConnector : IConnector
         // It is also the whole of "the filesystem connector does not work in Docker": the
         // container cannot see the host's disk, so the listing was empty, the sync reported
         // success, and nothing said why. Hence the message naming the container case.
+        // Sanitized because this message does not stay here: it is stored on the source as
+        // last_sync_error, rendered in the UI, and logged with the exception. rootDir is built
+        // from an operator-supplied allowedRoot and subPath, so control characters in it could
+        // forge log lines (cs/log-forging).
         if (!Directory.Exists(rootDir))
             throw new DirectoryNotFoundException(
-                $"The directory '{rootDir}' does not exist, so this source cannot be listed. "
-                + "If Connapse runs in a container, paths are resolved inside it — a host "
-                + "directory has to be mounted into the container before a filesystem "
+                $"The directory '{LogSanitizer.Sanitize(rootDir)}' does not exist, so this source "
+                + "cannot be listed. If Connapse runs in a container, paths are resolved inside "
+                + "it — a host directory has to be mounted into the container before a filesystem "
                 + "connection can name it.");
 
         var files = new List<ConnectorFile>();
@@ -142,9 +146,10 @@ public class FilesystemConnector : IConnector
             // collected files. Those are discarded with it: a partial listing is the failure,
             // not a salvageable result.
             throw new IOException(
-                $"Could not finish listing '{rootDir}'. Refusing to return a partial listing, "
-                + "because a short listing is indistinguishable from a mass deletion. Check that "
-                + "the account Connapse runs as can read everything beneath this directory.", ex);
+                $"Could not finish listing '{LogSanitizer.Sanitize(rootDir)}'. Refusing to return "
+                + "a partial listing, because a short listing is indistinguishable from a mass "
+                + "deletion. Check that the account Connapse runs as can read everything beneath "
+                + "this directory.", ex);
         }
 
         return Task.FromResult<IReadOnlyList<ConnectorFile>>(files);
