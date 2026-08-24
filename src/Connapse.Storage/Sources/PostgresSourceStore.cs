@@ -57,7 +57,9 @@ public class PostgresSourceStore(
 
         logger.LogInformation("Created source {SourceId} ({Name})", entity.Id, Sanitize(entity.Name));
 
-        return MapToModel(entity, 0);
+        // A source that was created a line ago owns no documents, so both counts are genuinely
+        // zero rather than merely unknown.
+        return MapToModel(entity, documentCount: 0, failedDocumentCount: 0);
     }
 
     public async Task<Source?> GetAsync(Guid id, CancellationToken ct = default)
@@ -165,7 +167,10 @@ public class PostgresSourceStore(
         await context.SaveChangesAsync(ct);
 
         int documentCount = await context.Documents.CountAsync(d => d.SourceId == id, ct);
-        return MapToModel(entity, documentCount);
+        int failedDocumentCount = await context.Documents
+            .CountAsync(d => d.SourceId == id && d.Status == "Failed", ct);
+
+        return MapToModel(entity, documentCount, failedDocumentCount);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
@@ -285,7 +290,7 @@ public class PostgresSourceStore(
     }
 
     private static Source MapToModel(
-        SourceEntity entity, int documentCount, int failedDocumentCount = 0) => new(
+        SourceEntity entity, int documentCount, int failedDocumentCount) => new(
         Id: entity.Id,
         Name: entity.Name,
         Description: entity.Description,
@@ -308,4 +313,5 @@ public class PostgresSourceStore(
         DocumentCount: documentCount,
         FailedDocumentCount: failedDocumentCount);
 }
+
 
