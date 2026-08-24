@@ -363,6 +363,69 @@ public class SftpConnectorIntegrationTests : IAsyncLifetime
         await act.Should().ThrowAsync<Exception>();
     }
 
+    // ── Verified first use ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// The check that keeps the setup wizard honest, and the one most likely to break without
+    /// anyone noticing.
+    /// </summary>
+    /// <remarks>
+    /// The generated setup command reads the fingerprint with <c>ssh-keygen -l</c> on the host
+    /// and the operator pastes it into Connapse. If that format ever disagreed with what
+    /// <see cref="SshHostKeyPolicy"/> stores, every wizard-configured connection would refuse
+    /// to connect — or worse, silently fall back to trusting whatever answered. Nothing else
+    /// compares the two sides.
+    /// </remarks>
+    [Fact]
+    public async Task FingerprintReadOnTheHost_MatchesWhatTheConnectorWouldRecord()
+    {
+        string fromTheHost = await _server.ReadHostKeyFingerprintAsync();
+        string fromTheConnector = await ObserveFingerprintAsync();
+
+        fromTheHost.Should().Be(fromTheConnector,
+            "the setup command and the connector must agree on the fingerprint format");
+    }
+
+    /// <summary>
+    /// The point of the round trip: with the fingerprint supplied out of band, the very first
+    /// connection is authenticated rather than trusted.
+    /// </summary>
+    [Fact]
+    public async Task PinSuppliedBeforeTheFirstConnect_IsHonouredOnThatConnect()
+    {
+        string fingerprint = await _server.ReadHostKeyFingerprintAsync();
+        var store = new RecordingHostKeyStore();
+
+        using var connector = Connect(
+            pinned: fingerprint, hostKeyStore: store, connectionId: Guid.NewGuid());
+
+        (await connector.ListFilesAsync()).Should().NotBeEmpty();
+
+        store.Recorded.Should().BeEmpty(
+            "nothing is trusted on first use when the pin was already known");
+    }
+
+    /// <summary>
+    /// The half that makes the above worth anything. A wrong fingerprint must stop the
+    /// <em>first</em> connection — if it only took effect from the second, the wizard would be
+    /// decoration.
+    /// </summary>
+    [Fact]
+    public async Task WrongPinSuppliedBeforeTheFirstConnect_RefusesThatConnect()
+    {
+        var store = new RecordingHostKeyStore();
+
+        using var connector = Connect(
+            pinned: "SHA256:aFingerprintFromSomewhereElse",
+            hostKeyStore: store,
+            connectionId: Guid.NewGuid());
+
+        Func<Task> act = () => connector.ListFilesAsync();
+
+        await act.Should().ThrowAsync<SftpHostKeyMismatchException>();
+        store.Recorded.Should().BeEmpty("a refused server must not have its key recorded");
+    }
+
     // ── Host key pinning ───────────────────────────────────────────────────
 
     /// <summary>Records what was pinned, so a test can assert on it.</summary>
