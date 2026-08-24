@@ -75,8 +75,25 @@ public class FilesystemConnector : IConnector
             ? _config.RootPath
             : GetFullPath(prefix);
 
+        // Throws rather than returning empty (#390). A missing directory used to yield an
+        // empty-but-successful listing, which the reconcile cannot tell apart from every file
+        // having been deleted — the exact input the deletion guard exists to survive, arriving
+        // from our own connector rather than from an unforeseeable remote failure. A source
+        // below the guard's floor would have been wiped outright.
+        //
+        // It is also the whole of "the filesystem connector does not work in Docker": the
+        // container cannot see the host's disk, so the listing was empty, the sync reported
+        // success, and nothing said why. Hence the message naming the container case.
+        // Sanitized because this message does not stay here: it is stored on the source as
+        // last_sync_error, rendered in the UI, and logged with the exception. rootDir is built
+        // from an operator-supplied allowedRoot and subPath, so control characters in it could
+        // forge log lines (cs/log-forging).
         if (!Directory.Exists(rootDir))
-            return Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
+            throw new DirectoryNotFoundException(
+                $"The directory '{LogSanitizer.Sanitize(rootDir)}' does not exist, so this source "
+                + "cannot be listed. If Connapse runs in a container, paths are resolved inside "
+                + "it — a host directory has to be mounted into the container before a filesystem "
+                + "connection can name it.");
 
         var files = new List<ConnectorFile>();
 
@@ -90,30 +107,49 @@ public class FilesystemConnector : IConnector
         {
             RecurseSubdirectories = true,
             AttributesToSkip = FileAttributes.ReparsePoint,
-            IgnoreInaccessible = true,
+
+            // False, so a subtree the service account cannot read fails the sync instead of
+            // quietly shortening the listing (#390). The permissive setting is the tempting
+            // one — it keeps a sync "working" — but what it actually produces is a listing
+            // that is wrong in the one direction the reconcile reads as deletion.
+            IgnoreInaccessible = false,
         };
 
         string confinementRoot = _config.RootPath;
 
-        foreach (var filePath in Directory.EnumerateFiles(rootDir, "*", options))
+        try
         {
-            if (PathConfinement.ResolveWithin(confinementRoot, filePath) is null)
-                continue;
+            foreach (var filePath in Directory.EnumerateFiles(rootDir, "*", options))
+            {
+                if (PathConfinement.ResolveWithin(confinementRoot, filePath) is null)
+                    continue;
 
-            var fileName = Path.GetFileName(filePath);
+                var fileName = Path.GetFileName(filePath);
 
-            if (_config.IncludePatterns.Count > 0 && !_config.IncludePatterns.Any(p => MatchesGlob(fileName, p)))
-                continue;
+                if (_config.IncludePatterns.Count > 0 && !_config.IncludePatterns.Any(p => MatchesGlob(fileName, p)))
+                    continue;
 
-            if (_config.ExcludePatterns.Any(p => MatchesGlob(fileName, p)))
-                continue;
+                if (_config.ExcludePatterns.Any(p => MatchesGlob(fileName, p)))
+                    continue;
 
-            var info = new FileInfo(filePath);
-            files.Add(new ConnectorFile(
-                Path: filePath,
-                SizeBytes: info.Length,
-                LastModified: info.LastWriteTimeUtc,
-                ContentType: null));
+                var info = new FileInfo(filePath);
+                files.Add(new ConnectorFile(
+                    Path: filePath,
+                    SizeBytes: info.Length,
+                    LastModified: info.LastWriteTimeUtc,
+                    ContentType: null));
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // Enumeration is lazy, so this surfaces partway through a walk that has already
+            // collected files. Those are discarded with it: a partial listing is the failure,
+            // not a salvageable result.
+            throw new IOException(
+                $"Could not finish listing '{LogSanitizer.Sanitize(rootDir)}'. Refusing to return "
+                + "a partial listing, because a short listing is indistinguishable from a mass "
+                + "deletion. Check that the account Connapse runs as can read everything beneath "
+                + "this directory.", ex);
         }
 
         return Task.FromResult<IReadOnlyList<ConnectorFile>>(files);
