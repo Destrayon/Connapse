@@ -48,7 +48,7 @@ public class ConnectorFactory(
                 Region = Str(credential, "region") ?? "us-east-1",
                 RoleArn = Str(credential, "roleArn"),
                 BucketName = RequirePermittedLocation(
-                    Arr(credential, "allowedLocations"),
+                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
                     Str(scope, "bucketName")
                         ?? throw new InvalidOperationException(
                             $"Source '{source.Name}' has no bucketName in its scope."),
@@ -64,7 +64,7 @@ public class ConnectorFactory(
                         $"Connection '{connection.Name}' has no storageAccountName."),
                 ManagedIdentityClientId = Str(credential, "managedIdentityClientId"),
                 ContainerName = RequirePermittedLocation(
-                    Arr(credential, "allowedLocations"),
+                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
                     Str(scope, "containerName")
                         ?? throw new InvalidOperationException(
                             $"Source '{source.Name}' has no containerName in its scope."),
@@ -96,6 +96,16 @@ public class ConnectorFactory(
             ? v.GetString()
             : null;
 
+    /// <summary>
+    /// Reads a plain string array, dropping anything that is not a string.
+    /// </summary>
+    /// <remarks>
+    /// Only for include and exclude patterns, where the loose rule is right: a pattern is a
+    /// filter, and a malformed one that is ignored simply does not filter. Deliberately not
+    /// used for the allowlist — see <see cref="StorageLocationPolicy.ReadAllowedLocations"/>,
+    /// where dropping a malformed entry collapses a declared control into an absent one and
+    /// fails open.
+    /// </remarks>
     private static IReadOnlyList<string> Arr(JsonDocument doc, string name) =>
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToArray()
@@ -124,7 +134,7 @@ public class ConnectorFactory(
     /// </para>
     /// </summary>
     private string RequirePermittedLocation(
-        IReadOnlyList<string> allowedLocations, string container, string? prefix,
+        IReadOnlyList<string>? allowedLocations, string container, string? prefix,
         string connectionName, string sourceName)
     {
         switch (StorageLocationPolicy.Evaluate(allowedLocations, container, prefix))

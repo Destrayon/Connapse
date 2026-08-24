@@ -347,5 +347,101 @@ public class SourceConnectorFactoryTests
         name.Length.Should().BeLessThanOrEqualTo(64);
         name.Should().StartWith("connapse-");
     }
-}
+    // ── Malformed allowlists must not fail open ────────────────────────────
 
+    /// <summary>
+    /// The enforcement point, which is what was actually broken. The create-time preflight
+    /// refused these, but the factory's reader filtered non-strings out — so a malformed
+    /// allowlist shrank to an empty one, empty read as "declared nothing", and the grace path
+    /// let the source name any bucket the shared credential could reach.
+    /// </summary>
+    /// <remarks>
+    /// Tested here rather than only in the preflight because POST /api/sources does not run the
+    /// preflight at all. For an API-created source the factory is the only check there is.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":[42]}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":[null]}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":[{"bucket":"b"}]}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":[[ "b" ]]}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":[42,"other-bucket"]}""")]
+    public void Create_S3MalformedAllowedLocations_IsRefused(string config)
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, config);
+        var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>(
+            "a declared-but-broken allowlist must never read as an absent one");
+    }
+
+    /// <summary>
+    /// A value that is present but not an array at all. Previously the reader's array check
+    /// failed and it returned empty — the same collapse by a different route.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":"my-bucket"}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":42}""")]
+    [InlineData("""{"region":"eu-west-1","allowedLocations":{"0":"b"}}""")]
+    public void Create_AllowedLocationsThatIsNotAnArray_IsRefused(string config)
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, config);
+        var source = MakeSource(connection.Id, """{"bucketName":"my-bucket"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    /// <summary>
+    /// An explicitly empty allowlist declares a control that permits nothing, which is not the
+    /// same as declaring none. The connection form omits the property entirely when blank for
+    /// exactly this reason.
+    /// </summary>
+    [Fact]
+    public void Create_ExplicitlyEmptyAllowedLocations_IsRefused()
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1","allowedLocations":[]}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"b"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_AzureMalformedAllowedLocations_IsRefused()
+    {
+        var connection = MakeConnection(ConnectionProvider.AzureBlob,
+            """{"storageAccountName":"acct","allowedLocations":[42]}""");
+        var source = MakeSource(connection.Id, """{"containerName":"anything"}""");
+
+        Action act = () => _factory.Create(source, connection);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    /// <summary>
+    /// The grace path has to survive all of this: #350 backfilled connections that declare no
+    /// allowlist, and refusing those would break every upgrade.
+    /// </summary>
+    [Fact]
+    public void Create_NoAllowedLocationsDeclared_StillTakesTheGracePath()
+    {
+        var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
+
+        _factory.Create(source, connection).Type.Should().Be(ConnectorType.S3);
+    }
+
+    [Fact]
+    public void Create_WellFormedAllowedLocations_StillPermitTheirBucket()
+    {
+        var connection = MakeConnection(ConnectionProvider.S3,
+            """{"region":"eu-west-1","allowedLocations":["mine","other/docs"]}""");
+        var source = MakeSource(connection.Id, """{"bucketName":"mine"}""");
+
+        _factory.Create(source, connection).Type.Should().Be(ConnectorType.S3);
+    }
+}

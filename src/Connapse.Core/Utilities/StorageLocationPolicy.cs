@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 namespace Connapse.Core.Utilities;
 
 /// <summary>
@@ -18,20 +21,77 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 public static class StorageLocationPolicy
 {
+    /// <summary>The property every connection stores its allowlist under.</summary>
+    public const string PropertyName = "allowedLocations";
+
+    /// <summary>
+    /// Reads a connection's allowlist, returning <c>null</c> when the property is <b>absent</b>.
+    /// </summary>
+    /// <remarks>
+    /// The distinction this exists to preserve is between an <i>absent</i> control and a
+    /// <i>broken</i> one. Only the first fails open, and only for one release.
+    /// <para>
+    /// So anything present but unusable — a non-string element, a value that is not an array at
+    /// all — becomes a blank entry rather than being dropped. Dropping it shrinks the list back
+    /// to empty, which is indistinguishable from absent, and a typo becomes an open door.
+    /// </para>
+    /// <para>
+    /// Both the sync-time enforcement point and the create-time preflight call this. They used
+    /// to parse the allowlist separately, with different rules — the enforcement copy silently
+    /// filtered non-strings out, so <c>[42]</c> was refused in the form and permitted at sync,
+    /// which is the wrong way round for the two to disagree.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string>? ReadAllowedLocations(
+        JsonElement credential, string name = PropertyName)
+    {
+        if (credential.ValueKind != JsonValueKind.Object
+            || !credential.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+            return [string.Empty];
+
+        return [.. value.EnumerateArray().Select(e =>
+            e.ValueKind == JsonValueKind.String ? e.GetString() ?? string.Empty : string.Empty)];
+    }
+
+    /// <inheritdoc cref="ReadAllowedLocations(JsonElement, string)"/>
+    public static IReadOnlyList<string>? ReadAllowedLocations(
+        JsonObject? credential, string name = PropertyName)
+    {
+        if (credential is null || !credential.TryGetPropertyValue(name, out var node))
+            return null;
+
+        // An explicit JSON null is present-but-unusable, not absent — the same answer the
+        // JsonElement overload gives, and the safe one. Reading it as absent would fail open,
+        // and the two overloads disagreeing is the drift this shared reader exists to end.
+        if (node is not JsonArray array)
+            return [string.Empty];
+
+        return [.. array.Select(e =>
+            e is JsonValue v && v.TryGetValue<string>(out var s) ? s : string.Empty)];
+    }
+
     /// <summary>
     /// Evaluates a source's <paramref name="container"/> (an S3 bucket or Azure blob container)
     /// and optional <paramref name="prefix"/> against the connection's allowed locations.
     /// </summary>
+    /// <param name="allowedLocations">
+    /// <c>null</c> when the connection declares no allowlist at all — the grace path. An empty
+    /// or all-blank list means one was declared and permits nothing, which is refused.
+    /// </param>
     public static StorageLocationDecision Evaluate(
-        IReadOnlyList<string> allowedLocations, string container, string? prefix)
+        IReadOnlyList<string>? allowedLocations, string container, string? prefix)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(container);
 
-        // Declaring nothing is the grace path. Declaring entries that are all blank is not:
-        // that is a malformed allowlist, and reading it as "no restrictions" would turn a
-        // typo into an open door. The distinction is between an absent control and a broken
-        // one, and only the first should fail open.
-        if (allowedLocations.Count == 0)
+        // Declaring nothing is the grace path. Declaring an allowlist that permits nothing is
+        // not: that is a malformed or empty allowlist, and reading it as "no restrictions"
+        // would turn a typo into an open door. Only an absent control fails open.
+        if (allowedLocations is null)
             return StorageLocationDecision.UnrestrictedByConfiguration;
 
         var entries = allowedLocations
