@@ -16,7 +16,23 @@ public enum HostPlatform { Windows, MacOS, Linux }
 /// The server's host key, read on the machine itself. Arriving out of band is what turns
 /// trust-on-first-use into verified-first-use.
 /// </param>
-public record SftpHostSetupResult(string Username, string HomePath, string Fingerprint);
+/// <param name="Drives">
+/// Filesystem roots the account can reach, as SFTP paths — <c>/C:/</c>, <c>/D:/</c> and so
+/// on. Windows only; empty elsewhere, where everything already hangs off <c>/</c>.
+/// <para>
+/// Reported because the home directory is not where people keep things. A second drive is
+/// completely normal, and a flow that can only reach <c>C:</c> would be answering a question
+/// nobody asked.
+/// </para>
+/// </param>
+public record SftpHostSetupResult(
+    string Username,
+    string HomePath,
+    string Fingerprint,
+    IReadOnlyList<string>? Drives = null)
+{
+    public IReadOnlyList<string> Drives { get; init; } = Drives ?? [];
+}
 
 /// <summary>
 /// Builds the one command an operator runs on their own machine, and reads back what it
@@ -145,10 +161,15 @@ public static class SftpHostSetup
             if ($LASTEXITCODE -eq 0 -and $line) { $fingerprint = ($line -split ' ')[1] }
         } catch { }
 
+        # Every drive the account can reach, because the home folder is not where most people
+        # keep things and a second drive is entirely normal.
+        $drives = (Get-PSDrive -PSProvider FileSystem | ForEach-Object { "/$($_.Name):/" }) -join ','
+
         Write-Host ''
         Write-Host '{{BeginMarker}}'
         Write-Host "user=$env:USERNAME"
         Write-Host "home=/$($env:USERPROFILE -replace '\\','/')"
+        Write-Host "drives=$drives"
         Write-Host "fingerprint=$fingerprint"
         Write-Host '{{EndMarker}}'
         Write-Host ''
@@ -220,6 +241,7 @@ public static class SftpHostSetup
         string body = pasted[(start + BeginMarker.Length)..end];
 
         string? user = null, home = null, fingerprint = null;
+        IReadOnlyList<string> drives = [];
 
         foreach (string raw in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -236,12 +258,18 @@ public static class SftpHostSetup
                 case "user": user = value; break;
                 case "home": home = value; break;
                 case "fingerprint": fingerprint = NormaliseFingerprint(value); break;
+
+                // Optional. Older setup commands did not report it, and a Unix host has
+                // nothing to report — neither is a reason to reject the block.
+                case "drives":
+                    drives = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    break;
             }
         }
 
         return user is null || home is null || fingerprint is null
             ? null
-            : new SftpHostSetupResult(user, home, fingerprint);
+            : new SftpHostSetupResult(user, home, fingerprint, drives);
     }
 
     /// <summary>

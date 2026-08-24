@@ -142,13 +142,40 @@
                     <div class="row g-3">
                         <div class="col-md-8">
                             <label class="form-label">Folder</label>
-                            <div class="input-group">
-                                <span class="input-group-text font-monospace small">@(LocalHome() ?? "…")/</span>
-                                <input class="form-control" @bind="localSubPath" placeholder="Documents" />
-                            </div>
+                            <input class="form-control font-monospace" @bind="localRoot" @bind:event="oninput"
+                                   placeholder="@(LocalHome() ?? "/C:/Users/you")" />
+
+                            @if (LocalResult() is { } r)
+                            {
+                                <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+                                    <span class="small text-muted me-1">Jump to:</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                                            @onclick="() => localRoot = r.HomePath">Home</button>
+                                    @foreach (var drive in r.Drives)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                                                @onclick="() => localRoot = drive">@drive</button>
+                                    }
+                                </div>
+                            }
+
                             <div class="form-text">
-                                Relative to your home folder. Sources you add later are confined beneath it.
+                                Any folder on that machine, not only inside your profile — a second drive
+                                is <code>/D:/Projects</code>. Paths use forward slashes with a leading one
+                                before the drive letter; a path pasted from Explorer is converted for you.
+                                Sources you add later are confined beneath whatever you choose.
                             </div>
+
+                            @if (ConnectionForm.IsBroadRemoteRoot(EffectiveRoot()))
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    That is a whole drive. Every source on this connection could then reach
+                                    anything on it that <strong>@LocalResult()?.Username</strong> can read,
+                                    and Connapse indexes what it reads. Naming a folder costs nothing and
+                                    bounds it.
+                                </div>
+                            }
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Reachable at</label>
@@ -571,7 +598,7 @@
     private SshKeyPair? localKeyPair;
     private string setupScript = "";
     private string? pastedResult;
-    private string localSubPath = "";
+    private string localRoot = "";
     private string localHost = "host.docker.internal";
 
     private static string PlatformLabel(HostPlatform p) => p switch
@@ -590,7 +617,7 @@
         localSetup = true;
         editing = null;
         pastedResult = null;
-        localSubPath = "";
+        localRoot = "";
         localHost = "host.docker.internal";
         statusMessage = null;
         testMessage = null;
@@ -616,11 +643,15 @@
 
     private string? LocalHome() => LocalResult()?.HomePath;
 
+    /// <summary>What the connection would actually be bounded to, blank meaning the home folder.</summary>
+    private string? EffectiveRoot() =>
+        LocalResult() is { } r ? ConnectionForm.NormaliseRemoteRoot(localRoot, r.HomePath) : null;
+
     private bool LocalSetupReady() =>
         LocalResult() is not null && !string.IsNullOrWhiteSpace(localHost);
 
     private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
-        ConnectionForm.ForLocalMachine(result, localHost, localSubPath, localKeyPair!.PrivateKeyPem);
+        ConnectionForm.ForLocalMachine(result, localHost, localRoot, localKeyPair!.PrivateKeyPem);
 
     private async Task TestLocalSetup()
     {
@@ -927,4 +958,5 @@
         statusMessage = message;
     }
 }
+
 

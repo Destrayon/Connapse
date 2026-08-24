@@ -402,62 +402,71 @@ public class ConnectionFormTests
     }
 
     /// <summary>
-    /// The Windows shape, and the reason the home path is reported rather than typed. A leading
-    /// slash before the drive letter is what OpenSSH presents, and getting it wrong is an
-    /// afternoon.
+    /// The restriction that was there by accident. Windows OpenSSH applies no chroot, so a
+    /// second drive is perfectly reachable — and confining the flow to the profile would rule
+    /// out where most people actually keep things.
     /// </summary>
     [Fact]
-    public void ForLocalMachine_WindowsHomePath_IsJoinedWithForwardSlashes()
+    public void ForLocalMachine_RootOnAnotherDrive_IsAllowed()
     {
-        ConnectionForm.ForLocalMachine(Reported(), "h", "Documents", GeneratedKey)
-            .AllowedRoot.Should().Be("/C:/Users/Diviel/Documents");
-    }
-
-    /// <summary>
-    /// The root is the chosen folder, not the home directory. A source cannot escape its
-    /// connection's root, so this is the difference between exposing one folder and exposing
-    /// everything the account can read.
-    /// </summary>
-    [Fact]
-    public void ForLocalMachine_NarrowsTheRootToTheChosenFolder()
-    {
-        var form = ConnectionForm.ForLocalMachine(Reported(), "h", "Documents/work", GeneratedKey);
-
-        form.AllowedRoot.Should().Be("/C:/Users/Diviel/Documents/work");
-        form.AllowedRoot.Should().NotBe("/C:/Users/Diviel");
+        ConnectionForm.ForLocalMachine(Reported(), "h", "/D:/CodeProjects", GeneratedKey)
+            .AllowedRoot.Should().Be("/D:/CodeProjects");
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("/")]
-    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? subPath)
+    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? root)
     {
-        ConnectionForm.ForLocalMachine(Reported(), "h", subPath, GeneratedKey)
+        ConnectionForm.ForLocalMachine(Reported(), "h", root, GeneratedKey)
             .AllowedRoot.Should().Be("/C:/Users/Diviel");
     }
 
     /// <summary>
-    /// An operator on Windows will type a Windows path, because that is what they see in
-    /// Explorer. SFTP does not take one.
+    /// An operator will paste what Explorer shows them, because that is what is on the
+    /// clipboard. SFTP takes neither the backslashes nor the bare drive letter.
     /// </summary>
-    [Fact]
-    public void ForLocalMachine_BackslashesInTheChosenFolder_AreConverted()
+    [Theory]
+    [InlineData(@"D:\CodeProjects", "/D:/CodeProjects")]
+    [InlineData("D:/CodeProjects", "/D:/CodeProjects")]
+    [InlineData(@"C:\Users\Diviel\Documents", "/C:/Users/Diviel/Documents")]
+    public void NormaliseRemoteRoot_ConvertsAWindowsPathFromExplorer(string entered, string expected)
     {
-        ConnectionForm.ForLocalMachine(Reported(), "h", @"Documents\work", GeneratedKey)
-            .AllowedRoot.Should().Be("/C:/Users/Diviel/Documents/work");
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
     }
 
     [Theory]
-    [InlineData("/home/diviel", "docs", "/home/diviel/docs")]
-    [InlineData("/home/diviel/", "docs", "/home/diviel/docs")]
-    [InlineData("/home/diviel", "/docs/", "/home/diviel/docs")]
-    [InlineData("/C:/Users/me", null, "/C:/Users/me")]
-    public void CombineRemote_JoinsWithoutDoublingOrDroppingSeparators(
-        string home, string? subPath, string expected)
+    [InlineData("/D:/Projects/", "/D:/Projects")]
+    [InlineData("/home/me/docs", "/home/me/docs")]
+    [InlineData("home/me", "/home/me")]
+    [InlineData("/", "/")]
+    public void NormaliseRemoteRoot_ProducesAnAbsoluteUnDoubledPath(string entered, string expected)
     {
-        ConnectionForm.CombineRemote(home, subPath).Should().Be(expected);
+        ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
+    }
+
+    /// <summary>
+    /// A drive root trims to "/D:" and must stay that, not collapse to the filesystem root —
+    /// which would silently widen the connection from one drive to the whole machine.
+    /// </summary>
+    [Fact]
+    public void NormaliseRemoteRoot_DriveRoot_StaysTheDrive()
+    {
+        ConnectionForm.NormaliseRemoteRoot("/D:/", "/fallback").Should().Be("/D:");
+    }
+
+    [Theory]
+    [InlineData("/", true)]
+    [InlineData("/D:", true)]
+    [InlineData("/D:/", true)]
+    [InlineData("/C:/Users/Diviel", false)]
+    [InlineData("/D:/CodeProjects", false)]
+    [InlineData("/home/me", false)]
+    [InlineData(null, false)]
+    public void IsBroadRemoteRoot_FlagsWholeDrivesAndTheFilesystemRoot(string? root, bool expected)
+    {
+        ConnectionForm.IsBroadRemoteRoot(root).Should().Be(expected);
     }
 
     /// <summary>
@@ -541,4 +550,5 @@ public class ConnectionFormTests
             .Should().Be("The port must be between 1 and 65535.");
     }
 }
+
 
