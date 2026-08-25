@@ -538,6 +538,13 @@
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
                     the rule that Connapse stores no cloud credentials is about AWS and Azure
                     identities, which are not stored and are not asked for.
+                    @if (!isNew)
+                    {
+                        <text>
+                            <strong>Test connection</strong> uses the stored key when this is blank, so
+                            checking an existing connection does not mean retyping it.
+                        </text>
+                    }
                 </div>
             </div>
 
@@ -1000,6 +1007,30 @@
         }
     }
 
+    /// <summary>
+    /// The key a test should use: the one typed into the form, or the connection's stored one
+    /// when the field was left blank. Returns a problem message instead when neither is available.
+    /// </summary>
+    private async Task<(string? Key, string? Passphrase, string? Problem)> ResolveTestKeyAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(form.PrivateKey))
+            return (form.PrivateKey.Trim(), NullIfBlank(form.Passphrase), null);
+
+        if (editing is null)
+            return (null, null, "Paste the private key to test this connection.");
+
+        string? secret = await ConnectionStore.GetSecretAsync(editing.Id);
+        if (string.IsNullOrWhiteSpace(secret))
+            return (null, null, "This connection has no stored key. Paste one to test.");
+
+        var credential = SftpCredential.TryParse(secret);
+        if (credential is null || string.IsNullOrWhiteSpace(credential.PrivateKey))
+            return (null, null, "The stored key could not be read. Paste a key to replace it.");
+
+        // A passphrase typed now is preferred: the operator may be correcting one that is wrong.
+        return (credential.PrivateKey, NullIfBlank(form.Passphrase) ?? credential.Passphrase, null);
+    }
+
     private async Task Test()
     {
         testing = true;
@@ -1009,15 +1040,18 @@
         {
             if (form.Provider == ConnectionProvider.Sftp)
             {
-                // Tested against the key in the form, not the stored one, so an operator can
-                // check a key before committing to it. Editing an existing connection without
-                // retyping the key therefore cannot be tested — said plainly rather than
-                // silently testing something else.
-                if (string.IsNullOrWhiteSpace(form.PrivateKey))
+                // A key typed into the form wins, so a new one can be checked before it is
+                // committed. Otherwise the stored one is used — the field says "leave blank to
+                // keep the stored key", and a test that then demanded the key back would be
+                // asking for something the operator was told they would never see again.
+                //
+                // The key never reaches the browser either way: this runs on the server, inside
+                // the circuit, and only the outcome is rendered.
+                (string? key, string? passphrase, string? problem) = await ResolveTestKeyAsync();
+                if (problem is not null)
                 {
                     testSuccess = false;
-                    testMessage = "Paste the private key to test. Testing uses the key in this form, "
-                                  + "not the stored one.";
+                    testMessage = problem;
                     return;
                 }
 
@@ -1027,8 +1061,8 @@
                     Port = int.TryParse(form.Port, out int p) ? p : 22,
                     Username = form.Username?.Trim() ?? "",
                     AllowedRoot = form.AllowedRoot?.Trim() ?? "",
-                    PrivateKey = form.PrivateKey.Trim(),
-                    Passphrase = NullIfBlank(form.Passphrase),
+                    PrivateKey = key!,
+                    Passphrase = passphrase,
 
                     // Honoured unless the operator has chosen to forget it, so a test reports a
                     // changed host key the same way a sync would.
@@ -1036,7 +1070,13 @@
                 }, TimeSpan.FromSeconds(15));
 
                 testSuccess = sftpResult.Success;
-                testMessage = sftpResult.Message;
+
+                // Which key was used, always. Two keys can be in play and they can disagree, so
+                // a bare "Connected" would leave the operator unsure what they just proved.
+                string usedKey = string.IsNullOrWhiteSpace(form.PrivateKey)
+                    ? "Using the stored key."
+                    : "Using the key in this form.";
+                testMessage = $"{usedKey} {sftpResult.Message}";
                 return;
             }
 
