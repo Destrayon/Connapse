@@ -102,7 +102,7 @@ public class ConnectionsPageAuthorizationTests
             }
         }
 
-        private static string RepositoryRoot()
+        internal static string RepositoryRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
             while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Connapse.slnx")))
@@ -110,5 +110,54 @@ public class ConnectionsPageAuthorizationTests
 
             return dir?.FullName ?? throw new InvalidOperationException("Repository root not found.");
         }
+    }
+
+    /// <summary>
+    /// A page whose controls do anything needs a render mode of its own.
+    /// </summary>
+    /// <remarks>
+    /// Connections was a component inside Settings and inherited its interactivity. Moved to its
+    /// own page it inherited nothing, rendered statically, and every button went dead — the page
+    /// looked completely normal and simply did not respond. Nothing else caught it: it compiles,
+    /// it renders, it authorizes, and the markup is unchanged. Only using it finds this, which is
+    /// why it is worth a test that covers every page rather than the one that went wrong.
+    /// </remarks>
+    public class InteractivePageRenderModeTests
+    {
+        public static TheoryData<string> PagesWithControls()
+        {
+            var data = new TheoryData<string>();
+            string pages = PagesDirectory();
+
+            foreach (string file in Directory.EnumerateFiles(pages, "*.razor", SearchOption.AllDirectories))
+            {
+                string text = File.ReadAllText(file);
+
+                // Routable, and wires up at least one event. A static page with no handlers is
+                // fine without a render mode, and cheaper to serve.
+                if (text.Contains("@page ", StringComparison.Ordinal) &&
+                    (text.Contains("@onclick", StringComparison.Ordinal) ||
+                     text.Contains("@bind", StringComparison.Ordinal)))
+                {
+                    data.Add(Path.GetRelativePath(pages, file));
+                }
+            }
+
+            return data;
+        }
+
+        [Theory]
+        [MemberData(nameof(PagesWithControls))]
+        public void APageWithControls_DeclaresARenderMode(string relativePath)
+        {
+            string path = Path.Combine(PagesDirectory(), relativePath);
+
+            File.ReadAllText(path).Should().Contain("@rendermode",
+                $"{relativePath} has handlers, and without a render mode they never run");
+        }
+
+        private static string PagesDirectory() => Path.Combine(
+            SourcesPageConnectionLinkTests.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages");
     }
 }
