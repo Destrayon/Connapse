@@ -1186,7 +1186,7 @@ Base path: `/api/sources`
 
 A **source** is an external system Connapse mirrors read-only — an S3 bucket, an Azure Blob container, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
-**Connections have no REST surface.** They hold the credential boundary and are managed in Settings > Connections by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
+**Connections have no REST surface.** They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
 | Method | Route | Role |
 |--------|-------|------|
@@ -1280,7 +1280,7 @@ Reconcile a container's managed storage against the document table. Lists stored
 }
 ```
 
-> **Changed in v0.4.0.** `POST /api/containers/test-connection` was removed — it validated connector config before creating a container, which no longer happens. Connection testing lives in Settings > Connections. This route also no longer talks to any external system: external syncing is `POST /api/sources/{id}/sync`.
+> **Changed in v0.4.0.** `POST /api/containers/test-connection` was removed — it validated connector config before creating a container, which no longer happens. Connection testing lives on the Connections page. This route also no longer talks to any external system: external syncing is `POST /api/sources/{id}/sync`.
 
 ---
 

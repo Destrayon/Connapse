@@ -1,4 +1,6 @@
-﻿@using Connapse.Core
+﻿@page "/connections"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @inject IJSRuntime JS
@@ -18,18 +20,26 @@
 @*
     Connections — the credential and filesystem-root boundary.
 
-    This tab looks like its siblings but is not built like them. Every other settings tab edits
-    one strongly-typed record through IOptionsMonitor and hands it back via OnSave; this one is
-    entity CRUD over IConnectionStore. Matching the visual pattern without the data pattern is
-    deliberate.
+    Its own page rather than a settings tab, and gated to administrators. Every settings tab
+    edits one strongly-typed record through IOptionsMonitor and hands it back via OnSave; this
+    is entity CRUD over IConnectionStore, and it sits beside Sources in the navigation because
+    that is what it feeds.
 
     Connections are managed here and nowhere else: there is no REST, CLI, or MCP route that
     creates or edits one. The authority a connection confers is the same class of thing as a
     cloud credential, which this project does not accept over an API. See
     docs/research/programmatic-source-configuration-safety-2026-08-17.md.
+
+    RequireAdmin matches that: a connection names a filesystem root or a cloud identity, and
+    every source built on it inherits that reach.
 *@
 
+<PageTitle>Connections - Connapse</PageTitle>
+
 <div class="row g-3">
+    <div class="col-12">
+        <h1 class="mb-1"><span class="bi-plug-fill me-2"></span>Connections</h1>
+    </div>
     <div class="col-12">
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>

@@ -38,7 +38,7 @@ Deleting a container deletes its stored objects, so it must be empty first.
 
 A connection holds **how to authenticate** and **what the credential is allowed to reach**. It never holds a bucket name — that is the source's job.
 
-Connections are created and edited in **Settings > Connections**, by administrators, in the UI only. There is no REST route for them, and that is deliberate: see [Why connections are UI-only](#why-connections-are-ui-only).
+Connections are created and edited on the **Connections** page, by administrators, in the UI only. There is no REST route for them, and that is deliberate: see [Why connections are UI-only](#why-connections-are-ui-only).
 
 ### No stored cloud credentials
 
@@ -239,7 +239,7 @@ SFTP is the answer. Run an SSH server on the machine holding the files and let C
 
 ### Guided setup
 
-Settings → Connections has two buttons that do all of this for you: **Connect this computer** and **Connect a server**. Both run the same three steps — Connapse generates a key pair, writes one command, and reads back what the command printed. Setting up your own computer leaves you nothing to type but the folder; a server also needs the address Connapse can reach it at, which the machine itself cannot know.
+The Connections page has two buttons that do all of this for you: **Connect this computer** and **Connect a server**. Both run the same three steps — Connapse generates a key pair, writes one command, and reads back what the command printed. Setting up your own computer leaves you nothing to type but the folder; a server also needs the address Connapse can reach it at, which the machine itself cannot know.
 
 The difference is only what the command does when it runs:
 
@@ -260,7 +260,7 @@ The guided flow does nothing you cannot do yourself, and on a host you administe
 
 1. **Enable an SSH server.** OpenSSH Server is an optional feature on Windows, Remote Login on macOS, `sshd` on Linux.
 2. **Add a public key** to that account's `authorized_keys`, and give Connapse the matching private key. Prefix it with `restrict,command="internal-sftp"` unless you want that key to be able to do more than Connapse needs.
-3. **Create an SFTP connection** under Settings → Connections, pointing at the machine with an `allowedRoot` of the folder you want reachable.
+3. **Create an SFTP connection** on the Connections page, pointing at the machine with an `allowedRoot` of the folder you want reachable.
 4. **Create a source** on that connection naming a `subPath` within it.
 
 Three things worth knowing before you spend an hour on them:
