@@ -63,6 +63,6 @@ public class SftpConnectionTesterTests
 
         result.Success.Should().BeFalse();
         result.Message.Should().Contain("did not resolve");
-        result.Message.Should().Contain("dns_search", "the remedy belongs with the diagnosis");
+        result.Message.Should().Contain("the address", "the remedy belongs with the diagnosis");
     }
 }

@@ -137,14 +137,19 @@ public class SftpConnectionTester : IConnectionTester
             // "server" is looked up as "server.example.lan" — and a container has no search
             // domain, so it looks up exactly what it was given. Docker stopped copying the
             // host's search domains into containers, so the difference is by design.
+            //
+            // The remedy given is the one that needs no configuration anywhere. Making the short
+            // name itself work is possible but fiddly enough not to be worth recommending: it
+            // takes a search domain *and* an ndots override, since Docker sets ndots:0 and the
+            // search list is then never consulted for a single-label name.
             return new ConnectionTestResult
             {
                 Success = false,
                 Message = $"'{s.Host}' did not resolve from inside Connapse. A short name often "
-                          + "works on your own machine and not here: your computer appends a DNS "
-                          + "suffix before looking it up, and a container does not. Use the "
-                          + "address, or the fully-qualified name — the guided setup reports "
-                          + "both — or set dns_search in docker-compose.yml."
+                          + "works on your own machine and not here: your computer adds your "
+                          + "network's domain before looking it up, and a container does not. Use "
+                          + "the address, or the full name including the domain — the guided setup "
+                          + "reports both."
             };
         }
         catch (Exception ex)
