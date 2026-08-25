@@ -387,6 +387,22 @@ public class ConnectionFormTests
     private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
 
     [Fact]
+    public void ForGuidedSetup_NoPortGiven_DefaultsTo22()
+    {
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey).Port.Should().Be("22");
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey, "  ").Port.Should().Be("22");
+    }
+
+    [Fact]
+    public void ForGuidedSetup_APortGiven_IsKept()
+    {
+        // Its own field rather than something split back out of the host: a colon means
+        // something else entirely once the host is an IPv6 literal.
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey, "2222")
+            .Should().BeEquivalentTo(new { Host = "h", Port = "2222" });
+    }
+
+    [Fact]
     public void ForGuidedSetup_UsesEveryValueTheHostReported()
     {
         var form = ConnectionForm.ForGuidedSetup(

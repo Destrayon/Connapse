@@ -1,4 +1,4 @@
-using Connapse.Core.Interfaces;
+﻿using Connapse.Core.Interfaces;
 
 namespace Connapse.Core.Utilities;
 
@@ -25,9 +25,12 @@ public static class ContainerHostPolicy
     /// True when <paramref name="host"/> names the machine asking, rather than a machine.
     /// </summary>
     /// <remarks>
-    /// Covers the IPv4 loopback <i>range</i>, not just <c>127.0.0.1</c>: every address in
-    /// 127.0.0.0/8 is loopback, and <c>127.0.1.1</c> in particular is what Debian puts in
-    /// /etc/hosts for the machine's own name.
+    /// Parsed rather than matched against a list of spellings, because there are more spellings
+    /// than are obvious. Every address in 127.0.0.0/8 is loopback, not only <c>127.0.0.1</c> —
+    /// Debian puts <c>127.0.1.1</c> in /etc/hosts for the machine's own name — and <c>::1</c>
+    /// can equally be written <c>0:0:0:0:0:0:0:1</c>. Parsing gets all of them, and gets the
+    /// other direction right too: <c>127.0.0.1.example.com</c> is an ordinary hostname somebody
+    /// can own, and a prefix check would claim it.
     /// </remarks>
     public static bool IsLoopback(string? host)
     {
@@ -35,16 +38,14 @@ public static class ContainerHostPolicy
         if (trimmed.Length == 0) return false;
 
         if (trimmed.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
-        if (trimmed is "::1" or "[::1]") return true;
 
-        // 127.x.y.z, checked by parsing rather than by prefix: "127.0.0.1.example.com" is a
-        // perfectly ordinary hostname that starts with "127.".
-        string[] octets = trimmed.Split('.');
-        if (octets.Length != 4) return false;
+        // A URL-style bracketed literal is not something IPAddress.TryParse accepts, and it is
+        // how an IPv6 address is written anywhere a port might follow it.
+        if (trimmed.StartsWith('[') && trimmed.EndsWith(']'))
+            trimmed = trimmed[1..^1];
 
-        if (!byte.TryParse(octets[0], out byte first) || first != 127) return false;
-
-        return octets.Skip(1).All(o => byte.TryParse(o, out _));
+        return System.Net.IPAddress.TryParse(trimmed, out var address)
+               && System.Net.IPAddress.IsLoopback(address);
     }
 
     /// <summary>

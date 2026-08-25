@@ -89,8 +89,14 @@ public sealed record ConnectionForm
     /// the flow to the profile would rule out where most people actually keep things.
     /// Blank falls back to the reported home directory.
     /// </param>
+    /// <param name="port">
+    /// The SSH port, blank meaning 22. Its own parameter rather than something parsed back out of
+    /// <paramref name="host"/>: splitting on a colon is wrong the moment the host is an IPv6
+    /// literal, and the form has room for a second field.
+    /// </param>
     public static ConnectionForm ForGuidedSetup(
-        SftpHostSetupResult result, string host, string? allowedRoot, string privateKeyPem)
+        SftpHostSetupResult result, string host, string? allowedRoot, string privateKeyPem,
+        string? port = null)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
@@ -101,7 +107,7 @@ public sealed record ConnectionForm
             Name = $"{result.Username}@{host.Trim()}",
             Provider = ConnectionProvider.Sftp,
             Host = host.Trim(),
-            Port = "22",
+            Port = string.IsNullOrWhiteSpace(port) ? "22" : port.Trim(),
             Username = result.Username,
             AllowedRoot = NormaliseRemoteRoot(allowedRoot, result.HomePath),
             HostKeyFingerprint = result.Fingerprint,

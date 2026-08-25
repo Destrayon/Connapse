@@ -239,7 +239,7 @@ SFTP is the answer. Run an SSH server on the machine holding the files and let C
 
 ### Guided setup
 
-Settings → Connections has two buttons that do all of this for you: **Connect this computer** and **Connect a server**. Both run the same three steps — Connapse generates a key pair, writes one command, and reads back what the command printed — and both end in a working connection with nothing typed but the folder you want.
+Settings → Connections has two buttons that do all of this for you: **Connect this computer** and **Connect a server**. Both run the same three steps — Connapse generates a key pair, writes one command, and reads back what the command printed. Setting up your own computer leaves you nothing to type but the folder; a server also needs the address Connapse can reach it at, which the machine itself cannot know.
 
 The difference is only what the command does when it runs:
 

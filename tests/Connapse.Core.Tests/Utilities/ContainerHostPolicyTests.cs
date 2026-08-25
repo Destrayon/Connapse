@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
 
@@ -21,6 +21,13 @@ public class ContainerHostPolicyTests
     [InlineData("127.255.255.254")]
     [InlineData("::1")]
     [InlineData("[::1]")]
+    [InlineData("0:0:0:0:0:0:0:1")]
+    [InlineData("[0:0:0:0:0:0:0:1]")]
+    [InlineData("::ffff:127.0.0.1")]
+    // inet_aton shorthand, which resolvers really do accept: `ssh 127.1` reaches localhost, so
+    // these are loopback and not merely things that look like it.
+    [InlineData("127.0.0")]
+    [InlineData("127.1")]
     public void Resolve_LoopbackInAContainer_BecomesTheDockerHostAlias(string host)
     {
         var result = ContainerHostPolicy.Resolve(host, containerised: true);
@@ -64,7 +71,6 @@ public class ContainerHostPolicyTests
     [InlineData("127.example.com")]
     [InlineData("localhost.example.com")]
     [InlineData("127.0.0.256")]
-    [InlineData("127.0.0")]
     public void IsLoopback_ThingsThatMerelyStartLikeLoopback_AreNot(string host)
     {
         // Prefix matching would claim all of these. "127.0.0.1.example.com" is an ordinary

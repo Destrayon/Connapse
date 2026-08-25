@@ -269,7 +269,7 @@
                                 </div>
                             }
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="form-label">Reachable at</label>
                             <input class="form-control font-monospace" @bind="localHost"
                                    placeholder="@(RemoteTarget ? "files.example.com" : "host.docker.internal")" />
@@ -295,8 +295,7 @@
                                     <text>
                                         The hostname or address <em>Connapse</em> can reach the server at, which
                                         is not always the one you use — a container on a different network may
-                                        need the address rather than the short name. Add <code>:port</code> only
-                                        if it is not 22.
+                                        need the address rather than the short name.
                                     </text>
                                 }
                                 else
@@ -307,6 +306,10 @@
                                     </text>
                                 }
                             </div>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">Port</label>
+                            <input class="form-control" type="number" @bind="localPort" placeholder="22" />
                         </div>
                     </div>
                 </div>
@@ -770,6 +773,9 @@
     private string localRoot = "";
     private string localHost = "host.docker.internal";
 
+    /// <summary>Blank means 22, which is what almost every host answers on.</summary>
+    private string localPort = "";
+
     private static string PlatformLabel(HostPlatform p) => p switch
     {
         HostPlatform.Windows => "Windows",
@@ -797,6 +803,7 @@
         pastedResult = null;
         localRoot = "";
         localHost = DefaultHost();
+        localPort = "";
         statusMessage = null;
         testMessage = null;
 
@@ -812,6 +819,12 @@
         if (setupTarget == target) return;
 
         setupTarget = target;
+
+        // The pasted block describes the machine the previous command ran on, and switching
+        // target means a different machine. Keeping it would let someone set up their own
+        // computer, switch to "Another server", type a server's address, and save a connection
+        // whose key was never installed there — a form that looks complete and cannot connect.
+        pastedResult = null;
 
         // Only when it is still the other target's guess. Something typed is theirs to keep.
         if (string.IsNullOrWhiteSpace(localHost) || localHost == "host.docker.internal")
@@ -852,7 +865,8 @@
     /// </summary>
     private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
         ConnectionForm.ForGuidedSetup(
-            result, HostResolver.Resolve(localHost).Host, localRoot, localKeyPair!.PrivateKeyPem);
+            result, HostResolver.Resolve(localHost).Host, localRoot, localKeyPair!.PrivateKeyPem,
+            localPort);
 
     private async Task TestLocalSetup()
     {
@@ -867,7 +881,7 @@
             var outcome = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
             {
                 Host = HostResolver.Resolve(form.Host).Host,
-                Port = 22,
+                Port = int.TryParse(form.Port, out int guidedPort) ? guidedPort : 22,
                 Username = form.Username!,
                 AllowedRoot = form.AllowedRoot!,
                 PrivateKey = form.PrivateKey!,
