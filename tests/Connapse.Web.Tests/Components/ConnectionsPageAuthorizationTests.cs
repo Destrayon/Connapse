@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using FluentAssertions;
 using Xunit;
@@ -61,5 +61,54 @@ public class ConnectionsPageAuthorizationTests
             .Single();
 
         connections.Policy.Should().Be(settings.Policy);
+    }
+
+    /// <summary>
+    /// The Sources page links to Connections and offers a button to create one. Both belong to
+    /// administrators, and both used to point at /settings, where the page no longer lives.
+    /// </summary>
+    /// <remarks>
+    /// Read from the source file rather than a rendered component. Markup this simple has no
+    /// seam worth testing through, and the two mistakes worth catching — a link left pointing at
+    /// the old location, and a control escaping its isAdmin block — are both visible in the text.
+    /// </remarks>
+    public class SourcesPageConnectionLinkTests
+    {
+        private static readonly string Markup = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "Sources.razor"));
+
+        [Fact]
+        public void SourcesPage_LinksToTheConnectionsPage()
+        {
+            Markup.Should().Contain("href=\"/connections\"");
+            Markup.Should().NotContain("href=\"/settings\"",
+                "Connections moved out of Settings, so a link there lands on a page without it");
+        }
+
+        [Fact]
+        public void SourcesPage_OffersConnectionsOnlyToAdministrators()
+        {
+            // Every mention sits inside an isAdmin block. Checked by counting rather than by
+            // parsing: a Viewer offered a button to a page they cannot open is a dead end, and
+            // one offered a "New source" button has no connection to attach it to anyway.
+            int connectionsLinks = Markup.Split("href=\"/connections\"").Length - 1;
+
+            connectionsLinks.Should().Be(2, "the header button and the empty-state link");
+
+            foreach (string fragment in Markup.Split("href=\"/connections\"")[..^1])
+            {
+                fragment.Should().Contain("isAdmin",
+                    "a link to an administrator-only page must not be shown to everyone");
+            }
+        }
+
+        private static string RepositoryRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Connapse.slnx")))
+                dir = dir.Parent;
+
+            return dir?.FullName ?? throw new InvalidOperationException("Repository root not found.");
+        }
     }
 }
