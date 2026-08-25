@@ -6,7 +6,7 @@
 
 ## Why this is a second report
 
-The earlier research asked *"which pull protocol should Connapse speak?"* and recommended SFTP for the local case. That framing had already ruled out mounting the host's disk into the container — brainstorming rejected bind mounts as "a security concern and poor UX" before any research began, so every option surveyed was a network protocol by construction.
+The earlier research asked *"which pull protocol should Connapse speak?"* and recommended SFTP for the local case. Where the two disagree, that one still governs the phasing — S3 first, SFTP second, the Filesystem connector kept for single-host installs. This report only revisits how a container reaches the host's disk, and does not reorder anything. That framing had already ruled out mounting the host's disk into the container — brainstorming rejected bind mounts as "a security concern and poor UX" before any research began, so every option surveyed was a network protocol by construction.
 
 The new constraint — **everything must be configurable in the UI** — makes that exclusion worth re-testing rather than inheriting. A protocol needs a server and a credential set up per connection, forever. A mount is configured once and then never again. Against a "no terminal" requirement those trade in opposite directions, so the answer can change.
 
@@ -87,8 +87,10 @@ Concretely, mount the profile rather than a whole drive:
 ```yaml
     volumes:
       - appdata:/app/appdata
-      - C:/Users/Diviel:/mnt/host:ro
+      - ${CONNAPSE_HOST_ROOT}:/mnt/host:ro
 ```
+
+`CONNAPSE_HOST_ROOT` is whatever the operator wants exposed — `C:/Users/alice`, `/home/alice`, `D:/archive`. It is deliberately not a default: the right answer is specific to the machine, and a default here would either be wrong or expose more than the operator meant.
 
 `:ro` costs nothing, since Connapse never writes to a source, and removes an entire class of accident. Then set `Sources:Security:AllowedFilesystemRoots` to `/mnt/host` so the allowlist and the mount agree, and every connection is bounded twice.
 

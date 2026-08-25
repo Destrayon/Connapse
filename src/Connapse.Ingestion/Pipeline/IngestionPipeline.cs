@@ -52,6 +52,13 @@ public class IngestionPipeline : IKnowledgeIngester
     private static readonly string[] RemoteSignatureKeys = ["RemoteLastModified", "RemoteSize"];
 
     /// <summary>
+    /// How many times the sync engine has re-enqueued this document after a failure. Carried
+    /// across a failed attempt and cleared on a successful one, so a source that cannot be read
+    /// at all stops being retried while a transient fault still recovers.
+    /// </summary>
+    public const string SyncFailedAttemptsKey = "SyncFailedAttempts";
+
+    /// <summary>
     /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
     /// <summary>
     /// Initializes a new IngestionPipeline with the dependencies required to parse documents, split them into chunks, produce embeddings, and persist vectors and document state.
@@ -248,6 +255,17 @@ public class IngestionPipeline : IKnowledgeIngester
                     }
                 }
 
+                // Carried for the same reason, and one more: it is the only thing bounding the
+                // sync engine's retry of a failed document. Replacing the metadata here would
+                // reset the count on every attempt, and a source that can never be read — wrong
+                // credentials, a server that is gone — would be re-enqueued for ever, crowding
+                // out every other document's ingestion.
+                if (!metadata.ContainsKey(SyncFailedAttemptsKey) &&
+                    documentEntity.Metadata?.TryGetValue(SyncFailedAttemptsKey, out var attempts) == true)
+                {
+                    metadata[SyncFailedAttemptsKey] = attempts;
+                }
+
                 documentEntity.Metadata = metadata;
             }
             else
@@ -420,6 +438,10 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Update document status
             documentEntity.ChunkCount = chunks.Count;
+            // Cleared on success: the count exists to bound retries of a document that keeps
+            // failing, and this one just stopped failing.
+            documentEntity.Metadata?.Remove(SyncFailedAttemptsKey);
+
             documentEntity.Status = "Ready";
             documentEntity.ErrorMessage = null;
             documentEntity.LastIndexedAt = DateTime.UtcNow;

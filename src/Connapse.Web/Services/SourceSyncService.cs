@@ -2,6 +2,7 @@
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Pipeline;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -365,6 +366,27 @@ public class SourceSyncService(
 
             due.Add(file);
 
+            if (existing is { Status: "Failed" })
+            {
+                // Counted here rather than in the pipeline, because the pipeline may never run
+                // — a connector that cannot reach its remote throws before it. That is exactly
+                // the failure this bound exists to stop repeating, so the attempt has to be
+                // recorded at the moment it is made.
+                // Reset by a changed file, not merely incremented: the budget is per version.
+                // Carrying a spent one across an edit would let the fall-through above hand the
+                // new version a single attempt and then refuse it for ever.
+                int attempt = SignatureChanged(existing, file) ? 1 : FailedAttempts(existing) + 1;
+
+                var carried = new Dictionary<string, string>(existing.Metadata ?? [])
+                {
+                    [IngestionPipeline.SyncFailedAttemptsKey] =
+                        attempt.ToString(CultureInfo.InvariantCulture),
+                };
+
+                var tracked = await context.Documents.FirstOrDefaultAsync(d => d.Id == existing.Id, ct);
+                if (tracked is not null) tracked.Metadata = carried;
+            }
+
             if (existing is null)
             {
                 // A row staking this path, written before anything is enqueued. Until one
@@ -400,8 +422,8 @@ public class SourceSyncService(
         }
 
         // One round trip, and before any enqueue: a claim that did not persist must not have a
-        // job pointing at it.
-        if (claims.Count > 0)
+        // job pointing at it, and a retry that was not counted would not be bounded.
+        if (claims.Count > 0 || due.Count > 0)
             await context.SaveChangesAsync(ct);
 
         foreach (var file in due)
@@ -453,6 +475,20 @@ public class SourceSyncService(
     /// Decides whether an already-indexed document needs re-ingesting, by comparing the
     /// remote's size and modification time against the signature recorded last time.
     /// </summary>
+    /// <summary>
+    /// How many times a failing document is re-enqueued before the sync engine leaves it alone.
+    /// Hangfire retries each of those attempts three times itself, so this is not the whole
+    /// budget — it is the number of fresh starts.
+    /// </summary>
+    private const int MaxFailedSyncAttempts = 3;
+
+    private static int FailedAttempts(DocumentEntity existing) =>
+        existing.Metadata is not null
+        && existing.Metadata.TryGetValue(IngestionPipeline.SyncFailedAttemptsKey, out string? raw)
+        && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int attempts)
+            ? attempts
+            : 0;
+
     private static bool HasRemoteChanged(DocumentEntity existing, ConnectorFile file)
     {
         // Already queued or mid-ingestion. Enqueueing again would race the in-flight job for
@@ -469,11 +505,28 @@ public class SourceSyncService(
         // briefly unreachable poisoned every document caught in the window, and no amount of
         // re-syncing recovered them.
         //
-        // The cost is a genuinely unparseable file being re-fetched every cycle. Bounded, and
-        // much the lesser evil: it fails before embedding, which is the part that costs money.
-        if (existing.Status is "Failed")
+        // Bounded, though (#404). "Retry regardless" assumed the failure was transient, and a
+        // failure that is not — credentials that are wrong, a server that is gone — then
+        // re-enqueued every file in the source on every cycle. Those jobs each carry Hangfire's
+        // own three retries, so the ingestion queue fills with work that cannot succeed and
+        // documents that would have ingested fine sit behind it. A source cannot be allowed to
+        // deny service to the rest of the instance by failing.
+        //
+        // Note the fall-through once the attempts are spent, rather than a flat refusal: an
+        // exhausted document is still re-ingested when the file itself changes. Someone who
+        // fixes the file upstream should not have to wait out a budget, or clear one by hand.
+        if (existing.Status is "Failed" && FailedAttempts(existing) < MaxFailedSyncAttempts)
             return true;
 
+        return SignatureChanged(existing, file);
+    }
+
+    /// <summary>
+    /// True when the remote's own view of the file differs from the one recorded at the last
+    /// ingestion — or when there is nothing recorded to compare against.
+    /// </summary>
+    private static bool SignatureChanged(DocumentEntity existing, ConnectorFile file)
+    {
         var metadata = existing.Metadata;
         string? lastModified = metadata?.GetValueOrDefault(RemoteLastModifiedKey);
         string? size = metadata?.GetValueOrDefault(RemoteSizeKey);

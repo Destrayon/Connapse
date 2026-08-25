@@ -219,7 +219,7 @@ A sync reconciles by absence: anything indexed but missing from the remote listi
 
 So a reconcile that would delete more than **both 10 documents and 10% of what the source has indexed** applies its additions and **withholds the deletions**, recording how many. The Sources page shows the count to administrators with an "Apply deletions" button.
 
-Two details worth knowing:
+Three details worth knowing:
 
 - **Additions still apply.** A source that trips the guard keeps ingesting, because a safety check that stops a source working is an outage.
 - **Approving re-runs the sync**, it does not replay the earlier list. If the remote recovered in the meantime, nothing is deleted.
