@@ -609,9 +609,49 @@ public class SftpHostSetupTests
     // ── Addresses the host reports about itself ───────────────────────────────────
 
     [Fact]
-    public void ParseResult_ReportedHostAndAddresses_AreOfferedHostnameFirst()
+    public void ParseResult_ShortNameAndFqdn_OffersTheFqdnFirstAndTheShortNameLast()
     {
-        // Hostname first because it survives a DHCP lease changing and an address does not.
+        // The short name is the one the operator recognises and the one likeliest to fail: their
+        // workstation resolves it only because its DNS client appends a search suffix, and a
+        // container has none. So it stays in the list, at the bottom.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=divielserver
+            fqdn=divielserver.attlocal.net
+            addresses=192.168.1.194
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses
+            .Should().Equal("divielserver.attlocal.net", "192.168.1.194", "divielserver");
+    }
+
+    [Fact]
+    public void ParseResult_FqdnEqualsTheShortName_IsNotOfferedTwice()
+    {
+        // hostname -f falls back to the short name on a host with no domain configured.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=fileserver
+            fqdn=fileserver
+            addresses=192.168.1.50
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses.Should().Equal("fileserver", "192.168.1.50");
+    }
+
+    [Fact]
+    public void ParseResult_NoFqdnReported_OffersAddressesAheadOfTheShortName()
+    {
+        // With no fully-qualified name to lead with, an address beats the short name: it needs
+        // no resolver at all, where the short name needs one that appends a search suffix.
         string block = $"""
             {SftpHostSetup.BeginMarker}
             user=diviel
@@ -623,7 +663,7 @@ public class SftpHostSetupTests
             """;
 
         SftpHostSetup.ParseResult(block)!.Addresses
-            .Should().Equal("fileserver", "192.168.1.50", "10.8.0.3");
+            .Should().Equal("192.168.1.50", "10.8.0.3", "fileserver");
     }
 
     [Fact]

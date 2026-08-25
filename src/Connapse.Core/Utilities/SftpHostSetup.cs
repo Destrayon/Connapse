@@ -314,6 +314,11 @@ public static class SftpHostSetup
         Write-Host "drives=$drives"
         Write-Host "fingerprint=$fingerprint"
         Write-Host "host=$env:COMPUTERNAME"
+        # As above: the short name resolves for a client that appends a suffix, and not for one
+        # that does not.
+        $fqdn = ''
+        try { $fqdn = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { }
+        Write-Host "fqdn=$fqdn"
         Write-Host "addresses=$addresses"
         Write-Host '{{EndMarker}}'
         Write-Host ''
@@ -406,7 +411,12 @@ public static class SftpHostSetup
         printf 'user=%s\n' "$(whoami)"
         printf 'home=%s\n' "$HOME"
         printf 'fingerprint=%s\n' "$FINGERPRINT"
+        # Short name and fully-qualified name both, because they are not interchangeable from
+        # somewhere else on the network. A workstation resolves 'divielserver' only because its
+        # DNS client appends a connection-specific suffix; a container has no search domain and
+        # looks up exactly what it is given, so the short name fails there while the FQDN works.
         printf 'host=%s\n' "$(hostname 2>/dev/null)"
+        printf 'fqdn=%s\n' "$(hostname -f 2>/dev/null)"
         printf 'addresses=%s\n' "$ADDRESSES"
         printf '%s\n\n' '{{EndMarker}}'
         echo 'Copy the block above, including both marker lines, back into Connapse.'
@@ -446,6 +456,7 @@ public static class SftpHostSetup
         string? user = null, home = null, fingerprint = null;
         IReadOnlyList<string> drives = [];
         string? reportedHost = null;
+        string? fqdn = null;
         IReadOnlyList<string> addresses = [];
 
         foreach (string raw in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -476,6 +487,10 @@ public static class SftpHostSetup
                     reportedHost = value;
                     break;
 
+                case "fqdn":
+                    fqdn = value;
+                    break;
+
                 case "addresses":
                     addresses = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     break;
@@ -491,12 +506,26 @@ public static class SftpHostSetup
         // Blank already has a defined meaning everywhere else: SshHostKeyPolicy reads it as
         // trust-on-first-use. So an absent fingerprint costs the stronger verified-first-use and
         // nothing else, which the panel says plainly rather than silently accepting.
-        // Hostname first: it survives a DHCP lease changing, which an address does not. Both are
-        // only suggestions, so ordering them by which is likelier to keep working is the whole
-        // of the judgement being made here.
-        IReadOnlyList<string> candidates = reportedHost is null
-            ? addresses
-            : [reportedHost, .. addresses.Where(a => !string.Equals(a, reportedHost, StringComparison.OrdinalIgnoreCase))];
+        // Ordered by what is likeliest to work from wherever Connapse runs, which is not the
+        // same as what works from the operator's desk. The fully-qualified name comes first: it
+        // survives a DHCP lease changing, and unlike the short name it does not depend on the
+        // resolver appending a search domain — a container's does not. The short name comes
+        // last for exactly that reason, kept because it is the one the operator recognises.
+        List<string> ordered = [];
+        void Offer(string? candidate)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate) &&
+                !ordered.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+            {
+                ordered.Add(candidate);
+            }
+        }
+
+        Offer(fqdn);
+        foreach (string address in addresses) Offer(address);
+        Offer(reportedHost);
+
+        IReadOnlyList<string> candidates = ordered;
 
         return user is null || home is null
             ? null

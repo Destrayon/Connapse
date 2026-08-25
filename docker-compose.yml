@@ -74,6 +74,21 @@ services:
       Identity__Jwt__Secret: ${Identity__Jwt__Secret:-}
     volumes:
       - appdata:/app/appdata
+
+    # Uncomment when an SFTP connection has to reach a machine by its short name.
+    #
+    # A workstation resolves "myserver" because its DNS client appends a connection-specific
+    # suffix — "myserver.example.lan" — before asking. A container has no search domain, so it
+    # looks up exactly the string it was given and finds nothing. Docker Desktop stopped copying
+    # the host's search domains into containers in 2.1.0.0 (docker/for-mac#3814), so this has to
+    # be stated rather than inherited.
+    #
+    # Left commented rather than driven by an empty variable, which writes a bare "search" line
+    # into the container's resolv.conf. Using the address, or the fully-qualified name, needs
+    # none of this — the guided SFTP setup reports both.
+    # dns_search:
+    #   - example.lan
+
     depends_on:
       postgres:
         condition: service_healthy
