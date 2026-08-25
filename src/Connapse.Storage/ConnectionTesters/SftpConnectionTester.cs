@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
+using System.Net.Sockets;
 
 namespace Connapse.Storage.ConnectionTesters;
 
@@ -36,6 +37,25 @@ public record SftpConnectionTestSettings
 /// </summary>
 public class SftpConnectionTester : IConnectionTester
 {
+    /// <summary>
+    /// The name-resolution failure inside <paramref name="error"/>, or null if it is not one.
+    /// </summary>
+    /// <remarks>
+    /// Searched through the whole chain rather than checked on the outermost exception: SSH.NET
+    /// wraps the socket failure, so the type that says what actually went wrong is never the one
+    /// caught. Matched on the error code, not on the message, which is localised.
+    /// </remarks>
+    internal static SocketException? FindHostNotFound(Exception? error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+        {
+            if (current is SocketException { SocketErrorCode: SocketError.HostNotFound } socket)
+                return socket;
+        }
+
+        return null;
+    }
+
     public async Task<ConnectionTestResult> TestConnectionAsync(
         object settings, TimeSpan? timeout = null, CancellationToken ct = default)
     {
@@ -105,6 +125,26 @@ public class SftpConnectionTester : IConnectionTester
                 Success = false,
                 Message = $"{s.Host}:{s.Port} accepted the connection but stopped responding. "
                           + "The SSH service is running but its SFTP subsystem is not answering."
+            };
+        }
+        catch (Exception ex) when (FindHostNotFound(ex) is not null)
+        {
+            // Worth separating from every other connection failure, because it is the one whose
+            // symptom contradicts the operator's own experience: the name works from their
+            // desktop and not from here, so "no such host" reads as Connapse being wrong.
+            //
+            // It is not. A workstation appends a connection-specific DNS suffix before asking —
+            // "server" is looked up as "server.example.lan" — and a container has no search
+            // domain, so it looks up exactly what it was given. Docker stopped copying the
+            // host's search domains into containers, so the difference is by design.
+            return new ConnectionTestResult
+            {
+                Success = false,
+                Message = $"'{s.Host}' did not resolve from inside Connapse. A short name often "
+                          + "works on your own machine and not here: your computer appends a DNS "
+                          + "suffix before looking it up, and a container does not. Use the "
+                          + "address, or the fully-qualified name — the guided setup reports "
+                          + "both — or set dns_search in docker-compose.yml."
             };
         }
         catch (Exception ex)
