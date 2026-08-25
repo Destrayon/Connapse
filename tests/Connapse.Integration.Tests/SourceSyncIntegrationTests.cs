@@ -1,7 +1,8 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
 using Connapse.Web.Services;
 using FluentAssertions;
@@ -177,7 +178,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     /// </summary>
     private sealed class FixedConnectorFactory(IConnector connector) : IConnectorFactory
     {
-        public IConnector Create(Source source, Connection connection) => connector;
+        public IConnector Create(Source source, Connection connection, string? secret = null) => connector;
     }
 
     private static SourceSyncService BuildService(IServiceProvider sp, IConnector connector)
@@ -187,7 +188,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         return new SourceSyncService(
             sp.GetRequiredService<IServiceScopeFactory>(),
             factory,
-            sp.GetRequiredService<IIngestionQueue>(),
+            new RecordingIngestionQueue(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
     }
 
@@ -205,6 +206,141 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         result.UsedDeltaPath.Should().BeFalse("this connector has no delta API");
         result.Upserted.Should().Be(2);
         connector.ListCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_SecondPollBeforeIngestionDrains_DoesNotEnqueueTheSameFilesAgain()
+    {
+        // "Is this file already being worked on?" used to be answerable only from persisted
+        // documents, and the pipeline does not write one until the job actually runs. On a
+        // source whose ingestion takes longer than the poll interval — a large SFTP tree is
+        // exactly that — every cycle rediscovered the entire backlog as new, minted fresh
+        // document ids, and enqueued it all over again. The same files downloaded and embedded
+        // repeatedly, and a queue growing faster than it could drain.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new FakeListConnector(File("/a.md"), File("/b.md"));
+        var service = BuildService(scope.ServiceProvider, connector);
+
+        var first = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+        first.Upserted.Should().Be(2);
+
+        // Nothing has drained the queue in between — the second poll sees exactly what the
+        // first one did.
+        var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        second.Upserted.Should().Be(0,
+            "the files are already claimed and queued; enqueueing them again duplicates the work");
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.CountAsync(d => d.SourceId == source.Id))
+            .Should().Be(2, "two remote files must not become four document rows");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_ClaimedButNotYetIngested_CarriesNoRemoteSignature()
+    {
+        // The signature means "indexed at this version of the remote". Writing it on the claim
+        // would assert an ingestion that has not happened, so a job that then failed would
+        // leave a document the next cycle reads as up to date and never retries.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(File("/claim.md")));
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using var after = await factory.CreateDbContextAsync();
+        var claim = await after.Documents.AsNoTracking()
+            .SingleAsync(d => d.SourceId == source.Id && d.Path == "/claim.md");
+
+        claim.Status.Should().Be("Pending");
+        claim.Metadata.Should().NotContainKey("RemoteLastModified");
+        claim.Metadata.Should().NotContainKey("RemoteSize");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_DocumentThatKeepsFailing_StopsBeingRetried()
+    {
+        // #400 made a Failed document retry regardless of its signature, so a transient fault
+        // could not poison it permanently. That assumed the failure was transient. One that is
+        // not — wrong credentials, a server that is gone — then re-enqueued every file in the
+        // source on every cycle, each carrying Hangfire's own three retries, until the ingestion
+        // queue was full of work that could not succeed and ordinary uploads sat behind it.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var file = File("/keeps-failing.md");
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(file));
+
+        // The claim from the first cycle, left as a job that failed and never wrote chunks.
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Upserted.Should().Be(1);
+        await MarkFailedAsync(dbFactory, source.Id, file);
+
+        var upserts = new List<int>();
+        for (int cycle = 0; cycle < 5; cycle++)
+        {
+            upserts.Add((await service.SyncSourceAsync(source, connection, CancellationToken.None)).Upserted);
+            await MarkFailedAsync(dbFactory, source.Id, file, keepAttempts: true);
+        }
+
+        upserts.Should().BeEquivalentTo(new[] { 1, 1, 1, 0, 0 }, o => o.WithStrictOrdering(),
+            "three fresh starts, then the sync engine leaves it alone");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_FailedDocumentWhoseRemoteChanged_IsRetriedAgain()
+    {
+        // The bound is per version of the file. Someone who fixes the file upstream should not
+        // have to wait, or clear anything by hand.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var file = File("/fixed-upstream.md");
+        var service = BuildService(scope.ServiceProvider, new FakeListConnector(file));
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        // Exhausted: Failed, with the attempts already spent.
+        await MarkFailedAsync(dbFactory, source.Id, file, attempts: 3);
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Upserted
+            .Should().Be(0, "the bound must actually bind before the reset means anything");
+
+        // Same path, edited upstream.
+        var edited = new ConnectorFile(file.Path, file.SizeBytes + 500, DateTime.UtcNow, file.ContentType);
+        var afterEdit = BuildService(scope.ServiceProvider, new FakeListConnector(edited));
+
+        (await afterEdit.SyncSourceAsync(source, connection, CancellationToken.None)).Upserted
+            .Should().Be(1, "a changed file is a new attempt, not a continuation of the old one");
+    }
+
+    /// <summary>
+    /// Leaves the document the way a failed ingestion does: Failed, with the remote signature
+    /// already written — which is what made the signature comparison skip it before #400.
+    /// </summary>
+    private static async Task MarkFailedAsync(
+        IDbContextFactory<KnowledgeDbContext> dbFactory, Guid sourceId, ConnectorFile file,
+        int? attempts = null, bool keepAttempts = false)
+    {
+        await using var ctx = await dbFactory.CreateDbContextAsync();
+        var doc = await ctx.Documents.SingleAsync(d => d.SourceId == sourceId && d.Path == file.Path);
+
+        var metadata = new Dictionary<string, string>(
+            keepAttempts ? doc.Metadata ?? new Dictionary<string, string>() : new Dictionary<string, string>())
+        {
+            [SourceSyncService.RemoteLastModifiedKey] = file.LastModified.ToString("O"),
+            [SourceSyncService.RemoteSizeKey] = file.SizeBytes.ToString(CultureInfo.InvariantCulture),
+        };
+
+        if (attempts is int fixedAttempts)
+            metadata[IngestionPipeline.SyncFailedAttemptsKey] = fixedAttempts.ToString(CultureInfo.InvariantCulture);
+
+        doc.Status = "Failed";
+        doc.Metadata = metadata;
+        await ctx.SaveChangesAsync();
     }
 
     [Fact]

@@ -5,8 +5,10 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data.Entities;
+using Connapse.Storage.Data;
 using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -113,6 +115,35 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             name = name ?? ShortName("src"),
             connectionId,
             scopeJson = """{"bucketName":"b","prefix":"team/"}""",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return created.GetProperty("id").GetGuid();
+    }
+
+    /// <summary>
+    /// A filesystem connection rooted at a real local directory, used where a sync test needs
+    /// the route to reach a working connector rather than time out against a fake S3 region.
+    /// </summary>
+    private async Task<Guid> SeedFilesystemConnectionAsync(string rootPath)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        string configJson = JsonSerializer.Serialize(new { allowedRoot = rootPath });
+        var connection = await connections.CreateAsync(
+            new CreateConnectionRequest(ShortName("fsconn"), ConnectionProvider.Filesystem, configJson),
+            createdByUserId: null);
+        return connection.Id;
+    }
+
+    private async Task<Guid> CreateFilesystemSourceAsync(Guid connectionId, string? name = null)
+    {
+        var response = await Admin.PostAsJsonAsync("/api/sources", new
+        {
+            name = name ?? ShortName("src"),
+            connectionId,
+            scopeJson = "{}",
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -321,6 +352,85 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var response = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SyncSource_EnabledWithNoQueryString_BindsSuccessfully()
+    {
+        // A non-nullable [FromQuery] parameter with no default makes minimal-API binding fail
+        // before the handler runs, which also produces 400 — the same status the disabled
+        // check above returns. The source here is enabled, so a 400 can only mean binding
+        // failed, unlike the test above where a 400 is ambiguous.
+        string root = Directory.CreateTempSubdirectory("connapse-sync-test-").FullName;
+        try
+        {
+            Guid connectionId = await SeedFilesystemConnectionAsync(root);
+            Guid sourceId = await CreateFilesystemSourceAsync(connectionId);
+
+            var response = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK,
+                "an enabled source with no query string must reach the handler, not fail binding");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SyncSource_ApplyWithheldDeletionsTrue_ReachesTheOverridePathAndReportsWithheldCount()
+    {
+        string root = Directory.CreateTempSubdirectory("connapse-sync-test-").FullName;
+        try
+        {
+            Guid connectionId = await SeedFilesystemConnectionAsync(root);
+            Guid sourceId = await CreateFilesystemSourceAsync(connectionId);
+            await SeedSourceDocumentsAsync(sourceId, count: 40);
+
+            // The directory is empty, so all 40 documents vanish — well past the guard's
+            // threshold — and the default (no query string) call must withhold rather than
+            // delete them.
+            var withheldResponse = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
+            withheldResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var withheldBody = await withheldResponse.Content.ReadFromJsonAsync<JsonElement>();
+            withheldBody.GetProperty("deleted").GetInt32().Should().Be(0);
+            withheldBody.GetProperty("withheldDeletions").GetInt32().Should().Be(40,
+                "the sync response is the one place an admin sees why deletions were withheld");
+
+            // ?applyWithheldDeletions=true must reach the override path and actually apply them.
+            var appliedResponse = await Admin.PostAsync(
+                $"/api/sources/{sourceId}/sync?applyWithheldDeletions=true", null);
+            appliedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var appliedBody = await appliedResponse.Content.ReadFromJsonAsync<JsonElement>();
+            appliedBody.GetProperty("deleted").GetInt32().Should().Be(40);
+            appliedBody.GetProperty("withheldDeletions").GetInt32().Should().Be(0);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Inserts <paramref name="count"/> source-owned documents directly via SQL, following the
+    /// raw-insert pattern in DeleteGuardIntegrationTests: <c>IDocumentStore.StoreAsync</c>
+    /// always populates <c>container_id</c> and so cannot express a source-owned row.
+    /// </summary>
+    private async Task SeedSourceDocumentsAsync(Guid sourceId, int count)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await dbFactory.CreateDbContextAsync();
+
+        for (int i = 0; i < count; i++)
+        {
+            string path = $"/doc-{i}.md";
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, created_at) "
+                + "VALUES ({0}, NULL, {1}, {2}, {3}, '', 1, now())",
+                Guid.NewGuid(), sourceId, $"doc-{i}.md", path);
+        }
     }
 
     // ── No enumeration surface ────────────────────────────────────────────

@@ -36,6 +36,13 @@ public interface ISourceStore
     /// </summary>
     Task<bool> TryAdvanceSyncStateAsync(Guid id, string? expectedCursor, string? newCursor, SyncStatus status, string? error, DateTime? syncedAt, CancellationToken ct = default);
 
+    /// <summary>
+    /// Records how many deletions the last reconcile declined to apply, or null to clear.
+    /// Separate from <see cref="UpdateSyncStateAsync"/> because a sync that withholds
+    /// deletions still succeeded — the count is orthogonal to the status, not a variant of it.
+    /// </summary>
+    Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default);
+
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
     Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default);

@@ -169,6 +169,10 @@ public static class ServiceCollectionExtensions
         services.Configure<SourceSecuritySettings>(
             configuration.GetSection(SourceSecuritySettings.SectionName));
 
+        // Pins an SFTP connection's host key on first use. Singleton to match the factory
+        // that reaches it, and it opens its own scope because IConnectionStore is scoped.
+        services.AddSingleton<ISshHostKeyStore, ConnectionSshHostKeyStore>();
+
         // Connector factory (singleton — shared S3 client and config must outlive requests)
         services.AddSingleton<ConnectorFactory>();
         services.AddSingleton<IConnectorFactory>(sp => sp.GetRequiredService<ConnectorFactory>());
@@ -180,6 +184,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
+        services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AwsSsoConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -311,7 +311,20 @@ public class PostgresSourceStore(
         SummaryGeneratedAt: entity.SummaryGeneratedAt,
         SummaryDocSetHash: entity.SummaryDocSetHash,
         DocumentCount: documentCount,
+        WithheldDeletions: entity.WithheldDeletions,
         FailedDocumentCount: failedDocumentCount);
+
+    public async Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Sources.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (entity is null) return;
+
+        entity.WithheldDeletions = withheld;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(ct);
+    }
 }
 
 

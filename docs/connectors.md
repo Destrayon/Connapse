@@ -47,6 +47,7 @@ There is no secret field on a connection form, because Connapse does not accept 
 - **S3** authenticates through the AWS default credential chain — an instance profile, an IRSA role, or an SSO session. `roleArn` optionally names a role to assume on top of that.
 - **Azure Blob** authenticates through `DefaultAzureCredential` — a managed identity, a workload identity, or a developer sign-in. `managedIdentityClientId` optionally selects a specific user-assigned identity.
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
+- **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key or an Azure secret is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
 
 The consequence worth internalising: **rotating credentials is an operation you perform in AWS or Azure, and Connapse needs no involvement.** There is nothing stored here to rotate.
 
@@ -79,6 +80,20 @@ The consequence worth internalising: **rotating credentials is an operation you 
   "allowedRoot": "/srv/knowledge"
 }
 ```
+
+**SFTP**
+
+```json
+{
+  "host": "files.example.com",
+  "port": 22,
+  "username": "connapse",
+  "allowedRoot": "/srv/knowledge",
+  "hostKeyFingerprint": "SHA256:…"
+}
+```
+
+`hostKeyFingerprint` is not typed. Connapse records it on the first successful connection and refuses every later one that does not match — see [Host keys](#host-keys).
 
 ### The two allowlists
 
@@ -115,6 +130,35 @@ Two limits an operator has to handle outside Connapse, because no path check can
 
 Run the server under a low-privilege account, and keep configuration and the DataProtection key ring outside every configured root.
 
+### SFTP confinement
+
+An SFTP source's `subPath` is confined the same way, with one difference that matters: **resolution happens on the server.**
+
+`allowedRoot` names a directory on a machine that is not the one running Connapse, so resolving it locally would answer a question about the wrong filesystem — and answer it permissively, because a remote path almost never exists locally and a link check that finds nothing reports no link. That degrades confinement to a string-prefix comparison, which is exactly the bug [#365](https://github.com/Destrayon/Connapse/issues/365) fixed for local paths.
+
+So SFTP paths are canonicalised through the protocol's own `SSH_FXP_REALPATH`, and `..` segments and symlinks collapse where they actually mean something before the comparison.
+
+Two related rules:
+
+- **Symlinks are stepped over during the walk, never followed.** A link inside the root whose target is outside it would otherwise pull that target into the index.
+- **A directory that cannot be read fails the whole sync**, rather than contributing nothing to the listing. This matters more than it looks: to the reconcile, a listing that quietly omits a subtree is indistinguishable from every file in it having been deleted. The [deletion guard](#deletions-are-guarded) bounds that damage, but it should not have to.
+
+`allowedRoot` for SFTP is **not** checked against `Sources:Security:AllowedFilesystemRoots`. That setting names directories on the server's own disk; an SFTP root names one on somebody else's.
+
+### Host keys
+
+SSH's protection against somebody else answering on your server's address is the host key, and it only helps if a changed key is noticed.
+
+Connapse **trusts the first key it sees and pins it.** Every later connection compares against the stored fingerprint and refuses on mismatch, naming both keys. The fingerprint is shown on the connection in the format `ssh-keygen` prints, so it can be checked against the server directly:
+
+```bash
+ssh-keyscan files.example.com | ssh-keygen -lf -
+```
+
+Trust-on-first-use does not authenticate the *first* connection — that is its standing trade-off, and the reason the fingerprint is displayed rather than hidden. What it does catch is the realistic case: an address that has been working for months starts answering with a different key.
+
+**If you rekey the server yourself**, syncing stops with a mismatch error. Clear the recorded fingerprint on the connection — the "Forget" control beside it — and the next connection pins the new key.
+
 ---
 
 ## Sources
@@ -137,6 +181,7 @@ Scope keys by provider:
 | S3 | `bucketName`, `prefix` |
 | Azure Blob | `containerName`, `prefix` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
+| SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 
 ### API
 
@@ -168,7 +213,42 @@ Deleting a source removes its indexed documents. The external data is untouched.
 
 Containers have their own `POST /api/containers/{id}/sync`, which reconciles managed storage against the document table. It exists because objects can land in the bucket out of band; it does not talk to any external system.
 
+### Deletions are guarded
+
+A sync reconciles by absence: anything indexed but missing from the remote listing is treated as deleted. That inference is only as good as the listing — and a listing can come back empty *and successful*, from a narrowed bucket policy returning `200 OK` with no keys, or a directory that is temporarily unmounted.
+
+So a reconcile that would delete more than **both 10 documents and 10% of what the source has indexed** applies its additions and **withholds the deletions**, recording how many. The Sources page shows the count to administrators with an "Apply deletions" button.
+
+Three details worth knowing:
+
+- **Additions still apply.** A source that trips the guard keeps ingesting, because a safety check that stops a source working is an outage.
+- **Approving re-runs the sync**, it does not replay the earlier list. If the remote recovered in the meantime, nothing is deleted.
+- **Approving is a ceiling, not a licence.** It authorises up to the number you were shown. If the remote degraded further between reading the count and approving it, the larger set is withheld again and needs fresh approval — so a worsening outage cannot have the whole index applied on the strength of a smaller approval.
+
+The threshold is fixed and not configurable. Small sources are never blocked — losing five of five files applies immediately, since re-ingesting them is cheap.
+
+The guard bounds a single reconcile, not the source's history. A listing that persistently returns just under the threshold — say 9% missing every cycle — never trips it, and the index erodes a little on every sync.
+
 ---
+
+## Indexing files on your own machine
+
+The Filesystem connector needs the server process to see a path on its own disk. In Docker the container's filesystem is not yours, and on a hosted deployment there is no shared disk at all — so "point Connapse at my Documents folder" has no answer through that connector.
+
+SFTP is the answer. Run an SSH server on the machine holding the files and let Connapse connect to it.
+
+1. **Enable an SSH server.** OpenSSH Server is an optional feature on Windows, Remote Login on macOS, `sshd` on Linux.
+2. **Add a public key** to that account's `authorized_keys`, and give Connapse the matching private key.
+3. **Create an SFTP connection** under Settings → Connections, pointing at the machine with an `allowedRoot` of the folder you want reachable.
+4. **Create a source** on that connection naming a `subPath` within it.
+
+Three things worth knowing before you spend an hour on them:
+
+- **Windows OpenSSH presents paths with a leading slash before the drive letter** — `/C:/Users/you/Documents`, not `C:\Users\you\Documents`. Write `allowedRoot` that way.
+- **`host.docker.internal` is Docker Desktop only.** From a container on Docker Desktop, that name reaches the host. On a Linux host, add `--add-host=host.docker.internal:host-gateway`. On a remote deployment it does not apply at all — the server needs a real address it can reach, and making the machine reachable is your problem, not Connapse's.
+- **It is list-and-diff on every poll.** SFTP has no change notification, so each cycle walks the tree. Point a source at a folder, not a whole drive; at a hundred thousand files a scan is minutes.
+
+The Filesystem connector is unchanged and remains the better choice when the server genuinely does share a disk with the data — it is cheaper and it supports live watching.
 
 ## Why the split
 

@@ -1,4 +1,4 @@
-using Amazon.S3.Model;
+﻿using Amazon.S3.Model;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -78,7 +78,7 @@ public class SourceSyncS3IntegrationTests(SharedWebAppFixture fixture) : IAsyncL
         sp.GetRequiredService<IServiceScopeFactory>(),
         // The real factory, not a fake — this is what the test exists to cover.
         sp.GetRequiredService<IConnectorFactory>(),
-        sp.GetRequiredService<IIngestionQueue>(),
+        new RecordingIngestionQueue(),
         sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
 
     [Fact]
@@ -149,15 +149,20 @@ public class SourceSyncS3IntegrationTests(SharedWebAppFixture fixture) : IAsyncL
             .Create(source, connection).ListFilesAsync(null, CancellationToken.None);
         var file = listed.Single();
 
+        // An UPDATE, because the sync claimed this path before enqueueing it and the row is
+        // already there — which is what the pipeline finds too, and why it takes its existing-
+        // document branch rather than inserting a second row for the same path.
         await using (var seed = await dbFactory.CreateDbContextAsync())
         {
-            await seed.Database.ExecuteSqlRawAsync(
+            int updated = await seed.Database.ExecuteSqlRawAsync(
                 """
-                INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, status, created_at, metadata)
-                VALUES ({0}, NULL, {1}, 'stable.md', {2}, '', {3}, 'Ready', now(), {4}::jsonb)
+                UPDATE documents SET status = 'Ready', metadata = {2}::jsonb
+                WHERE source_id = {0} AND path = {1}
                 """,
-                Guid.NewGuid(), source.Id, file.Path, file.SizeBytes,
+                source.Id, file.Path,
                 $$"""{"{{SourceSyncService.RemoteLastModifiedKey}}":"{{file.LastModified:O}}","{{SourceSyncService.RemoteSizeKey}}":"{{file.SizeBytes}}"}""");
+
+            updated.Should().Be(1, "the first cycle must have claimed the path");
         }
 
         var second = await service.SyncSourceAsync(source, connection, CancellationToken.None);

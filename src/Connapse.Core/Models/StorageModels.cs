@@ -1,6 +1,6 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
-public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
+public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5 }
 
 public record ContainerSettingsOverrides
 {
@@ -45,7 +45,19 @@ public record Document(
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
     string? SummaryContentHash = null,
-    IngestionState IngestionState = IngestionState.Pending);
+    IngestionState IngestionState = IngestionState.Pending)
+{
+    /// <summary>
+    /// Which owner the row actually has. Needed because <see cref="ContainerId"/> carries
+    /// COALESCE(container_id, source_id) — it is never blank, so a source-owned document is
+    /// indistinguishable from a container-owned one by that field alone, and a caller that
+    /// guessed "container" would look up a container by a source's id and find nothing.
+    /// <para>
+    /// Null only for documents built outside the store, which have not been read from a row.
+    /// </para>
+    /// </summary>
+    public OwnerRef? Owner { get; init; }
+}
 
 public record StoreResult(string DocumentId, int Generation);
 

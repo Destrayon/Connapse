@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -259,6 +259,28 @@ public class PostgresDocumentStore : IDocumentStore
         await context.SaveChangesAsync(ct);
     }
 
+    public async Task MarkIngestionFailedAsync(
+        string documentId, string? errorMessage, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity is null) return;
+
+        entity.IngestionState = IngestionState.Failed;
+        entity.Status = "Failed";
+        if (!string.IsNullOrEmpty(errorMessage))
+            entity.ErrorMessage = errorMessage;
+
+        await context.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
@@ -357,6 +379,13 @@ public class PostgresDocumentStore : IDocumentStore
             entity.Summary,
             entity.SummaryGeneratedAt,
             entity.SummaryContentHash,
-            entity.IngestionState);
+            entity.IngestionState)
+        {
+            // Which of the two columns is set, kept alongside the collapsed OwnerId above so a
+            // caller can tell a source-owned row from a container-owned one.
+            Owner = entity.SourceId is Guid sourceId
+                ? OwnerRef.ForSource(sourceId)
+                : OwnerRef.ForContainer(entity.ContainerId!.Value),
+        };
     }
 }

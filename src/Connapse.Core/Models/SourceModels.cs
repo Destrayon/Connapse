@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 public enum SyncStatus { Never = 0, Running = 1, Succeeded = 2, Failed = 3 }
 
@@ -21,6 +21,7 @@ public record Source(
     DateTime? SummaryGeneratedAt = null,
     string? SummaryDocSetHash = null,
     int DocumentCount = 0,
+    int? WithheldDeletions = null,
 
     // Appended rather than inserted: this record is constructed positionally in places, so a
     // parameter added anywhere else shifts every argument after it.

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Web.Components.Settings;
@@ -159,4 +160,66 @@ public class SourceFormTests
         var form = new SourceForm { Name = "n", ConnectionId = Guid.NewGuid(), Container = "b" };
         form.Validate(ConnectionProvider.S3).Should().BeNull();
     }
+    // ── SFTP ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The same scope shape as Filesystem, which was the point of designing it that way: this
+    /// form, the preflight and the summary each gain a provider rather than a parallel
+    /// implementation to keep in step.
+    /// </summary>
+    [Fact]
+    public void ToScopeJson_Sftp_ProducesTheSameShapeAsFilesystem()
+    {
+        var form = new SourceForm
+        {
+            Name = "s",
+            ConnectionId = Guid.NewGuid(),
+            SubPath = "Documents",
+            IncludePatterns = "*.md",
+            ExcludePatterns = "*.tmp",
+        };
+
+        var sftp = JsonNode.Parse(form.ToScopeJson(ConnectionProvider.Sftp))!.AsObject();
+        var filesystem = JsonNode.Parse(form.ToScopeJson(ConnectionProvider.Filesystem))!.AsObject();
+
+        sftp.ToJsonString().Should().Be(filesystem.ToJsonString());
+        sftp["subPath"]!.GetValue<string>().Should().Be("Documents");
+    }
+
+    /// <summary>
+    /// Blank means the connection's root itself, which ConnectorFactory reads as a real value
+    /// rather than a missing one — so the key must be present.
+    /// </summary>
+    [Fact]
+    public void ToScopeJson_SftpWithNoSubPath_StillWritesTheKey()
+    {
+        var form = new SourceForm { Name = "s", ConnectionId = Guid.NewGuid() };
+
+        JsonNode.Parse(form.ToScopeJson(ConnectionProvider.Sftp))!.AsObject()
+            .ContainsKey("subPath").Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Before this, picking an SFTP connection threw out of the form. The throw is caught now
+    /// rather than tearing down the circuit, but an operator still could not create the source.
+    /// </summary>
+    [Fact]
+    public void ToScopeJson_Sftp_DoesNotThrow()
+    {
+        var form = new SourceForm { Name = "s", ConnectionId = Guid.NewGuid(), SubPath = "docs" };
+
+        Action act = () => form.ToScopeJson(ConnectionProvider.Sftp);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Validate_Sftp_DoesNotRequireAContainerName()
+    {
+        var form = new SourceForm { Name = "s", ConnectionId = Guid.NewGuid() };
+
+        form.Validate(ConnectionProvider.Sftp).Should().BeNull(
+            "an SFTP source is bounded by a sub-path, not a bucket");
+    }
 }
+

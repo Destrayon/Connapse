@@ -1,7 +1,9 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Pipeline;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -92,7 +94,15 @@ public class SourceSyncService(
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
-    internal async Task<SourceSyncResult> SyncSourceAsync(Source source, Connection connection, CancellationToken ct)
+    /// <param name="applyWithheldDeletions">
+    /// Applies deletions an administrator has already approved. The vanished set is recomputed
+    /// rather than replayed, so a source whose remote recovered in the meantime deletes
+    /// nothing — but it is capped at the count that was withheld, so a remote that degraded
+    /// further cannot have the larger set applied on the strength of the smaller approval.
+    /// Inert when nothing was withheld: the flag cannot lift a guard that never tripped.
+    /// </param>
+    internal async Task<SourceSyncResult> SyncSourceAsync(
+        Source source, Connection connection, CancellationToken ct, bool applyWithheldDeletions = false)
     {
         if (!source.Enabled)
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null);
@@ -123,11 +133,25 @@ public class SourceSyncService(
         IConnector? connector = null;
         try
         {
-            connector = connectorFactory.Create(source, connection);
+            // Fetched here rather than in SyncAllAsync because the sync-now endpoint calls
+            // this method directly, and a credential that only the timer supplied would make
+            // "sync now" behave differently from the poll.
+            //
+            // Skipped entirely unless the connection actually stores one: HasSecret is on the
+            // read model, so the common providers cost no query and no decrypt per cycle. A
+            // key ring that cannot decrypt throws, which the catch below records as a sync
+            // failure — the right outcome, since retrying will not help.
+            string? secret = connection.HasSecret
+                ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
+                    .GetSecretAsync(connection.Id, ct)
+                : null;
+
+            connector = connectorFactory.Create(source, connection, secret);
 
             return connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
-                : await SyncViaListAndDiffAsync(source, connector, sourceStore, scope.ServiceProvider, ct);
+                : await SyncViaListAndDiffAsync(
+                    source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
         }
         catch (Exception ex)
         {
@@ -204,7 +228,8 @@ public class SourceSyncService(
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(
-        Source source, IConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct)
+        Source source, IConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct,
+        bool applyWithheldDeletions = false)
     {
         IReadOnlyList<ConnectorFile> remote = await connector.ListFilesAsync(null, ct);
 
@@ -220,15 +245,65 @@ public class SourceSyncService(
         var remotePaths = remote.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
         var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
 
+        // Upserts apply regardless. A source that trips the guard must keep ingesting new
+        // content, or the safety mechanism becomes the outage it exists to prevent.
         int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, vanished, context, sp, ct);
+
+        // An approval authorises the deletion set the administrator was shown a count of, not
+        // whatever the next listing happens to produce. Recomputing stays — a remote that
+        // recovered must still delete nothing — but the recomputed set may not *exceed* what
+        // was approved. Without that ceiling the override is unbounded in precisely the
+        // situation it is most likely to be used: a remote that is still degrading. Approve 40
+        // and the cycle could apply 1,000.
+        //
+        // Bound by count rather than by identity. The administrator never sees which paths —
+        // the page shows a number and a source is never browsable — so the consent being given
+        // is "delete what is missing, about this many", and a count expresses that honestly.
+        // Hashing the path set would invalidate approval on any ordinary churn, and would mean
+        // storing path-derived data this design deliberately keeps out of the database.
+        //
+        // Null when nothing was withheld, so the flag cannot lift a guard that never tripped:
+        // a first-ever sync carrying applyWithheldDeletions=true is still guarded.
+        int? approved = applyWithheldDeletions ? source.WithheldDeletions : null;
+
+        bool withhold = approved is null
+            ? DeletionGuard.ShouldWithhold(vanished.Count, indexedPaths.Count)
+            : vanished.Count > approved.Value;
+
+        int deleted = 0;
+        if (withhold)
+        {
+            if (approved is { } ceiling)
+            {
+                logger.LogWarning(
+                    "Source {SourceId} approval superseded: {Approved} deletion(s) were approved but "
+                    + "the listing now shows {Vanished} of {Indexed}; withholding pending fresh approval",
+                    source.Id, ceiling, vanished.Count, indexedPaths.Count);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Source {SourceId} reconcile would delete {Vanished} of {Indexed} document(s); "
+                    + "withholding pending administrator approval",
+                    source.Id, vanished.Count, indexedPaths.Count);
+            }
+        }
+        else
+        {
+            deleted = await DeleteByPathsAsync(source, vanished, context, sp, ct);
+        }
+
+        await sourceStore.UpdateWithheldDeletionsAsync(
+            source.Id, withhold ? vanished.Count : null, ct);
 
         // No cursor to advance on this path, so record the outcome directly. The stored
         // cursor stays null, which is what marks this source as fallback-synced.
         await sourceStore.UpdateSyncStateAsync(
             source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
 
-        return new SourceSyncResult(upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null);
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
+            WithheldDeletions: withhold ? vanished.Count : 0);
     }
 
     /// <summary>
@@ -272,6 +347,9 @@ public class SourceSyncService(
         int count = 0;
         int skipped = 0;
 
+        var due = new List<ConnectorFile>();
+        var claims = new Dictionary<string, Guid>(StringComparer.Ordinal);
+
         foreach (var file in files)
         {
             existingByPath.TryGetValue(file.Path, out var existing);
@@ -286,7 +364,73 @@ public class SourceSyncService(
                 continue;
             }
 
-            string documentId = existing?.Id.ToString() ?? Guid.NewGuid().ToString();
+            due.Add(file);
+
+            if (existing is { Status: "Failed" })
+            {
+                // Counted here rather than in the pipeline, because the pipeline may never run
+                // — a connector that cannot reach its remote throws before it. That is exactly
+                // the failure this bound exists to stop repeating, so the attempt has to be
+                // recorded at the moment it is made.
+                // Reset by a changed file, not merely incremented: the budget is per version.
+                // Carrying a spent one across an edit would let the fall-through above hand the
+                // new version a single attempt and then refuse it for ever.
+                int attempt = SignatureChanged(existing, file) ? 1 : FailedAttempts(existing) + 1;
+
+                var carried = new Dictionary<string, string>(existing.Metadata ?? [])
+                {
+                    [IngestionPipeline.SyncFailedAttemptsKey] =
+                        attempt.ToString(CultureInfo.InvariantCulture),
+                };
+
+                var tracked = await context.Documents.FirstOrDefaultAsync(d => d.Id == existing.Id, ct);
+                if (tracked is not null) tracked.Metadata = carried;
+            }
+
+            if (existing is null)
+            {
+                // A row staking this path, written before anything is enqueued. Until one
+                // exists, "is this file already being worked on?" can only be answered from
+                // persisted documents — and the pipeline does not write one until the job
+                // actually runs. On a source whose ingestion outlasts the poll interval, every
+                // cycle therefore rediscovered the whole backlog as new, minted fresh ids, and
+                // enqueued it all again: the same files downloaded and embedded repeatedly,
+                // and a Hangfire queue growing faster than it drained.
+                //
+                // Status "Pending" is what the next cycle reads: HasRemoteChanged skips it.
+                claims[file.Path] = Guid.NewGuid();
+                context.Documents.Add(new DocumentEntity
+                {
+                    Id = claims[file.Path],
+                    SourceId = source.Id,
+                    FileName = Path.GetFileName(file.Path),
+                    ContentType = file.ContentType,
+                    Path = file.Path,
+                    ContentHash = string.Empty,
+                    SizeBytes = file.SizeBytes,
+                    Status = "Pending",
+                    CreatedAt = DateTime.UtcNow,
+
+                    // Deliberately no remote signature yet. It is what "already indexed at this
+                    // version" means, and writing it here would claim an ingestion that has not
+                    // happened — so a job that then failed would leave a document the next
+                    // cycle reads as up to date and never retries. The pipeline writes it once
+                    // it has the file.
+                    Metadata = [],
+                });
+            }
+        }
+
+        // One round trip, and before any enqueue: a claim that did not persist must not have a
+        // job pointing at it, and a retry that was not counted would not be bounded.
+        if (claims.Count > 0 || due.Count > 0)
+            await context.SaveChangesAsync(ct);
+
+        foreach (var file in due)
+        {
+            existingByPath.TryGetValue(file.Path, out var existing);
+
+            string documentId = (existing?.Id ?? claims[file.Path]).ToString();
             string fileName = Path.GetFileName(file.Path);
 
             await queue.EnqueueAsync(new IngestionJob(
@@ -331,6 +475,20 @@ public class SourceSyncService(
     /// Decides whether an already-indexed document needs re-ingesting, by comparing the
     /// remote's size and modification time against the signature recorded last time.
     /// </summary>
+    /// <summary>
+    /// How many times a failing document is re-enqueued before the sync engine leaves it alone.
+    /// Hangfire retries each of those attempts three times itself, so this is not the whole
+    /// budget — it is the number of fresh starts.
+    /// </summary>
+    private const int MaxFailedSyncAttempts = 3;
+
+    private static int FailedAttempts(DocumentEntity existing) =>
+        existing.Metadata is not null
+        && existing.Metadata.TryGetValue(IngestionPipeline.SyncFailedAttemptsKey, out string? raw)
+        && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int attempts)
+            ? attempts
+            : 0;
+
     private static bool HasRemoteChanged(DocumentEntity existing, ConnectorFile file)
     {
         // Already queued or mid-ingestion. Enqueueing again would race the in-flight job for
@@ -347,11 +505,28 @@ public class SourceSyncService(
         // briefly unreachable poisoned every document caught in the window, and no amount of
         // re-syncing recovered them.
         //
-        // The cost is a genuinely unparseable file being re-fetched every cycle. Bounded, and
-        // much the lesser evil: it fails before embedding, which is the part that costs money.
-        if (existing.Status is "Failed")
+        // Bounded, though (#404). "Retry regardless" assumed the failure was transient, and a
+        // failure that is not — credentials that are wrong, a server that is gone — then
+        // re-enqueued every file in the source on every cycle. Those jobs each carry Hangfire's
+        // own three retries, so the ingestion queue fills with work that cannot succeed and
+        // documents that would have ingested fine sit behind it. A source cannot be allowed to
+        // deny service to the rest of the instance by failing.
+        //
+        // Note the fall-through once the attempts are spent, rather than a flat refusal: an
+        // exhausted document is still re-ingested when the file itself changes. Someone who
+        // fixes the file upstream should not have to wait out a budget, or clear one by hand.
+        if (existing.Status is "Failed" && FailedAttempts(existing) < MaxFailedSyncAttempts)
             return true;
 
+        return SignatureChanged(existing, file);
+    }
+
+    /// <summary>
+    /// True when the remote's own view of the file differs from the one recorded at the last
+    /// ingestion — or when there is nothing recorded to compare against.
+    /// </summary>
+    private static bool SignatureChanged(DocumentEntity existing, ConnectorFile file)
+    {
         var metadata = existing.Metadata;
         string? lastModified = metadata?.GetValueOrDefault(RemoteLastModifiedKey);
         string? size = metadata?.GetValueOrDefault(RemoteSizeKey);

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
@@ -50,6 +50,13 @@ public class IngestionPipeline : IKnowledgeIngester
     /// preserved across a reindex so its change detection keeps a baseline to compare against.
     /// </summary>
     private static readonly string[] RemoteSignatureKeys = ["RemoteLastModified", "RemoteSize"];
+
+    /// <summary>
+    /// How many times the sync engine has re-enqueued this document after a failure. Carried
+    /// across a failed attempt and cleared on a successful one, so a source that cannot be read
+    /// at all stops being retried while a transient fault still recovers.
+    /// </summary>
+    public const string SyncFailedAttemptsKey = "SyncFailedAttempts";
 
     /// <summary>
     /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
@@ -248,6 +255,17 @@ public class IngestionPipeline : IKnowledgeIngester
                     }
                 }
 
+                // Carried for the same reason, and one more: it is the only thing bounding the
+                // sync engine's retry of a failed document. Replacing the metadata here would
+                // reset the count on every attempt, and a source that can never be read — wrong
+                // credentials, a server that is gone — would be re-enqueued for ever, crowding
+                // out every other document's ingestion.
+                if (!metadata.ContainsKey(SyncFailedAttemptsKey) &&
+                    documentEntity.Metadata?.TryGetValue(SyncFailedAttemptsKey, out var attempts) == true)
+                {
+                    metadata[SyncFailedAttemptsKey] = attempts;
+                }
+
                 documentEntity.Metadata = metadata;
             }
             else
@@ -420,6 +438,10 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Update document status
             documentEntity.ChunkCount = chunks.Count;
+            // Cleared on success: the count exists to bound retries of a document that keeps
+            // failing, and this one just stopped failing.
+            documentEntity.Metadata?.Remove(SyncFailedAttemptsKey);
+
             documentEntity.Status = "Ready";
             documentEntity.ErrorMessage = null;
             documentEntity.LastIndexedAt = DateTime.UtcNow;
@@ -507,6 +529,24 @@ public class IngestionPipeline : IKnowledgeIngester
         if (options.Owner is { IsSource: true } sourceOwner)
             return await IngestSourceDocumentAsync(documentId, sourceOwner.Id, options, ct);
 
+        // No owner in the options at all: the row is the only thing that knows which it is.
+        // Callers that omit it would otherwise be routed down the container branch and throw
+        // — and a reindex throws only after it has already deleted the document's chunks, so
+        // the cost of guessing wrong here is a document that is gone from search and that no
+        // later sync restores, because its remote signature still matches.
+        if (options.Owner is null)
+        {
+            Document? owned = await _documentStore.GetAsync(documentId, ct);
+            if (owned?.Owner is { IsSource: true } inferredOwner)
+            {
+                // Carried on the options, not just used for routing: IngestAsync writes the
+                // document through options.Owner, and a source-owned row recorded against
+                // container_id would violate ck_documents_single_owner.
+                return await IngestSourceDocumentAsync(
+                    documentId, inferredOwner.Id, options with { Owner = inferredOwner }, ct);
+            }
+        }
+
         // Resolve the container ID — prefer options.ContainerId, fall back to looking up the doc.
         Guid containerId;
         string virtualPath;
@@ -522,10 +562,10 @@ public class IngestionPipeline : IKnowledgeIngester
                 ?? throw new InvalidOperationException(
                     $"IngestByIdAsync: document {documentId} not found and no ContainerId in options");
 
-            // Source-owned documents have an empty ContainerId, so Guid.Parse would throw a
-            // bare FormatException here. Fail with something actionable instead. Re-ingesting
-            // a source document goes through the sync engine, which resolves its connector
-            // from the source's connection rather than from a container.
+            // Document.ContainerId carries COALESCE(container_id, source_id), so it parses
+            // even for a source-owned row — which is why source ownership is settled above,
+            // from doc.Owner, before this point. Reaching here with an unparseable value means
+            // the row has no usable owner at all.
             if (string.IsNullOrEmpty(doc.ContainerId) || !Guid.TryParse(doc.ContainerId, out var docContainerId))
                 throw new InvalidOperationException(
                     $"IngestByIdAsync: document {documentId} is not owned by a container. " +
@@ -571,10 +611,14 @@ public class IngestionPipeline : IKnowledgeIngester
             ?? throw new InvalidOperationException(
                 $"IngestByIdAsync: connection {source.ConnectionId} not found for source {sourceId}");
 
-        // No credential is passed: every provider here authenticates from ambient identity —
-        // S3 through the AWS default chain, Azure through managed identity — or needs nothing
-        // at all. A provider that stores one would have to be handed it here too.
-        IConnector connector = _connectorFactory.Create(source, connection);
+        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
+        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
+        // rather than being swallowed.
+        string? secret = connection.HasSecret
+            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+            : null;
+
+        IConnector connector = _connectorFactory.Create(source, connection, secret);
         try
         {
             await using Stream stream = await connector.ReadFileAsync(path, ct);

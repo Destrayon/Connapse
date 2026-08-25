@@ -26,6 +26,12 @@ public record SourceResponse(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     /// <summary>
+    /// How many deletions the last reconcile declined to apply, or null when none are pending.
+    /// Unlike <see cref="LastSyncError"/> this is not administrator-only: it is a count, and
+    /// names nothing about the remote's contents or structure.
+    /// </summary>
+    int? WithheldDeletions,
+    /// <summary>
     /// Populated for administrators only. A provider's failure text routinely echoes the
     /// thing that failed — "Access Denied for bucket payroll-data" — so returning it to
     /// every reader would give back exactly the infrastructure detail ScopeJson is withheld
@@ -51,5 +57,6 @@ public record SourceResponse(
         Summary: source.Summary,
         CreatedAt: source.CreatedAt,
         UpdatedAt: source.UpdatedAt,
+        WithheldDeletions: source.WithheldDeletions,
         LastSyncError: includeDiagnostics ? source.LastSyncError : null);
 }

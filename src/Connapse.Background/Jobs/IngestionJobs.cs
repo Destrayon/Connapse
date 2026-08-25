@@ -102,7 +102,12 @@ public sealed class IngestionJobs : IIngestionJobs
             // IElectStateFilter — deferred to a follow-up.
             _logger.LogWarning(ex,
                 "IngestAsync threw {DocumentId}", LogSanitizer.Sanitize(documentId));
-            await _docStore.UpdateIngestionStateAsync(documentId, IngestionState.Failed, CancellationToken.None);
+
+            // Status as well as state. The pipeline writes "Failed" itself once it has the row
+            // in hand, but a job that died before that — a source whose SFTP server refused the
+            // connection, say — never reaches it, and the "Pending" a reindex left behind reads
+            // to the sync engine as a job still on its way. It would skip the document forever.
+            await _docStore.MarkIngestionFailedAsync(documentId, ex.Message, CancellationToken.None);
             await _stateBroadcaster.BroadcastIngestionStateChangedAsync(
                 documentId, IngestionState.Failed, CancellationToken.None);
             throw;
