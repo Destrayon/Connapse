@@ -605,4 +605,72 @@ public class SftpHostSetupTests
         script.Should().Contain($"'{SftpHostSetup.BeginMarker}'");
         script.Should().Contain($"'{SftpHostSetup.EndMarker}'");
     }
+
+    // ── Addresses the host reports about itself ───────────────────────────────────
+
+    [Fact]
+    public void ParseResult_ReportedHostAndAddresses_AreOfferedHostnameFirst()
+    {
+        // Hostname first because it survives a DHCP lease changing and an address does not.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=fileserver
+            addresses=192.168.1.50,10.8.0.3
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses
+            .Should().Equal("fileserver", "192.168.1.50", "10.8.0.3");
+    }
+
+    [Fact]
+    public void ParseResult_HostAlreadyAmongTheAddresses_IsNotOfferedTwice()
+    {
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=192.168.1.50
+            addresses=192.168.1.50,10.8.0.3
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses.Should().Equal("192.168.1.50", "10.8.0.3");
+    }
+
+    [Fact]
+    public void ParseResult_NoAddressesReported_StillParses()
+    {
+        // An older setup command sent neither field, and a machine whose address lookup found
+        // nothing still installed the key correctly. Refusing the block would strand a host that
+        // is already configured — the same trap the optional fingerprint avoids.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            {SftpHostSetup.EndMarker}
+            """;
+
+        var result = SftpHostSetup.ParseResult(block);
+
+        result.Should().NotBeNull();
+        result!.Addresses.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    [InlineData(HostPlatform.Windows)]
+    public void GenerateScript_ReportsTheMachinesOwnNameAndAddresses(HostPlatform platform)
+    {
+        string script = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        script.Should().Contain("host=");
+        script.Should().Contain("addresses=");
+    }
 }

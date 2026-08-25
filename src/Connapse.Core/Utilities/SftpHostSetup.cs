@@ -44,13 +44,25 @@ public enum SftpSetupTarget
 /// nobody asked.
 /// </para>
 /// </param>
+/// <param name="Addresses">
+/// Names and addresses this machine believes it can be reached on — its hostname first, then its
+/// non-loopback IPv4 addresses. Filtered on the host, which is the only place that can tell a
+/// usable address from a useless one.
+/// <para>
+/// Suggestions, not answers. Whether Connapse can reach any of them depends on where Connapse
+/// runs, and a machine cannot know that about itself.
+/// </para>
+/// </param>
 public record SftpHostSetupResult(
     string Username,
     string HomePath,
     string Fingerprint,
-    IReadOnlyList<string>? Drives = null)
+    IReadOnlyList<string>? Drives = null,
+    IReadOnlyList<string>? Addresses = null)
 {
     public IReadOnlyList<string> Drives { get; init; } = Drives ?? [];
+
+    public IReadOnlyList<string> Addresses { get; init; } = Addresses ?? [];
 }
 
 /// <summary>
@@ -283,12 +295,26 @@ public static class SftpHostSetup
         # keep things and a second drive is entirely normal.
         $drives = (Get-PSDrive -PSProvider FileSystem | ForEach-Object { "/$($_.Name):/" }) -join ','
 
+        # Addresses Connapse might reach this machine on. Filtered here for the same reason the
+        # drives are listed here: only this machine can tell a usable address from a useless one.
+        # Loopback answers to nobody else, 169.254.x means DHCP failed, and Hyper-V and WSL leave
+        # virtual adapters behind that route nowhere from outside.
+        $addresses = ''
+        try {
+            $addresses = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+                          Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' -and
+                                         $_.InterfaceAlias -notmatch 'Loopback|WSL|Hyper-V|vEthernet' } |
+                          Select-Object -ExpandProperty IPAddress -Unique) -join ','
+        } catch { }
+
         Write-Host ''
         Write-Host '{{BeginMarker}}'
         Write-Host "user=$env:USERNAME"
         Write-Host "home=/$($env:USERPROFILE -replace '\\','/')"
         Write-Host "drives=$drives"
         Write-Host "fingerprint=$fingerprint"
+        Write-Host "host=$env:COMPUTERNAME"
+        Write-Host "addresses=$addresses"
         Write-Host '{{EndMarker}}'
         Write-Host ''
         Write-Host 'Copy the block above, including both marker lines, back into Connapse.'
@@ -350,6 +376,28 @@ public static class SftpHostSetup
         HOSTKEY=$(ls /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || ls /etc/ssh/ssh_host_rsa_key.pub)
         FINGERPRINT=$(ssh-keygen -lf "$HOSTKEY" | awk '{print $2}')
 
+        # Addresses Connapse might reach this machine on. Filtered here rather than in the UI,
+        # because this is the only place that can tell a usable address from a useless one:
+        # loopback answers only to this machine, 169.254.x means DHCP failed, and 172.17.x is
+        # this machine's own Docker bridge. Suggesting any of them would waste the operator's
+        # time proving they do not work.
+        #
+        # 'ip' on Linux, 'ifconfig' on macOS. Chosen on whether the first produced anything
+        # rather than on its exit status: a pipeline reports the status of its last command, so
+        # 'ip ... | awk | cut || ifconfig' would take the status of cut, which succeeds on empty
+        # input, and the fallback would never run. Neither failing is fatal — an empty list
+        # costs a suggestion, not the setup.
+        ADDRESSES=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+        [ -z "$ADDRESSES" ] && ADDRESSES=$(hostname -I 2>/dev/null | tr ' ' '\n')
+        [ -z "$ADDRESSES" ] && ADDRESSES=$(ifconfig 2>/dev/null | awk '/inet /{print $2}')
+
+        # 172.17 only, not the whole of 172.16/12: that range is a normal private network and a
+        # server legitimately living on 172.20.x should not have its real address hidden. Docker's
+        # default bridge is the specific thing worth dropping.
+        ADDRESSES=$(printf '%s\n' "$ADDRESSES" \
+                    | grep -Ev '^(127\.|169\.254\.|172\.17\.)' \
+                    | grep -E '^[0-9]' | sort -u | paste -sd, -)
+
         # The markers go through %s rather than being the format string themselves. They begin
         # with dashes, and printf reads a leading '-' as an option — bash rejected the end
         # marker outright, so the block came back unterminated and would not parse. The begin
@@ -358,6 +406,8 @@ public static class SftpHostSetup
         printf 'user=%s\n' "$(whoami)"
         printf 'home=%s\n' "$HOME"
         printf 'fingerprint=%s\n' "$FINGERPRINT"
+        printf 'host=%s\n' "$(hostname 2>/dev/null)"
+        printf 'addresses=%s\n' "$ADDRESSES"
         printf '%s\n\n' '{{EndMarker}}'
         echo 'Copy the block above, including both marker lines, back into Connapse.'
 
@@ -395,6 +445,8 @@ public static class SftpHostSetup
 
         string? user = null, home = null, fingerprint = null;
         IReadOnlyList<string> drives = [];
+        string? reportedHost = null;
+        IReadOnlyList<string> addresses = [];
 
         foreach (string raw in body.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -417,6 +469,16 @@ public static class SftpHostSetup
                 case "drives":
                     drives = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     break;
+
+                // Also optional, and for the same reason: an older command did not send these,
+                // and a machine whose address lookup found nothing still set itself up correctly.
+                case "host":
+                    reportedHost = value;
+                    break;
+
+                case "addresses":
+                    addresses = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    break;
             }
         }
 
@@ -429,9 +491,16 @@ public static class SftpHostSetup
         // Blank already has a defined meaning everywhere else: SshHostKeyPolicy reads it as
         // trust-on-first-use. So an absent fingerprint costs the stronger verified-first-use and
         // nothing else, which the panel says plainly rather than silently accepting.
+        // Hostname first: it survives a DHCP lease changing, which an address does not. Both are
+        // only suggestions, so ordering them by which is likelier to keep working is the whole
+        // of the judgement being made here.
+        IReadOnlyList<string> candidates = reportedHost is null
+            ? addresses
+            : [reportedHost, .. addresses.Where(a => !string.Equals(a, reportedHost, StringComparison.OrdinalIgnoreCase))];
+
         return user is null || home is null
             ? null
-            : new SftpHostSetupResult(user, home, fingerprint ?? string.Empty, drives);
+            : new SftpHostSetupResult(user, home, fingerprint ?? string.Empty, drives, candidates);
     }
 
     /// <summary>

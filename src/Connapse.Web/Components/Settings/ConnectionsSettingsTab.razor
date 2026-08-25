@@ -10,6 +10,7 @@
 @inject IConnectionStore ConnectionStore
 @inject ISourceStore SourceStore
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
+@inject IContainerHostResolver HostResolver
 @inject S3ConnectionTester S3Tester
 @inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
@@ -272,6 +273,22 @@
                             <label class="form-label">Reachable at</label>
                             <input class="form-control font-monospace" @bind="localHost"
                                    placeholder="@(RemoteTarget ? "files.example.com" : "host.docker.internal")" />
+
+                            @* What the machine said about itself, offered the same way its drives
+                               are. Suggestions rather than answers: whether any of them is
+                               reachable depends on where Connapse runs, which the machine
+                               reporting them cannot know. *@
+                            @if (LocalResult()?.Addresses is { Count: > 0 } candidates)
+                            {
+                                <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+                                    <span class="small text-muted me-1">It reports:</span>
+                                    @foreach (var candidate in candidates)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                                                @onclick="() => localHost = candidate">@candidate</button>
+                                    }
+                                </div>
+                            }
                             <div class="form-text">
                                 @if (RemoteTarget)
                                 {
@@ -499,6 +516,17 @@
                     <code>host.docker.internal</code> — see
                     <a href="https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md" target="_blank" rel="noopener">the connector documentation</a>.
                 </div>
+
+                @* Shown while they are still typing, rather than only in a failure message
+                   afterwards. The address is about to change under them, and finding that out
+                   from a saved connection is worse than being told now. *@
+                @if (HostResolver.Resolve(form.Host) is { Rewritten: true } preview)
+                {
+                    <div class="alert alert-info py-2 mt-2 mb-0 small">
+                        <span class="bi-arrow-left-right me-1"></span>
+                        Will be saved as <code>@preview.Host</code>. @preview.Reason
+                    </div>
+                }
             </div>
             <div class="col-md-4">
                 <label class="form-label">Port</label>
@@ -730,6 +758,9 @@
 
     // ── Guided setup: this computer, or a server ───────────────────────────
 
+    /// <summary>Set when a save rewrote the host, so the outcome can say so.</summary>
+    private string? hostRewriteNote;
+
     private bool localSetup;
     private SftpSetupTarget setupTarget = SftpSetupTarget.ThisComputer;
     private HostPlatform setupPlatform = HostPlatform.Windows;
@@ -814,8 +845,14 @@
     private bool LocalSetupReady() =>
         LocalResult() is not null && !string.IsNullOrWhiteSpace(localHost);
 
+    /// <summary>
+    /// Built with the address Connapse will actually dial, not the one typed. The guided flow
+    /// saves and tests through this, so resolving in one and not the other would let a test pass
+    /// against something the saved connection does not point at.
+    /// </summary>
     private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
-        ConnectionForm.ForGuidedSetup(result, localHost, localRoot, localKeyPair!.PrivateKeyPem);
+        ConnectionForm.ForGuidedSetup(
+            result, HostResolver.Resolve(localHost).Host, localRoot, localKeyPair!.PrivateKeyPem);
 
     private async Task TestLocalSetup()
     {
@@ -829,7 +866,7 @@
 
             var outcome = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
             {
-                Host = form.Host!,
+                Host = HostResolver.Resolve(form.Host).Host,
                 Port = 22,
                 Username = form.Username!,
                 AllowedRoot = form.AllowedRoot!,
@@ -931,6 +968,20 @@
         saving = true;
         try
         {
+            // Applied to the form itself, not just on the way to the store, so the operator ends
+            // up looking at the address their connection actually holds. Saving what was typed
+            // while testing something else would make the test meaningless: it would pass here
+            // and the sync would fail later, against an address nobody had ever tried.
+            if (form.Provider == ConnectionProvider.Sftp)
+            {
+                var resolvedHost = HostResolver.Resolve(form.Host);
+                if (resolvedHost.Rewritten)
+                {
+                    form.Host = resolvedHost.Host;
+                    hostRewriteNote = resolvedHost.Reason;
+                }
+            }
+
             string config = form.ToConfigJson();
 
             // Null for every provider but SFTP, and null again for an SFTP connection saved
@@ -942,7 +993,7 @@
                 await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
-                Succeed($"Connection '{form.Name.Trim()}' created.");
+                Succeed($"Connection '{form.Name.Trim()}' created.{HostRewriteSuffix()}");
             }
             else
             {
@@ -959,7 +1010,7 @@
                     return;
                 }
 
-                Succeed($"Connection '{form.Name.Trim()}' saved.");
+                Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
             }
 
             editing = null;
@@ -1055,9 +1106,13 @@
                     return;
                 }
 
+                // What Connapse will actually dial, which is not always what was typed. See
+                // IContainerHostResolver: loopback means the container, not the operator's machine.
+                var resolved = HostResolver.Resolve(form.Host);
+
                 var sftpResult = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
                 {
-                    Host = form.Host?.Trim() ?? "",
+                    Host = resolved.Host,
                     Port = int.TryParse(form.Port, out int p) ? p : 22,
                     Username = form.Username?.Trim() ?? "",
                     AllowedRoot = form.AllowedRoot?.Trim() ?? "",
@@ -1076,7 +1131,12 @@
                 string usedKey = string.IsNullOrWhiteSpace(form.PrivateKey)
                     ? "Using the stored key."
                     : "Using the key in this form.";
-                testMessage = $"{usedKey} {sftpResult.Message}";
+
+                // The rewrite is reported on success as well as failure. A test that passes
+                // against a different address than the one on screen is exactly the result an
+                // operator would misread.
+                string rewrite = resolved.Rewritten ? $" ({resolved.Reason})" : "";
+                testMessage = $"{usedKey} {sftpResult.Message}{rewrite}";
                 return;
             }
 
@@ -1142,6 +1202,16 @@
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Names the host rewrite in the outcome, and clears it so it is said once.</summary>
+    private string HostRewriteSuffix()
+    {
+        if (hostRewriteNote is null) return "";
+
+        string note = $" {hostRewriteNote}";
+        hostRewriteNote = null;
+        return note;
+    }
 
     private void Succeed(string message)
     {
