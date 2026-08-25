@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -572,5 +572,97 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
 
         result.Upserted.Should().Be(0);
         connector.ListCalls.Should().Be(0, "a disabled source must not touch the remote at all");
+    }
+    // ── Retrying a failed document (#400) ──────────────────────────────────
+
+    /// <summary>
+    /// Seeds one document with a given status and a remote signature matching what the connector
+    /// will report, so change detection sees an unchanged file and the status is the only thing
+    /// that can decide whether it is re-enqueued.
+    /// </summary>
+    /// <remarks>
+    /// Inserted via raw SQL because <c>IDocumentStore.StoreAsync</c> always populates
+    /// <c>container_id</c> and so cannot express a source-owned row.
+    /// </remarks>
+    private static async Task SeedDocumentWithSignatureAsync(
+        IServiceProvider sp, Guid sourceId, string path, string status, DateTime lastModified, long size)
+    {
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await dbFactory.CreateDbContextAsync();
+
+        await context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, status, metadata, created_at) "
+            + "VALUES ({0}, NULL, {1}, {2}, {3}, '', {4}, {5}, {6}::jsonb, now())",
+            Guid.NewGuid(), sourceId, Path.GetFileName(path), path, size, status,
+            $$"""{"RemoteLastModified":"{{lastModified:O}}","RemoteSize":"{{size}}"}""");
+    }
+
+    /// <summary>
+    /// The regression. A failed document keeps the signature written before it failed, so change
+    /// detection saw an unchanged file and skipped it — leaving it Failed with zero chunks for
+    /// ever, or until the remote happened to change. Any transient downstream fault was
+    /// therefore permanent.
+    /// </summary>
+    [Fact]
+    public async Task Sync_DocumentLeftFailed_IsRetriedEvenThoughTheRemoteIsUnchanged()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+        var modified = new DateTime(2026, 8, 23, 7, 4, 54, DateTimeKind.Utc);
+
+        await SeedDocumentWithSignatureAsync(
+            scope.ServiceProvider, source.Id, "/a.md", "Failed", modified, size: 100);
+
+        var connector = new FakeListConnector(new ConnectorFile("/a.md", 100, modified, null));
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(1, "a failed document must be retried, not skipped as unchanged");
+    }
+
+    /// <summary>
+    /// The other half, and why this cannot simply ignore status: an already-indexed document with
+    /// a matching signature must still be skipped, or a five-minute poll re-embeds the whole
+    /// source on every cycle.
+    /// </summary>
+    [Fact]
+    public async Task Sync_DocumentAlreadyIndexed_IsStillSkippedWhenUnchanged()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+        var modified = new DateTime(2026, 8, 23, 7, 4, 54, DateTimeKind.Utc);
+
+        await SeedDocumentWithSignatureAsync(
+            scope.ServiceProvider, source.Id, "/a.md", "Ready", modified, size: 100);
+
+        var connector = new FakeListConnector(new ConnectorFile("/a.md", 100, modified, null));
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(0, "change detection is what keeps a poll from re-embedding everything");
+    }
+
+    /// <summary>
+    /// And the in-flight guard survives: a document mid-ingestion must not be enqueued twice
+    /// against the same id.
+    /// </summary>
+    [Theory]
+    [InlineData("Pending")]
+    [InlineData("Queued")]
+    [InlineData("Processing")]
+    public async Task Sync_DocumentInFlight_IsStillSkipped(string status)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+        var modified = new DateTime(2026, 8, 23, 7, 4, 54, DateTimeKind.Utc);
+
+        await SeedDocumentWithSignatureAsync(
+            scope.ServiceProvider, source.Id, "/a.md", status, modified, size: 100);
+
+        var connector = new FakeListConnector(new ConnectorFile("/a.md", 100, modified, null));
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(0, "enqueueing again would race the in-flight job");
     }
 }

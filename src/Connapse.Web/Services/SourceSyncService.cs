@@ -460,6 +460,20 @@ public class SourceSyncService(
         if (existing.Status is "Pending" or "Queued" or "Processing")
             return false;
 
+        // A failed document is retried, regardless of the signature (#400). The signature is
+        // written as ingestion metadata before the failure, so it matches — which meant the
+        // comparison below skipped the document and it stayed Failed with zero chunks for ever,
+        // or until the remote file happened to change.
+        //
+        // That made any transient downstream fault permanent: an embedding service that was
+        // briefly unreachable poisoned every document caught in the window, and no amount of
+        // re-syncing recovered them.
+        //
+        // The cost is a genuinely unparseable file being re-fetched every cycle. Bounded, and
+        // much the lesser evil: it fails before embedding, which is the part that costs money.
+        if (existing.Status is "Failed")
+            return true;
+
         var metadata = existing.Metadata;
         string? lastModified = metadata?.GetValueOrDefault(RemoteLastModifiedKey);
         string? size = metadata?.GetValueOrDefault(RemoteSizeKey);

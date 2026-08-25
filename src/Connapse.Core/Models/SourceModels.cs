@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 public enum SyncStatus { Never = 0, Running = 1, Succeeded = 2, Failed = 3 }
 
@@ -21,7 +21,16 @@ public record Source(
     DateTime? SummaryGeneratedAt = null,
     string? SummaryDocSetHash = null,
     int DocumentCount = 0,
-    int? WithheldDeletions = null);
+    int? WithheldDeletions = null,
+
+    // Appended rather than inserted: this record is constructed positionally in places, so a
+    // parameter added anywhere else shifts every argument after it.
+    //
+    // Counted separately because DocumentCount includes every row whatever its status, so a
+    // source where nothing could be embedded still reported its files and a green badge. The
+    // sync did succeed — it listed and enqueued correctly — and the failure downstream had no
+    // way back to the page (#400).
+    int FailedDocumentCount = 0);
 
 public record CreateSourceRequest(
     string Name,

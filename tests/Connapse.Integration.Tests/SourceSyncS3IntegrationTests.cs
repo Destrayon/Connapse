@@ -1,4 +1,4 @@
-﻿using Amazon.S3.Model;
+using Amazon.S3.Model;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -169,4 +169,46 @@ public class SourceSyncS3IntegrationTests(SharedWebAppFixture fixture) : IAsyncL
 
         second.Upserted.Should().Be(0, "an object untouched in S3 must not be re-embedded every cycle");
     }
+
+    /// <summary>
+    /// The seam nothing crossed. Sync tests assert what is <em>enqueued</em>; pipeline tests
+    /// start from <c>IngestAsync</c>. Between them sat <c>IngestByIdAsync</c>, which resolved
+    /// ownership only through a container — so every job a source enqueued failed, for every
+    /// provider, and the Sources page showed files queued with the document count stuck at zero
+    /// (#398).
+    /// </summary>
+    [Fact]
+    public async Task IngestByIdAsync_SourceOwnedDocument_ReadsItThroughTheSourcesConnector()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, _) = await CreateSourceAsync(scope.ServiceProvider);
+
+        await SeedObjectAsync("notes.md", "content that must reach the index");
+
+        var pipeline = scope.ServiceProvider.GetRequiredService<IKnowledgeIngester>();
+        var documentId = Guid.NewGuid();
+
+        var result = await pipeline.IngestByIdAsync(
+            documentId.ToString(),
+            new IngestionOptions(
+                DocumentId: documentId.ToString(),
+                FileName: "notes.md",
+                ContentType: "text/markdown",
+                Path: "notes.md")
+            {
+                // No ContainerId, because a source does not have one. That is the whole case.
+                Owner = OwnerRef.ForSource(source.Id),
+            });
+
+        result.ChunkCount.Should().BeGreaterThan(0, "the file must actually have been read and indexed");
+
+        var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var db = await dbFactory.CreateDbContextAsync();
+
+        var document = await db.Documents.FirstOrDefaultAsync(d => d.Id == documentId);
+        document.Should().NotBeNull();
+        document!.SourceId.Should().Be(source.Id);
+        document.ContainerId.Should().BeNull("ownership is exclusive — a source document has no container");
+    }
 }
+
