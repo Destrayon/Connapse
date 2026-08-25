@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Connectors;
@@ -74,8 +74,9 @@ public sealed record ConnectionForm
 
 
     /// <summary>
-    /// Builds the connection the "Connect this computer" flow creates, from what the host's
-    /// setup command reported.
+    /// Builds the connection the guided setup creates, from what the host's setup command
+    /// reported. The same for a remote server as for the operator's own machine: only the
+    /// script differs between them, never the connection it produces.
     /// </summary>
     /// <remarks>
     /// Here rather than in the Razor component for the same reason the rest of this class is:
@@ -88,8 +89,14 @@ public sealed record ConnectionForm
     /// the flow to the profile would rule out where most people actually keep things.
     /// Blank falls back to the reported home directory.
     /// </param>
-    public static ConnectionForm ForLocalMachine(
-        SftpHostSetupResult result, string host, string? allowedRoot, string privateKeyPem)
+    /// <param name="port">
+    /// The SSH port, blank meaning 22. Its own parameter rather than something parsed back out of
+    /// <paramref name="host"/>: splitting on a colon is wrong the moment the host is an IPv6
+    /// literal, and the form has room for a second field.
+    /// </param>
+    public static ConnectionForm ForGuidedSetup(
+        SftpHostSetupResult result, string host, string? allowedRoot, string privateKeyPem,
+        string? port = null)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentException.ThrowIfNullOrWhiteSpace(host);
@@ -100,7 +107,7 @@ public sealed record ConnectionForm
             Name = $"{result.Username}@{host.Trim()}",
             Provider = ConnectionProvider.Sftp,
             Host = host.Trim(),
-            Port = "22",
+            Port = string.IsNullOrWhiteSpace(port) ? "22" : port.Trim(),
             Username = result.Username,
             AllowedRoot = NormaliseRemoteRoot(allowedRoot, result.HomePath),
             HostKeyFingerprint = result.Fingerprint,

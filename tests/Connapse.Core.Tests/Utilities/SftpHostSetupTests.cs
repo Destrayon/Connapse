@@ -466,4 +466,251 @@ public class SftpHostSetupTests
             "enabling SSH without naming the host's password policy hides half the change");
         script.Should().Contain("accepts SSH logins by password");
     }
+
+    // ── Setting up a server the operator already reaches over SSH (#407) ───────────
+
+    /// <summary>
+    /// The five things that only make sense when the SSH server does not exist yet. A server
+    /// the operator is running this on is already serving SSH, so each of these would either
+    /// do nothing or change something they did not ask to have changed.
+    /// </summary>
+    public static TheoryData<string> PrivilegedSteps => new()
+    {
+        "Add-WindowsCapability",
+        "Set-Service",
+        "Start-Service",
+        "New-NetFirewallRule",
+    };
+
+    [Theory]
+    [MemberData(nameof(PrivilegedSteps))]
+    public void GenerateScript_Remote_DoesNotStandUpAnSshServer(string step)
+    {
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().NotContain(step,
+            "the operator is already connected over SSH, so the server is running and the port is open");
+
+        SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.ThisComputer)
+            .Should().Contain(step, "the local variant is the one that has to create all this");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_RemoteUnix_NeedsNoPrivilege(HostPlatform platform)
+    {
+        // Writing one line into the operator's own ~/.ssh/authorized_keys is not privileged
+        // work, and asking for sudo on a machine they may not own is a real obstacle.
+        string remote = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        remote.Should().NotContain("sudo");
+        remote.Should().Contain("authorized_keys", "the key still has to be installed");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Windows)]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_Remote_StillInstallsTheKeyRestricted(HostPlatform platform)
+    {
+        // Everything the local variant does about *authorisation* is unchanged. Only the
+        // steps that bring a server into existence are dropped.
+        string remote = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain(SftpHostSetup.KeyRestrictions.Trim(),
+            "an unrestricted key would grant a shell on someone else's server");
+        remote.Should().Contain(SftpHostSetup.BeginMarker);
+        remote.Should().Contain("fingerprint=", "verified first use is the whole point of the round trip");
+        remote.Should().Contain("PasswordAuthentication",
+            "a remote host is likelier to be internet-facing, not less");
+    }
+
+    [Fact]
+    public void GenerateScript_RemoteWindows_AsksForElevationOnlyWhenTheAccountIsAnAdministrator()
+    {
+        // The local script demands elevation up front because installing the SSH server needs
+        // it regardless. Remotely only one branch does — the machine-wide file an administrator
+        // account's keys go in — so demanding it unconditionally would put a UAC prompt in
+        // front of a step that writes one line into the operator's own home directory.
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain("if ($isAdmin -and -not $elevated)",
+            "elevation is demanded only once membership is known");
+        remote.Should().Contain("administrators_authorized_keys",
+            "which is the file that makes elevation necessary at all");
+
+        int guard = remote.IndexOf("$isAdmin -and -not $elevated", StringComparison.Ordinal);
+        int membership = remote.IndexOf("Get-LocalGroupMember", StringComparison.Ordinal);
+        guard.Should().BeGreaterThan(membership, "the question has to be asked before it is acted on");
+    }
+
+    [Fact]
+    public void GenerateScript_RemoteWindows_RefusesToGuessMembershipItCouldNotRead()
+    {
+        // UAC filters the Administrators SID out of an unelevated token, so falling back to a
+        // token check would answer "not an administrator" for an account that is one — and the
+        // key would go in a file sshd never reads, failing with nothing to explain it.
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain("Could not read the Administrators group",
+            "refusing beats guessing wrong in the direction that fails silently");
+    }
+
+    [Fact]
+    public void GenerateScript_DefaultsToThisComputer()
+    {
+        // The two-argument form predates the target and is still what the local flow calls.
+        SftpHostSetup.GenerateScript(Key, HostPlatform.Windows)
+            .Should().Be(SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.ThisComputer));
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux, SftpSetupTarget.ThisComputer)]
+    [InlineData(HostPlatform.Linux, SftpSetupTarget.RemoteServer)]
+    [InlineData(HostPlatform.MacOS, SftpSetupTarget.ThisComputer)]
+    [InlineData(HostPlatform.MacOS, SftpSetupTarget.RemoteServer)]
+    public void GenerateScript_Unix_NeverPassesAMarkerAsAPrintfFormatString(
+        HostPlatform platform, SftpSetupTarget target)
+    {
+        // Both markers start with dashes, and printf reads a leading '-' as an option. As the
+        // format string the end marker made bash print "invalid option" instead of the marker,
+        // so the block came back unterminated and ParseResult refused it — with the host already
+        // configured and the key already installed. Asserting the marker merely *appears* in the
+        // script does not catch this: it appeared, as the thing that failed to print.
+        string script = SftpHostSetup.GenerateScript(Key, platform, target);
+
+        foreach (string line in script.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (!trimmed.StartsWith("printf ", StringComparison.Ordinal)) continue;
+
+            string format = trimmed["printf ".Length..].TrimStart();
+            format = format.StartsWith('\'') ? format[1..] : format;
+
+            format.Should().NotStartWith("-",
+                $"printf would read this as an option, not text: {trimmed}");
+        }
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_Unix_EmitsBothMarkersThroughAStringPlaceholder(HostPlatform platform)
+    {
+        // The positive half of the rule above: the markers are arguments, which is what makes
+        // them survive their own leading dashes.
+        string script = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        script.Should().Contain($"'{SftpHostSetup.BeginMarker}'");
+        script.Should().Contain($"'{SftpHostSetup.EndMarker}'");
+    }
+
+    // ── Addresses the host reports about itself ───────────────────────────────────
+
+    [Fact]
+    public void ParseResult_ShortNameAndFqdn_OffersTheFqdnFirstAndTheShortNameLast()
+    {
+        // The short name is the one the operator recognises and the one likeliest to fail: their
+        // workstation resolves it only because its DNS client appends a search suffix, and a
+        // container has none. So it stays in the list, at the bottom.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=divielserver
+            fqdn=divielserver.attlocal.net
+            addresses=192.168.1.194
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses
+            .Should().Equal("divielserver.attlocal.net", "192.168.1.194", "divielserver");
+    }
+
+    [Fact]
+    public void ParseResult_FqdnEqualsTheShortName_IsNotOfferedTwice()
+    {
+        // hostname -f falls back to the short name on a host with no domain configured.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=fileserver
+            fqdn=fileserver
+            addresses=192.168.1.50
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses.Should().Equal("fileserver", "192.168.1.50");
+    }
+
+    [Fact]
+    public void ParseResult_NoFqdnReported_OffersAddressesAheadOfTheShortName()
+    {
+        // With no fully-qualified name to lead with, an address beats the short name: it needs
+        // no resolver at all, where the short name needs one that appends a search suffix.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=fileserver
+            addresses=192.168.1.50,10.8.0.3
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses
+            .Should().Equal("192.168.1.50", "10.8.0.3", "fileserver");
+    }
+
+    [Fact]
+    public void ParseResult_HostAlreadyAmongTheAddresses_IsNotOfferedTwice()
+    {
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            host=192.168.1.50
+            addresses=192.168.1.50,10.8.0.3
+            {SftpHostSetup.EndMarker}
+            """;
+
+        SftpHostSetup.ParseResult(block)!.Addresses.Should().Equal("192.168.1.50", "10.8.0.3");
+    }
+
+    [Fact]
+    public void ParseResult_NoAddressesReported_StillParses()
+    {
+        // An older setup command sent neither field, and a machine whose address lookup found
+        // nothing still installed the key correctly. Refusing the block would strand a host that
+        // is already configured — the same trap the optional fingerprint avoids.
+        string block = $"""
+            {SftpHostSetup.BeginMarker}
+            user=diviel
+            home=/home/diviel
+            fingerprint=SHA256:abc
+            {SftpHostSetup.EndMarker}
+            """;
+
+        var result = SftpHostSetup.ParseResult(block);
+
+        result.Should().NotBeNull();
+        result!.Addresses.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    [InlineData(HostPlatform.Windows)]
+    public void GenerateScript_ReportsTheMachinesOwnNameAndAddresses(HostPlatform platform)
+    {
+        string script = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        script.Should().Contain("host=");
+        script.Should().Contain("addresses=");
+    }
 }

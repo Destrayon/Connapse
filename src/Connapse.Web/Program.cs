@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json.Serialization;
 using Connapse.Background;
 using Connapse.Core;
@@ -147,6 +147,10 @@ builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
 // after a source already exists.
 builder.Services.AddScoped<SourceScopePreflight>();
+
+// Singleton: whether this process is in a container cannot change while it runs, and the
+// resolver reads that once. See ContainerHostResolver.
+builder.Services.AddSingleton<IContainerHostResolver, ContainerHostResolver>();
 builder.Services.AddScoped<IUploadService, UploadService>();
 
 builder.Services.AddConnapseStorage(builder.Configuration);

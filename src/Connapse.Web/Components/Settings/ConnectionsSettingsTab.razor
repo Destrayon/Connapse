@@ -10,6 +10,7 @@
 @inject IConnectionStore ConnectionStore
 @inject ISourceStore SourceStore
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
+@inject IContainerHostResolver HostResolver
 @inject S3ConnectionTester S3Tester
 @inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
@@ -55,19 +56,43 @@
     @if (localSetup)
     {
         <div class="col-12">
-            <h5>Connect this computer</h5>
+            <h5>@(RemoteTarget ? "Connect a server" : "Connect this computer")</h5>
             <p class="text-muted mb-0">
-                Connapse runs in a container, so it cannot see your files directly and cannot
-                configure your machine for you. It can do everything else: it has made a key,
-                and written the one command you need to run.
+                @if (RemoteTarget)
+                {
+                    <text>
+                        Connapse cannot configure a machine it does not run on, and will not sign in
+                        with a password to try. It can do everything either side of that: it has made
+                        a key, and written the one command to run on the server.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        Connapse runs in a container, so it cannot see your files directly and cannot
+                        configure your machine for you. It can do everything else: it has made a key,
+                        and written the one command you need to run.
+                    </text>
+                }
             </p>
+
+            @* Switchable after the fact, because the two buttons are a starting point rather
+               than a commitment, and the steps below are the same either way. *@
+            <div class="btn-group btn-group-sm mt-2" role="group">
+                <button type="button"
+                        class="btn @(RemoteTarget ? "btn-outline-secondary" : "btn-secondary")"
+                        @onclick="() => SelectTarget(SftpSetupTarget.ThisComputer)">This computer</button>
+                <button type="button"
+                        class="btn @(RemoteTarget ? "btn-secondary" : "btn-outline-secondary")"
+                        @onclick="() => SelectTarget(SftpSetupTarget.RemoteServer)">Another server</button>
+            </div>
         </div>
 
         @* Step 1 *@
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
-                    <h6 class="card-title">1 · Run this on your computer</h6>
+                    <h6 class="card-title">1 · Run this on @(RemoteTarget ? "the server" : "your computer")</h6>
                     <div class="btn-group btn-group-sm mb-2" role="group">
                         @foreach (var p in Enum.GetValues<HostPlatform>())
                         {
@@ -79,7 +104,18 @@
                     @if (setupPlatform == HostPlatform.Windows)
                     {
                         <div class="small text-muted mb-2">
-                            Open PowerShell with <strong>Run as Administrator</strong>, then paste this in.
+                            @if (RemoteTarget)
+                            {
+                                <text>
+                                    Open PowerShell on the server and paste this in. It only asks for
+                                    <strong>Run as Administrator</strong> if that account turns out to be one,
+                                    and says so if it does.
+                                </text>
+                            }
+                            else
+                            {
+                                <text>Open PowerShell with <strong>Run as Administrator</strong>, then paste this in.</text>
+                            }
                         </div>
                     }
                     <textarea class="form-control font-monospace" rows="12" readonly
@@ -107,14 +143,30 @@
                        an SSH server affects every account on the machine and every way of
                        signing in to it, not only the key installed above — so an operator who
                        reads "adds one key" and nothing else has been told the smaller half. *@
-                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                        <span class="bi-exclamation-triangle me-1"></span>
-                        It also <strong>turns on this computer's SSH server</strong> and allows
-                        inbound port 22 from your local networks — the Docker network among them,
-                        which is how Connapse reaches you. Other accounts on the machine can then
-                        sign in over SSH too, by password if the host allows it. The command reports
-                        whether it does, and prints the one line that turns that off.
-                    </div>
+                    @if (RemoteTarget)
+                    {
+                        @* The remote script starts no service and opens no port — it cannot need
+                           to, since the operator is already connected over SSH to run it. Saying
+                           otherwise here would describe a change that is not being made. *@
+                        <div class="alert alert-secondary py-2 mt-2 mb-0 small">
+                            <span class="bi-info-circle me-1"></span>
+                            This <strong>changes nothing but that one account's keys</strong>. It starts
+                            no service and opens no port — the server is already serving SSH, or you
+                            could not run this on it. It does report whether the host still accepts
+                            password logins, which matters more on a server than on a laptop.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            It also <strong>turns on this computer's SSH server</strong> and allows
+                            inbound port 22 from your local networks — the Docker network among them,
+                            which is how Connapse reaches you. Other accounts on the machine can then
+                            sign in over SSH too, by password if the host allows it. The command reports
+                            whether it does, and prints the one line that turns that off.
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -217,13 +269,47 @@
                                 </div>
                             }
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label class="form-label">Reachable at</label>
-                            <input class="form-control font-monospace" @bind="localHost" />
+                            <input class="form-control font-monospace" @bind="localHost"
+                                   placeholder="@(RemoteTarget ? "files.example.com" : "host.docker.internal")" />
+
+                            @* What the machine said about itself, offered the same way its drives
+                               are. Suggestions rather than answers: whether any of them is
+                               reachable depends on where Connapse runs, which the machine
+                               reporting them cannot know. *@
+                            @if (LocalResult()?.Addresses is { Count: > 0 } candidates)
+                            {
+                                <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+                                    <span class="small text-muted me-1">It reports:</span>
+                                    @foreach (var candidate in candidates)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                                                @onclick="() => localHost = candidate">@candidate</button>
+                                    }
+                                </div>
+                            }
                             <div class="form-text">
-                                <code>host.docker.internal</code> works on Docker Desktop. A Linux host needs
-                                <code>--add-host=host.docker.internal:host-gateway</code>.
+                                @if (RemoteTarget)
+                                {
+                                    <text>
+                                        The hostname or address <em>Connapse</em> can reach the server at, which
+                                        is not always the one you use — a container on a different network may
+                                        need the address rather than the short name.
+                                    </text>
+                                }
+                                else
+                                {
+                                    <text>
+                                        <code>host.docker.internal</code> works on Docker Desktop. A Linux host needs
+                                        <code>--add-host=host.docker.internal:host-gateway</code>.
+                                    </text>
+                                }
                             </div>
+                        </div>
+                        <div class="col-md-1">
+                            <label class="form-label">Port</label>
+                            <input class="form-control" type="number" @bind="localPort" placeholder="22" />
                         </div>
                     </div>
                 </div>
@@ -260,8 +346,12 @@
             <div>
                 @* The local case gets its own entry point rather than being a provider hidden
                    inside "Add connection". It is the one most people want, and reaching it
-                   through a generic SFTP form means understanding SFTP first. *@
-                <button class="btn btn-outline-primary btn-sm me-2" @onclick="StartLocalSetup">
+                   through a generic SFTP form means understanding SFTP first.
+
+                   A server is the opposite: anyone setting one up already knows they want SFTP,
+                   so its offer of help lives inside the SFTP form rather than competing for
+                   room out here. *@
+                <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.ThisComputer)">
                     <span class="bi-laptop me-1"></span> Connect this computer
                 </button>
                 <button class="btn btn-primary btn-sm" @onclick="StartCreate">
@@ -401,6 +491,26 @@
         }
         else if (form.Provider == ConnectionProvider.Sftp)
         {
+            @* Offered only when creating. Running it against a connection being edited would
+               replace the form with a flow that ends by creating a second one. *@
+            @if (isNew)
+            {
+                <div class="col-12">
+                    <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 py-2 mb-0">
+                        <span class="bi-magic"></span>
+                        <span class="flex-grow-1 small">
+                            Every field below can be filled in for you. Connapse will make a key, write
+                            one command to run on the server, and read back the username, home directory
+                            and host key fingerprint it prints.
+                        </span>
+                        <button type="button" class="btn btn-primary btn-sm"
+                                @onclick="() => StartGuidedSetup(SftpSetupTarget.RemoteServer)">
+                            <span class="bi-hdd-network me-1"></span> Set this up for me
+                        </button>
+                    </div>
+                </div>
+            }
+
             <div class="col-md-8">
                 <label class="form-label">Host</label>
                 <input class="form-control" @bind="form.Host" placeholder="files.example.com" />
@@ -409,6 +519,17 @@
                     <code>host.docker.internal</code> — see
                     <a href="https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md" target="_blank" rel="noopener">the connector documentation</a>.
                 </div>
+
+                @* Shown while they are still typing, rather than only in a failure message
+                   afterwards. The address is about to change under them, and finding that out
+                   from a saved connection is worse than being told now. *@
+                @if (HostResolver.Resolve(form.Host) is { Rewritten: true } preview)
+                {
+                    <div class="alert alert-info py-2 mt-2 mb-0 small">
+                        <span class="bi-arrow-left-right me-1"></span>
+                        Will be saved as <code>@preview.Host</code>. @preview.Reason
+                    </div>
+                }
             </div>
             <div class="col-md-4">
                 <label class="form-label">Port</label>
@@ -448,6 +569,13 @@
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
                     the rule that Connapse stores no cloud credentials is about AWS and Azure
                     identities, which are not stored and are not asked for.
+                    @if (!isNew)
+                    {
+                        <text>
+                            <strong>Test connection</strong> uses the stored key when this is blank, so
+                            checking an existing connection does not mean retyping it.
+                        </text>
+                    }
                 </div>
             </div>
 
@@ -631,15 +759,22 @@
         loading = false;
     }
 
-    // ── Connect this computer ──────────────────────────────────────────────
+    // ── Guided setup: this computer, or a server ───────────────────────────
+
+    /// <summary>Set when a save rewrote the host, so the outcome can say so.</summary>
+    private string? hostRewriteNote;
 
     private bool localSetup;
+    private SftpSetupTarget setupTarget = SftpSetupTarget.ThisComputer;
     private HostPlatform setupPlatform = HostPlatform.Windows;
     private SshKeyPair? localKeyPair;
     private string setupScript = "";
     private string? pastedResult;
     private string localRoot = "";
     private string localHost = "host.docker.internal";
+
+    /// <summary>Blank means 22, which is what almost every host answers on.</summary>
+    private string localPort = "";
 
     private static string PlatformLabel(HostPlatform p) => p switch
     {
@@ -648,19 +783,52 @@
         _ => "Linux",
     };
 
-    private void StartLocalSetup()
+    private bool RemoteTarget => setupTarget == SftpSetupTarget.RemoteServer;
+
+    /// <summary>
+    /// Where Connapse reaches the host, once the operator has not said. Only answerable for
+    /// their own machine — a server's address is something only they know.
+    /// </summary>
+    private string DefaultHost() => RemoteTarget ? "" : "host.docker.internal";
+
+    private void StartGuidedSetup(SftpSetupTarget target)
     {
         // Generated once per visit, not per keystroke: the script embeds the public key, and
         // regenerating would invalidate a command the operator may have already run.
         localKeyPair = SshKeyPairGenerator.Generate($"connapse@{Environment.MachineName}");
 
         localSetup = true;
+        setupTarget = target;
         editing = null;
         pastedResult = null;
         localRoot = "";
-        localHost = "host.docker.internal";
+        localHost = DefaultHost();
+        localPort = "";
         statusMessage = null;
         testMessage = null;
+
+        RegenerateScript();
+    }
+
+    /// <summary>
+    /// Switches target mid-flow. Keeps the key pair, because the operator may already have run
+    /// the command — regenerating here would silently invalidate a host they had just set up.
+    /// </summary>
+    private void SelectTarget(SftpSetupTarget target)
+    {
+        if (setupTarget == target) return;
+
+        setupTarget = target;
+
+        // The pasted block describes the machine the previous command ran on, and switching
+        // target means a different machine. Keeping it would let someone set up their own
+        // computer, switch to "Another server", type a server's address, and save a connection
+        // whose key was never installed there — a form that looks complete and cannot connect.
+        pastedResult = null;
+
+        // Only when it is still the other target's guess. Something typed is theirs to keep.
+        if (string.IsNullOrWhiteSpace(localHost) || localHost == "host.docker.internal")
+            localHost = DefaultHost();
 
         RegenerateScript();
     }
@@ -674,7 +842,7 @@
     private void RegenerateScript() =>
         setupScript = localKeyPair is null
             ? ""
-            : SftpHostSetup.GenerateScript(localKeyPair.PublicKeyLine, setupPlatform);
+            : SftpHostSetup.GenerateScript(localKeyPair.PublicKeyLine, setupPlatform, setupTarget);
 
     private async Task CopyScript() =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", setupScript);
@@ -690,8 +858,15 @@
     private bool LocalSetupReady() =>
         LocalResult() is not null && !string.IsNullOrWhiteSpace(localHost);
 
+    /// <summary>
+    /// Built with the address Connapse will actually dial, not the one typed. The guided flow
+    /// saves and tests through this, so resolving in one and not the other would let a test pass
+    /// against something the saved connection does not point at.
+    /// </summary>
     private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
-        ConnectionForm.ForLocalMachine(result, localHost, localRoot, localKeyPair!.PrivateKeyPem);
+        ConnectionForm.ForGuidedSetup(
+            result, HostResolver.Resolve(localHost).Host, localRoot, localKeyPair!.PrivateKeyPem,
+            localPort);
 
     private async Task TestLocalSetup()
     {
@@ -705,8 +880,8 @@
 
             var outcome = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
             {
-                Host = form.Host!,
-                Port = 22,
+                Host = HostResolver.Resolve(form.Host).Host,
+                Port = int.TryParse(form.Port, out int guidedPort) ? guidedPort : 22,
                 Username = form.Username!,
                 AllowedRoot = form.AllowedRoot!,
                 PrivateKey = form.PrivateKey!,
@@ -807,6 +982,20 @@
         saving = true;
         try
         {
+            // Applied to the form itself, not just on the way to the store, so the operator ends
+            // up looking at the address their connection actually holds. Saving what was typed
+            // while testing something else would make the test meaningless: it would pass here
+            // and the sync would fail later, against an address nobody had ever tried.
+            if (form.Provider == ConnectionProvider.Sftp)
+            {
+                var resolvedHost = HostResolver.Resolve(form.Host);
+                if (resolvedHost.Rewritten)
+                {
+                    form.Host = resolvedHost.Host;
+                    hostRewriteNote = resolvedHost.Reason;
+                }
+            }
+
             string config = form.ToConfigJson();
 
             // Null for every provider but SFTP, and null again for an SFTP connection saved
@@ -818,7 +1007,7 @@
                 await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
-                Succeed($"Connection '{form.Name.Trim()}' created.");
+                Succeed($"Connection '{form.Name.Trim()}' created.{HostRewriteSuffix()}");
             }
             else
             {
@@ -835,7 +1024,7 @@
                     return;
                 }
 
-                Succeed($"Connection '{form.Name.Trim()}' saved.");
+                Succeed($"Connection '{form.Name.Trim()}' saved.{HostRewriteSuffix()}");
             }
 
             editing = null;
@@ -883,6 +1072,30 @@
         }
     }
 
+    /// <summary>
+    /// The key a test should use: the one typed into the form, or the connection's stored one
+    /// when the field was left blank. Returns a problem message instead when neither is available.
+    /// </summary>
+    private async Task<(string? Key, string? Passphrase, string? Problem)> ResolveTestKeyAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(form.PrivateKey))
+            return (form.PrivateKey.Trim(), NullIfBlank(form.Passphrase), null);
+
+        if (editing is null)
+            return (null, null, "Paste the private key to test this connection.");
+
+        string? secret = await ConnectionStore.GetSecretAsync(editing.Id);
+        if (string.IsNullOrWhiteSpace(secret))
+            return (null, null, "This connection has no stored key. Paste one to test.");
+
+        var credential = SftpCredential.TryParse(secret);
+        if (credential is null || string.IsNullOrWhiteSpace(credential.PrivateKey))
+            return (null, null, "The stored key could not be read. Paste a key to replace it.");
+
+        // A passphrase typed now is preferred: the operator may be correcting one that is wrong.
+        return (credential.PrivateKey, NullIfBlank(form.Passphrase) ?? credential.Passphrase, null);
+    }
+
     private async Task Test()
     {
         testing = true;
@@ -892,26 +1105,33 @@
         {
             if (form.Provider == ConnectionProvider.Sftp)
             {
-                // Tested against the key in the form, not the stored one, so an operator can
-                // check a key before committing to it. Editing an existing connection without
-                // retyping the key therefore cannot be tested — said plainly rather than
-                // silently testing something else.
-                if (string.IsNullOrWhiteSpace(form.PrivateKey))
+                // A key typed into the form wins, so a new one can be checked before it is
+                // committed. Otherwise the stored one is used — the field says "leave blank to
+                // keep the stored key", and a test that then demanded the key back would be
+                // asking for something the operator was told they would never see again.
+                //
+                // The key never reaches the browser either way: this runs on the server, inside
+                // the circuit, and only the outcome is rendered.
+                (string? key, string? passphrase, string? problem) = await ResolveTestKeyAsync();
+                if (problem is not null)
                 {
                     testSuccess = false;
-                    testMessage = "Paste the private key to test. Testing uses the key in this form, "
-                                  + "not the stored one.";
+                    testMessage = problem;
                     return;
                 }
 
+                // What Connapse will actually dial, which is not always what was typed. See
+                // IContainerHostResolver: loopback means the container, not the operator's machine.
+                var resolved = HostResolver.Resolve(form.Host);
+
                 var sftpResult = await SftpTester.TestConnectionAsync(new SftpConnectionTestSettings
                 {
-                    Host = form.Host?.Trim() ?? "",
+                    Host = resolved.Host,
                     Port = int.TryParse(form.Port, out int p) ? p : 22,
                     Username = form.Username?.Trim() ?? "",
                     AllowedRoot = form.AllowedRoot?.Trim() ?? "",
-                    PrivateKey = form.PrivateKey.Trim(),
-                    Passphrase = NullIfBlank(form.Passphrase),
+                    PrivateKey = key!,
+                    Passphrase = passphrase,
 
                     // Honoured unless the operator has chosen to forget it, so a test reports a
                     // changed host key the same way a sync would.
@@ -919,7 +1139,18 @@
                 }, TimeSpan.FromSeconds(15));
 
                 testSuccess = sftpResult.Success;
-                testMessage = sftpResult.Message;
+
+                // Which key was used, always. Two keys can be in play and they can disagree, so
+                // a bare "Connected" would leave the operator unsure what they just proved.
+                string usedKey = string.IsNullOrWhiteSpace(form.PrivateKey)
+                    ? "Using the stored key."
+                    : "Using the key in this form.";
+
+                // The rewrite is reported on success as well as failure. A test that passes
+                // against a different address than the one on screen is exactly the result an
+                // operator would misread.
+                string rewrite = resolved.Rewritten ? $" ({resolved.Reason})" : "";
+                testMessage = $"{usedKey} {sftpResult.Message}{rewrite}";
                 return;
             }
 
@@ -985,6 +1216,16 @@
     }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>Names the host rewrite in the outcome, and clears it so it is said once.</summary>
+    private string HostRewriteSuffix()
+    {
+        if (hostRewriteNote is null) return "";
+
+        string note = $" {hostRewriteNote}";
+        hostRewriteNote = null;
+        return note;
+    }
 
     private void Succeed(string message)
     {

@@ -74,6 +74,7 @@ services:
       Identity__Jwt__Secret: ${Identity__Jwt__Secret:-}
     volumes:
       - appdata:/app/appdata
+
     depends_on:
       postgres:
         condition: service_healthy

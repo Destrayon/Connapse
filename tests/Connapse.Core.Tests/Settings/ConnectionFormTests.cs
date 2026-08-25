@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Core.Utilities;
 using Connapse.Web.Components.Settings;
@@ -387,9 +387,25 @@ public class ConnectionFormTests
     private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
 
     [Fact]
-    public void ForLocalMachine_UsesEveryValueTheHostReported()
+    public void ForGuidedSetup_NoPortGiven_DefaultsTo22()
     {
-        var form = ConnectionForm.ForLocalMachine(
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey).Port.Should().Be("22");
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey, "  ").Port.Should().Be("22");
+    }
+
+    [Fact]
+    public void ForGuidedSetup_APortGiven_IsKept()
+    {
+        // Its own field rather than something split back out of the host: a colon means
+        // something else entirely once the host is an IPv6 literal.
+        ConnectionForm.ForGuidedSetup(Reported(), "h", null, GeneratedKey, "2222")
+            .Should().BeEquivalentTo(new { Host = "h", Port = "2222" });
+    }
+
+    [Fact]
+    public void ForGuidedSetup_UsesEveryValueTheHostReported()
+    {
+        var form = ConnectionForm.ForGuidedSetup(
             Reported(), "host.docker.internal", "Documents", GeneratedKey);
 
         form.Provider.Should().Be(ConnectionProvider.Sftp);
@@ -407,9 +423,9 @@ public class ConnectionFormTests
     /// out where most people actually keep things.
     /// </summary>
     [Fact]
-    public void ForLocalMachine_RootOnAnotherDrive_IsAllowed()
+    public void ForGuidedSetup_RootOnAnotherDrive_IsAllowed()
     {
-        ConnectionForm.ForLocalMachine(Reported(), "h", "/D:/CodeProjects", GeneratedKey)
+        ConnectionForm.ForGuidedSetup(Reported(), "h", "/D:/CodeProjects", GeneratedKey)
             .AllowedRoot.Should().Be("/D:/CodeProjects");
     }
 
@@ -417,9 +433,9 @@ public class ConnectionFormTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void ForLocalMachine_NoFolderChosen_UsesTheHomeDirectory(string? root)
+    public void ForGuidedSetup_NoFolderChosen_UsesTheHomeDirectory(string? root)
     {
-        ConnectionForm.ForLocalMachine(Reported(), "h", root, GeneratedKey)
+        ConnectionForm.ForGuidedSetup(Reported(), "h", root, GeneratedKey)
             .AllowedRoot.Should().Be("/C:/Users/Diviel");
     }
 
@@ -473,11 +489,11 @@ public class ConnectionFormTests
     /// The whole flow exists to avoid typing, so what it produces must be savable as-is.
     /// </summary>
     [Fact]
-    public void ForLocalMachine_ProducesAConnectionThatValidatesAndStoresItsKey()
+    public void ForGuidedSetup_ProducesAConnectionThatValidatesAndStoresItsKey()
     {
         var pair = SshKeyPairGenerator.Generate();
 
-        var form = ConnectionForm.ForLocalMachine(
+        var form = ConnectionForm.ForGuidedSetup(
             Reported(), "host.docker.internal", "Documents", pair.PrivateKeyPem);
 
         form.Validate(isNew: true).Should().BeNull();
@@ -494,9 +510,9 @@ public class ConnectionFormTests
     /// verified rather than trusted — the entire reason the operator pastes anything back.
     /// </summary>
     [Fact]
-    public void ForLocalMachine_PinsTheFingerprintBeforeTheFirstConnection()
+    public void ForGuidedSetup_PinsTheFingerprintBeforeTheFirstConnection()
     {
-        var form = ConnectionForm.ForLocalMachine(
+        var form = ConnectionForm.ForGuidedSetup(
             Reported(fingerprint: "SHA256:fromTheHost"), "h", null, GeneratedKey);
 
         JsonNode.Parse(form.ToConfigJson())!["hostKeyFingerprint"]!.GetValue<string>()

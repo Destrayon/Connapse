@@ -231,14 +231,35 @@ The guard bounds a single reconcile, not the source's history. A listing that pe
 
 ---
 
-## Indexing files on your own machine
+## Indexing files on a machine Connapse cannot see
 
 The Filesystem connector needs the server process to see a path on its own disk. In Docker the container's filesystem is not yours, and on a hosted deployment there is no shared disk at all — so "point Connapse at my Documents folder" has no answer through that connector.
 
 SFTP is the answer. Run an SSH server on the machine holding the files and let Connapse connect to it.
 
+### Guided setup
+
+Settings → Connections has two buttons that do all of this for you: **Connect this computer** and **Connect a server**. Both run the same three steps — Connapse generates a key pair, writes one command, and reads back what the command printed. Setting up your own computer leaves you nothing to type but the folder; a server also needs the address Connapse can reach it at, which the machine itself cannot know.
+
+The difference is only what the command does when it runs:
+
+| | Connect this computer | Connect a server |
+|---|---|---|
+| SSH server | installs and starts it if absent | assumes it — you are running the command over it |
+| Firewall | opens inbound TCP 22 to local subnets | untouched |
+| Privilege | administrator or `sudo` throughout | only if the account turns out to be a Windows administrator |
+| Address | defaults to `host.docker.internal` | you supply it |
+
+Everything about authorisation is identical. The key is installed with `restrict` and a forced `internal-sftp` command, so it can open no shell and forward no ports. The host key fingerprint comes back in the pasted block rather than off the wire, which is what makes the first connection verified rather than merely trusted. And both report whether the host still accepts password logins, without changing it — that setting governs every account on the machine, and is not Connapse's to decide.
+
+**Connapse never installs the key itself.** There is no "give us the password and we will run `ssh-copy-id`" path, and there will not be one: it would mean handling a credential for a machine Connapse does not own, and connections deliberately store no secret Connapse did not generate.
+
+### By hand
+
+The guided flow does nothing you cannot do yourself, and on a host you administer differently — a shared jump box, a NAS, anything with its own key management — doing it yourself is often simpler:
+
 1. **Enable an SSH server.** OpenSSH Server is an optional feature on Windows, Remote Login on macOS, `sshd` on Linux.
-2. **Add a public key** to that account's `authorized_keys`, and give Connapse the matching private key.
+2. **Add a public key** to that account's `authorized_keys`, and give Connapse the matching private key. Prefix it with `restrict,command="internal-sftp"` unless you want that key to be able to do more than Connapse needs.
 3. **Create an SFTP connection** under Settings → Connections, pointing at the machine with an `allowedRoot` of the folder you want reachable.
 4. **Create a source** on that connection naming a `subPath` within it.
 
