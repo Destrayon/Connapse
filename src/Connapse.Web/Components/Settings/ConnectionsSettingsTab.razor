@@ -326,14 +326,13 @@
             <div>
                 @* The local case gets its own entry point rather than being a provider hidden
                    inside "Add connection". It is the one most people want, and reaching it
-                   through a generic SFTP form means understanding SFTP first. *@
+                   through a generic SFTP form means understanding SFTP first.
+
+                   A server is the opposite: anyone setting one up already knows they want SFTP,
+                   so its offer of help lives inside the SFTP form rather than competing for
+                   room out here. *@
                 <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.ThisComputer)">
                     <span class="bi-laptop me-1"></span> Connect this computer
-                </button>
-                @* Its own button rather than a mode buried inside the local one: an operator
-                   with a server in mind should not have to start by saying "this computer". *@
-                <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.RemoteServer)">
-                    <span class="bi-hdd-network me-1"></span> Connect a server
                 </button>
                 <button class="btn btn-primary btn-sm" @onclick="StartCreate">
                     <span class="bi-plus-lg me-1"></span> Add connection
@@ -472,6 +471,26 @@
         }
         else if (form.Provider == ConnectionProvider.Sftp)
         {
+            @* Offered only when creating. Running it against a connection being edited would
+               replace the form with a flow that ends by creating a second one. *@
+            @if (isNew)
+            {
+                <div class="col-12">
+                    <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 py-2 mb-0">
+                        <span class="bi-magic"></span>
+                        <span class="flex-grow-1 small">
+                            Every field below can be filled in for you. Connapse will make a key, write
+                            one command to run on the server, and read back the username, home directory
+                            and host key fingerprint it prints.
+                        </span>
+                        <button type="button" class="btn btn-primary btn-sm"
+                                @onclick="() => StartGuidedSetup(SftpSetupTarget.RemoteServer)">
+                            <span class="bi-hdd-network me-1"></span> Set this up for me
+                        </button>
+                    </div>
+                </div>
+            }
+
             <div class="col-md-8">
                 <label class="form-label">Host</label>
                 <input class="form-control" @bind="form.Host" placeholder="files.example.com" />
