@@ -75,19 +75,22 @@ services:
     volumes:
       - appdata:/app/appdata
 
-    # Uncomment when an SFTP connection has to reach a machine by its short name.
+    # Lets an SFTP connection reach a machine by its short name — "fileserver" rather than
+    # "fileserver.example.lan" or an address. Set CONNAPSE_DNS_SEARCH in .env to the DNS suffix
+    # your network hands out; leave it unset and nothing changes.
     #
-    # A workstation resolves "myserver" because its DNS client appends a connection-specific
-    # suffix — "myserver.example.lan" — before asking. A container has no search domain, so it
-    # looks up exactly the string it was given and finds nothing. Docker Desktop stopped copying
-    # the host's search domains into containers in 2.1.0.0 (docker/for-mac#3814), so this has to
-    # be stated rather than inherited.
+    # A workstation resolves the short name because its DNS client appends a connection-specific
+    # suffix before asking. A container has no search domain — Docker Desktop stopped copying the
+    # host's in 2.1.0.0 (docker/for-mac#3814) — so it looks up exactly what it was given.
     #
-    # Left commented rather than driven by an empty variable, which writes a bare "search" line
-    # into the container's resolv.conf. Using the address, or the fully-qualified name, needs
-    # none of this — the guided SFTP setup reports both.
-    # dns_search:
-    #   - example.lan
+    # The ndots option is not optional here, and it is the part that is easy to get wrong. Docker
+    # writes "options ndots:0" into the container, which tells the resolver every name is already
+    # complete; the search list is then never consulted for a single-label name and dns_search on
+    # its own does nothing. Measured: with a search domain and ndots:0 the short name still fails,
+    # and with ndots:1 it resolves.
+    dns_search: "${CONNAPSE_DNS_SEARCH:-}"
+    dns_opt:
+      - ndots:1
 
     depends_on:
       postgres:
