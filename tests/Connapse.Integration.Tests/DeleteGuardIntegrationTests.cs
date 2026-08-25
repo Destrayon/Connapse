@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Web.Services;
@@ -76,7 +76,7 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
         var service = new SourceSyncService(
             scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
             new FixedConnectorFactory(connector),
-            scope.ServiceProvider.GetRequiredService<IIngestionQueue>(),
+            new RecordingIngestionQueue(),
             scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
 
         return await service.SyncSourceAsync(

@@ -188,7 +188,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         return new SourceSyncService(
             sp.GetRequiredService<IServiceScopeFactory>(),
             factory,
-            sp.GetRequiredService<IIngestionQueue>(),
+            new RecordingIngestionQueue(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
     }
 

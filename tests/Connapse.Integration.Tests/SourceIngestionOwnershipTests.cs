@@ -224,7 +224,7 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
             Owner = OwnerRef.ForSource(sourceId)
         }, CancellationToken.None);
 
-        var queue = new CapturingIngestionQueue();
+        var queue = new RecordingIngestionQueue();
         await using var ctx = await factory.CreateDbContextAsync();
         var reindex = new ReindexService(
             ctx,
@@ -337,42 +337,10 @@ public class SourceIngestionOwnershipTests(SharedWebAppFixture fixture)
     }
 
     /// <summary>A queue that is down, which is the failure the test above is about.</summary>
-    private sealed class ThrowingIngestionQueue : CapturingIngestionQueue
+    private sealed class ThrowingIngestionQueue : RecordingIngestionQueue
     {
         public override Task EnqueueAsync(IngestionJob job, CancellationToken ct = default) =>
             throw new InvalidOperationException("the queue is unavailable");
     }
 
-    private class CapturingIngestionQueue : IIngestionQueue
-    {
-        public List<IngestionJob> Jobs { get; } = [];
-
-        public virtual Task EnqueueAsync(IngestionJob job, CancellationToken ct = default)
-        {
-            Jobs.Add(job);
-            return Task.CompletedTask;
-        }
-
-        public Task<IngestionJob?> DequeueAsync(CancellationToken ct = default) =>
-            Task.FromResult<IngestionJob?>(null);
-
-        public Task<IngestionJobStatus?> GetStatusAsync(string jobId) =>
-            Task.FromResult<IngestionJobStatus?>(null);
-
-        public Task<bool> CancelJobForDocumentAsync(string documentId) => Task.FromResult(false);
-
-        public int QueueDepth => Jobs.Count;
-
-        public void UpdateJobStatus(
-            string jobId, IngestionJobState state, IngestionPhase? currentPhase = null,
-            double percentComplete = 0, string? errorMessage = null)
-        { }
-
-        public IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses() =>
-            new Dictionary<string, IngestionJobStatus>();
-
-        public void RegisterJobCancellation(string jobId, CancellationTokenSource cts) { }
-
-        public void UnregisterJobCancellation(string jobId) { }
-    }
 }

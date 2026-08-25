@@ -1,4 +1,4 @@
-using Amazon.S3.Model;
+﻿using Amazon.S3.Model;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -78,7 +78,7 @@ public class SourceSyncS3IntegrationTests(SharedWebAppFixture fixture) : IAsyncL
         sp.GetRequiredService<IServiceScopeFactory>(),
         // The real factory, not a fake — this is what the test exists to cover.
         sp.GetRequiredService<IConnectorFactory>(),
-        sp.GetRequiredService<IIngestionQueue>(),
+        new RecordingIngestionQueue(),
         sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
 
     [Fact]
