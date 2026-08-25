@@ -350,11 +350,15 @@ public static class SftpHostSetup
         HOSTKEY=$(ls /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || ls /etc/ssh/ssh_host_rsa_key.pub)
         FINGERPRINT=$(ssh-keygen -lf "$HOSTKEY" | awk '{print $2}')
 
-        printf '\n{{BeginMarker}}\n'
+        # The markers go through %s rather than being the format string themselves. They begin
+        # with dashes, and printf reads a leading '-' as an option — bash rejected the end
+        # marker outright, so the block came back unterminated and would not parse. The begin
+        # marker only escaped it because a leading \n put a character in front of the dashes.
+        printf '\n%s\n' '{{BeginMarker}}'
         printf 'user=%s\n' "$(whoami)"
         printf 'home=%s\n' "$HOME"
         printf 'fingerprint=%s\n' "$FINGERPRINT"
-        printf '{{EndMarker}}\n\n'
+        printf '%s\n\n' '{{EndMarker}}'
         echo 'Copy the block above, including both marker lines, back into Connapse.'
 
         if [ "$PASSWORD_AUTH" != "no" ]; then

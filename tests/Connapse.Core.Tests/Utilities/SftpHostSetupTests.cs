@@ -564,4 +564,45 @@ public class SftpHostSetupTests
         SftpHostSetup.GenerateScript(Key, HostPlatform.Windows)
             .Should().Be(SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.ThisComputer));
     }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux, SftpSetupTarget.ThisComputer)]
+    [InlineData(HostPlatform.Linux, SftpSetupTarget.RemoteServer)]
+    [InlineData(HostPlatform.MacOS, SftpSetupTarget.ThisComputer)]
+    [InlineData(HostPlatform.MacOS, SftpSetupTarget.RemoteServer)]
+    public void GenerateScript_Unix_NeverPassesAMarkerAsAPrintfFormatString(
+        HostPlatform platform, SftpSetupTarget target)
+    {
+        // Both markers start with dashes, and printf reads a leading '-' as an option. As the
+        // format string the end marker made bash print "invalid option" instead of the marker,
+        // so the block came back unterminated and ParseResult refused it — with the host already
+        // configured and the key already installed. Asserting the marker merely *appears* in the
+        // script does not catch this: it appeared, as the thing that failed to print.
+        string script = SftpHostSetup.GenerateScript(Key, platform, target);
+
+        foreach (string line in script.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (!trimmed.StartsWith("printf ", StringComparison.Ordinal)) continue;
+
+            string format = trimmed["printf ".Length..].TrimStart();
+            format = format.StartsWith('\'') ? format[1..] : format;
+
+            format.Should().NotStartWith("-",
+                $"printf would read this as an option, not text: {trimmed}");
+        }
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_Unix_EmitsBothMarkersThroughAStringPlaceholder(HostPlatform platform)
+    {
+        // The positive half of the rule above: the markers are arguments, which is what makes
+        // them survive their own leading dashes.
+        string script = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        script.Should().Contain($"'{SftpHostSetup.BeginMarker}'");
+        script.Should().Contain($"'{SftpHostSetup.EndMarker}'");
+    }
 }
