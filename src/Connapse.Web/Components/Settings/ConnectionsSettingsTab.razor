@@ -55,19 +55,43 @@
     @if (localSetup)
     {
         <div class="col-12">
-            <h5>Connect this computer</h5>
+            <h5>@(RemoteTarget ? "Connect a server" : "Connect this computer")</h5>
             <p class="text-muted mb-0">
-                Connapse runs in a container, so it cannot see your files directly and cannot
-                configure your machine for you. It can do everything else: it has made a key,
-                and written the one command you need to run.
+                @if (RemoteTarget)
+                {
+                    <text>
+                        Connapse cannot configure a machine it does not run on, and will not sign in
+                        with a password to try. It can do everything either side of that: it has made
+                        a key, and written the one command to run on the server.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        Connapse runs in a container, so it cannot see your files directly and cannot
+                        configure your machine for you. It can do everything else: it has made a key,
+                        and written the one command you need to run.
+                    </text>
+                }
             </p>
+
+            @* Switchable after the fact, because the two buttons are a starting point rather
+               than a commitment, and the steps below are the same either way. *@
+            <div class="btn-group btn-group-sm mt-2" role="group">
+                <button type="button"
+                        class="btn @(RemoteTarget ? "btn-outline-secondary" : "btn-secondary")"
+                        @onclick="() => SelectTarget(SftpSetupTarget.ThisComputer)">This computer</button>
+                <button type="button"
+                        class="btn @(RemoteTarget ? "btn-secondary" : "btn-outline-secondary")"
+                        @onclick="() => SelectTarget(SftpSetupTarget.RemoteServer)">Another server</button>
+            </div>
         </div>
 
         @* Step 1 *@
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
-                    <h6 class="card-title">1 · Run this on your computer</h6>
+                    <h6 class="card-title">1 · Run this on @(RemoteTarget ? "the server" : "your computer")</h6>
                     <div class="btn-group btn-group-sm mb-2" role="group">
                         @foreach (var p in Enum.GetValues<HostPlatform>())
                         {
@@ -79,7 +103,18 @@
                     @if (setupPlatform == HostPlatform.Windows)
                     {
                         <div class="small text-muted mb-2">
-                            Open PowerShell with <strong>Run as Administrator</strong>, then paste this in.
+                            @if (RemoteTarget)
+                            {
+                                <text>
+                                    Open PowerShell on the server and paste this in. It only asks for
+                                    <strong>Run as Administrator</strong> if that account turns out to be one,
+                                    and says so if it does.
+                                </text>
+                            }
+                            else
+                            {
+                                <text>Open PowerShell with <strong>Run as Administrator</strong>, then paste this in.</text>
+                            }
                         </div>
                     }
                     <textarea class="form-control font-monospace" rows="12" readonly
@@ -107,14 +142,30 @@
                        an SSH server affects every account on the machine and every way of
                        signing in to it, not only the key installed above — so an operator who
                        reads "adds one key" and nothing else has been told the smaller half. *@
-                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                        <span class="bi-exclamation-triangle me-1"></span>
-                        It also <strong>turns on this computer's SSH server</strong> and allows
-                        inbound port 22 from your local networks — the Docker network among them,
-                        which is how Connapse reaches you. Other accounts on the machine can then
-                        sign in over SSH too, by password if the host allows it. The command reports
-                        whether it does, and prints the one line that turns that off.
-                    </div>
+                    @if (RemoteTarget)
+                    {
+                        @* The remote script starts no service and opens no port — it cannot need
+                           to, since the operator is already connected over SSH to run it. Saying
+                           otherwise here would describe a change that is not being made. *@
+                        <div class="alert alert-secondary py-2 mt-2 mb-0 small">
+                            <span class="bi-info-circle me-1"></span>
+                            This <strong>changes nothing but that one account's keys</strong>. It starts
+                            no service and opens no port — the server is already serving SSH, or you
+                            could not run this on it. It does report whether the host still accepts
+                            password logins, which matters more on a server than on a laptop.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            It also <strong>turns on this computer's SSH server</strong> and allows
+                            inbound port 22 from your local networks — the Docker network among them,
+                            which is how Connapse reaches you. Other accounts on the machine can then
+                            sign in over SSH too, by password if the host allows it. The command reports
+                            whether it does, and prints the one line that turns that off.
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -219,10 +270,25 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Reachable at</label>
-                            <input class="form-control font-monospace" @bind="localHost" />
+                            <input class="form-control font-monospace" @bind="localHost"
+                                   placeholder="@(RemoteTarget ? "files.example.com" : "host.docker.internal")" />
                             <div class="form-text">
-                                <code>host.docker.internal</code> works on Docker Desktop. A Linux host needs
-                                <code>--add-host=host.docker.internal:host-gateway</code>.
+                                @if (RemoteTarget)
+                                {
+                                    <text>
+                                        The hostname or address <em>Connapse</em> can reach the server at, which
+                                        is not always the one you use — a container on a different network may
+                                        need the address rather than the short name. Add <code>:port</code> only
+                                        if it is not 22.
+                                    </text>
+                                }
+                                else
+                                {
+                                    <text>
+                                        <code>host.docker.internal</code> works on Docker Desktop. A Linux host needs
+                                        <code>--add-host=host.docker.internal:host-gateway</code>.
+                                    </text>
+                                }
                             </div>
                         </div>
                     </div>
@@ -261,8 +327,13 @@
                 @* The local case gets its own entry point rather than being a provider hidden
                    inside "Add connection". It is the one most people want, and reaching it
                    through a generic SFTP form means understanding SFTP first. *@
-                <button class="btn btn-outline-primary btn-sm me-2" @onclick="StartLocalSetup">
+                <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.ThisComputer)">
                     <span class="bi-laptop me-1"></span> Connect this computer
+                </button>
+                @* Its own button rather than a mode buried inside the local one: an operator
+                   with a server in mind should not have to start by saying "this computer". *@
+                <button class="btn btn-outline-primary btn-sm me-2" @onclick="() => StartGuidedSetup(SftpSetupTarget.RemoteServer)">
+                    <span class="bi-hdd-network me-1"></span> Connect a server
                 </button>
                 <button class="btn btn-primary btn-sm" @onclick="StartCreate">
                     <span class="bi-plus-lg me-1"></span> Add connection
@@ -631,9 +702,10 @@
         loading = false;
     }
 
-    // ── Connect this computer ──────────────────────────────────────────────
+    // ── Guided setup: this computer, or a server ───────────────────────────
 
     private bool localSetup;
+    private SftpSetupTarget setupTarget = SftpSetupTarget.ThisComputer;
     private HostPlatform setupPlatform = HostPlatform.Windows;
     private SshKeyPair? localKeyPair;
     private string setupScript = "";
@@ -648,19 +720,45 @@
         _ => "Linux",
     };
 
-    private void StartLocalSetup()
+    private bool RemoteTarget => setupTarget == SftpSetupTarget.RemoteServer;
+
+    /// <summary>
+    /// Where Connapse reaches the host, once the operator has not said. Only answerable for
+    /// their own machine — a server's address is something only they know.
+    /// </summary>
+    private string DefaultHost() => RemoteTarget ? "" : "host.docker.internal";
+
+    private void StartGuidedSetup(SftpSetupTarget target)
     {
         // Generated once per visit, not per keystroke: the script embeds the public key, and
         // regenerating would invalidate a command the operator may have already run.
         localKeyPair = SshKeyPairGenerator.Generate($"connapse@{Environment.MachineName}");
 
         localSetup = true;
+        setupTarget = target;
         editing = null;
         pastedResult = null;
         localRoot = "";
-        localHost = "host.docker.internal";
+        localHost = DefaultHost();
         statusMessage = null;
         testMessage = null;
+
+        RegenerateScript();
+    }
+
+    /// <summary>
+    /// Switches target mid-flow. Keeps the key pair, because the operator may already have run
+    /// the command — regenerating here would silently invalidate a host they had just set up.
+    /// </summary>
+    private void SelectTarget(SftpSetupTarget target)
+    {
+        if (setupTarget == target) return;
+
+        setupTarget = target;
+
+        // Only when it is still the other target's guess. Something typed is theirs to keep.
+        if (string.IsNullOrWhiteSpace(localHost) || localHost == "host.docker.internal")
+            localHost = DefaultHost();
 
         RegenerateScript();
     }
@@ -674,7 +772,7 @@
     private void RegenerateScript() =>
         setupScript = localKeyPair is null
             ? ""
-            : SftpHostSetup.GenerateScript(localKeyPair.PublicKeyLine, setupPlatform);
+            : SftpHostSetup.GenerateScript(localKeyPair.PublicKeyLine, setupPlatform, setupTarget);
 
     private async Task CopyScript() =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", setupScript);
@@ -691,7 +789,7 @@
         LocalResult() is not null && !string.IsNullOrWhiteSpace(localHost);
 
     private ConnectionForm BuildLocalForm(SftpHostSetupResult result) =>
-        ConnectionForm.ForLocalMachine(result, localHost, localRoot, localKeyPair!.PrivateKeyPem);
+        ConnectionForm.ForGuidedSetup(result, localHost, localRoot, localKeyPair!.PrivateKeyPem);
 
     private async Task TestLocalSetup()
     {

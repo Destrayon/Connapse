@@ -466,4 +466,102 @@ public class SftpHostSetupTests
             "enabling SSH without naming the host's password policy hides half the change");
         script.Should().Contain("accepts SSH logins by password");
     }
+
+    // ── Setting up a server the operator already reaches over SSH (#407) ───────────
+
+    /// <summary>
+    /// The five things that only make sense when the SSH server does not exist yet. A server
+    /// the operator is running this on is already serving SSH, so each of these would either
+    /// do nothing or change something they did not ask to have changed.
+    /// </summary>
+    public static TheoryData<string> PrivilegedSteps => new()
+    {
+        "Add-WindowsCapability",
+        "Set-Service",
+        "Start-Service",
+        "New-NetFirewallRule",
+    };
+
+    [Theory]
+    [MemberData(nameof(PrivilegedSteps))]
+    public void GenerateScript_Remote_DoesNotStandUpAnSshServer(string step)
+    {
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().NotContain(step,
+            "the operator is already connected over SSH, so the server is running and the port is open");
+
+        SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.ThisComputer)
+            .Should().Contain(step, "the local variant is the one that has to create all this");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_RemoteUnix_NeedsNoPrivilege(HostPlatform platform)
+    {
+        // Writing one line into the operator's own ~/.ssh/authorized_keys is not privileged
+        // work, and asking for sudo on a machine they may not own is a real obstacle.
+        string remote = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        remote.Should().NotContain("sudo");
+        remote.Should().Contain("authorized_keys", "the key still has to be installed");
+    }
+
+    [Theory]
+    [InlineData(HostPlatform.Windows)]
+    [InlineData(HostPlatform.Linux)]
+    [InlineData(HostPlatform.MacOS)]
+    public void GenerateScript_Remote_StillInstallsTheKeyRestricted(HostPlatform platform)
+    {
+        // Everything the local variant does about *authorisation* is unchanged. Only the
+        // steps that bring a server into existence are dropped.
+        string remote = SftpHostSetup.GenerateScript(Key, platform, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain(SftpHostSetup.KeyRestrictions.Trim(),
+            "an unrestricted key would grant a shell on someone else's server");
+        remote.Should().Contain(SftpHostSetup.BeginMarker);
+        remote.Should().Contain("fingerprint=", "verified first use is the whole point of the round trip");
+        remote.Should().Contain("PasswordAuthentication",
+            "a remote host is likelier to be internet-facing, not less");
+    }
+
+    [Fact]
+    public void GenerateScript_RemoteWindows_AsksForElevationOnlyWhenTheAccountIsAnAdministrator()
+    {
+        // The local script demands elevation up front because installing the SSH server needs
+        // it regardless. Remotely only one branch does — the machine-wide file an administrator
+        // account's keys go in — so demanding it unconditionally would put a UAC prompt in
+        // front of a step that writes one line into the operator's own home directory.
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain("if ($isAdmin -and -not $elevated)",
+            "elevation is demanded only once membership is known");
+        remote.Should().Contain("administrators_authorized_keys",
+            "which is the file that makes elevation necessary at all");
+
+        int guard = remote.IndexOf("$isAdmin -and -not $elevated", StringComparison.Ordinal);
+        int membership = remote.IndexOf("Get-LocalGroupMember", StringComparison.Ordinal);
+        guard.Should().BeGreaterThan(membership, "the question has to be asked before it is acted on");
+    }
+
+    [Fact]
+    public void GenerateScript_RemoteWindows_RefusesToGuessMembershipItCouldNotRead()
+    {
+        // UAC filters the Administrators SID out of an unelevated token, so falling back to a
+        // token check would answer "not an administrator" for an account that is one — and the
+        // key would go in a file sshd never reads, failing with nothing to explain it.
+        string remote = SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.RemoteServer);
+
+        remote.Should().Contain("Could not read the Administrators group",
+            "refusing beats guessing wrong in the direction that fails silently");
+    }
+
+    [Fact]
+    public void GenerateScript_DefaultsToThisComputer()
+    {
+        // The two-argument form predates the target and is still what the local flow calls.
+        SftpHostSetup.GenerateScript(Key, HostPlatform.Windows)
+            .Should().Be(SftpHostSetup.GenerateScript(Key, HostPlatform.Windows, SftpSetupTarget.ThisComputer));
+    }
 }

@@ -4,6 +4,25 @@
 public enum HostPlatform { Windows, MacOS, Linux }
 
 /// <summary>
+/// Which machine the setup command is going to be run on.
+/// </summary>
+/// <remarks>
+/// The difference is not cosmetic. Setting up the operator's own machine means bringing an SSH
+/// server into existence — installing it, starting it, opening a port. A server they are
+/// already connected to over SSH needs none of that, and doing it anyway would demand
+/// administrator for work that installing a key into a user's own <c>authorized_keys</c> does
+/// not need.
+/// </remarks>
+public enum SftpSetupTarget
+{
+    /// <summary>The machine running the browser. May need an SSH server before it can be read.</summary>
+    ThisComputer,
+
+    /// <summary>A host the operator already reaches over SSH. Only the key is installed.</summary>
+    RemoteServer,
+}
+
+/// <summary>
 /// What the setup command reported back. Every field comes from the host, because the host
 /// is the only place that knows it — which is the reason for the round trip at all.
 /// </summary>
@@ -88,7 +107,10 @@ public static class SftpHostSetup
     /// from a URL — the operator should be able to see exactly what they are agreeing to at
     /// the moment they agree to it.
     /// </remarks>
-    public static string GenerateScript(string publicKeyLine, HostPlatform platform)
+    public static string GenerateScript(
+        string publicKeyLine,
+        HostPlatform platform,
+        SftpSetupTarget target = SftpSetupTarget.ThisComputer)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(publicKeyLine);
 
@@ -104,49 +126,95 @@ public static class SftpHostSetup
 
         return platform switch
         {
-            HostPlatform.Windows => WindowsScript(entry),
-            HostPlatform.MacOS => UnixScript(entry, macOs: true),
-            HostPlatform.Linux => UnixScript(entry, macOs: false),
+            HostPlatform.Windows => WindowsScript(entry, target),
+            HostPlatform.MacOS => UnixScript(entry, macOs: true, target),
+            HostPlatform.Linux => UnixScript(entry, macOs: false, target),
             _ => throw new ArgumentOutOfRangeException(nameof(platform)),
         };
     }
 
-    private static string WindowsScript(string publicKeyLine) =>
-        $$"""
-        # Connapse — allow this computer to be indexed. Run in PowerShell as Administrator.
+    private static string WindowsScript(string publicKeyLine, SftpSetupTarget target)
+    {
+        bool local = target == SftpSetupTarget.ThisComputer;
+
+        // Bringing an SSH server into existence, which is only the local machine's problem. A
+        // server reached over SSH is already running one — that is how the operator is about to
+        // paste this into it.
+        string serve = local
+            ? """
+              # Stop if not elevated, rather than half-succeeding.
+              #    Without elevation the steps below fail in ways that leave SSH looking configured
+              #    while it is not, and the symptom is an authentication failure with nothing to
+              #    explain it.
+              if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+                       ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+                  Write-Host 'Run this in a PowerShell window opened with "Run as Administrator".' -ForegroundColor Red
+                  return
+              }
+
+              # Make sure an SSH server is installed and running.
+              if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+                  Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
+              }
+              Set-Service -Name sshd -StartupType Automatic
+              if ((Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
+
+              # Reachable from this machine's own networks, and no further. An unscoped rule would
+              # also accept port 22 from whatever else is on a hotel or cafe network, and from the
+              # internet on any host whose router forwards the port — a much larger change than
+              # "let Connapse read my files", made silently while the operator was doing something
+              # else. LocalSubnet still covers the Docker and WSL virtual switches, which is how a
+              # Connapse container reaches its host.
+              if (-not (Get-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -ErrorAction SilentlyContinue)) {
+                  New-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -DisplayName 'Connapse SFTP (sshd)' `
+                      -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 `
+                      -Profile Any -RemoteAddress LocalSubnet | Out-Null
+                  Write-Host 'Opened inbound TCP 22 to this machine''s local subnets only.' -ForegroundColor Cyan
+              }
+
+              """
+            : "";
+
+        // Elevation is demanded up front locally, because installing the server needs it
+        // regardless. Remotely only one branch does — the machine-wide file an administrator
+        // account's keys go in — so the membership question is asked first and elevation is
+        // required only if the answer makes it necessary. Demanding it unconditionally would
+        // put an administrator prompt in front of a step that writes one line into the
+        // operator's own home directory.
+        string elevate = local
+            ? """
+                  # Domain-joined machines can refuse that cmdlet. Elevated, the token is unfiltered
+                  # and this is accurate — and the elevation check above guarantees we are elevated.
+                  $isAdmin = ([Security.Principal.WindowsIdentity]::GetCurrent()).Groups.Value -contains 'S-1-5-32-544'
+              """
+            : """
+                  # Unelevated, the token has the Administrators SID filtered out of it, so it
+                  # cannot answer this — and guessing "not an administrator" would write the key
+                  # where sshd will not read it. Say so instead.
+                  if (-not $elevated) {
+                      Write-Host 'Could not read the Administrators group. Re-run this in a PowerShell window opened with "Run as Administrator".' -ForegroundColor Red
+                      return
+                  }
+                  $isAdmin = ([Security.Principal.WindowsIdentity]::GetCurrent()).Groups.Value -contains 'S-1-5-32-544'
+              """;
+
+        string adminNeedsElevation = local
+            ? ""
+            : """
+
+              if ($isAdmin -and -not $elevated) {
+                  Write-Host 'This account is in the Administrators group, so sshd reads its keys from a machine-wide file that only administrators may write.' -ForegroundColor Red
+                  Write-Host 'Re-run this in a PowerShell window opened with "Run as Administrator".' -ForegroundColor Red
+                  return
+              }
+
+              """;
+
+        return $$"""
+        # Connapse — {{(local ? "allow this computer to be indexed. Run in PowerShell as Administrator." : "allow this server to be indexed. Run in PowerShell on the server itself.")}}
         # Safe to run more than once.
 
-        # 0. Stop if not elevated, rather than half-succeeding.
-        #    Without elevation the steps below fail in ways that leave SSH looking configured
-        #    while it is not, and the symptom is an authentication failure with nothing to
-        #    explain it.
-        if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-                 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-            Write-Host 'Run this in a PowerShell window opened with "Run as Administrator".' -ForegroundColor Red
-            return
-        }
-
-        # 1. Make sure an SSH server is installed and running.
-        if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
-            Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null
-        }
-        Set-Service -Name sshd -StartupType Automatic
-        if ((Get-Service sshd).Status -ne 'Running') { Start-Service sshd }
-
-        # Reachable from this machine's own networks, and no further. An unscoped rule would
-        # also accept port 22 from whatever else is on a hotel or cafe network, and from the
-        # internet on any host whose router forwards the port — a much larger change than
-        # "let Connapse read my files", made silently while the operator was doing something
-        # else. LocalSubnet still covers the Docker and WSL virtual switches, which is how a
-        # Connapse container reaches its host.
-        if (-not (Get-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -Name 'Connapse-SFTP-In-TCP' -DisplayName 'Connapse SFTP (sshd)' `
-                -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 `
-                -Profile Any -RemoteAddress LocalSubnet | Out-Null
-            Write-Host 'Opened inbound TCP 22 to this machine''s local subnets only.' -ForegroundColor Cyan
-        }
-
-        # 2. Work out which authorized_keys file sshd will actually read.
+        {{serve}}# Work out which authorized_keys file sshd will actually read.
         #    For an account in the Administrators group it is NOT the one in your profile —
         #    sshd_config redirects those to a machine-wide file with a locked-down ACL. This
         #    is the single most common reason Windows SSH keys silently fail to authenticate.
@@ -156,15 +224,15 @@ public static class SftpHostSetup
         #    an account that genuinely is a member — and the key would then be written where
         #    sshd will never look.
         $mySid = ([Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+        $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+                    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
         try {
             $isAdmin = $null -ne (Get-LocalGroupMember -Group 'Administrators' -ErrorAction Stop |
                                   Where-Object { $_.SID.Value -eq $mySid })
         } catch {
-            # Domain-joined machines can refuse that cmdlet. Elevated, the token is unfiltered
-            # and this is accurate — and step 0 guarantees we are elevated.
-            $isAdmin = ([Security.Principal.WindowsIdentity]::GetCurrent()).Groups.Value -contains 'S-1-5-32-544'
+        {{elevate}}
         }
-
+        {{adminNeedsElevation}}
         if ($isAdmin) {
             $keyFile = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'
         } else {
@@ -174,7 +242,7 @@ public static class SftpHostSetup
         New-Item -ItemType Directory -Force -Path (Split-Path $keyFile) | Out-Null
         if (-not (Test-Path $keyFile)) { New-Item -ItemType File -Path $keyFile | Out-Null }
 
-        # 3. Add Connapse's key, but only once, and without disturbing any other key present.
+        # Add Connapse's key, but only once, and without disturbing any other key present.
         $key = '{{publicKeyLine}}'
         if (-not (Select-String -Path $keyFile -SimpleMatch -Pattern $key -Quiet)) {
             Add-Content -Path $keyFile -Value $key
@@ -185,7 +253,7 @@ public static class SftpHostSetup
             icacls $keyFile /inheritance:r /grant 'SYSTEM:F' 'Administrators:F' | Out-Null
         }
 
-        # 4. Say whether this host still accepts passwords over SSH.
+        # Say whether this host still accepts passwords over SSH.
         #    The restrictions on Connapse's key bind that key and nothing else, so they do not
         #    make the host key-only. Reported rather than changed: turning off password
         #    authentication is a decision about every account on the machine, and making it
@@ -199,7 +267,7 @@ public static class SftpHostSetup
             $passwordAuth = if ($setting) { $setting.Matches[0].Groups[1].Value } else { 'yes' }
         }
 
-        # 5. Report back what only this machine knows.
+        # Report back what only this machine knows.
         #    Wrapped, because the key is already installed by this point and a failure to read
         #    the fingerprint must not throw away a setup that otherwise worked. An empty
         #    fingerprint costs the operator verified-first-use, not the connection.
@@ -233,42 +301,52 @@ public static class SftpHostSetup
             Write-Host "To allow keys only, set 'PasswordAuthentication no' in $sshdConfig and run: Restart-Service sshd" -ForegroundColor Yellow
         }
         """;
+    }
 
-    private static string UnixScript(string publicKeyLine, bool macOs)
+    private static string UnixScript(string publicKeyLine, bool macOs, SftpSetupTarget target)
     {
-        string enable = macOs
-            ? """
-              # 1. Turn on Remote Login, which is what serves SFTP on macOS.
-              sudo systemsetup -setremotelogin on
-              """
-            : """
-              # 1. Make sure an SSH server is installed and running.
-              #    The unit is 'ssh' on Debian and Ubuntu, 'sshd' most other places.
-              sudo systemctl enable --now sshd 2>/dev/null || sudo systemctl enable --now ssh
-              """;
+        // Only the local machine may still need its SSH server switched on, and only that step
+        // needs sudo. Installing a key into the operator's own ~/.ssh does not, so a remote
+        // script asks for no privilege at all.
+        string enable = target == SftpSetupTarget.RemoteServer
+            ? ""
+            : macOs
+                ? """
+                  # Turn on Remote Login, which is what serves SFTP on macOS.
+                  sudo systemsetup -setremotelogin on
+
+                  """
+                : """
+                  # Make sure an SSH server is installed and running.
+                  #    The unit is 'ssh' on Debian and Ubuntu, 'sshd' most other places.
+                  sudo systemctl enable --now sshd 2>/dev/null || sudo systemctl enable --now ssh
+
+                  """;
+
+        string headline = target == SftpSetupTarget.RemoteServer
+            ? "allow this server to be indexed. Run it on the server itself."
+            : "allow this computer to be indexed.";
 
         // $$ so a single brace is literal — the awk program below needs them, and doubling
         // every interpolation is the lesser evil against escaping the shell.
         return $$"""
-        # Connapse — allow this computer to be indexed. Safe to run more than once.
+        # Connapse — {{headline}} Safe to run more than once.
 
-        {{enable}}
-
-        # 2. Add Connapse's key, but only once, and without disturbing any other key present.
+        {{enable}}# Add Connapse's key, but only once, and without disturbing any other key present.
         mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys
         chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
 
         KEY='{{publicKeyLine}}'
         grep -qxF "$KEY" ~/.ssh/authorized_keys || echo "$KEY" >> ~/.ssh/authorized_keys
 
-        # 3. Say whether this host still accepts passwords over SSH.
+        # Say whether this host still accepts passwords over SSH.
         #    The restrictions on Connapse's key bind that key and nothing else, so they do not
         #    make the host key-only. Reported rather than changed: turning off password
         #    authentication is a decision about every account on the machine.
         #    OpenSSH defaults this to yes when the directive is absent or commented out.
         PASSWORD_AUTH=$(awk 'tolower($1)=="passwordauthentication" {v=$2} END {print (v?v:"yes")}'                         /etc/ssh/sshd_config 2>/dev/null || echo unknown)
 
-        # 4. Report back what only this machine knows.
+        # Report back what only this machine knows.
         HOSTKEY=$(ls /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || ls /etc/ssh/ssh_host_rsa_key.pub)
         FINGERPRINT=$(ssh-keygen -lf "$HOSTKEY" | awk '{print $2}')
 
