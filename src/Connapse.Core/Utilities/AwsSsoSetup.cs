@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>
 /// One IAM Identity Center instance the setup script found.
@@ -26,32 +26,41 @@ public record AwsSsoInstance(
     string PortalUrl);
 
 /// <summary>
-/// Where the account sits relative to AWS Organizations, which decides whether an instance can be
-/// created and what kind it would be.
+/// Where the account sits relative to AWS Organizations, which decides who can enable an instance
+/// and therefore what to tell someone whose scan found none.
 /// </summary>
+/// <remarks>
+/// Connapse needs an <b>organisation</b> instance specifically. Only that kind supports permission
+/// sets, and AWS is explicit that account instances "do not support permission sets and therefore
+/// do not support access to AWS accounts" — while Connapse scopes a signed-in user's search by
+/// calling <c>ListAccounts</c> for their accounts. An account instance would authenticate someone
+/// and then return nothing to scope by, which looks like a working connection and is not one.
+/// <para>
+/// So this is not a question of what AWS would permit. <c>sso-admin create-instance</c> only ever
+/// produces an account instance, which makes it the wrong tool regardless of who runs it; an
+/// organisation instance is enabled from the console, in the management account.
+/// </para>
+/// </remarks>
 public enum AwsAccountPosture
 {
     /// <summary>The script could not tell — usually no permission to call DescribeOrganization.</summary>
     Unknown = 0,
 
     /// <summary>
-    /// Not in an organisation. <c>CreateInstance</c> works here and produces the only instance the
-    /// account will have, which is unambiguously the right one.
+    /// Not in an organisation. There is no organisation to hold an organisation instance, so one
+    /// has to be started by creating an organisation first.
     /// </summary>
     Standalone = 1,
 
     /// <summary>
-    /// A member account inside an organisation. <c>CreateInstance</c> is permitted but produces an
-    /// <i>account</i> instance: no multi-account permissions, no organisation-wide application
-    /// assignment, no multi-region replication. Almost always the organisation already has an
-    /// instance and this would be a weaker parallel one.
+    /// A member account inside an organisation. The organisation instance, if there is one, belongs
+    /// to the management account — so whoever holds that account is who to ask.
     /// </summary>
     Member = 2,
 
     /// <summary>
-    /// The Organizations management account. <c>CreateInstance</c> is rejected outright here — an
-    /// organisation instance is enabled through the console, where the primary region and the
-    /// encryption key are chosen.
+    /// The Organizations management account: the one place an organisation instance can be enabled,
+    /// and the only posture that can fix an empty result without involving somebody else.
     /// </summary>
     Management = 3
 }
@@ -82,12 +91,16 @@ public record AwsSsoSetupResult(
     public IReadOnlyList<string> MissingPermissions { get; init; } = MissingPermissions ?? [];
 
     /// <summary>
-    /// Whether <see cref="AwsSsoSetup.GenerateCreateScript"/> would be accepted by AWS. Says
-    /// nothing about whether it is a good idea — for a member account it is permitted and usually
-    /// wrong, which is a judgement only the administrator can make.
+    /// Whether this account could enable an instance itself, rather than needing someone with
+    /// the management account to do it.
+    /// <para>
+    /// Only the management account can enable an <i>organisation</i> instance, and only that kind
+    /// supports permission sets — which is to say, access to AWS accounts. Connapse reads a
+    /// signed-in user's accounts through <c>ListAccounts</c> to scope their search, so an account
+    /// instance would authenticate and then return nothing to scope by.
+    /// </para>
     /// </summary>
-    public bool CanCreateInstance =>
-        Posture is AwsAccountPosture.Standalone or AwsAccountPosture.Member;
+    public bool CanEnableItself => Posture is AwsAccountPosture.Management;
 }
 
 /// <summary>
@@ -277,102 +290,6 @@ public static class AwsSsoSetup
         printf '\n%s\n\n' "$BLOCK"
         echo 'Copy the block above, including both marker lines, back into Connapse.'
         """;
-    }
-
-    /// <summary>
-    /// The command that creates an Identity Center instance, for an administrator who has decided
-    /// they want one.
-    /// </summary>
-    /// <param name="name">
-    /// The instance name. Constrained by AWS to <c>[\w+=,.@-]+</c>, so anything else is replaced
-    /// rather than passed through to fail in the shell.
-    /// </param>
-    /// <remarks>
-    /// Deliberately a second script rather than a branch inside <see cref="GenerateScript"/>. That
-    /// one is offered as read-only and the UI says so; folding a create into it would make the
-    /// claim false for everyone, including the people who only ever wanted to look.
-    /// <para>
-    /// It re-checks the posture itself instead of trusting what the first script reported. The two
-    /// runs are separated by however long the administrator spent reading, and the second is the
-    /// one that writes.
-    /// </para>
-    /// <para>
-    /// This creates an <i>account</i> instance. In the Organizations management account AWS rejects
-    /// the call outright: an organisation instance is enabled through the console, which is where
-    /// the primary region — unchangeable afterwards — and the encryption key are chosen.
-    /// </para>
-    /// </remarks>
-    public static string GenerateCreateScript(string? name = null)
-    {
-        string safe = SanitiseInstanceName(name);
-
-        return $$"""
-        # Creates an IAM Identity Center instance in THIS account. Unlike the previous command,
-        # this one makes a change.
-
-        ORG_OUT=$(aws organizations describe-organization \
-                    --query 'Organization.MasterAccountId' --output text 2>&1)
-        CALLER=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
-
-        if [ "$ORG_OUT" = "$CALLER" ] && [ -n "$CALLER" ]; then
-          echo 'This is your AWS Organizations management account.'
-          echo 'AWS rejects CreateInstance here. Enable an organization instance from the console:'
-          echo '  https://console.aws.amazon.com/singlesignon/home'
-          echo 'You will choose a primary region, which CANNOT be changed afterwards.'
-          exit 1
-        fi
-
-        case "$ORG_OUT" in
-          *AWSOrganizationsNotInUse*) ;;
-          *)
-            # Permitted, and usually not what they want. Said plainly rather than blocked: the
-            # administrator knows their organisation and Connapse does not.
-            echo 'NOTE: this account belongs to an AWS Organization.'
-            echo 'What gets created is an ACCOUNT instance: no multi-account permissions, no'
-            echo 'organization-wide application assignment, no multi-region replication. If your'
-            echo 'organization already has an instance, this will be a separate, weaker one and'
-            echo 'your users will not be in it.'
-            echo ''
-            echo 'Press Ctrl-C now to stop, or wait 10 seconds to continue.'
-            sleep 10 ;;
-        esac
-
-        OUT=$(aws sso-admin create-instance --name '{{safe}}' \
-                --query 'InstanceArn' --output text 2>&1)
-
-        if [ $? -ne 0 ]; then
-          echo "Could not create the instance:"
-          printf '%s\n' "$OUT"
-          exit 1
-        fi
-
-        printf 'Created %s\n' "$OUT"
-        echo 'Now run the first command again to read it back into Connapse.'
-        """;
-    }
-
-    /// <summary>
-    /// Coerces an instance name to the character set AWS accepts, so a name with a space in it
-    /// fails validation here rather than inside the administrator's shell.
-    /// </summary>
-    public static string SanitiseInstanceName(string? name)
-    {
-        const string fallback = "Connapse";
-
-        if (string.IsNullOrWhiteSpace(name))
-            return fallback;
-
-        var cleaned = new string(name.Trim()
-            .Select(c => char.IsLetterOrDigit(c) || c is '_' or '+' or '=' or ',' or '.' or '@' or '-'
-                ? c
-                : '-')
-            .ToArray());
-
-        // 255 is the documented maximum. An all-punctuation name collapses to dashes, which is
-        // valid but meaningless, so an empty-after-trim result falls back too.
-        cleaned = cleaned.Trim('-');
-
-        return cleaned.Length == 0 ? fallback : cleaned[..Math.Min(cleaned.Length, 255)];
     }
 
     /// <summary>
