@@ -67,6 +67,16 @@ public static class S3SetupPolicy
     /// — and only once Connapse can actually read from it, since a grant the product cannot use is
     /// authority asked for and wasted.
     /// </para>
+    /// <para>
+    /// Read this before appending. What this method returns is written into an inline IAM policy
+    /// once, when the identity is created, so widening it here does nothing for an identity that
+    /// already exists. Every installation set up before that release keeps the narrower policy and
+    /// fails the new service with AccessDenied, while a developer testing against a freshly created
+    /// user sees it work. Deliberately not solved in advance: the fix is small when it is needed
+    /// and speculative now. <c>iam:PutUserPolicy</c> replaces an inline policy of the same name, so
+    /// re-applying <c>ConnapseRead</c> to the existing user updates it in place and leaves the
+    /// access key untouched — no new key, nothing to paste back.
+    /// </para>
     /// </remarks>
     public static string ForManagedIdentity() =>
         JsonSerializer.Serialize(new Dictionary<string, object>
