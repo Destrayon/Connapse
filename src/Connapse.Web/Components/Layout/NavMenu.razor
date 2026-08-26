@@ -39,30 +39,55 @@
                     </NavLink>
                 </div>
 
+                @* Everything an administrator alone can reach, behind one labelled disclosure.
+                   The block had grown to five unlabelled entries sitting directly under the
+                   ones everybody sees, so nothing marked where the administrative surface
+                   began.
+
+                   A <details> element rather than a toggle with a handler: this is the layout,
+                   which renders statically, and a handler here would need an interactive render
+                   mode on every page that uses it. The browser does the toggling. Open by
+                   default, because a collapsed group hides the only route to these pages. *@
                 <AuthorizeView Roles="Owner,Admin" Context="adminContext">
-                    @* Beside Settings rather than inside it: a connection is an entity an
-                       administrator creates and deletes, not a preference they adjust, and it is
-                       what every source is built on. *@
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="connections">
-                            <span class="nav-icon bi-plug-fill" aria-hidden="true"></span> Connections
-                        </NavLink>
-                    </div>
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="settings" Match="NavLinkMatch.All">
-                            <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
-                        </NavLink>
-                    </div>
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="admin/users">
-                            <span class="nav-icon bi-people-fill" aria-hidden="true"></span> Users
-                        </NavLink>
-                    </div>
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="admin/agents">
-                            <span class="nav-icon bi-robot" aria-hidden="true"></span> Agents
-                        </NavLink>
-                    </div>
+                    <details class="nav-group" open>
+                        <summary class="nav-group-summary">
+                            <span class="nav-icon bi-shield-lock-fill" aria-hidden="true"></span> Admin
+                        </summary>
+
+                        @* Beside Settings rather than inside it: a connection is an entity an
+                           administrator creates and deletes, not a preference they adjust, and
+                           it is what every source is built on. *@
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="connections">
+                                <span class="nav-icon bi-plug-fill" aria-hidden="true"></span> Connections
+                            </NavLink>
+                        </div>
+
+                        @* Its own entry rather than a Settings tab. An identity provider decides
+                           who may sign in and what they may search; a connection decides what
+                           Connapse itself may read. Listed beside embedding and chunking, the
+                           two read as though they configured ingestion. *@
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/identity-providers">
+                                <span class="nav-icon bi-person-badge-fill" aria-hidden="true"></span> Identity Providers
+                            </NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="settings" Match="NavLinkMatch.All">
+                                <span class="nav-icon bi-gear-fill" aria-hidden="true"></span> Settings
+                            </NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/users">
+                                <span class="nav-icon bi-people-fill" aria-hidden="true"></span> Users
+                            </NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/agents">
+                                <span class="nav-icon bi-robot" aria-hidden="true"></span> Agents
+                            </NavLink>
+                        </div>
+                    </details>
                 </AuthorizeView>
             </nav>
 
