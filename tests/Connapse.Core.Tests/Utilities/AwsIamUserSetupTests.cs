@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Utilities;
@@ -6,12 +6,8 @@ namespace Connapse.Core.Tests.Utilities;
 [Trait("Category", "Unit")]
 public class AwsIamUserSetupTests
 {
-    private static string Script(S3AccessScope scope = S3AccessScope.AllBuckets,
-        string? bucketOrPattern = null, string? userName = null)
-    {
-        var grant = S3SetupPolicy.Grant(scope, bucketOrPattern);
-        return AwsIamUserSetup.GenerateScript(grant.Policy, grant.Summary, userName);
-    }
+    private static string Script(string? userName = null) =>
+        AwsIamUserSetup.GenerateScript(userName);
 
     [Fact]
     public void GenerateScript_CreatesAUserAPolicyAndAKey_AndNothingElse()
@@ -43,24 +39,17 @@ public class AwsIamUserSetupTests
     [Fact]
     public void GenerateScript_SaysWhatThePolicyAllows()
     {
-        // The scope is a choice, and the script outlives the page that generated it -- pasted into
-        // a ticket or a terminal buffer, the comment is the only record of which one was picked.
-        Script(S3AccessScope.OneBucket, "my-bucket")
-            .Should().Contain("reading my-bucket, and nothing else.");
+        // The script outlives the page that generated it -- pasted into a ticket or a terminal
+        // buffer, this comment is the only record of what the credential it mints can reach.
+        Script().Should().Contain(S3SetupPolicy.ManagedIdentitySummary);
     }
 
     [Fact]
-    public void GenerateScript_CarriesTheChosenScopesPolicy()
+    public void GenerateScript_CarriesTheManagedIdentityPolicy()
     {
-        Script(S3AccessScope.AllBuckets).Should().Contain("ConnapseFindBuckets");
-        Script(S3AccessScope.OneBucket, "my-bucket").Should().NotContain("ConnapseFindBuckets");
-    }
-
-    [Fact]
-    public void GenerateScript_WithoutAPolicy_Throws()
-    {
-        FluentActions.Invoking(() => AwsIamUserSetup.GenerateScript("  ", "anything"))
-            .Should().Throw<ArgumentException>();
+        // Not a policy assembled here. One place decides what Connapse asks AWS for, so the script
+        // and the sentence describing it cannot drift apart.
+        Script().Should().Contain(S3SetupPolicy.ForManagedIdentity());
     }
 
     [Theory]

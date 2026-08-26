@@ -237,68 +237,19 @@
                             revocable on its own. You will run one command and paste the result back.
                         </p>
 
-                        @* Every bucket by default. A per-bucket grant reads tighter and behaves
-                           worse: the grant lives in AWS and the choice of bucket lives here, so
-                           each new source would send someone back to CloudShell to widen a policy
-                           nobody re-reads. Read-only across the account is the honest trade, and
-                           it is what lets the connection form list buckets instead of asking
-                           someone to type a name exactly right. *@
-                        <div class="mb-3">
-                            <label class="form-label small mb-1">What it may read</label>
-                            @foreach (var choice in IdentityScopes)
-                            {
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" id="scope-@choice.Scope"
-                                           checked="@(identityScope == choice.Scope)"
-                                           @onchange="() => identityScope = choice.Scope" />
-                                    <label class="form-check-label small" for="scope-@choice.Scope">
-                                        @choice.Label
-                                        <span class="text-muted">— @choice.Note</span>
-                                    </label>
-                                </div>
-                            }
-                        </div>
-
-                        @if (identityScope == S3AccessScope.NamePattern)
-                        {
-                            <div class="row g-2 align-items-end mb-2">
-                                <div class="col-md-6">
-                                    <label class="form-label small mb-1">Name pattern</label>
-                                    <input class="form-control form-control-sm" @bind="newIdentityBucket"
-                                           @bind:event="oninput" placeholder="acme-docs-*" />
-                                    <div class="form-text">
-                                        <code>*</code> matches any run of characters. Buckets created
-                                        later that match are covered without redoing this.
-                                    </div>
-                                </div>
-                            </div>
-                        }
-                        else if (identityScope == S3AccessScope.OneBucket)
-                        {
-                            <div class="row g-2 align-items-end mb-2">
-                                <div class="col-md-5">
-                                    <label class="form-label small mb-1">Bucket it should read</label>
-                                    <input class="form-control form-control-sm" @bind="newIdentityBucket"
-                                           @bind:event="oninput" placeholder="my-docs-bucket" />
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label small mb-1">
-                                        Folder <span class="text-muted">(optional)</span>
-                                    </label>
-                                    <input class="form-control form-control-sm" @bind="newIdentityPrefix"
-                                           @bind:event="oninput" placeholder="docs/" />
-                                </div>
-                            </div>
-                        }
-
-                        var grant = IdentityGrant();
-
+                        @* One setup, not a scope picker. The easy path exists to remove
+                           decisions, and asking an operator to size an IAM grant against sources
+                           that do not exist yet is the hardest decision on the page. Anyone who
+                           wants a narrower credential makes one in AWS and points Connapse at it;
+                           that path is supported and untouched. *@
                         <p class="small mb-2">
                             <span class="bi-shield-check me-1 text-muted"></span>
-                            Allows @grant.Summary
+                            Allows @S3SetupPolicy.ManagedIdentitySummary
+                            Each connection's allowed-locations list is what decides which of those
+                            buckets its sources may actually name.
                         </p>
 
-                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript(grant.Policy, grant.Summary)</code></pre>
+                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript()</code></pre>
 
                         <div class="d-flex flex-wrap gap-2 mb-2">
                             <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -423,32 +374,6 @@
 
     private bool awsBusy;
 
-    /// <summary>How wide the identity being created should be. Widest by default.</summary>
-    private S3AccessScope identityScope = S3AccessScope.AllBuckets;
-
-    /// <summary>Bucket name, or name pattern — whichever the chosen scope asks for.</summary>
-    private string? newIdentityBucket;
-    private string? newIdentityPrefix;
-
-    /// <summary>The three scopes, in the order they are offered.</summary>
-    /// <remarks>
-    /// Ordered widest first, which is unusual and deliberate: the first option is the one that
-    /// keeps working as sources are added, and the narrower two exist for operators who have a
-    /// reason to accept a second trip to AWS every time.
-    /// </remarks>
-    private static readonly (S3AccessScope Scope, string Label, string Note)[] IdentityScopes =
-    [
-        (S3AccessScope.AllBuckets, "Every bucket, read-only",
-            "recommended — new buckets work without redoing this"),
-        (S3AccessScope.NamePattern, "Buckets matching a name",
-            "for accounts that name buckets by convention"),
-        (S3AccessScope.OneBucket, "One bucket",
-            "tightest, but adding a second means creating another identity")
-    ];
-
-    /// <summary>The policy and description for the current choice.</summary>
-    private S3AccessGrant IdentityGrant() =>
-        S3SetupPolicy.Grant(identityScope, newIdentityBucket, newIdentityPrefix);
     private string? pastedKey;
     private string? copyMessage;
     private bool copySucceeded;
@@ -457,10 +382,8 @@
     {
         // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
         // Connapse is routinely served over plain HTTP on a LAN.
-        var grant = IdentityGrant();
-
         copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard",
-            AwsIamUserSetup.GenerateScript(grant.Policy, grant.Summary));
+            AwsIamUserSetup.GenerateScript());
 
         copyMessage = copySucceeded
             ? "Copied."

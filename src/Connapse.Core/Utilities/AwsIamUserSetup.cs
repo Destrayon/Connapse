@@ -43,12 +43,6 @@ public static class AwsIamUserSetup
     /// <summary>
     /// The command to paste into AWS CloudShell.
     /// </summary>
-    /// <param name="policy">
-    /// The inline policy the created user gets, from <see cref="S3SetupPolicy"/>.
-    /// </param>
-    /// <param name="scopeSummary">
-    /// One line naming what that policy allows, shown as a comment at the top of the script.
-    /// </param>
     /// <param name="userName">IAM user name; defaults to <see cref="DefaultUserName"/>.</param>
     /// <remarks>
     /// Unlike the other setup scripts in this project, this one writes. It is shown in full rather
@@ -59,16 +53,17 @@ public static class AwsIamUserSetup
     /// with it, so removing the user leaves nothing behind to find later.
     /// </para>
     /// <para>
-    /// The policy arrives already built rather than being described by a bucket name, because the
-    /// scope is a choice the operator makes — every bucket, a name pattern, or one named bucket —
-    /// and a signature taking a bucket could only express the last of those.
+    /// No parameter for the scope. This is the easy path, and it grants what Connapse needs to do
+    /// its job — <see cref="S3SetupPolicy.ForManagedIdentity"/>, read-only. An operator who wants a
+    /// different shape of credential makes one themselves and points Connapse at it, which is a
+    /// supported arrangement rather than a fallback.
     /// </para>
     /// </remarks>
-    public static string GenerateScript(string policy, string scopeSummary, string? userName = null)
+    public static string GenerateScript(string? userName = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(policy);
-
         string user = SanitiseUserName(userName);
+        string policy = S3SetupPolicy.ForManagedIdentity();
+        string scopeSummary = S3SetupPolicy.ManagedIdentitySummary;
 
         // Single-quoted heredoc so the shell expands nothing inside the policy document.
         return $$"""
