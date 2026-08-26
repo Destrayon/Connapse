@@ -11,8 +11,6 @@
 @inject IOptionsMonitor<SearchSettings> SearchOptions
 @inject IOptionsMonitor<LlmSettings> LlmOptions
 @inject IOptionsMonitor<UploadSettings> UploadOptions
-@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
-@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IOptionsMonitor<SummarySettings> SummaryOptions
 @rendermode InteractiveServer
 
@@ -70,20 +68,6 @@
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
-                    @onclick='() => activeTab = "awssso"'
-                    type="button">
-                AWS SSO
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
-                    @onclick='() => activeTab = "azuread"'
-                    type="button">
-                Azure AD
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
             <button class="nav-link @(activeTab == "summary" ? "active" : "")"
                     @onclick='() => activeTab = "summary"'
                     type="button">
@@ -114,14 +98,6 @@
         {
             <UploadSettingsTab Settings="uploadSettings" OnSave="SaveUploadSettings" />
         }
-        else if (activeTab == "awssso")
-        {
-            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
-        }
-        else if (activeTab == "azuread")
-        {
-            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
-        }
         else if (activeTab == "summary")
         {
             <SummarySettingsTab @ref="summaryTabRef"
@@ -142,8 +118,6 @@
     private SearchSettings searchSettings = new();
     private LlmSettings llmSettings = new();
     private UploadSettings uploadSettings = new();
-    private AwsSsoSettings awsSsoSettings = new();
-    private AzureAdSettings azureAdSettings = new();
     private SummarySettings summarySettings = new();
     private SummarySettingsTab? summaryTabRef;
 
@@ -155,8 +129,6 @@
         searchSettings = SearchOptions.CurrentValue;
         llmSettings = LlmOptions.CurrentValue;
         uploadSettings = UploadOptions.CurrentValue;
-        awsSsoSettings = AwsSsoOptions.CurrentValue;
-        azureAdSettings = AzureAdOptions.CurrentValue;
         summarySettings = SummaryOptions.CurrentValue;
     }
 
@@ -188,18 +160,6 @@
     {
         await SaveSettings("upload", settings);
         uploadSettings = settings;
-    }
-
-    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
-    {
-        await SaveSettings("awssso", settings);
-        awsSsoSettings = settings;
-    }
-
-    private async Task SaveAzureAdSettings(AzureAdSettings settings)
-    {
-        await SaveSettings("azuread", settings);
-        azureAdSettings = settings;
     }
 
     private async Task SaveSummarySettings()
