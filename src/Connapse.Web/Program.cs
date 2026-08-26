@@ -147,6 +147,7 @@ builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed
 // after a source already exists.
 builder.Services.AddScoped<SourceScopePreflight>();
+builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 
 // Singleton: whether this process is in a container cannot change while it runs, and the
 // resolver reads that once. See ContainerHostResolver.

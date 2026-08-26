@@ -1,0 +1,249 @@
+﻿@page "/admin/providers"
+@* The old route, so links and bookmarks made while this was Identity Providers still land. *@
+@page "/admin/identity-providers"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Components.Settings
+@using Connapse.Storage.Settings
+@using Microsoft.Extensions.Options
+@inject ISettingsStore SettingsStore
+@inject ISettingsReloader ReloadService
+@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
+@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IProviderSetupReader SetupReader
+@rendermode InteractiveServer
+
+@*
+    Providers — everything Connapse needs from a cloud, in one place.
+
+    Two jobs per provider that read as unrelated because they lived on different pages:
+    configure sign-in here, arrange access somewhere else. They are usually done in one
+    sitting with the same console open.
+
+    Sign-in and access are genuinely different things and must stay so. An identity
+    provider authenticates a *person* and scopes what they may search; a Connection holds
+    the credential Connapse's own background sync reads with. They cannot be merged:
+    SourceSyncService runs on a timer with no user present, and an SSO session needs an
+    interactive browser sign-in to renew, so it can never drive a sync.
+
+    This page holds nothing. It reads settings and probes AWS, and links out for anything
+    that changes. That restraint is the design: a provider that stored credentials would be
+    a service-account layer above Connection, which already *is* the credential boundary —
+    and neither Airbyte nor Fivetran has such a layer, because the configured source
+    carries its own authentication.
+
+    Requirements are a list each provider declares rather than two fixed sections, so
+    adding a third is a list entry rather than a change here.
+*@
+
+<PageTitle>Providers - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <h1 class="mb-1">
+        <span class="bi-cloud-fill me-2"></span>
+        Providers
+    </h1>
+    <p class="text-muted">
+        What Connapse needs from each cloud, and what is still missing. Nothing is stored on this
+        page — credentials live on <a href="/connections">Connections</a>.
+    </p>
+
+    @* Status first, settings below. Someone arriving here is usually asking "what is left to
+       do", and answering that before showing forms is the whole reason this page changed. *@
+    @if (setups is null)
+    {
+        <div class="text-muted small mb-4">
+            <span class="spinner-border spinner-border-sm me-1"></span> Checking providers…
+        </div>
+    }
+    else
+    {
+        <div class="row g-3 mb-4">
+            @foreach (var provider in setups)
+            {
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-3">
+                                <h5 class="card-title mb-0">@provider.DisplayName</h5>
+                                <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            </div>
+
+                            @foreach (var requirement in provider.Requirements)
+                            {
+                                <div class="mb-3">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
+                                        <strong class="small">@requirement.Name</strong>
+                                        <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
+                                    </div>
+                                    <div class="form-text mb-1">@requirement.Description</div>
+
+                                    @if (!string.IsNullOrWhiteSpace(requirement.Detail))
+                                    {
+                                        <div class="small text-body-secondary font-monospace text-break">
+                                            @requirement.Detail
+                                        </div>
+                                    }
+
+                                    @if (requirement.ActionHref is { } href && requirement.ActionLabel is { } label)
+                                    {
+                                        <a class="small" href="@href">@label</a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(saveMessage))
+    {
+        <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+            @saveMessage
+            <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+        </div>
+    }
+
+    <h2 class="h5 mt-4">Sign-in settings</h2>
+
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
+                    @onclick='() => activeTab = "awssso"'
+                    type="button">
+                AWS SSO
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
+                    @onclick='() => activeTab = "azuread"'
+                    type="button">
+                Azure AD
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        @if (activeTab == "awssso")
+        {
+            <div id="aws-signin"></div>
+            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
+        }
+        else if (activeTab == "azuread")
+        {
+            <div id="azure-signin"></div>
+            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "awssso";
+    private string? saveMessage;
+    private bool saveSuccess;
+
+    private AwsSsoSettings awsSsoSettings = new();
+    private AzureAdSettings azureAdSettings = new();
+
+    /// <summary>Null while the providers are still being checked.</summary>
+    private IReadOnlyList<ProviderSetup>? setups;
+
+    protected override void OnInitialized()
+    {
+        // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
+        // table, which overrides appsettings.json, and reloads without a restart.
+        awsSsoSettings = AwsSsoOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
+    }
+
+    /// <summary>
+    /// Loads the status cards after the first render.
+    /// </summary>
+    /// <remarks>
+    /// Separate from OnInitialized because reading the AWS requirement calls STS, and off-AWS the
+    /// credential chain can spend a second failing to reach EC2 metadata before it gives up. Doing
+    /// that before the first render would leave the page blank for the wait.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        setups = await SetupReader.ReadAsync();
+        StateHasChanged();
+    }
+
+    private async Task RefreshSetups()
+    {
+        setups = null;
+        StateHasChanged();
+        setups = await SetupReader.ReadAsync();
+    }
+
+    private static string Label(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "Ready",
+        RequirementStatus.Warning => "Works, but",
+        RequirementStatus.NotConfigured => "Not set up",
+        _ => "Unknown"
+    };
+
+    private static string BadgeClass(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "text-bg-success",
+        RequirementStatus.Warning => "text-bg-warning",
+        // Not "danger": nothing is broken, it simply has not been done, and colouring a fresh
+        // install red tells the reader they have a problem rather than a next step.
+        RequirementStatus.NotConfigured => "text-bg-secondary",
+        _ => "text-bg-light"
+    };
+
+    private static string IconClass(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "bi-check-circle-fill text-success",
+        RequirementStatus.Warning => "bi-exclamation-triangle-fill text-warning",
+        RequirementStatus.NotConfigured => "bi-circle text-secondary",
+        _ => "bi-question-circle text-secondary"
+    };
+
+    // The category keys are unchanged from when these tabs lived in Settings. Renaming them
+    // would orphan whatever is already in the settings table.
+    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
+    {
+        awsSsoSettings = settings;
+        await SaveSettings("awssso", settings);
+
+        // The cards above report this very setting, so leaving them alone would show the old
+        // answer beside the new form.
+        await RefreshSetups();
+    }
+
+    private async Task SaveAzureAdSettings(AzureAdSettings settings)
+    {
+        azureAdSettings = settings;
+        await SaveSettings("azuread", settings);
+
+        // The cards above report this very setting, so leaving them alone would show the old
+        // answer beside the new form.
+        await RefreshSetups();
+    }
+
+    private async Task SaveSettings<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            await SettingsStore.SaveAsync(category, settings);
+            ReloadService.Reload();
+            saveMessage = $"{category} settings saved successfully!";
+            saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveSuccess = false;
+        }
+    }
+}

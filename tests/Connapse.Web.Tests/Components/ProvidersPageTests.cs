@@ -16,22 +16,22 @@ namespace Connapse.Web.Tests.Components;
 /// realistically be lost.
 /// </remarks>
 [Trait("Category", "Unit")]
-public class IdentityProvidersPageTests
+public class ProvidersPageTests
 {
     private static readonly Type Page =
-        typeof(Connapse.Web.Components.Pages.IdentityProviders);
+        typeof(Connapse.Web.Components.Pages.Providers);
 
     [Fact]
-    public void IdentityProvidersPage_IsRoutable()
+    public void ProvidersPage_IsRoutable()
     {
         Page.GetCustomAttributes(typeof(RouteAttribute), inherit: true)
             .Cast<RouteAttribute>()
             .Select(r => r.Template)
-            .Should().Contain("/admin/identity-providers");
+            .Should().Contain("/admin/providers");
     }
 
     [Fact]
-    public void IdentityProvidersPage_RequiresAnAdministrator()
+    public void ProvidersPage_RequiresAnAdministrator()
     {
         var authorize = Page
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
@@ -46,7 +46,7 @@ public class IdentityProvidersPageTests
     }
 
     [Fact]
-    public void IdentityProvidersPage_GateMatchesTheSettingsPageItLeft()
+    public void ProvidersPage_GateMatchesTheSettingsPageItLeft()
     {
         var settings = typeof(Connapse.Web.Components.Pages.Settings)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
@@ -72,11 +72,11 @@ public class IdentityProvidersPageTests
     [Theory]
     [InlineData("awssso")]
     [InlineData("azuread")]
-    public void IdentityProvidersPage_KeepsTheSettingsKeysItInherited(string category)
+    public void ProvidersPage_KeepsTheSettingsKeysItInherited(string category)
     {
         string markup = File.ReadAllText(Path.Combine(
             PageTestPaths.RepositoryRoot(),
-            "src", "Connapse.Web", "Components", "Pages", "IdentityProviders.razor"));
+            "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
 
         markup.Should().Contain($"SaveSettings(\"{category}\"",
             "renaming the category orphans whatever is already stored under the old one");
@@ -100,7 +100,7 @@ public class IdentityProvidersPageTests
             // A leftover button with no matching body is the realistic half-finished move: it
             // compiles, renders, and selects a tab that draws nothing at all.
             Markup.Should().NotContain(tab,
-                "the tab moved to /admin/identity-providers");
+                "the tab moved to /admin/providers");
         }
 
         [Theory]
@@ -129,7 +129,7 @@ public class IdentityProvidersPageTests
             "src", "Connapse.Web", "Components", "Layout", "NavMenu.razor"));
 
         public static TheoryData<string> AdminRoutes() =>
-            new() { "connections", "admin/identity-providers", "settings", "admin/users", "admin/agents" };
+            new() { "connections", "admin/providers", "settings", "admin/users", "admin/agents" };
 
         [Theory]
         [MemberData(nameof(AdminRoutes))]
@@ -170,6 +170,39 @@ public class IdentityProvidersPageTests
                 "the layout has no render mode, so a handler here would never run");
         }
     }
+
+    [Fact]
+    public void ProvidersPage_KeepsItsOldRoute()
+    {
+        // Renamed from Identity Providers. Links and bookmarks made under the old name must still
+        // land somewhere rather than 404 -- a rename is not a reason to break them.
+        Page.GetCustomAttributes(typeof(RouteAttribute), inherit: true)
+            .Cast<RouteAttribute>()
+            .Select(r => r.Template)
+            .Should().Contain("/admin/identity-providers");
+    }
+
+    /// <summary>
+    /// The page reports; it does not store.
+    /// </summary>
+    /// <remarks>
+    /// The line that keeps this from becoming a service-account concept above Connection. Connection
+    /// already <i>is</i> the credential boundary, with encrypted secret storage; a provider that
+    /// held credentials would be a second one, and neither Airbyte nor Fivetran has such a layer.
+    /// Asserted because the pressure to "just put the key here" will be constant.
+    /// </remarks>
+    [Fact]
+    public void ProvidersPage_DoesNotTouchTheConnectionStore()
+    {
+        string markup = File.ReadAllText(Path.Combine(
+            PageTestPaths.RepositoryRoot(),
+            "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
+
+        markup.Should().NotContain("IConnectionStore",
+            "credentials belong on Connections, and a page that reads them will soon write them");
+        markup.Should().NotContain("CreateConnectionRequest");
+    }
+
 }
 
 /// <summary>Shared path helper for tests that read component source rather than render it.</summary>
