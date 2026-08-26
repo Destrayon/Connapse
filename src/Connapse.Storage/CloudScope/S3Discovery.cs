@@ -23,7 +23,9 @@ namespace Connapse.Storage.CloudScope;
 /// <see cref="Classify"/>.
 /// </para>
 /// </remarks>
-public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
+public class S3Discovery(
+    IProviderCredentialStore credentialStore,
+    ILogger<S3Discovery> logger) : IS3Discovery
 {
     /// <summary>
     /// Endpoint for the calls that are not about a particular bucket.
@@ -36,10 +38,13 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Key this provider's credential is stored under.</summary>
+    public const string AwsProviderKey = "aws";
+
     public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync(ct);
         if (baseCredentials is null)
             return AwsProbe<AwsCallerIdentity>.NoCredentials(error
                 ?? "The AWS SDK found no credentials in its provider chain.");
@@ -78,7 +83,7 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
     public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync(ct);
         if (baseCredentials is null)
             return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
@@ -120,7 +125,7 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync(ct);
         if (baseCredentials is null)
             return AwsProbe<string>.NoCredentials(error);
 
@@ -209,8 +214,35 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
     /// exception.
     /// </para>
     /// </remarks>
-    private (AWSCredentials? Credentials, string? Error) Resolve()
+    private async Task<(AWSCredentials? Credentials, string? Error)> ResolveAsync(CancellationToken ct)
     {
+        // The credential Connapse was given, before the one its environment happens to have.
+        //
+        // An identity set up deliberately outranks whatever the machine is carrying: the ambient
+        // chain may resolve an administrator's personal profile, and preferring that would make
+        // Connapse's reach depend on whose machine it runs beside.
+        try
+        {
+            var stored = await credentialStore.GetAsync(AwsProviderKey, ct);
+            if (stored is not null)
+            {
+                string? secret = await credentialStore.GetSecretAsync(AwsProviderKey, ct);
+                if (!string.IsNullOrEmpty(secret))
+                    return (new BasicAWSCredentials(stored.PublicId, secret), null);
+            }
+        }
+        catch (ProviderCredentialUnavailableException ex)
+        {
+            // Stored but unreadable. Falling through to ambient would silently run as a different
+            // identity than the one configured, which is worse than saying so.
+            logger.LogError(ex, "The stored AWS credential could not be decrypted");
+            return (null, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the stored AWS credential; falling back to the environment");
+        }
+
         try
         {
             return (Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver

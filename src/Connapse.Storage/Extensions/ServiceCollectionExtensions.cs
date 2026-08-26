@@ -187,7 +187,10 @@ public static class ServiceCollectionExtensions
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
-        services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
+        // Scoped, not singleton: it now reads the stored credential through a DbContext
+        // factory, and a singleton holding a scoped dependency is the classic captive.
+        services.AddScoped<IS3Discovery, CloudScope.S3Discovery>();
+        services.AddScoped<IProviderCredentialStore, Connections.PostgresProviderCredentialStore>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AwsSsoConnectionTester>();

@@ -1,0 +1,52 @@
+namespace Connapse.Storage.Data.Entities;
+
+/// <summary>
+/// The credential Connapse itself acts as against one cloud provider.
+/// </summary>
+/// <remarks>
+/// One row per provider, keyed by provider name. Connapse has a single identity per cloud — the
+/// same one every connection uses — so this replaces the credentials the SDK would otherwise pick
+/// up from the environment rather than sitting beside them.
+/// <para>
+/// Provider-level rather than per-connection because Connapse's identity is one thing. A connection
+/// narrows from it with <c>RoleArn</c>; it does not bring its own. This differs from Airbyte and
+/// Fivetran, where each configured source carries its own authentication — that shape follows from
+/// connecting to many customers' systems, which a self-hosted single-organisation product does not.
+/// </para>
+/// <para>
+/// The secret is DataProtection ciphertext under its own purpose, never the raw key. The key ring
+/// is persisted to the appdata volume with SetApplicationName, so it survives container
+/// replacement — without that this table would lose its contents on every redeploy.
+/// </para>
+/// </remarks>
+public class ProviderCredentialEntity
+{
+    /// <summary>Provider key — "aws", "azure". One credential each.</summary>
+    public string Provider { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The public half, stored in the clear so it can be displayed.
+    /// </summary>
+    /// <remarks>
+    /// An access key id identifies a credential without authenticating anything, and showing it is
+    /// how an administrator confirms which one is in use before replacing it.
+    /// </remarks>
+    public string PublicId { get; set; } = string.Empty;
+
+    /// <summary>DataProtection ciphertext, purpose "ProviderCredential.v1".</summary>
+    public string SecretProtected { get; set; } = string.Empty;
+
+    /// <summary>The IAM user or principal this belongs to, for display.</summary>
+    public string? PrincipalName { get; set; }
+
+    /// <summary>
+    /// When this credential was stored.
+    /// </summary>
+    /// <remarks>
+    /// Shown in the UI. Guidance on static keys is to rotate them on a schedule, and a key whose
+    /// age is invisible is one nobody rotates.
+    /// </remarks>
+    public DateTime CreatedAt { get; set; }
+
+    public Guid? CreatedByUserId { get; set; }
+}

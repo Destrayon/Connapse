@@ -1,4 +1,4 @@
-using Connapse.Storage.Data.Entities;
+﻿using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Storage.Data;
@@ -14,6 +14,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<BatchEntity> Batches => Set<BatchEntity>();
     public DbSet<BatchDocumentEntity> BatchDocuments => Set<BatchDocumentEntity>();
     public DbSet<ConnectionEntity> Connections => Set<ConnectionEntity>();
+    public DbSet<ProviderCredentialEntity> ProviderCredentials => Set<ProviderCredentialEntity>();
     public DbSet<SourceEntity> Sources => Set<SourceEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -450,6 +451,38 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
     private static void ConfigureConnections(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ProviderCredentialEntity>(entity =>
+        {
+            entity.ToTable("provider_credentials");
+
+            // Keyed by provider, not a surrogate id: Connapse has one identity per cloud, and a
+            // second row for the same provider would be an ambiguity nothing could resolve.
+            entity.HasKey(e => e.Provider);
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider")
+                .HasMaxLength(32);
+
+            entity.Property(e => e.PublicId)
+                .HasColumnName("public_id")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.SecretProtected)
+                .HasColumnName("secret_protected")
+                .IsRequired();
+
+            entity.Property(e => e.PrincipalName)
+                .HasColumnName("principal_name")
+                .HasMaxLength(256);
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at");
+
+            entity.Property(e => e.CreatedByUserId)
+                .HasColumnName("created_by_user_id");
+        });
+
         modelBuilder.Entity<ConnectionEntity>(entity =>
         {
             entity.ToTable("connections");
