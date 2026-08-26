@@ -17,6 +17,7 @@
 @inject S3ConnectionTester S3Tester
 @inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
+@inject IS3Discovery S3Discovery
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -700,6 +701,52 @@
                     a warning logged.
                 </div>
 
+                @* The list, rather than a name typed from memory. Connapse's own AWS identity is
+                   granted read across the account by default, and this is what that grant buys:
+                   the allowlist here is where a bucket is actually chosen, so it is the field that
+                   should know which ones exist. A misremembered bucket name is otherwise a
+                   connection that saves cleanly and fails at the first sync. *@
+                @if (form.Provider == ConnectionProvider.S3)
+                {
+                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="ListBuckets" disabled="@listingBuckets">
+                            @if (listingBuckets)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            else
+                            {
+                                <span class="bi-list-ul me-1"></span>
+                            }
+                            <span>List buckets Connapse can see</span>
+                        </button>
+                        @if (!string.IsNullOrEmpty(bucketListMessage))
+                        {
+                            <span class="small text-muted">@bucketListMessage</span>
+                        }
+                    </div>
+
+                    @if (discoveredBuckets is { Count: > 0 })
+                    {
+                        <div class="d-flex flex-wrap gap-1 mt-2">
+                            @foreach (string bucket in discoveredBuckets)
+                            {
+                                bool already = IsAllowed(bucket);
+                                <button type="button"
+                                        class="btn btn-sm @(already ? "btn-success" : "btn-outline-primary")"
+                                        disabled="@already" @onclick="() => AllowBucket(bucket)">
+                                    @if (already)
+                                    {
+                                        <span class="bi-check-lg me-1"></span>
+                                    }
+                                    <code class="@(already ? "text-white" : "")">@bucket</code>
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+
                 @* Offered once something is allowed, because until then there is nothing to scope
                    a policy to. Aimed at operators whose credential currently allows more than this
                    connection needs, which is the usual state of a key made to get started. *@
@@ -711,9 +758,11 @@
                         </summary>
                         <pre class="bg-body-tertiary border rounded p-2 small mt-2 mb-1" style="max-height:20rem;overflow:auto"><code>@policy</code></pre>
                         <div class="form-text">
-                            Only <code>s3:ListBucket</code> and <code>s3:GetObject</code> — Connapse
-                            never writes to a source. Attach this to the identity above to narrow a
-                            credential that currently allows more.
+                            Reads only — <code>s3:ListBucket</code>, <code>s3:GetObject</code>, and
+                            <code>s3:GetBucketLocation</code> to find the region. Connapse never
+                            writes to a source. Attach this to narrow a credential that currently
+                            allows more, at the cost of a return trip to AWS for every bucket added
+                            after it.
                         </div>
                     </details>
                 }
@@ -815,6 +864,63 @@
     private SshKeyPair? localKeyPair;
     private string setupScript = "";
     private string? pastedResult;
+
+    /// <summary>Buckets the credential can see, or null before anyone asked.</summary>
+    private IReadOnlyList<string>? discoveredBuckets;
+
+    private bool listingBuckets;
+    private string? bucketListMessage;
+
+    /// <summary>
+    /// Asks AWS which buckets exist, as the connection's own identity.
+    /// </summary>
+    /// <remarks>
+    /// Through the connection's role rather than the ambient credential, so a connection that
+    /// assumes a role into another account lists that account's buckets and not the host's. The
+    /// call needs <c>s3:ListAllMyBuckets</c>, which the narrow per-bucket policies deliberately
+    /// omit — a denial here means the credential is scoped, not broken, which is why it reads as a
+    /// note rather than an error.
+    /// </remarks>
+    private async Task ListBuckets()
+    {
+        listingBuckets = true;
+        bucketListMessage = null;
+        try
+        {
+            var probe = await S3Discovery.ListBucketsAsync(NullIfBlank(form.RoleArn));
+
+            discoveredBuckets = probe.Value;
+            bucketListMessage = probe.Outcome switch
+            {
+                AwsProbeOutcome.Succeeded when probe.Value is { Count: 0 } =>
+                    "No buckets in this account.",
+                AwsProbeOutcome.Succeeded => null,
+                AwsProbeOutcome.NoCredentials =>
+                    "Connapse has no AWS identity yet — set one up on the AWS provider page.",
+                AwsProbeOutcome.Denied =>
+                    "This identity may not list buckets, so type the name instead.",
+                _ => probe.Detail
+            };
+        }
+        finally
+        {
+            listingBuckets = false;
+        }
+    }
+
+    /// <summary>Whether an entry for this bucket is already in the allowlist.</summary>
+    private bool IsAllowed(string bucket) => AllowedList()
+        .Any(entry => entry == bucket || entry.StartsWith(bucket + "/", StringComparison.Ordinal));
+
+    /// <summary>Appends a bucket to the allowlist, leaving any prefixes already typed alone.</summary>
+    private void AllowBucket(string bucket)
+    {
+        if (IsAllowed(bucket)) return;
+
+        var entries = AllowedList().ToList();
+        entries.Add(bucket);
+        form.AllowedLocations = string.Join("\n", entries);
+    }
 
     /// <summary>The allowed-locations field, one entry per line.</summary>
     private List<string> AllowedList() =>

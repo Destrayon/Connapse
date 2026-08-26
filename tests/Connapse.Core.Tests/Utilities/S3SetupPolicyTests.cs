@@ -30,7 +30,7 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForBucket("my-bucket"));
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(2);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(3);
     }
 
     [Fact]
@@ -73,8 +73,21 @@ public class S3SetupPolicyTests
             .Select(a => a.GetString())
             .ToList();
 
-        actions.Should().BeEquivalentTo(S3SetupPolicy.ReadActions);
+        actions.Should().BeEquivalentTo([.. S3SetupPolicy.ReadActions, "s3:GetBucketLocation"]);
         actions.Should().NotContain(a => a!.Contains("Put") || a.Contains("Delete") || a.Contains("*"));
+    }
+
+    [Fact]
+    public void ForBucket_LocatesTheBucketWithoutTheListingCondition()
+    {
+        // GetBucketLocation does not understand s3:prefix. Folded in beside ListBucket it would be
+        // denied on every grant naming a folder -- and S3Discovery asks for the region before its
+        // first read, so a prefixed grant would fail at the step before the one it was written for.
+        string policy = S3SetupPolicy.ForBucket("my-bucket", "docs");
+
+        var locate = Statement(policy, "ConnapseLocateBucket");
+        locate.TryGetProperty("Condition", out _).Should().BeFalse();
+        locate.GetProperty("Resource").GetString().Should().Be("arn:aws:s3:::my-bucket");
     }
 
     [Fact]
@@ -183,7 +196,7 @@ public class S3SetupPolicyTests
 
         var root = Parse(policy);
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(4, "two statements per bucket");
+        root.GetProperty("Statement").GetArrayLength().Should().Be(6, "three statements per bucket");
     }
 
     [Fact]
@@ -197,7 +210,7 @@ public class S3SetupPolicyTests
             .ToList();
 
         sids.Should().OnlyHaveUniqueItems();
-        sids.Should().HaveCount(6);
+        sids.Should().HaveCount(9);
     }
 
     [Fact]
@@ -254,6 +267,109 @@ public class S3SetupPolicyTests
         // Splitting a textarea on newlines leaves blanks behind whenever somebody hits enter twice.
         string policy = S3SetupPolicy.ForBuckets(["docs-bucket", "  ", "shared-bucket"]);
 
-        Parse(policy).GetProperty("Statement").GetArrayLength().Should().Be(4);
+        Parse(policy).GetProperty("Statement").GetArrayLength().Should().Be(6);
+    }
+
+    // -- The account-wide grant -----------------------------------------------------
+
+    [Fact]
+    public void ForAllBuckets_ReadsEverythingAndChangesNothing()
+    {
+        // The point of the wide grant is that it is wide in one direction only. A leaked key that
+        // can read every bucket is a real cost; one that can also delete them is a different
+        // product, so the absence of write actions is the assertion holding the trade together.
+        var actions = Parse(S3SetupPolicy.ForAllBuckets()).GetProperty("Statement").EnumerateArray()
+            .SelectMany(x => x.GetProperty("Action").EnumerateArray())
+            .Select(a => a.GetString()!)
+            .ToList();
+
+        actions.Should().BeEquivalentTo(
+            ["s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"]);
+
+        actions.Should().OnlyContain(a =>
+            a.StartsWith("s3:Get") || a.StartsWith("s3:List"));
+    }
+
+    [Fact]
+    public void ForAllBuckets_KeepsListAllMyBucketsOnItsOwnUnscopedStatement()
+    {
+        // IAM accepts only "*" as the resource for ListAllMyBuckets. Written against
+        // arn:aws:s3:::* the statement parses, attaches, and then denies the call it exists for.
+        Statement(S3SetupPolicy.ForAllBuckets(), "ConnapseFindBuckets")
+            .GetProperty("Resource").GetString().Should().Be("*");
+    }
+
+    [Fact]
+    public void ForAllBuckets_SeparatesBucketResourcesFromObjectResources()
+    {
+        string policy = S3SetupPolicy.ForAllBuckets();
+
+        Statement(policy, "ConnapseInspectBuckets").GetProperty("Resource").GetString()
+            .Should().Be("arn:aws:s3:::*");
+
+        // Without the trailing /* the object statement names buckets, not keys, and every read is
+        // denied -- the same mistake the per-bucket policy is split to avoid.
+        Statement(policy, "ConnapseReadObjects").GetProperty("Resource").GetString()
+            .Should().Be("arn:aws:s3:::*/*");
+    }
+
+    [Theory]
+    [InlineData("acme-docs-*", "arn:aws:s3:::acme-docs-*")]
+    [InlineData("  acme-*  ", "arn:aws:s3:::acme-*")]
+    [InlineData("acme/docs-*", "arn:aws:s3:::acmedocs-*")]
+    [InlineData("", "arn:aws:s3:::*")]
+    [InlineData(null, "arn:aws:s3:::*")]
+    public void ForBucketPattern_ScopesTheBucketStatement(string? pattern, string expected)
+    {
+        // A slash is dropped rather than kept: it would turn a bucket pattern into a key pattern,
+        // which the bucket-level resource cannot match, and the grant would silently allow nothing.
+        Statement(S3SetupPolicy.ForBucketPattern(pattern), "ConnapseInspectBuckets")
+            .GetProperty("Resource").GetString().Should().Be(expected);
+    }
+
+    // -- Choosing a scope -----------------------------------------------------------
+
+    [Fact]
+    public void Grant_DefaultsToEveryBucket()
+    {
+        var grant = S3SetupPolicy.Grant(S3AccessScope.AllBuckets, null);
+
+        grant.CanDiscoverBuckets.Should().BeTrue();
+        grant.Summary.Should().Contain("every bucket");
+        Parse(grant.Policy).GetProperty("Statement").GetArrayLength().Should().Be(3);
+    }
+
+    [Theory]
+    [InlineData(S3AccessScope.NamePattern)]
+    [InlineData(S3AccessScope.OneBucket)]
+    public void Grant_WithoutTheTextItNeeds_FallsBackToTheWidestScope(S3AccessScope scope)
+    {
+        // The page renders while somebody is still typing. Returning the widest grant keeps a
+        // working script on screen; it is safe because the summary beside it says what it allows,
+        // so nobody creates a wider credential than the one they read about.
+        S3SetupPolicy.Grant(scope, "  ").Policy.Should().Be(S3SetupPolicy.ForAllBuckets());
+    }
+
+    [Fact]
+    public void Grant_ForOneBucket_CannotDiscoverBuckets()
+    {
+        // Not a detail: it decides whether the connection form can offer a list of buckets or has
+        // to ask someone to type a name exactly right.
+        var grant = S3SetupPolicy.Grant(S3AccessScope.OneBucket, "my-bucket", "docs");
+
+        grant.CanDiscoverBuckets.Should().BeFalse();
+        grant.Summary.Should().Contain("docs/").And.Contain("my-bucket");
+        grant.Policy.Should().NotContain("ListAllMyBuckets");
+    }
+
+    [Fact]
+    public void Grant_ForAPattern_NamesTheNormalisedPatternInItsSummary()
+    {
+        // What the summary claims and what the policy grants have to be the same string, or the
+        // sentence someone reads before running the script describes a different credential.
+        var grant = S3SetupPolicy.Grant(S3AccessScope.NamePattern, " acme/docs-* ");
+
+        grant.Summary.Should().Contain("acmedocs-*");
+        grant.Policy.Should().Contain("arn:aws:s3:::acmedocs-*");
     }
 }

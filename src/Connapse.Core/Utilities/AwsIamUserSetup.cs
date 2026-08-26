@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>The access key a generated IAM user was created with.</summary>
 /// <param name="UserName">The IAM user the key belongs to.</param>
@@ -43,8 +43,12 @@ public static class AwsIamUserSetup
     /// <summary>
     /// The command to paste into AWS CloudShell.
     /// </summary>
-    /// <param name="bucket">The bucket the created user will be allowed to read.</param>
-    /// <param name="prefix">Optional folder within it.</param>
+    /// <param name="policy">
+    /// The inline policy the created user gets, from <see cref="S3SetupPolicy"/>.
+    /// </param>
+    /// <param name="scopeSummary">
+    /// One line naming what that policy allows, shown as a comment at the top of the script.
+    /// </param>
     /// <param name="userName">IAM user name; defaults to <see cref="DefaultUserName"/>.</param>
     /// <remarks>
     /// Unlike the other setup scripts in this project, this one writes. It is shown in full rather
@@ -54,18 +58,24 @@ public static class AwsIamUserSetup
     /// An inline policy rather than a managed one: it is attached to this user alone and is deleted
     /// with it, so removing the user leaves nothing behind to find later.
     /// </para>
+    /// <para>
+    /// The policy arrives already built rather than being described by a bucket name, because the
+    /// scope is a choice the operator makes — every bucket, a name pattern, or one named bucket —
+    /// and a signature taking a bucket could only express the last of those.
+    /// </para>
     /// </remarks>
-    public static string GenerateScript(string bucket, string? prefix = null, string? userName = null)
+    public static string GenerateScript(string policy, string scopeSummary, string? userName = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+        ArgumentException.ThrowIfNullOrWhiteSpace(policy);
 
         string user = SanitiseUserName(userName);
-        string policy = S3SetupPolicy.ForBucket(bucket, prefix);
 
         // Single-quoted heredoc so the shell expands nothing inside the policy document.
         return $$"""
-        # Creates an AWS identity for Connapse: one IAM user, one policy allowing it to read
-        # {{bucket}} and nothing else, and one access key. Nothing else is touched.
+        # Creates an AWS identity for Connapse: one IAM user, one read-only policy, and one access
+        # key. Nothing else is touched, and nothing existing is modified.
+        #
+        # The policy allows: {{scopeSummary}}
 
         USER='{{user}}'
 
