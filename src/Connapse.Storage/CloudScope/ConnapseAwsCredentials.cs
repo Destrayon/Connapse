@@ -74,28 +74,51 @@ public class ConnapseAwsCredentials(
     /// administrator's personal profile from a mounted home directory, and preferring that would
     /// make Connapse's reach depend on whose machine it happens to run beside.
     /// </remarks>
+    /// <summary>
+    /// Reads the stored credential, in its own scope.
+    /// </summary>
+    /// <remarks>
+    /// A scope per refresh rather than holding the store: this class is a singleton, because
+    /// <c>ConnectorFactory</c> is one and consumes it, while the store reaches the database through
+    /// a <c>DbContextFactory</c> that this application registers as scoped.
+    /// </remarks>
+    private async Task<ImmutableCredentials?> ReadStoredAsync()
+    {
+        using var scope = scopeFactory.CreateScope();
+        var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+
+        var info = await credentialStore.GetAsync(ProviderKey);
+        if (info is null) return null;
+
+        string? secret = await credentialStore.GetSecretAsync(ProviderKey);
+        if (string.IsNullOrEmpty(secret)) return null;
+
+        return new ImmutableCredentials(info.PublicId, secret, null);
+    }
+
     private ImmutableCredentials? ResolveStored()
     {
         try
         {
-            // A scope per refresh, rather than holding the store.
+            // Task.Run, and it is load-bearing rather than cargo cult.
             //
-            // This is a singleton — ConnectorFactory is one and consumes it, so it cannot be
-            // anything else — while the store reaches the database through a DbContextFactory that
-            // this application registers as scoped. Taking it in the constructor made it captive,
-            // which the container tolerates in Production and the integration tests refuse.
+            // GenerateNewCredentials is synchronous — the SDK offers no async hook to override —
+            // so reading the database here has to block. Blocking directly deadlocked: Blazor
+            // Server runs component code on a renderer synchronization context, and waiting on a
+            // task whose continuation needs that same context waits forever. The page sat on
+            // "Checking providers…" and never finished, while SourceSyncService called the same
+            // code happily, because a background service has no synchronization context at all.
             //
-            // A scope every RefreshWindow is not a cost worth avoiding.
-            using var scope = scopeFactory.CreateScope();
-            var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
-
-            var info = credentialStore.GetAsync(ProviderKey).GetAwaiter().GetResult();
-            if (info is null) return null;
-
-            string? secret = credentialStore.GetSecretAsync(ProviderKey).GetAwaiter().GetResult();
-            if (string.IsNullOrEmpty(secret)) return null;
-
-            return new ImmutableCredentials(info.PublicId, secret, null);
+            // Task.Run moves the work to the thread pool, where there is no context to deadlock
+            // against. It costs a thread for the length of one query, once every RefreshWindow.
+            return Task.Run(ReadStoredAsync).GetAwaiter().GetResult();
+        }
+        catch (AggregateException ex) when (ex.InnerException is ProviderCredentialUnavailableException inner)
+        {
+            // Task.Run surfaces the original through GetAwaiter().GetResult(), but a faulted task
+            // observed any other way wraps it — caught both ways so the distinction survives.
+            logger.LogError(inner, "The stored AWS credential could not be decrypted");
+            throw inner;
         }
         catch (ProviderCredentialUnavailableException ex)
         {
