@@ -206,7 +206,12 @@ public class ProviderSetupReader(
         string name, string description, ProviderCredentialInfo stored, string reason)
     {
         const string action = "Set up access";
-        const string href = "/admin/providers/aws#access";
+
+        // A bare fragment, not the full path. This requirement is only ever rendered on the AWS
+        // provider page, and Blazor's router intercepts a same-page href and re-navigates without
+        // scrolling — so "/admin/providers/aws#access" looked like a link that did nothing. The
+        // browser handles a fragment-only href itself.
+        const string href = "#access";
 
         // A credential that has worked is not waiting to start working. Something removed it --
         // the IAM user deleted, the key deactivated -- and offering to keep waiting for it is the

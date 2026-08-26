@@ -14,7 +14,6 @@
 @inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IProviderSetupReader SetupReader
-@inject IS3Discovery S3Discovery
 @inject IProviderCredentialStore CredentialStore
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -180,51 +179,30 @@
 
             <div class="card mb-4">
                 <div class="card-body">
-                    @if (awsAccess is null)
-                    {
-                        <button type="button" class="btn btn-primary btn-sm"
-                                @onclick="CheckAwsAccess" disabled="@awsBusy">
-                            @if (awsBusy)
+                    @* Rendered from the probe the page already ran, not a second one. This card
+                       used to do its own, which left it showing a "Check what Connapse can reach"
+                       button until somebody pressed it — so the failed requirement's own
+                       "Set up access" link landed here and appeared to do nothing, and every visit
+                       that did press it cost a duplicate pair of AWS calls. *@
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="@IconClass(AccessStatus)" aria-hidden="true"></span>
+                        <div class="flex-grow-1 small">
+                            @(AccessStatus switch
                             {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>Checking…</span>
-                            }
-                            else
+                                RequirementStatus.Satisfied => "Connapse can read S3.",
+                                RequirementStatus.Provisioning => "AWS is still issuing this key.",
+                                RequirementStatus.NotConfigured => "Connapse has no AWS identity yet.",
+                                RequirementStatus.Failed => "Connapse cannot read S3.",
+                                _ => "Connapse cannot confirm it can read S3."
+                            })
+                            @if (AccessRequirement?.Detail is { Length: > 0 } detail)
                             {
-                                <span class="bi-search me-1"></span>
-                                <span>Check what Connapse can reach</span>
+                                <span class="text-body-secondary">@detail</span>
                             }
-                        </button>
-                    }
-                    else if (awsAccess is { Succeeded: true, Value: { } who })
-                    {
-                        @* The tick belongs to the bucket listing, not to the ARN. Knowing who
-                           Connapse authenticates as says nothing about whether it may read
-                           anything — an identity whose policy never attached answers
-                           GetCallerIdentity perfectly. *@
-                        <div class="d-flex flex-wrap align-items-center gap-2">
-                            <span class="@(awsBuckets is { Succeeded: true }
-                                ? "bi-check-circle-fill text-success"
-                                : "bi-exclamation-triangle-fill text-warning")"></span>
-                            <div class="flex-grow-1 small">
-                                @(awsBuckets is { Succeeded: true }
-                                    ? "Connapse can read S3."
-                                    : "Connapse cannot confirm it can read S3.")
-                                <code>@who.Arn</code>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    @onclick="() => { awsAccess = null; awsBuckets = null; }">Recheck</button>
                         </div>
-                    }
-                    else
-                    {
-                        <div class="alert alert-warning py-2 mb-2 small">
-                            <span class="bi-exclamation-triangle me-1"></span>
-                            @(awsAccess.Outcome == AwsProbeOutcome.NoCredentials
-                                ? "Connapse has no AWS identity yet."
-                                : awsAccess.Detail)
-                        </div>
-                    }
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="RefreshSetups">Recheck</button>
+                    </div>
 
                     @* Outside the branches, because the setup used to live inside the failure one
                        and there were two ways to reach a dead end. A key that authenticates but
@@ -233,7 +211,7 @@
                        requirement's own "Set up access" link pointed straight at it. A working
                        identity had no way to be replaced at all, so rotating a key meant deleting
                        it in AWS first and coming back to a broken install. *@
-                    @if (awsAccess is not null && (!AccessConfirmed || showSetup))
+                    @if (!AccessConfirmed || showSetup)
                     {
                         @if (AccessConfirmed)
                         {
@@ -329,7 +307,7 @@
                             }
                         }
                     }
-                    else if (awsAccess is not null)
+                    else
                     {
                         <div class="mt-2">
                             <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -406,17 +384,6 @@
         StateHasChanged();
     }
 
-    /// <summary>The last access probe, or null before one has been run.</summary>
-    /// <remarks>
-    /// Run on request rather than with the page. The requirement card above already reports the
-    /// same thing; this is for watching it change after fixing something, and re-probing STS on
-    /// every render would be a call per visit for an answer that rarely moves.
-    /// </remarks>
-    private AwsProbe<AwsCallerIdentity>? awsAccess;
-
-    /// <summary>What that identity can actually reach, probed alongside it.</summary>
-    private AwsProbe<IReadOnlyList<string>>? awsBuckets;
-
     private bool awsBusy;
 
     /// <summary>Whether the replace-identity form is open over a working credential.</summary>
@@ -424,6 +391,13 @@
 
     /// <summary>IAM user name for a replacement; null uses the default.</summary>
     private string? newUserName;
+
+    /// <summary>The Access requirement, once the page has read it.</summary>
+    private ProviderRequirement? AccessRequirement =>
+        Current?.Requirements.FirstOrDefault(r => r.Name == "Access");
+
+    /// <summary>Unknown until the requirements have loaded, which keeps the card honest while it does.</summary>
+    private RequirementStatus AccessStatus => AccessRequirement?.Status ?? RequirementStatus.Unknown;
 
     /// <summary>
     /// Whether Connapse is known to read S3, as opposed to merely known to authenticate.
@@ -433,7 +407,7 @@
     /// <c>GetCallerIdentity</c> perfectly, so treating that as success is what put the setup form
     /// out of reach for the one person who needed it.
     /// </remarks>
-    private bool AccessConfirmed => awsBuckets is { Succeeded: true };
+    private bool AccessConfirmed => AccessStatus == RequirementStatus.Satisfied;
 
     private string? pastedKey;
     private string? copyMessage;
@@ -462,36 +436,12 @@
 
             // Nothing keeps the pasted secret around once it is stored.
             pastedKey = null;
-            awsAccess = null;
-            awsBuckets = null;
 
             // Closed on success, so a replacement does not leave its own form open above the
-            // result. It reopens on demand, and stays open on failure because that is the case
-            // where somebody is still working.
+            // result. It reopens on demand.
             showSetup = false;
             newUserName = null;
 
-            await CheckAwsAccess();
-        }
-        finally
-        {
-            awsBusy = false;
-        }
-    }
-
-    private async Task CheckAwsAccess()
-    {
-        awsBusy = true;
-        try
-        {
-            awsAccess = await S3Discovery.WhoAmIAsync();
-
-            // "Check what Connapse can reach" has to reach for something. GetCallerIdentity answers
-            // for any valid credential regardless of what its policy allows, so on its own the
-            // button proved the key was real and nothing about whether it works.
-            awsBuckets = awsAccess.Succeeded ? await S3Discovery.ListBucketsAsync() : null;
-
-            // The card above reports this same check, so leaving it stale would show two answers.
             await RefreshSetups();
         }
         finally
