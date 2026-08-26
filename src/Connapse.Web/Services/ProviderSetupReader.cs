@@ -16,8 +16,21 @@ public class ProviderSetupReader(
     IOptionsMonitor<AzureAdSettings> azureAd,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
+    IProviderCredentialStore credentials,
+    TimeProvider clock,
     ILogger<ProviderSetupReader> logger) : IProviderSetupReader
 {
+    /// <summary>
+    /// How long a stored key may fail before that stops being propagation delay.
+    /// </summary>
+    /// <remarks>
+    /// IAM is eventually consistent and AWS gives no ceiling on how long a new access key takes to
+    /// become usable. An hour is far past any propagation anyone observes, which is the point: the
+    /// cost of waiting too long is a page that says "provisioning" for a while, and the cost of
+    /// giving up too early is telling an administrator their setup failed when it had not.
+    /// </remarks>
+    public static readonly TimeSpan ProvisioningWindow = TimeSpan.FromHours(1);
+
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
@@ -94,13 +107,22 @@ public class ProviderSetupReader(
     }
 
     /// <summary>
-    /// What Connapse itself can read from AWS.
+    /// Whether the AWS identity works. Ready, still coming up, or not.
     /// </summary>
     /// <remarks>
-    /// Probed rather than inferred from configuration, because there is no configuration to read:
-    /// the SDK resolves credentials from the environment, and the only way to know what it found is
-    /// to ask. A static key is reported as a warning rather than a pass — it works, never expires,
-    /// and nothing else in the product would ever mention it.
+    /// Binary on purpose. This answers one question — can Connapse read S3 — and the ARN is the
+    /// only supporting fact worth a line, because it is the one an administrator needs when the
+    /// answer is no. Bucket counts and credential provenance are not that; they were narration.
+    /// <para>
+    /// Ready means a call that IAM actually evaluates came back. <c>sts:GetCallerIdentity</c> is
+    /// not one: it answers for any valid credential no matter what that credential may do, so
+    /// asking it alone reported a green tick for an identity whose policy had never attached.
+    /// </para>
+    /// <para>
+    /// The rest of the shape follows from who created the credential. Connapse knows what it
+    /// granted its own key and when, so it can say whether that key is late or broken. It knows
+    /// neither about a credential the environment supplied, so it does not pass judgement on one.
+    /// </para>
     /// <para>
     /// No role is assumed here. This is the base identity Connapse runs as; a connection naming a
     /// <c>RoleArn</c> narrows from it, and the connection form reports that separately.
@@ -109,50 +131,40 @@ public class ProviderSetupReader(
     private async Task<ProviderRequirement> Access(CancellationToken ct)
     {
         const string name = "Access";
-        const string description =
-            "Whether Connapse can actually read S3, and as whom.";
+        const string description = "Whether Connapse can read S3.";
 
         try
         {
+            var stored = await StoredCredentialAsync(ct);
             var identity = await s3Discovery.WhoAmIAsync(ct: ct);
 
             if (identity is { Succeeded: true, Value: { } who })
             {
-                // Who, then whether. sts:GetCallerIdentity is unauthenticated against IAM policy --
-                // it answers for any valid credential no matter what that credential may do -- so
-                // asking it alone reported a green tick for an identity whose policy had not
-                // attached, and the first sync was where anyone found out.
                 var buckets = await s3Discovery.ListBucketsAsync(ct: ct);
-                string who_ = $"{who.Arn} — {Describe(who.Kind)}";
 
-                if (buckets is { Succeeded: true, Value: { } found })
-                {
-                    // Unrecognised is not a pass. It used to fall through to Satisfied because only
-                    // StaticKey and SsoSession were treated as weak, so the one case where Connapse
-                    // cannot say what it is holding looked like the healthiest.
-                    bool unsure = who.Kind is AwsCredentialKind.Unrecognised
-                                           or AwsCredentialKind.StaticKey
-                                           or AwsCredentialKind.SsoSession;
+                if (buckets.Succeeded)
+                    return new ProviderRequirement(name, description,
+                        RequirementStatus.Satisfied, who.Arn, "Connections", "/connections");
 
-                    return new ProviderRequirement(
-                        name, description,
-                        unsure ? RequirementStatus.Warning : RequirementStatus.Satisfied,
-                        $"{who_}. Can see {found.Count} bucket{(found.Count == 1 ? "" : "s")}.",
+                // A credential Connapse did not create is not Connapse's to judge. One an operator
+                // scoped to named buckets lacks s3:ListAllMyBuckets by design and syncs perfectly;
+                // it simply cannot demonstrate itself from here, and calling that broken would be
+                // wrong about a working installation.
+                if (stored is null)
+                    return new ProviderRequirement(name, description,
+                        RequirementStatus.Warning,
+                        $"{who.Arn} — Connapse cannot confirm what this reaches. Test a connection.",
                         "Connections", "/connections");
-                }
 
-                // Denied is not broken. A credential the operator scoped to named buckets lacks
-                // s3:ListAllMyBuckets by design and works perfectly; what it cannot do is prove
-                // itself here, so this says exactly that rather than calling it a failure.
-                return new ProviderRequirement(
-                    name, description, RequirementStatus.Warning,
-                    buckets.Outcome == AwsProbeOutcome.Denied
-                        ? $"{who_}. It may not list buckets, so Connapse cannot confirm what it "
-                          + "reaches — expected if you scoped this credential yourself. Test a "
-                          + "connection to be sure."
-                        : $"{who_}. Listing buckets failed: {buckets.Detail}",
-                    "Connections", "/connections");
+                return NotWorkingYet(name, description, stored,
+                    $"{who.Arn} authenticates but cannot read S3.");
             }
+
+            // Credentials that do not resolve at all, with a key stored, is the same story one step
+            // earlier: AWS has not started honouring the key yet.
+            if (stored is not null)
+                return NotWorkingYet(name, description, stored,
+                    "The stored access key is not being accepted by AWS.");
 
             return new ProviderRequirement(
                 name, description,
@@ -174,6 +186,47 @@ public class ProviderSetupReader(
     }
 
     /// <summary>
+    /// Splits "not working yet" from "not working", on the age of the stored key.
+    /// </summary>
+    /// <remarks>
+    /// IAM is eventually consistent, and the window in which a new key is refused is the same window
+    /// in which the administrator who just created it is looking at this page. Showing a failure
+    /// there sends someone to redo work that was about to succeed on its own.
+    /// </remarks>
+    private ProviderRequirement NotWorkingYet(
+        string name, string description, ProviderCredentialInfo stored, string reason)
+    {
+        TimeSpan age = clock.GetUtcNow() - new DateTimeOffset(
+            DateTime.SpecifyKind(stored.CreatedAt, DateTimeKind.Utc));
+
+        if (age < ProvisioningWindow)
+            return new ProviderRequirement(name, description, RequirementStatus.Provisioning,
+                "AWS has not finished issuing this key. This usually takes seconds.");
+
+        return new ProviderRequirement(name, description, RequirementStatus.Failed,
+            $"{reason} Create the identity again.", "Set up access", "/admin/providers/aws#access");
+    }
+
+    /// <summary>The credential Connapse stores for AWS, or null when it is using the environment's.</summary>
+    /// <remarks>
+    /// Absence is a legitimate state, and so is a key ring that can no longer decrypt one. Neither
+    /// should take the whole status page down, so both come back as "there is no stored key" and the
+    /// probe results speak for themselves.
+    /// </remarks>
+    private async Task<ProviderCredentialInfo?> StoredCredentialAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await credentials.GetAsync("aws", ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the stored AWS credential");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Azure's equivalent, not yet probed.
     /// </summary>
     /// <remarks>
@@ -190,14 +243,5 @@ public class ProviderSetupReader(
             "Connapse does not check this yet. Test an Azure connection to confirm it works.",
             "Connections", "/connections");
 
-    private static string Describe(AwsCredentialKind kind) => kind switch
-    {
-        AwsCredentialKind.InstanceOrTaskRole => "instance role, which rotates itself",
-        AwsCredentialKind.AssumedRole => "assumed role, temporary and scoped",
-        AwsCredentialKind.ExternalProcess => "external credential process, no static keys",
-        AwsCredentialKind.SsoSession => "SSO session, which expires and needs a browser to renew",
-        AwsCredentialKind.StaticKey => "static access key, which never expires",
-        AwsCredentialKind.StoredKey => "the read-only key Connapse created for itself",
-        _ => "source not recognised"
-    };
+
 }

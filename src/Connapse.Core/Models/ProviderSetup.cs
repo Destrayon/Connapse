@@ -13,7 +13,27 @@ public enum RequirementStatus
     Satisfied = 2,
 
     /// <summary>Working, but resting on something worth improving — a static key, an expiring session.</summary>
-    Warning = 3
+    Warning = 3,
+
+    /// <summary>
+    /// Set up, not usable yet, and too recent for that to mean anything is wrong.
+    /// </summary>
+    /// <remarks>
+    /// IAM is eventually consistent: a freshly created access key is routinely refused for a while
+    /// after AWS hands it over. Without this state the page shows a failure during the exact minutes
+    /// an administrator is most likely to be looking at it, and sends them to redo work that was
+    /// about to succeed on its own.
+    /// </remarks>
+    Provisioning = 4,
+
+    /// <summary>
+    /// Set up and not working, for long enough that waiting is no longer the answer.
+    /// </summary>
+    /// <remarks>
+    /// The one status that earns red. Distinct from <see cref="NotConfigured"/>, which is a fresh
+    /// install with a next step; this is something an administrator already did that did not take.
+    /// </remarks>
+    Failed = 5
 }
 
 /// <summary>
@@ -88,11 +108,14 @@ public record ProviderSetup(
         {
             if (Requirements.Count == 0) return RequirementStatus.Unknown;
 
-            // Ordered by how much attention each deserves, worst first.
+            // Ordered by how much attention each deserves, worst first. Provisioning outranks
+            // Warning: one is unfinished, the other is finished and merely imperfect.
             foreach (var worst in new[]
                      {
+                         RequirementStatus.Failed,
                          RequirementStatus.NotConfigured,
                          RequirementStatus.Unknown,
+                         RequirementStatus.Provisioning,
                          RequirementStatus.Warning
                      })
             {

@@ -207,45 +207,15 @@
                                 ? "bi-check-circle-fill text-success"
                                 : "bi-exclamation-triangle-fill text-warning")"></span>
                             <div class="flex-grow-1 small">
-                                Running as <code>@who.Arn</code> in account <code>@who.AccountId</code>.
-                                @if (awsBuckets is { Succeeded: true, Value: { } found })
-                                {
-                                    <text>Can read @found.Count bucket@(found.Count == 1 ? "" : "s").</text>
-                                }
+                                @(awsBuckets is { Succeeded: true }
+                                    ? "Connapse can read S3."
+                                    : "Connapse cannot confirm it can read S3.")
+                                <code>@who.Arn</code>
                             </div>
                             <button type="button" class="btn btn-sm btn-outline-secondary"
                                     @onclick="() => { awsAccess = null; awsBuckets = null; }">Recheck</button>
                         </div>
 
-                        @if (awsBuckets is not null && !awsBuckets.Succeeded)
-                        {
-                            @* Denied here is not broken. A credential the operator scoped to named
-                               buckets lacks s3:ListAllMyBuckets by design and syncs fine; it just
-                               cannot demonstrate itself from this page. *@
-                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                                <span class="bi-exclamation-triangle me-1"></span>
-                                @(awsBuckets.Outcome == AwsProbeOutcome.Denied
-                                    ? "These credentials authenticate but may not list buckets, so Connapse cannot confirm what they reach. Expected if you scoped this credential yourself — test a connection to be sure."
-                                    : $"Listing buckets failed: {awsBuckets.Detail}")
-                            </div>
-                        }
-
-                        @* Posture, not connectivity. Everything works either way; this is the only
-                           place anything says a production deployment rests on a key that never
-                           expires. *@
-                        @if (who.Kind is AwsCredentialKind.StaticKey or AwsCredentialKind.SsoSession
-                                      or AwsCredentialKind.Unrecognised)
-                        {
-                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                                <span class="bi-exclamation-triangle me-1"></span>
-                                @(who.Kind switch
-                                {
-                                    AwsCredentialKind.StaticKey => "A static access key from the environment. It works and never expires, which is why AWS steers deployments towards roles instead.",
-                                    AwsCredentialKind.SsoSession => "An SSO session. Temporary, but it expires and needs a browser sign-in to renew, so unattended syncing stops when it does.",
-                                    _ => "Connapse could not tell where these credentials came from, so it cannot comment on whether the arrangement is sound."
-                                })
-                            </div>
-                        }
                     }
                     else
                     {
@@ -519,6 +489,8 @@
     private static string Label(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "Ready",
+        RequirementStatus.Provisioning => "Provisioning",
+        RequirementStatus.Failed => "Failed",
         RequirementStatus.Warning => "Works, but",
         RequirementStatus.NotConfigured => "Not set up",
         _ => "Unknown"
@@ -527,6 +499,10 @@
     private static string BadgeClass(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "text-bg-success",
+        // The only red on the page. Something the administrator already did did not take, which is
+        // a different thing from a fresh install with a next step.
+        RequirementStatus.Failed => "text-bg-danger",
+        RequirementStatus.Provisioning => "text-bg-info",
         RequirementStatus.Warning => "text-bg-warning",
         // Not "danger": nothing is broken, it simply has not been done, and colouring a fresh
         // install red tells the reader they have a problem rather than a next step.
@@ -537,6 +513,8 @@
     private static string IconClass(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "bi-check-circle-fill text-success",
+        RequirementStatus.Failed => "bi-x-circle-fill text-danger",
+        RequirementStatus.Provisioning => "bi-hourglass-split text-info",
         RequirementStatus.Warning => "bi-exclamation-triangle-fill text-warning",
         RequirementStatus.NotConfigured => "bi-circle text-secondary",
         _ => "bi-question-circle text-secondary"
