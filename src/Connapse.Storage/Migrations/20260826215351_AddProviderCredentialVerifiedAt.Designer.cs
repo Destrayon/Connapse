@@ -16,7 +16,7 @@ using Pgvector;
 namespace Connapse.Storage.Migrations
 {
     [DbContext(typeof(KnowledgeDbContext))]
-    [Migration("20260826201858_AddProviderCredentialVerifiedAt")]
+    [Migration("20260826215351_AddProviderCredentialVerifiedAt")]
     partial class AddProviderCredentialVerifiedAt
     {
         /// <inheritdoc />
