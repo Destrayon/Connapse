@@ -1,4 +1,5 @@
 @using Connapse.Core
+@using Connapse.Core.Utilities
 @using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
@@ -13,6 +14,149 @@
                 on first use.
             </div>
         </div>
+
+        @*
+            Guided setup.
+
+            The region is the field people get wrong, and it cannot be derived: Identity Center
+            lives in one region per organisation, and the legacy portal URL
+            (https://d-1234567890.awsapps.com/start) does not encode it. A wrong region produces
+            InvalidClientMetadataException, which says the URL and region disagree without saying
+            which one is wrong.
+
+            CloudShell rather than a credential field or a CloudFormation callback. It already
+            holds temporary credentials from the administrator's console session, so nothing is
+            created, pasted here, or stored — the copy-paste round trip is the credential
+            boundary. A callback, which is how most services onboard an AWS account, needs a
+            public URL that a self-hosted Connapse usually does not have.
+        *@
+        @if (!guidedSetup)
+        {
+            <div class="col-12">
+                <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 py-2 mb-0">
+                    <span class="bi-magic"></span>
+                    <span class="flex-grow-1 small">
+                        Don't know your region or portal URL? Connapse will write one read-only command
+                        to run in AWS CloudShell, and read both back from what it prints.
+                    </span>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="StartGuidedSetup">
+                        <span class="bi-cloud me-1"></span> Find my instance
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="col-12">
+                <div class="card border-primary">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start mb-3">
+                            <h6 class="card-title flex-grow-1 mb-0">1 &middot; Run this in AWS CloudShell</h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelGuidedSetup">
+                                Cancel
+                            </button>
+                        </div>
+
+                        <p class="small mb-2">
+                            Open
+                            <a href="https://console.aws.amazon.com/cloudshell/home" target="_blank" rel="noopener">
+                                CloudShell <span class="bi-box-arrow-up-right"></span>
+                            </a>
+                            in the AWS console, signed in as someone who can read your organisation's
+                            Identity Center, and paste this in.
+                        </p>
+
+                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height: 18rem; overflow: auto;"><code>@AwsSsoSetup.GenerateScript()</code></pre>
+
+                        <div class="alert alert-secondary py-2 mb-0 small">
+                            <span class="bi-shield-check me-1"></span>
+                            <strong>Read-only.</strong> It lists your Identity Center instances and prints
+                            what it found — it creates and changes nothing. It needs
+                            <code>@string.Join("</code>, <code>", AwsSsoSetup.RequiredPermissions)</code>,
+                            and says so if you don't have it. No AWS credential is created here or stored
+                            by Connapse; CloudShell uses the session you are already signed into.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">2 &middot; Paste back what it printed</h6>
+                        <textarea class="form-control font-monospace" rows="5" @bind="pastedResult"
+                                  @bind:event="oninput"
+                                  placeholder="@AwsSsoSetup.BeginMarker&#10;region=…&#10;identityStoreId=…&#10;@AwsSsoSetup.EndMarker"></textarea>
+                        <div class="form-text">
+                            The whole terminal output is fine — Connapse finds the block.
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(pastedResult))
+                        {
+                            var parsed = AwsSsoSetup.ParseResult(pastedResult);
+
+                            @if (parsed is null)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    No setup block found yet. Copy everything the command printed, including
+                                    both <code>-----</code> marker lines.
+                                </div>
+                            }
+                            else if (parsed.MissingPermissions.Count > 0)
+                            {
+                                <div class="alert alert-danger py-2 mt-2 mb-0 small">
+                                    <span class="bi-x-circle me-1"></span>
+                                    AWS refused the lookup. The account you ran this as needs
+                                    <code>@string.Join("</code>, <code>", parsed.MissingPermissions)</code>.
+                                    Ask whoever administers your AWS organisation, or run it again as
+                                    someone who has it.
+                                </div>
+                            }
+                            else if (parsed.Instances.Count == 0)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    The command ran but found no Identity Center instance. Either your
+                                    organisation has not enabled one, or it is in a region this scan does not
+                                    cover — GovCloud and the China partitions need different endpoints. You can
+                                    still fill the fields in by hand from the Identity Center console.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="mt-3">
+                                    @if (parsed.Instances.Count > 1)
+                                    {
+                                        @* Multi-region replication gives one portal per region, and only
+                                           the administrator knows which their users sign in through. *@
+                                        <div class="alert alert-info py-2 small">
+                                            <span class="bi-info-circle me-1"></span>
+                                            Found @parsed.Instances.Count instances — pick the one your users
+                                            sign in through.
+                                        </div>
+                                    }
+
+                                    @foreach (var instance in parsed.Instances)
+                                    {
+                                        <div class="border rounded p-2 mb-2 d-flex flex-wrap align-items-center gap-2">
+                                            <div class="flex-grow-1 small">
+                                                <div><strong>@instance.Region</strong> &middot; <code>@instance.IdentityStoreId</code></div>
+                                                <div class="text-muted">@instance.PortalUrl</div>
+                                            </div>
+                                            <button type="button" class="btn btn-primary btn-sm"
+                                                    @onclick="() => ApplyInstance(instance)">
+                                                <span class="bi-check-lg me-1"></span> Use this
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
 
         <div class="col-md-8">
             <label class="form-label">Issuer URL</label>
@@ -94,6 +238,53 @@
     private bool isTestingConnection;
     private string? testMessage;
     private bool testSuccess;
+
+    private bool guidedSetup;
+    private string? pastedResult;
+
+    private void StartGuidedSetup()
+    {
+        guidedSetup = true;
+        pastedResult = null;
+        testMessage = null;
+    }
+
+    private void CancelGuidedSetup()
+    {
+        guidedSetup = false;
+        pastedResult = null;
+    }
+
+    /// <summary>
+    /// Fills the form from the instance the administrator picked.
+    /// </summary>
+    /// <remarks>
+    /// Fills rather than saves. The portal URL is derived from the identity store id, which is
+    /// wrong for an organisation using a custom vanity domain — so the values land in editable
+    /// fields, and Test Connection is the thing that confirms them.
+    /// <para>
+    /// Any previously registered client is cleared. Those credentials belong to the instance they
+    /// were issued by; carrying them across to a different region would leave a client id that
+    /// RegisterClient never issued for it.
+    /// </para>
+    /// </remarks>
+    private void ApplyInstance(AwsSsoInstance instance)
+    {
+        localSettings = new AwsSsoSettings
+        {
+            IssuerUrl = instance.PortalUrl,
+            Region = instance.Region,
+            ClientId = null,
+            ClientSecret = null,
+            ClientSecretExpiresAt = null
+        };
+
+        guidedSetup = false;
+        pastedResult = null;
+
+        testSuccess = true;
+        testMessage = $"Filled in from {instance.Region}. Test the connection, then save.";
+    }
 
     protected override void OnParametersSet()
     {
