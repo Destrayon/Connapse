@@ -42,7 +42,8 @@
     {
         <h1 class="mb-1"><span class="bi-cloud-fill me-2"></span>Providers</h1>
         <p class="text-muted">
-            What Connapse needs from each cloud, and what is still missing.
+            Connect the clouds you use. Nothing here is required — most installations need one, and
+            plenty need none.
         </p>
 
         @if (setups is null)
@@ -53,21 +54,54 @@
         }
         else
         {
-            <div class="list-group mt-3">
-                @foreach (var provider in setups)
-                {
-                    <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
-                       href="/admin/providers/@provider.Key">
-                        <span class="@IconClass(provider.Overall) fs-5" aria-hidden="true"></span>
-                        <div class="flex-grow-1">
-                            <div class="fw-semibold">@provider.DisplayName</div>
-                            <div class="small text-muted">@Summarise(provider)</div>
-                        </div>
-                        <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
-                        <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
-                    </a>
-                }
-            </div>
+            @* Split by whether the installation has taken the provider up. Listing every provider
+               with a status was read as a checklist of obligations: an install using only local
+               files was told twice that it had work outstanding, when it had chosen neither cloud.
+               Status belongs to what you use; everything else is an offer. *@
+            var inUse = setups.Where(p => p.InUse).ToList();
+            var available = setups.Where(p => !p.InUse).ToList();
+
+            @if (inUse.Count > 0)
+            {
+                <h2 class="h6 text-uppercase text-muted mt-4">In use</h2>
+                <div class="list-group">
+                    @foreach (var provider in inUse)
+                    {
+                        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                           href="/admin/providers/@provider.Key">
+                            <span class="@IconClass(provider.Overall) fs-5" aria-hidden="true"></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">@provider.DisplayName</div>
+                                <div class="small text-muted">@Summarise(provider)</div>
+                            </div>
+                            <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                        </a>
+                    }
+                </div>
+            }
+
+            @if (available.Count > 0)
+            {
+                <h2 class="h6 text-uppercase text-muted mt-4">Available</h2>
+                <div class="list-group">
+                    @foreach (var provider in available)
+                    {
+                        @* No status icon and no badge. A provider you have not chosen has nothing
+                           outstanding, and marking it would invent work. *@
+                        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                           href="/admin/providers/@provider.Key">
+                            <span class="bi-cloud text-muted fs-5" aria-hidden="true"></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">@provider.DisplayName</div>
+                                <div class="small text-muted">@Offer(provider)</div>
+                            </div>
+                            <span class="small text-primary">Set up</span>
+                            <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                        </a>
+                    }
+                </div>
+            }
         }
     }
     else if (setups is null)
@@ -290,6 +324,19 @@
         StateHasChanged();
         setups = await SetupReader.ReadAsync();
     }
+
+    /// <summary>What a provider would let you do, for one you have not taken up.</summary>
+    /// <remarks>
+    /// Says what it is for rather than what is missing. Somebody scanning this list is deciding
+    /// whether they need the provider at all, and "Sign-in not configured" answers a question
+    /// they have not asked yet.
+    /// </remarks>
+    private static string Offer(ProviderSetup provider) => provider.Key switch
+    {
+        "aws" => "Sign in with AWS, and read files from S3.",
+        "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
+        _ => $"Set up {provider.DisplayName}."
+    };
 
     /// <summary>One line naming what still needs doing, for the list.</summary>
     /// <remarks>

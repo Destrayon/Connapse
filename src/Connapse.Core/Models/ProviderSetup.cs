@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>Whether one requirement of a provider has been met.</summary>
 public enum RequirementStatus
@@ -58,10 +58,21 @@ public record ProviderRequirement(
 /// <param name="Key">Stable identifier — "aws", "azure".</param>
 /// <param name="DisplayName">What the administrator calls it.</param>
 /// <param name="Requirements">Everything this provider needs, in the order to read them.</param>
+/// <param name="InUse">
+/// Whether this installation has taken this provider up at all — sign-in configured, or a
+/// connection built on it.
+/// <para>
+/// The distinction the page turns on. A provider nobody uses has no outstanding work: reporting
+/// Azure as "not set up" to somebody who has no Azure states a problem where there is only an
+/// option they declined. Requirements are worth reading for the clouds you actually use, and
+/// noise for the rest.
+/// </para>
+/// </param>
 public record ProviderSetup(
     string Key,
     string DisplayName,
-    IReadOnlyList<ProviderRequirement> Requirements)
+    IReadOnlyList<ProviderRequirement> Requirements,
+    bool InUse = false)
 {
     /// <summary>
     /// The provider's overall state, taken from its weakest requirement.

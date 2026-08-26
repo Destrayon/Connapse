@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Options;
 
@@ -15,23 +15,61 @@ public class ProviderSetupReader(
     IOptionsMonitor<AwsSsoSettings> awsSso,
     IOptionsMonitor<AzureAdSettings> azureAd,
     IS3Discovery s3Discovery,
+    IConnectionStore connections,
     ILogger<ProviderSetupReader> logger) : IProviderSetupReader
 {
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
+        var providers = await InUseProvidersAsync(ct);
+
         return
         [
-            new ProviderSetup("aws", "AWS", [SignIn(awsSso.CurrentValue), await Access(ct)]),
-            new ProviderSetup("azure", "Azure", [SignIn(azureAd.CurrentValue), AzureAccess()])
+            new ProviderSetup("aws", "AWS",
+                [SignIn(awsSso.CurrentValue), await Access(ct)],
+                InUse: IsConfigured(awsSso.CurrentValue) || providers.Contains(ConnectionProvider.S3)),
+
+            new ProviderSetup("azure", "Azure",
+                [SignIn(azureAd.CurrentValue), AzureAccess()],
+                InUse: IsConfigured(azureAd.CurrentValue) || providers.Contains(ConnectionProvider.AzureBlob))
         ];
     }
+
+    /// <summary>
+    /// Which cloud providers this installation has actually taken up.
+    /// </summary>
+    /// <remarks>
+    /// Sign-in configured, or a connection built on it. Deliberately <i>not</i> "the access probe
+    /// succeeded": ambient AWS credentials can resolve on a machine whose owner has never chosen
+    /// to use AWS with Connapse, and marking the provider in use on that basis would put work in
+    /// front of somebody who asked for none.
+    /// </remarks>
+    private async Task<HashSet<ConnectionProvider>> InUseProvidersAsync(CancellationToken ct)
+    {
+        try
+        {
+            var all = await connections.ListAsync(0, 200, ct);
+            return all.Select(c => c.Provider).ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            // Worth degrading rather than failing: without this a provider simply looks unused,
+            // which is the same as a fresh install and shows an invitation rather than an error.
+            logger.LogWarning(ex, "Could not list connections while reading provider setup");
+            return [];
+        }
+    }
+
+    private static bool IsConfigured(AwsSsoSettings s) =>
+        !string.IsNullOrEmpty(s.IssuerUrl) && !string.IsNullOrEmpty(s.Region);
+
+    private static bool IsConfigured(AzureAdSettings s) =>
+        !string.IsNullOrEmpty(s.ClientId) && !string.IsNullOrEmpty(s.TenantId);
 
     private static ProviderRequirement SignIn(AwsSsoSettings settings)
     {
         // Matches CloudIdentityService.IsAwsSsoConfigured: both halves, because a region without an
         // issuer URL registers no client and an issuer URL without a region reaches no endpoint.
-        bool configured = !string.IsNullOrEmpty(settings.IssuerUrl)
-                          && !string.IsNullOrEmpty(settings.Region);
+        bool configured = IsConfigured(settings);
 
         return new ProviderRequirement(
             "Sign-in",
@@ -44,8 +82,7 @@ public class ProviderSetupReader(
 
     private static ProviderRequirement SignIn(AzureAdSettings settings)
     {
-        bool configured = !string.IsNullOrEmpty(settings.ClientId)
-                          && !string.IsNullOrEmpty(settings.TenantId);
+        bool configured = IsConfigured(settings);
 
         return new ProviderRequirement(
             "Sign-in",
