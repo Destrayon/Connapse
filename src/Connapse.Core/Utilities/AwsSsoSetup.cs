@@ -243,27 +243,38 @@ public static class AwsSsoSetup
           POSTURE="member"
         fi
 
+        # Built whole, then printed once.
+        #
+        # Pasting a multi-line script into an interactive shell makes it echo every line back,
+        # continuation prompts and all. Printing the block piece by piece let that echo land
+        # between the markers, so the thing the administrator is asked to check was half script.
+        # Capturing it first puts all the echo above the BEGIN marker, where it belongs.
+        #
         # The markers go through %s rather than being the format string themselves. They begin
         # with dashes, and printf reads a leading '-' as an option.
-        printf '\n%s\n' '{{BeginMarker}}'
-        printf 'accountType=%s\n' "$POSTURE"
+        BLOCK=$(
+          printf '%s\n' '{{BeginMarker}}'
+          printf 'accountType=%s\n' "$POSTURE"
 
-        if [ -n "$FOUND" ]; then
-          printf '%s' "$FOUND" | while IFS='|' read -r REGION ARN STORE; do
-            [ -z "$REGION" ] && continue
-            printf 'region=%s\n' "$REGION"
-            printf 'instanceArn=%s\n' "$ARN"
-            printf 'identityStoreId=%s\n' "$STORE"
-            # The default access portal URL is the identity store id as a subdomain. An
-            # organisation with a custom vanity domain has a different one, so Connapse offers
-            # this as a starting value rather than a fact.
-            printf 'portalUrl=https://%s.awsapps.com/start\n' "$STORE"
-          done
-        elif [ -n "$DENIED" ]; then
-          printf 'missingPermission=%s\n' 'sso:ListInstances'
-        fi
+          if [ -n "$FOUND" ]; then
+            printf '%s' "$FOUND" | while IFS='|' read -r REGION ARN STORE; do
+              [ -z "$REGION" ] && continue
+              printf 'region=%s\n' "$REGION"
+              printf 'instanceArn=%s\n' "$ARN"
+              printf 'identityStoreId=%s\n' "$STORE"
+              # The default access portal URL is the identity store id as a subdomain. An
+              # organisation with a custom vanity domain has a different one, so Connapse offers
+              # this as a starting value rather than a fact.
+              printf 'portalUrl=https://%s.awsapps.com/start\n' "$STORE"
+            done
+          elif [ -n "$DENIED" ]; then
+            printf 'missingPermission=%s\n' 'sso:ListInstances'
+          fi
 
-        printf '%s\n\n' '{{EndMarker}}'
+          printf '%s\n' '{{EndMarker}}'
+        )
+
+        printf '\n%s\n\n' "$BLOCK"
         echo 'Copy the block above, including both marker lines, back into Connapse.'
         """;
     }

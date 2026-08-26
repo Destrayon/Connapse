@@ -313,4 +313,90 @@ public class AwsSsoSetupTests
         script.Should().NotContain("rm -rf /", "the name reaches a shell command line");
         script.Should().Contain(AwsSsoSetup.SanitiseInstanceName("My Prod; rm -rf /"));
     }
+
+    // -- Real CloudShell output -----------------------------------------------------
+
+    /// <summary>
+    /// An actual paste from AWS CloudShell, echo and all.
+    /// </summary>
+    /// <remarks>
+    /// Pasting a multi-line script into an interactive shell makes it echo every line back with
+    /// prompts and continuation markers. Before the block was built whole and printed once, that
+    /// echo landed <i>between</i> the markers — so the parser had to read a block containing the
+    /// script's own <c>printf 'region=%s\n'</c> lines without mistaking them for records.
+    /// <para>
+    /// Kept as a test because it is field data: this is what the flow really produced, against a
+    /// real Identity Center instance, not what the script was expected to produce.
+    /// </para>
+    /// </remarks>
+    private const string RealEchoedPaste = """
+        ----- BEGIN CONNAPSE AWS SETUP -----
+        ~ $ printf 'accountType=%s\n' "$POSTURE"
+        accountType=management
+        ~ $
+        ~ $ if [ -n "$FOUND" ]; then
+        >   printf '%s' "$FOUND" | while IFS='|' read -r REGION ARN STORE; do
+        >     [ -z "$REGION" ] && continue
+        >     printf 'region=%s\n' "$REGION"
+        >     printf 'instanceArn=%s\n' "$ARN"
+        >     printf 'identityStoreId=%s\n' "$STORE"
+        >     printf 'portalUrl=https://%s.awsapps.com/start\n' "$STORE"
+        >   done
+        > elif [ -n "$DENIED" ]; then
+        >   printf 'missingPermission=%s\n' 'sso:ListInstances'
+        > fi
+        region=us-west-1
+        instanceArn=arn:aws:sso:::instance/ssoins-8201fe6971208a1a
+        identityStoreId=d-91670f356b
+        portalUrl=https://d-91670f356b.awsapps.com/start
+        ~ $
+        ~ $ printf '%s\n\n' '----- END CONNAPSE AWS SETUP -----'
+        ----- END CONNAPSE AWS SETUP -----
+        """;
+
+    [Fact]
+    public void ParseResult_RealCloudShellPasteWithEcho_ReadsExactlyOneInstance()
+    {
+        var result = AwsSsoSetup.ParseResult(RealEchoedPaste);
+
+        result.Should().NotBeNull();
+        result!.Instances.Should().ContainSingle(
+            "the echoed printf lines are not records, however much they look like them");
+
+        result.Instances[0].Region.Should().Be("us-west-1");
+        result.Instances[0].InstanceArn.Should().Be("arn:aws:sso:::instance/ssoins-8201fe6971208a1a");
+        result.Instances[0].IdentityStoreId.Should().Be("d-91670f356b");
+        result.Instances[0].PortalUrl.Should().Be("https://d-91670f356b.awsapps.com/start");
+    }
+
+    [Fact]
+    public void ParseResult_RealCloudShellPasteWithEcho_DoesNotInventADenial()
+    {
+        // The echo contains the missingPermission line from the elif branch that never ran.
+        // Reading it would tell an administrator with working permissions that they lack them.
+        AwsSsoSetup.ParseResult(RealEchoedPaste)!.MissingPermissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseResult_RealCloudShellPasteWithEcho_StillReadsThePosture()
+    {
+        AwsSsoSetup.ParseResult(RealEchoedPaste)!.Posture.Should().Be(AwsAccountPosture.Management);
+    }
+
+    [Fact]
+    public void GenerateScript_BuildsTheBlockWholeBeforePrintingIt()
+    {
+        // Both markers are emitted from inside one captured block rather than by statements with
+        // the lookup between them. That is what keeps the shell's echo above the BEGIN marker
+        // instead of interleaved through the result.
+        string script = AwsSsoSetup.GenerateScript();
+
+        int capture = script.IndexOf("BLOCK=$(", StringComparison.Ordinal);
+        capture.Should().BePositive("the block is captured, not printed piecemeal");
+
+        script.IndexOf(AwsSsoSetup.BeginMarker, StringComparison.Ordinal)
+            .Should().BeGreaterThan(capture);
+        script.IndexOf(AwsSsoSetup.EndMarker, StringComparison.Ordinal)
+            .Should().BeGreaterThan(capture);
+    }
 }
