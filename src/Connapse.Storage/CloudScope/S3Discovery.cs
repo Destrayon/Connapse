@@ -1,4 +1,4 @@
-using Amazon;
+﻿using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
@@ -38,10 +38,10 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
 
     public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(CancellationToken ct = default)
     {
-        AWSCredentials? credentials = Resolve();
+        var (credentials, error) = Resolve();
         if (credentials is null)
-            return AwsProbe<AwsCallerIdentity>.NoCredentials(
-                "The AWS SDK found no credentials in its provider chain.");
+            return AwsProbe<AwsCallerIdentity>.NoCredentials(error
+                ?? "The AWS SDK found no credentials in its provider chain.");
 
         try
         {
@@ -70,9 +70,9 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
 
     public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(CancellationToken ct = default)
     {
-        AWSCredentials? credentials = Resolve();
+        var (credentials, error) = Resolve();
         if (credentials is null)
-            return AwsProbe<IReadOnlyList<string>>.NoCredentials();
+            return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
         try
         {
@@ -109,9 +109,9 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        AWSCredentials? credentials = Resolve();
+        var (credentials, error) = Resolve();
         if (credentials is null)
-            return AwsProbe<string>.NoCredentials();
+            return AwsProbe<string>.NoCredentials(error);
 
         try
         {
@@ -159,17 +159,28 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
     /// exception.
     /// </para>
     /// </remarks>
-    private AWSCredentials? Resolve()
+    private (AWSCredentials? Credentials, string? Error) Resolve()
     {
         try
         {
-            return Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver
-                .GetCredentials(new AmazonS3Config { RegionEndpoint = DiscoveryRegion });
+            return (Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver
+                .GetCredentials(new AmazonS3Config { RegionEndpoint = DiscoveryRegion }), null);
         }
-        catch (AmazonServiceException ex)
+        catch (Exception ex)
         {
+            // Every exception, and deliberately not a specific AWS type.
+            //
+            // This caught AmazonServiceException first, which looks like the careful choice. The
+            // resolver throws AmazonClientException when nothing is configured, and those two are
+            // siblings — each derives straight from Exception, neither from the other — so that
+            // catch covered none of it. The most likely state of a fresh deployment took the
+            // Blazor circuit down instead of returning an answer.
+            //
+            // Nothing this method can hit is worth crashing a page over: every caller treats a
+            // null as "tell them how to supply credentials", which is the useful response to any
+            // failure to obtain them.
             logger.LogDebug(ex, "No AWS credentials resolved from the provider chain");
-            return null;
+            return (null, ex.Message);
         }
     }
 

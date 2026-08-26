@@ -71,6 +71,35 @@ public class S3DiscoveryTests
     private sealed class DerivedBasicCredentials(string a, string b) : BasicAWSCredentials(a, b);
 
     /// <summary>
+    /// The exception hierarchy the credential resolver's catch depends on.
+    /// </summary>
+    /// <remarks>
+    /// Guards a bug that shipped and took the Blazor circuit down with "An unhandled error has
+    /// occurred". The resolve was wrapped in <c>catch (AmazonServiceException)</c>, which reads as
+    /// the careful, specific choice. The resolver throws <c>AmazonClientException</c> when nothing
+    /// is configured — and these two are <b>siblings</b>, each deriving straight from
+    /// <c>Exception</c> rather than one from the other. So catching either one catches nothing
+    /// whatsoever of the other, and the most likely state of a fresh deployment escaped.
+    /// <para>
+    /// Asserted rather than commented, because the instinct when tidying is to replace a broad
+    /// catch with a specific one, and here no single AWS exception type covers the case.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void TheTwoAwsExceptionRoots_AreSiblings_SoNeitherCatchCoversTheOther()
+    {
+        typeof(AmazonServiceException).IsSubclassOf(typeof(AmazonClientException))
+            .Should().BeFalse("catching the service exception does not catch the client one");
+
+        typeof(AmazonClientException).IsSubclassOf(typeof(AmazonServiceException))
+            .Should().BeFalse("nor the other way round");
+
+        typeof(AmazonClientException).BaseType.Should().Be<Exception>();
+        typeof(AmazonServiceException).BaseType.Should().Be<Exception>();
+    }
+
+    /// <summary>
     /// The three outcomes the UI branches on.
     /// </summary>
     /// <remarks>
