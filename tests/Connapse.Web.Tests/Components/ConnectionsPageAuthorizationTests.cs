@@ -17,6 +17,7 @@ namespace Connapse.Web.Tests.Components;
 /// distinguish an editor from an administrator — but it does catch the attribute being dropped
 /// or weakened, which is the way this protection would realistically be lost.
 /// </remarks>
+[Trait("Category", "Unit")]
 public class ConnectionsPageAuthorizationTests
 {
     private static readonly Type Page =
@@ -72,6 +73,7 @@ public class ConnectionsPageAuthorizationTests
     /// seam worth testing through, and the two mistakes worth catching — a link left pointing at
     /// the old location, and a control escaping its isAdmin block — are both visible in the text.
     /// </remarks>
+    [Trait("Category", "Unit")]
     public class SourcesPageConnectionLinkTests
     {
         private static readonly string Markup = File.ReadAllText(
@@ -122,6 +124,7 @@ public class ConnectionsPageAuthorizationTests
     /// it renders, it authorizes, and the markup is unchanged. Only using it finds this, which is
     /// why it is worth a test that covers every page rather than the one that went wrong.
     /// </remarks>
+    [Trait("Category", "Unit")]
     public class InteractivePageRenderModeTests
     {
         public static TheoryData<string> PagesWithControls()
