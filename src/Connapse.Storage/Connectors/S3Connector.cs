@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -22,10 +22,14 @@ public class S3Connector : IConnector, IDisposable
     private readonly IAmazonS3 _s3;
     private bool _disposed;
 
-    public S3Connector(S3ConnectorConfig config)
+    /// <param name="baseCredentials">
+    /// What Connapse acts as before any role is assumed. Null falls back to the SDK's own chain,
+    /// which is what the tests and any caller outside the container do.
+    /// </param>
+    public S3Connector(S3ConnectorConfig config, AWSCredentials? baseCredentials = null)
     {
         _config = config;
-        _s3 = CreateS3Client(config);
+        _s3 = CreateS3Client(config, baseCredentials);
     }
 
     public ConnectorType Type => ConnectorType.S3;
@@ -153,13 +157,21 @@ public class S3Connector : IConnector, IDisposable
         return name.Length <= 64 ? name : name[..64];
     }
 
-    private static IAmazonS3 CreateS3Client(S3ConnectorConfig config)
+    /// <remarks>
+    /// The credential passed in is the identity an administrator configured, if there is one. It
+    /// has to reach the STS call as well as the S3 one: assuming a role from the ambient chain
+    /// while the rest of Connapse runs as a configured identity would silently sync as a different
+    /// principal than every other part of the product reports.
+    /// </remarks>
+    private static IAmazonS3 CreateS3Client(S3ConnectorConfig config, AWSCredentials? baseCredentials)
     {
         var region = RegionEndpoint.GetBySystemName(config.Region);
 
         if (!string.IsNullOrWhiteSpace(config.RoleArn))
         {
-            var stsClient = new AmazonSecurityTokenServiceClient(region);
+            var stsClient = baseCredentials is null
+                ? new AmazonSecurityTokenServiceClient(region)
+                : new AmazonSecurityTokenServiceClient(baseCredentials, region);
             var assumeResponse = stsClient.AssumeRoleAsync(new AssumeRoleRequest
             {
                 RoleArn = config.RoleArn,
@@ -179,8 +191,10 @@ public class S3Connector : IConnector, IDisposable
             return new AmazonS3Client(sessionCredentials, region);
         }
 
-        // Default credential chain: env vars, ~/.aws/credentials, instance profile, SSO, etc.
-        return new AmazonS3Client(region);
+        // The configured identity, or the SDK's own chain when there is none.
+        return baseCredentials is null
+            ? new AmazonS3Client(region)
+            : new AmazonS3Client(baseCredentials, region);
     }
 
     public void Dispose()

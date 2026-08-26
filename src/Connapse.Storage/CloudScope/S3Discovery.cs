@@ -24,7 +24,7 @@ namespace Connapse.Storage.CloudScope;
 /// </para>
 /// </remarks>
 public class S3Discovery(
-    IProviderCredentialStore credentialStore,
+    ConnapseAwsCredentials credentials,
     ILogger<S3Discovery> logger) : IS3Discovery
 {
     /// <summary>
@@ -44,7 +44,7 @@ public class S3Discovery(
     public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = await ResolveAsync(ct);
+        var (baseCredentials, error) = Resolve();
         if (baseCredentials is null)
             return AwsProbe<AwsCallerIdentity>.NoCredentials(error
                 ?? "The AWS SDK found no credentials in its provider chain.");
@@ -83,7 +83,7 @@ public class S3Discovery(
     public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = await ResolveAsync(ct);
+        var (baseCredentials, error) = Resolve();
         if (baseCredentials is null)
             return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
@@ -125,7 +125,7 @@ public class S3Discovery(
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        var (baseCredentials, error) = await ResolveAsync(ct);
+        var (baseCredentials, error) = Resolve();
         if (baseCredentials is null)
             return AwsProbe<string>.NoCredentials(error);
 
@@ -202,66 +202,32 @@ public class S3Discovery(
     }
 
     /// <summary>
-    /// Walks the SDK's provider chain, returning null when it comes back empty.
+    /// The credential every AWS client in Connapse uses, or null with a reason.
     /// </summary>
     /// <remarks>
-    /// Through <c>DefaultAWSCredentialsIdentityResolver</c>, not <c>FallbackCredentialsFactory</c>
-    /// — the SDK deprecated the latter in v4 and says so at compile time. Same chain, current
-    /// entry point.
+    /// Through <see cref="ConnapseAwsCredentials"/> rather than resolving here. It is the one place
+    /// the order is decided — configured identity first, environment second — so discovery, the
+    /// connector and the connection tester cannot drift apart on what they run as, which they had
+    /// already started to do.
     /// <para>
-    /// The chain throws rather than returning null when nothing resolves, and "nothing configured"
-    /// is the single most likely state of a fresh deployment — so it is an answer here, not an
-    /// exception.
+    /// Every exception is caught. Nothing this can hit is worth crashing a page over: callers treat
+    /// null as "tell them how to supply a credential", which is the useful answer to any failure to
+    /// obtain one. The narrower catch that preceded this took the Blazor circuit down on the most
+    /// likely state of a fresh deployment.
     /// </para>
     /// </remarks>
-    private async Task<(AWSCredentials? Credentials, string? Error)> ResolveAsync(CancellationToken ct)
+    private (AWSCredentials? Credentials, string? Error) Resolve()
     {
-        // The credential Connapse was given, before the one its environment happens to have.
-        //
-        // An identity set up deliberately outranks whatever the machine is carrying: the ambient
-        // chain may resolve an administrator's personal profile, and preferring that would make
-        // Connapse's reach depend on whose machine it runs beside.
         try
         {
-            var stored = await credentialStore.GetAsync(AwsProviderKey, ct);
-            if (stored is not null)
-            {
-                string? secret = await credentialStore.GetSecretAsync(AwsProviderKey, ct);
-                if (!string.IsNullOrEmpty(secret))
-                    return (new BasicAWSCredentials(stored.PublicId, secret), null);
-            }
-        }
-        catch (ProviderCredentialUnavailableException ex)
-        {
-            // Stored but unreadable. Falling through to ambient would silently run as a different
-            // identity than the one configured, which is worse than saying so.
-            logger.LogError(ex, "The stored AWS credential could not be decrypted");
-            return (null, ex.Message);
+            // Forces a resolve now, so a missing or unreadable credential is an answer here rather
+            // than an exception from the first API call.
+            credentials.GetCredentials();
+            return (credentials, null);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Could not read the stored AWS credential; falling back to the environment");
-        }
-
-        try
-        {
-            return (Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver
-                .GetCredentials(new AmazonS3Config { RegionEndpoint = DiscoveryRegion }), null);
-        }
-        catch (Exception ex)
-        {
-            // Every exception, and deliberately not a specific AWS type.
-            //
-            // This caught AmazonServiceException first, which looks like the careful choice. The
-            // resolver throws AmazonClientException when nothing is configured, and those two are
-            // siblings — each derives straight from Exception, neither from the other — so that
-            // catch covered none of it. The most likely state of a fresh deployment took the
-            // Blazor circuit down instead of returning an answer.
-            //
-            // Nothing this method can hit is worth crashing a page over: every caller treats a
-            // null as "tell them how to supply credentials", which is the useful response to any
-            // failure to obtain them.
-            logger.LogDebug(ex, "No AWS credentials resolved from the provider chain");
+            logger.LogDebug(ex, "No AWS credentials available");
             return (null, ex.Message);
         }
     }

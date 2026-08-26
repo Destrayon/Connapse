@@ -189,6 +189,10 @@ public static class ServiceCollectionExtensions
         // credential itself, so a new instance per scope would discard that cache each time.
         // Scoped, not singleton: it now reads the stored credential through a DbContext
         // factory, and a singleton holding a scoped dependency is the classic captive.
+        // Scoped, matching the credential store it reads through. RefreshingAWSCredentials caches
+        // internally on its own window, so a fresh instance per scope still resolves at most once
+        // every RefreshWindow rather than per request.
+        services.AddScoped<CloudScope.ConnapseAwsCredentials>();
         services.AddScoped<IS3Discovery, CloudScope.S3Discovery>();
         services.AddScoped<IProviderCredentialStore, Connections.PostgresProviderCredentialStore>();
         services.AddScoped<SftpConnectionTester>();
