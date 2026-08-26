@@ -1,0 +1,230 @@
+using Amazon;
+using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
+using Amazon.SecurityToken;
+using Amazon.SecurityToken.Model;
+using Connapse.Core.Interfaces;
+using Microsoft.Extensions.Logging;
+
+namespace Connapse.Storage.CloudScope;
+
+/// <summary>
+/// Asks AWS what this container's own credentials can see.
+/// </summary>
+/// <remarks>
+/// Every call goes through the SDK's default provider chain — no credential is passed in, and none
+/// is stored. That chain is what makes the same code pick up an instance role in production and a
+/// mounted profile in development, which is why Connapse uses it rather than holding credentials
+/// of its own.
+/// <para>
+/// What the chain will not tell you is whether the credential it found is a good one: a static key
+/// resolves exactly as smoothly as an instance role. Classifying the result is the point of
+/// <see cref="Classify"/>.
+/// </para>
+/// </remarks>
+public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
+{
+    /// <summary>
+    /// Endpoint for the calls that are not about a particular bucket.
+    /// </summary>
+    /// <remarks>
+    /// STS and ListBuckets answer the same everywhere, so this is only somewhere to send the
+    /// request. It is not a claim about where anything lives.
+    /// </remarks>
+    private static readonly RegionEndpoint DiscoveryRegion = RegionEndpoint.USEast1;
+
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
+    public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(CancellationToken ct = default)
+    {
+        AWSCredentials? credentials = Resolve();
+        if (credentials is null)
+            return AwsProbe<AwsCallerIdentity>.NoCredentials(
+                "The AWS SDK found no credentials in its provider chain.");
+
+        try
+        {
+            using var sts = new AmazonSecurityTokenServiceClient(credentials,
+                new AmazonSecurityTokenServiceConfig { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
+
+            var response = await sts.GetCallerIdentityAsync(new GetCallerIdentityRequest(), ct);
+
+            return AwsProbe<AwsCallerIdentity>.Ok(new AwsCallerIdentity(
+                response.Arn, response.Account, Classify(credentials)));
+        }
+        catch (AmazonServiceException ex) when (IsDenial(ex))
+        {
+            // Rare but real: credentials that exist and are refused sts:GetCallerIdentity, which
+            // almost every policy allows. Worth distinguishing anyway, because "your key is wrong"
+            // and "your key is not allowed to do this" send the operator to different places.
+            logger.LogWarning(ex, "GetCallerIdentity was denied");
+            return AwsProbe<AwsCallerIdentity>.Denied(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "GetCallerIdentity failed");
+            return AwsProbe<AwsCallerIdentity>.Failed(ex.Message);
+        }
+    }
+
+    public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(CancellationToken ct = default)
+    {
+        AWSCredentials? credentials = Resolve();
+        if (credentials is null)
+            return AwsProbe<IReadOnlyList<string>>.NoCredentials();
+
+        try
+        {
+            using var s3 = new AmazonS3Client(credentials,
+                new AmazonS3Config { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
+
+            var response = await s3.ListBucketsAsync(new ListBucketsRequest(), ct);
+
+            IReadOnlyList<string> names = response.Buckets?
+                .Select(b => b.BucketName)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            return AwsProbe<IReadOnlyList<string>>.Ok(names);
+        }
+        catch (AmazonS3Exception ex) when (IsDenial(ex))
+        {
+            // Expected, and not a fault. s3:ListAllMyBuckets is account-wide, so a credential
+            // scoped to one bucket is *supposed* to be refused here. The caller falls back to
+            // asking for the name.
+            logger.LogDebug("ListBuckets denied — credentials are scoped, which is fine");
+            return AwsProbe<IReadOnlyList<string>>.Denied(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "ListBuckets failed");
+            return AwsProbe<IReadOnlyList<string>>.Failed(ex.Message);
+        }
+    }
+
+    public async Task<AwsProbe<string>> GetBucketRegionAsync(string bucket, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(bucket))
+            return AwsProbe<string>.Failed("No bucket name given.");
+
+        AWSCredentials? credentials = Resolve();
+        if (credentials is null)
+            return AwsProbe<string>.NoCredentials();
+
+        try
+        {
+            using var s3 = new AmazonS3Client(credentials,
+                new AmazonS3Config { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
+
+            var response = await s3.GetBucketLocationAsync(
+                new GetBucketLocationRequest { BucketName = bucket.Trim() }, ct);
+
+            // The oldest quirk in S3: us-east-1 reports itself as an empty location constraint,
+            // because it predates the constraint existing. Passing that through would put a blank
+            // in the region field for the single most common region.
+            string region = response.Location?.Value is { Length: > 0 } value
+                ? value
+                : "us-east-1";
+
+            // And "EU" is a legacy alias that RegionEndpoint does not accept.
+            if (region.Equals("EU", StringComparison.OrdinalIgnoreCase))
+                region = "eu-west-1";
+
+            return AwsProbe<string>.Ok(region);
+        }
+        catch (AmazonS3Exception ex) when (IsDenial(ex))
+        {
+            logger.LogDebug("GetBucketLocation denied for {Bucket}", bucket);
+            return AwsProbe<string>.Denied(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "GetBucketLocation failed for {Bucket}", bucket);
+            return AwsProbe<string>.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Walks the SDK's provider chain, returning null when it comes back empty.
+    /// </summary>
+    /// <remarks>
+    /// Through <c>DefaultAWSCredentialsIdentityResolver</c>, not <c>FallbackCredentialsFactory</c>
+    /// — the SDK deprecated the latter in v4 and says so at compile time. Same chain, current
+    /// entry point.
+    /// <para>
+    /// The chain throws rather than returning null when nothing resolves, and "nothing configured"
+    /// is the single most likely state of a fresh deployment — so it is an answer here, not an
+    /// exception.
+    /// </para>
+    /// </remarks>
+    private AWSCredentials? Resolve()
+    {
+        try
+        {
+            return Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver
+                .GetCredentials(new AmazonS3Config { RegionEndpoint = DiscoveryRegion });
+        }
+        catch (AmazonServiceException ex)
+        {
+            logger.LogDebug(ex, "No AWS credentials resolved from the provider chain");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Names the chain link the credentials came from.
+    /// </summary>
+    /// <remarks>
+    /// By runtime type, which is the only thing the chain exposes about its own decision. The
+    /// point is not diagnostics but posture: a static key works forever and is what AWS guidance
+    /// steers people away from, and nothing else in the system would ever mention it.
+    /// </remarks>
+    internal static AwsCredentialKind Classify(AWSCredentials credentials) =>
+        ClassifyType(credentials.GetType());
+
+    /// <summary>
+    /// The same decision, made from the type alone.
+    /// </summary>
+    /// <remarks>
+    /// Split out because several of these classes do real work in their constructors and cannot be
+    /// created in a test: <c>EnvironmentVariablesAWSCredentials</c> throws when the variables are
+    /// unset, and <c>InstanceProfileAWSCredentials</c> calls the EC2 metadata service and takes
+    /// most of a second to fail anywhere else. Taking the type keeps the one piece of judgement
+    /// here testable without any of that.
+    /// <para>
+    /// Walks the base chain, so a derived or wrapped credential still classifies as the thing it
+    /// derives from rather than falling through to Unrecognised.
+    /// </para>
+    /// </remarks>
+    internal static AwsCredentialKind ClassifyType(Type? type)
+    {
+        for (Type? t = type; t is not null; t = t.BaseType)
+        {
+            AwsCredentialKind kind = t.Name switch
+            {
+                nameof(InstanceProfileAWSCredentials) => AwsCredentialKind.InstanceOrTaskRole,
+                nameof(GenericContainerCredentials) => AwsCredentialKind.InstanceOrTaskRole,
+                nameof(AssumeRoleWithWebIdentityCredentials) => AwsCredentialKind.AssumedRole,
+                nameof(AssumeRoleAWSCredentials) => AwsCredentialKind.AssumedRole,
+                nameof(SessionAWSCredentials) => AwsCredentialKind.AssumedRole,
+                nameof(SSOAWSCredentials) => AwsCredentialKind.SsoSession,
+                nameof(ProcessAWSCredentials) => AwsCredentialKind.ExternalProcess,
+                nameof(EnvironmentVariablesAWSCredentials) => AwsCredentialKind.StaticKey,
+                nameof(BasicAWSCredentials) => AwsCredentialKind.StaticKey,
+                _ => AwsCredentialKind.Unrecognised
+            };
+
+            if (kind != AwsCredentialKind.Unrecognised)
+                return kind;
+        }
+
+        return AwsCredentialKind.Unrecognised;
+    }
+
+    private static bool IsDenial(AmazonServiceException ex) =>
+        ex.StatusCode is System.Net.HttpStatusCode.Forbidden
+                      or System.Net.HttpStatusCode.Unauthorized
+        || (ex.ErrorCode?.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase) ?? false);
+}
