@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
@@ -184,6 +184,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
+
+        // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
+        // credential itself, so a new instance per scope would discard that cache each time.
+        services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AwsSsoConnectionTester>();

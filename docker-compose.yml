@@ -75,6 +75,26 @@ services:
     volumes:
       - appdata:/app/appdata
 
+      # ── AWS credentials, for S3 sources ──────────────────────────────────────
+      # Always mounted, and empty until you put something in ./aws. Drop your AWS
+      # credentials file in that folder and restart — no edit to this file needed.
+      # To point at a profile you already keep elsewhere, set CONNAPSE_AWS_DIR in
+      # .env instead. See aws/README.md.
+      #
+      # Read-only, and nothing is copied into Connapse: it stores no credential of
+      # its own and reads whatever this makes visible. The same mount carries
+      # whichever kind of profile you keep there — a static one, an SSO one, or a
+      # credential_process entry pointing at the IAM Roles Anywhere helper, which
+      # gives a workload outside AWS temporary credentials with no static keys.
+      # On EC2, ECS or EKS, attach an instance role and leave ./aws empty.
+      #
+      # A repo-relative default rather than ${HOME}/.aws, for two reasons. HOME is
+      # unset in Windows PowerShell, where Compose warns and substitutes a blank
+      # string, silently mounting /.aws. And some Compose versions refuse to start
+      # at all when a bind source is missing — ./aws ships with the repo, so it is
+      # always there, while a home directory without .aws is the common case.
+      - ${CONNAPSE_AWS_DIR:-./aws}:/home/app/.aws:ro
+
     depends_on:
       postgres:
         condition: service_healthy
