@@ -521,9 +521,24 @@
                             <div class="d-flex flex-wrap align-items-center gap-2">
                                 <span class="bi-check-circle-fill text-success"></span>
                                 <div class="flex-grow-1 small">
-                                    Connapse is running as
-                                    <code>@who.Arn</code>
-                                    in account <code>@who.AccountId</code>.
+                                    @if (who.AssumedRoleArn is not null)
+                                    {
+                                        @* Named explicitly: the assumed role can live in a different
+                                           AWS account from the base credentials, and the policy below
+                                           has to be attached to this principal, not the other one. *@
+                                        <text>
+                                            This connection runs as <code>@who.Arn</code> in account
+                                            <code>@who.AccountId</code>, assumed from
+                                            <code>@who.AssumedRoleArn</code>.
+                                        </text>
+                                    }
+                                    else
+                                    {
+                                        <text>
+                                            Connapse is running as <code>@who.Arn</code> in account
+                                            <code>@who.AccountId</code>.
+                                        </text>
+                                    }
                                 </div>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
                                         @onclick="ResetS3Preflight">Recheck</button>
@@ -1018,7 +1033,12 @@
 
         try
         {
-            var identity = await S3Discovery.WhoAmIAsync();
+            // The connection's role, not the ambient identity. S3Connector and S3ConnectionTester
+            // both assume it, so probing without it would describe a different account entirely
+            // from the one that ends up syncing.
+            string? role = form.RoleArn;
+
+            var identity = await S3Discovery.WhoAmIAsync(role);
             if (!identity.Succeeded)
             {
                 s3Probe = identity;
@@ -1027,7 +1047,7 @@
 
             s3Identity = identity.Value;
 
-            var buckets = await S3Discovery.ListBucketsAsync();
+            var buckets = await S3Discovery.ListBucketsAsync(role);
             if (buckets.Succeeded)
                 s3Buckets = buckets.Value;
             else
@@ -1079,7 +1099,7 @@
 
             if (string.IsNullOrWhiteSpace(form.Region))
             {
-                var region = await S3Discovery.GetBucketRegionAsync(bucket);
+                var region = await S3Discovery.GetBucketRegionAsync(bucket, form.RoleArn);
                 if (region.Succeeded && !string.IsNullOrWhiteSpace(region.Value))
                 {
                     form.Region = region.Value;
@@ -1097,22 +1117,26 @@
     }
 
     /// <summary>The least-privilege policy for whatever is currently allowed.</summary>
+    /// <remarks>
+    /// One document covering every entry. This used to generate a policy per bucket and join them
+    /// with blank lines, which produces two top-level JSON objects — not a policy at all, and IAM
+    /// rejects it. Anyone allowing two buckets was handed output that could not be pasted.
+    /// </remarks>
     private string? S3PolicyForAllowed()
     {
         var list = AllowedList();
         if (list.Count == 0) return null;
 
-        // One bucket per entry, and an entry may carry a prefix. Generated per bucket rather than
-        // merged, so an operator granting access to two buckets can see two independent grants.
-        var policies = list.Select(entry =>
+        try
         {
-            int slash = entry.IndexOf('/');
-            string bucket = slash < 0 ? entry : entry[..slash];
-            string? prefix = slash < 0 ? null : entry[(slash + 1)..];
-            return S3SetupPolicy.ForBucket(bucket, prefix);
-        });
-
-        return string.Join("\n\n", policies);
+            return S3SetupPolicy.ForBuckets(list);
+        }
+        catch (ArgumentException)
+        {
+            // Entries are typed freehand, so "/" or whitespace alone reaches here. Nothing to
+            // offer, and a half-written allowlist is not an error worth interrupting for.
+            return null;
+        }
     }
 
     private string localRoot = "";

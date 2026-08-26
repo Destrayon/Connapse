@@ -36,22 +36,29 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
-    public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(CancellationToken ct = default)
+    public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(
+        string? roleArn = null, CancellationToken ct = default)
     {
-        var (credentials, error) = Resolve();
-        if (credentials is null)
+        var (baseCredentials, error) = Resolve();
+        if (baseCredentials is null)
             return AwsProbe<AwsCallerIdentity>.NoCredentials(error
                 ?? "The AWS SDK found no credentials in its provider chain.");
 
         try
         {
+            AWSCredentials credentials = await AssumeIfNeededAsync(baseCredentials, roleArn, ct);
+
             using var sts = new AmazonSecurityTokenServiceClient(credentials,
                 new AmazonSecurityTokenServiceConfig { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
 
             var response = await sts.GetCallerIdentityAsync(new GetCallerIdentityRequest(), ct);
 
+            // Kind describes the BASE credentials deliberately. The assumed role is temporary by
+            // construction, so classifying the session would report every deployment as healthy
+            // and hide the static key underneath it.
             return AwsProbe<AwsCallerIdentity>.Ok(new AwsCallerIdentity(
-                response.Arn, response.Account, Classify(credentials)));
+                response.Arn, response.Account, Classify(baseCredentials),
+                string.IsNullOrWhiteSpace(roleArn) ? null : roleArn.Trim()));
         }
         catch (AmazonServiceException ex) when (IsDenial(ex))
         {
@@ -68,14 +75,17 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
         }
     }
 
-    public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(CancellationToken ct = default)
+    public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(
+        string? roleArn = null, CancellationToken ct = default)
     {
-        var (credentials, error) = Resolve();
-        if (credentials is null)
+        var (baseCredentials, error) = Resolve();
+        if (baseCredentials is null)
             return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
         try
         {
+            AWSCredentials credentials = await AssumeIfNeededAsync(baseCredentials, roleArn, ct);
+
             using var s3 = new AmazonS3Client(credentials,
                 new AmazonS3Config { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
 
@@ -104,17 +114,20 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
         }
     }
 
-    public async Task<AwsProbe<string>> GetBucketRegionAsync(string bucket, CancellationToken ct = default)
+    public async Task<AwsProbe<string>> GetBucketRegionAsync(
+        string bucket, string? roleArn = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        var (credentials, error) = Resolve();
-        if (credentials is null)
+        var (baseCredentials, error) = Resolve();
+        if (baseCredentials is null)
             return AwsProbe<string>.NoCredentials(error);
 
         try
         {
+            AWSCredentials credentials = await AssumeIfNeededAsync(baseCredentials, roleArn, ct);
+
             using var s3 = new AmazonS3Client(credentials,
                 new AmazonS3Config { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
 
@@ -144,6 +157,43 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
             logger.LogWarning(ex, "GetBucketLocation failed for {Bucket}", bucket);
             return AwsProbe<string>.Failed(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Assumes <paramref name="roleArn"/> when the connection names one, so every probe runs as
+    /// the principal the sync will actually run as.
+    /// </summary>
+    /// <remarks>
+    /// <c>S3Connector</c> and <c>S3ConnectionTester</c> both assume the role when it is set.
+    /// Discovery did not, so a connection configured for cross-account access reported the base
+    /// identity, listed the base account's buckets, and read regions from the wrong place — then
+    /// told the operator to attach the generated policy to that identity. The grant would land on
+    /// a principal the sync never uses, and the setup would look correct and fail later.
+    /// <para>
+    /// The 900-second session matches the tester's. Discovery is a handful of calls made while
+    /// somebody watches, so nothing here outlives it.
+    /// </para>
+    /// </remarks>
+    private static async Task<AWSCredentials> AssumeIfNeededAsync(
+        AWSCredentials baseCredentials, string? roleArn, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(roleArn))
+            return baseCredentials;
+
+        using var sts = new AmazonSecurityTokenServiceClient(baseCredentials,
+            new AmazonSecurityTokenServiceConfig { RegionEndpoint = DiscoveryRegion, Timeout = Timeout });
+
+        var assumed = await sts.AssumeRoleAsync(new AssumeRoleRequest
+        {
+            RoleArn = roleArn.Trim(),
+            RoleSessionName = "connapse-discovery",
+            DurationSeconds = 900
+        }, ct);
+
+        return new SessionAWSCredentials(
+            assumed.Credentials.AccessKeyId,
+            assumed.Credentials.SecretAccessKey,
+            assumed.Credentials.SessionToken);
     }
 
     /// <summary>

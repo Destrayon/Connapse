@@ -89,6 +89,80 @@ public static class S3SetupPolicy
     }
 
     /// <summary>
+    /// One policy document covering every allowed location.
+    /// </summary>
+    /// <param name="locations">
+    /// Allowlist entries, each a bucket optionally followed by <c>/</c> and a prefix — the same
+    /// form the connection's allowed-locations field holds.
+    /// </param>
+    /// <remarks>
+    /// A single document, not several concatenated. Generating one per bucket and joining them
+    /// produces two top-level JSON objects, which is not a policy at all: IAM rejects it outright,
+    /// while the UI presented it as something to paste. Anyone allowing two buckets got output
+    /// that could not work.
+    /// <para>
+    /// Sids are suffixed by index because they must be unique within a document, and bucket names
+    /// can contain characters a Sid cannot.
+    /// </para>
+    /// </remarks>
+    public static string ForBuckets(IEnumerable<string> locations)
+    {
+        var statements = new List<object>();
+        int index = 0;
+
+        foreach (string location in locations)
+        {
+            if (string.IsNullOrWhiteSpace(location)) continue;
+
+            string entry = location.Trim();
+            int slash = entry.IndexOf('/');
+            string bucket = (slash < 0 ? entry : entry[..slash]).Trim();
+            if (bucket.Length == 0) continue;
+
+            string prefix = NormalisePrefix(slash < 0 ? null : entry[(slash + 1)..]);
+
+            var list = new Dictionary<string, object>
+            {
+                ["Sid"] = $"ConnapseListBucket{index}",
+                ["Effect"] = "Allow",
+                ["Action"] = new[] { "s3:ListBucket" },
+                ["Resource"] = $"arn:aws:s3:::{bucket}"
+            };
+
+            if (prefix.Length > 0)
+            {
+                list["Condition"] = new Dictionary<string, object>
+                {
+                    ["StringLike"] = new Dictionary<string, object>
+                    {
+                        ["s3:prefix"] = new[] { $"{prefix}*" }
+                    }
+                };
+            }
+
+            statements.Add(list);
+            statements.Add(new Dictionary<string, object>
+            {
+                ["Sid"] = $"ConnapseReadObjects{index}",
+                ["Effect"] = "Allow",
+                ["Action"] = new[] { "s3:GetObject" },
+                ["Resource"] = $"arn:aws:s3:::{bucket}/{prefix}*"
+            });
+
+            index++;
+        }
+
+        if (statements.Count == 0)
+            throw new ArgumentException("No usable bucket in the allowed locations.", nameof(locations));
+
+        return JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["Version"] = "2012-10-17",
+            ["Statement"] = statements
+        }, PolicyJson);
+    }
+
+    /// <summary>
     /// Trims a prefix to the form an ARN wants: no leading slash, one trailing slash, or empty.
     /// </summary>
     /// <remarks>

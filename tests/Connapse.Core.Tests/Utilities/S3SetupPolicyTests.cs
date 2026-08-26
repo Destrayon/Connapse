@@ -169,4 +169,91 @@ public class S3SetupPolicyTests
         text.Should().NotContain("AWS_SECRET_ACCESS_KEY");
         text.Should().NotContain("AWS_ACCESS_KEY_ID");
     }
+
+    // -- Several buckets at once ----------------------------------------------------
+
+    [Fact]
+    public void ForBuckets_TwoBuckets_ParseAsOneDocument()
+    {
+        // The bug this replaces: a policy was generated per bucket and the results joined with
+        // blank lines. Two top-level JSON objects are not a policy, IAM rejects the paste, and the
+        // UI presented it as a single thing to attach. Parsing is the assertion that matters --
+        // string checks would have passed on the broken version.
+        string policy = S3SetupPolicy.ForBuckets(["docs-bucket", "shared-bucket/team"]);
+
+        var root = Parse(policy);
+        root.GetProperty("Version").GetString().Should().Be("2012-10-17");
+        root.GetProperty("Statement").GetArrayLength().Should().Be(4, "two statements per bucket");
+    }
+
+    [Fact]
+    public void ForBuckets_GivesEveryStatementItsOwnSid()
+    {
+        // Sids must be unique within a document. Reusing ConnapseListBucket across buckets makes a
+        // document IAM refuses, which is the same failure in a subtler form.
+        var sids = Parse(S3SetupPolicy.ForBuckets(["a-bucket", "b-bucket", "c-bucket"]))
+            .GetProperty("Statement").EnumerateArray()
+            .Select(x => x.GetProperty("Sid").GetString())
+            .ToList();
+
+        sids.Should().OnlyHaveUniqueItems();
+        sids.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public void ForBuckets_CarriesThePrefixFromEachEntry()
+    {
+        // An allowlist entry may name a bucket alone or a bucket and a prefix, and the two must not
+        // be flattened together: one grants the whole bucket, the other one folder.
+        var resources = Parse(S3SetupPolicy.ForBuckets(["wide-bucket", "narrow-bucket/team"]))
+            .GetProperty("Statement").EnumerateArray()
+            .Where(x => x.GetProperty("Sid").GetString()!.StartsWith("ConnapseReadObjects"))
+            .Select(x => x.GetProperty("Resource").GetString())
+            .ToList();
+
+        resources.Should().Equal(
+            "arn:aws:s3:::wide-bucket/*",
+            "arn:aws:s3:::narrow-bucket/team/*");
+    }
+
+    [Fact]
+    public void ForBuckets_ScopesListingOnlyWhereAPrefixWasGiven()
+    {
+        var statements = Parse(S3SetupPolicy.ForBuckets(["wide-bucket", "narrow-bucket/team"]))
+            .GetProperty("Statement").EnumerateArray()
+            .Where(x => x.GetProperty("Sid").GetString()!.StartsWith("ConnapseListBucket"))
+            .ToList();
+
+        statements[0].TryGetProperty("Condition", out _).Should().BeFalse("no prefix was given");
+        statements[1].GetProperty("Condition").GetProperty("StringLike")
+            .GetProperty("s3:prefix").EnumerateArray().Single().GetString().Should().Be("team/*");
+    }
+
+    public static TheoryData<string[]> NothingUsable()
+    {
+        var data = new TheoryData<string[]>();
+        data.Add([]);
+        data.Add([""]);
+        data.Add(["   ", "/"]);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(NothingUsable))]
+    public void ForBuckets_WithNothingUsable_Throws(string[] locations)
+    {
+        // Entries are typed freehand, so a half-written allowlist reaches here. Throwing lets the
+        // caller show nothing rather than emit a policy granting access to "arn:aws:s3:::/*".
+        FluentActions.Invoking(() => S3SetupPolicy.ForBuckets(locations))
+            .Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void ForBuckets_SkipsBlankEntriesBetweenRealOnes()
+    {
+        // Splitting a textarea on newlines leaves blanks behind whenever somebody hits enter twice.
+        string policy = S3SetupPolicy.ForBuckets(["docs-bucket", "  ", "shared-bucket"]);
+
+        Parse(policy).GetProperty("Statement").GetArrayLength().Should().Be(4);
+    }
 }

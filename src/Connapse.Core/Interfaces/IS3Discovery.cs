@@ -1,4 +1,4 @@
-namespace Connapse.Core.Interfaces;
+﻿namespace Connapse.Core.Interfaces;
 
 /// <summary>
 /// How the credentials Connapse resolved were obtained, which is the part that decides whether a
@@ -36,8 +36,20 @@ public enum AwsCredentialKind
 /// <summary>What the container could see and reach.</summary>
 /// <param name="Arn">The identity the credentials resolve to, from <c>sts:GetCallerIdentity</c>.</param>
 /// <param name="AccountId">The AWS account those credentials belong to.</param>
-/// <param name="Kind">Where they came from.</param>
-public record AwsCallerIdentity(string Arn, string AccountId, AwsCredentialKind Kind);
+/// <param name="Kind">Where the base credentials came from.</param>
+/// <param name="AssumedRoleArn">
+/// The role that was assumed to reach <paramref name="Arn"/>, or null when the base credentials
+/// were used directly.
+/// <para>
+/// Reported because the two can be in different AWS accounts entirely, and the generated policy
+/// has to be attached to the effective principal rather than the base one.
+/// </para>
+/// </param>
+public record AwsCallerIdentity(
+    string Arn,
+    string AccountId,
+    AwsCredentialKind Kind,
+    string? AssumedRoleArn = null);
 
 /// <summary>
 /// The outcome of asking AWS something, separating the three cases that need different advice:
@@ -85,11 +97,17 @@ public enum AwsProbeOutcome
 /// <remarks>
 /// Unlike the SFTP and identity-provider wizards, this one needs no script: Connapse's process is
 /// meant to hold these credentials, so it can make the calls itself.
+/// <para>
+/// Every method takes the connection's <c>roleArn</c>, and must assume it exactly as
+/// <c>S3Connector</c> and <c>S3ConnectionTester</c> do. Probing with the base credentials while
+/// the connection runs as an assumed role means the wizard describes one account and the sync uses
+/// another — and the policy it tells the operator to attach lands on the wrong principal.
+/// </para>
 /// </remarks>
 public interface IS3Discovery
 {
     /// <summary>Who Connapse is, as far as AWS is concerned.</summary>
-    Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(CancellationToken ct = default);
+    Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(string? roleArn = null, CancellationToken ct = default);
 
     /// <summary>
     /// Every bucket the credentials can enumerate.
@@ -99,8 +117,8 @@ public interface IS3Discovery
     /// lacking it is correct, not broken. A denial here must leave the operator typing a bucket
     /// name, never blocked.
     /// </remarks>
-    Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(CancellationToken ct = default);
+    Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(string? roleArn = null, CancellationToken ct = default);
 
     /// <summary>The region a bucket lives in, so it does not have to be guessed.</summary>
-    Task<AwsProbe<string>> GetBucketRegionAsync(string bucket, CancellationToken ct = default);
+    Task<AwsProbe<string>> GetBucketRegionAsync(string bucket, string? roleArn = null, CancellationToken ct = default);
 }
