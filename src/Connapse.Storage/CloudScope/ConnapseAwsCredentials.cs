@@ -1,5 +1,6 @@
-using Amazon.Runtime;
+﻿using Amazon.Runtime;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Connapse.Storage.CloudScope;
@@ -29,7 +30,7 @@ namespace Connapse.Storage.CloudScope;
 /// </para>
 /// </remarks>
 public class ConnapseAwsCredentials(
-    IProviderCredentialStore credentialStore,
+    IServiceScopeFactory scopeFactory,
     ILogger<ConnapseAwsCredentials> logger) : RefreshingAWSCredentials
 {
     /// <summary>Key the AWS credential is stored under.</summary>
@@ -77,6 +78,17 @@ public class ConnapseAwsCredentials(
     {
         try
         {
+            // A scope per refresh, rather than holding the store.
+            //
+            // This is a singleton — ConnectorFactory is one and consumes it, so it cannot be
+            // anything else — while the store reaches the database through a DbContextFactory that
+            // this application registers as scoped. Taking it in the constructor made it captive,
+            // which the container tolerates in Production and the integration tests refuse.
+            //
+            // A scope every RefreshWindow is not a cost worth avoiding.
+            using var scope = scopeFactory.CreateScope();
+            var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+
             var info = credentialStore.GetAsync(ProviderKey).GetAwaiter().GetResult();
             if (info is null) return null;
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Connapse.Storage.CloudScope;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Xunit;
 
@@ -56,17 +57,21 @@ public class SourceConnectorFactoryTests
         var monitor = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
         monitor.CurrentValue.Returns(settings);
 
-        // A credential provider over an empty store: no credential is configured, so it falls back
-        // to the SDK chain exactly as an unconfigured deployment does. These tests are about scope
-        // and allowlist rules, and none of them reaches AWS.
+        // A credential provider over an empty container: nothing is configured, so it falls back to
+        // the SDK chain exactly as an unconfigured deployment does. These tests are about scope and
+        // allowlist rules, and none of them reaches AWS.
         var credentialStore = Substitute.For<IProviderCredentialStore>();
         credentialStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((ProviderCredentialInfo?)null);
 
+        var services = new ServiceCollection();
+        services.AddSingleton(credentialStore);
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
         return new ConnectorFactory(
             monitor,
             hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
-            new ConnapseAwsCredentials(credentialStore, NullLogger<ConnapseAwsCredentials>.Instance),
+            new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
             logger ?? NullLogger<ConnectorFactory>.Instance);
     }
 
