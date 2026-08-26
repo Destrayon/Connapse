@@ -479,6 +479,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at");
 
+            entity.Property(e => e.VerifiedAt)
+                .HasColumnName("verified_at");
+
             entity.Property(e => e.CreatedByUserId)
                 .HasColumnName("created_by_user_id");
         });

@@ -8,8 +8,10 @@ namespace Connapse.Web.Services;
 /// Reports what each cloud provider still needs.
 /// </summary>
 /// <remarks>
-/// Reads from the settings store and from AWS itself; writes nothing. The page it feeds is a view,
-/// and keeping the reader write-free is what stops that page turning into a place credentials live.
+/// Reads from the settings store and from AWS itself. The one thing it writes is a timestamp
+/// recording that a stored credential was honoured — an observation about a credential, not a
+/// credential — because nothing else is positioned to notice. It still stores no secret, which is
+/// the property that stops the page it feeds turning into a place credentials live.
 /// </remarks>
 public class ProviderSetupReader(
     IOptionsMonitor<AwsSsoSettings> awsSso,
@@ -143,8 +145,15 @@ public class ProviderSetupReader(
                 var buckets = await s3Discovery.ListBucketsAsync(ct: ct);
 
                 if (buckets.Succeeded)
+                {
+                    // Remembered, because age alone cannot tell "not working yet" from "not working
+                    // any more". Everything below turns on whether this credential has ever worked.
+                    if (stored is not null)
+                        await MarkVerifiedAsync(ct);
+
                     return new ProviderRequirement(name, description,
                         RequirementStatus.Satisfied, who.Arn, "Connections", "/connections");
+                }
 
                 // A credential Connapse did not create is not Connapse's to judge. One an operator
                 // scoped to named buckets lacks s3:ListAllMyBuckets by design and syncs perfectly;
@@ -196,6 +205,17 @@ public class ProviderSetupReader(
     private ProviderRequirement NotWorkingYet(
         string name, string description, ProviderCredentialInfo stored, string reason)
     {
+        const string action = "Set up access";
+        const string href = "/admin/providers/aws#access";
+
+        // A credential that has worked is not waiting to start working. Something removed it --
+        // the IAM user deleted, the key deactivated -- and offering to keep waiting for it is the
+        // page telling someone to sit still while nothing happens.
+        if (stored.VerifiedAt is not null)
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                "This key worked before and no longer does. It has most likely been deleted or "
+                + "deactivated in AWS. Create the identity again.", action, href);
+
         TimeSpan age = clock.GetUtcNow() - new DateTimeOffset(
             DateTime.SpecifyKind(stored.CreatedAt, DateTimeKind.Utc));
 
@@ -204,7 +224,22 @@ public class ProviderSetupReader(
                 "AWS has not finished issuing this key. This usually takes seconds.");
 
         return new ProviderRequirement(name, description, RequirementStatus.Failed,
-            $"{reason} Create the identity again.", "Set up access", "/admin/providers/aws#access");
+            $"{reason} Create the identity again.", action, href);
+    }
+
+    /// <summary>Records a successful call, without letting a failed write break the page.</summary>
+    private async Task MarkVerifiedAsync(CancellationToken ct)
+    {
+        try
+        {
+            await credentials.MarkVerifiedAsync("aws", clock.GetUtcNow().UtcDateTime, ct);
+        }
+        catch (Exception ex)
+        {
+            // Losing this costs a wrong message on a later failure. Losing the status page costs
+            // every message on it, so this is the one that gets swallowed.
+            logger.LogWarning(ex, "Could not record that the AWS credential was verified");
+        }
     }
 
     /// <summary>The credential Connapse stores for AWS, or null when it is using the environment's.</summary>

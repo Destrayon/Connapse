@@ -10,11 +10,20 @@ namespace Connapse.Core.Interfaces;
 /// When it was stored. Shown so an administrator can see a key's age: guidance on static keys is to
 /// rotate them, and a key whose age is invisible is one nobody rotates.
 /// </param>
+/// <param name="VerifiedAt">
+/// The last time a call made with it was honoured, or null if that has never happened.
+/// <para>
+/// What separates "not working yet" from "not working any more". A new key is refused for a while
+/// because IAM is eventually consistent; one that worked and then stopped has been deleted or
+/// revoked, and waiting will not bring it back.
+/// </para>
+/// </param>
 public record ProviderCredentialInfo(
     string Provider,
     string PublicId,
     string? PrincipalName,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    DateTime? VerifiedAt = null);
 
 /// <summary>
 /// The credential Connapse acts as against one cloud, replacing what the SDK would otherwise pick
@@ -45,6 +54,17 @@ public interface IProviderCredentialStore
     Task<ProviderCredentialInfo> SaveAsync(
         string provider, string publicId, string secret, string? principalName,
         Guid? createdByUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records that a call made with this credential was honoured.
+    /// </summary>
+    /// <remarks>
+    /// The only write on this interface that is not about the credential itself, and it exists so a
+    /// later failure can be told apart from a slow start. Callers may invoke it on every success;
+    /// implementations should not treat that as a reason to write on every success.
+    /// </remarks>
+    /// <returns>False when there is no stored credential for the provider.</returns>
+    Task<bool> MarkVerifiedAsync(string provider, DateTime when, CancellationToken ct = default);
 
     /// <summary>Removes it, falling back to whatever the environment provides.</summary>
     Task<bool> DeleteAsync(string provider, CancellationToken ct = default);

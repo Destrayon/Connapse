@@ -48,5 +48,20 @@ public class ProviderCredentialEntity
     /// </remarks>
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>
+    /// The last time Connapse made a call AWS honoured with this credential, or null if never.
+    /// </summary>
+    /// <remarks>
+    /// The difference between "not working yet" and "not working any more", which age alone cannot
+    /// tell. A brand-new key is refused for a while because IAM is eventually consistent; a key that
+    /// has already worked and then stops has been deleted or revoked, and no amount of waiting fixes
+    /// it. Without this the page offers to keep waiting for a credential that no longer exists.
+    /// <para>
+    /// Reset to null whenever the credential is replaced: a new key has proved nothing, whatever its
+    /// predecessor did.
+    /// </para>
+    /// </remarks>
+    public DateTime? VerifiedAt { get; set; }
+
     public Guid? CreatedByUserId { get; set; }
 }

@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using FluentAssertions;
@@ -35,14 +35,18 @@ public class ProviderSetupReaderTests
         AwsProbe<AwsCallerIdentity> identity,
         AwsProbe<IReadOnlyList<string>> buckets,
         ProviderCredentialInfo? stored = null,
-        TimeSpan? sinceCreated = null)
+        TimeSpan? sinceCreated = null,
+        IProviderCredentialStore? credentials = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
         discovery.ListBucketsAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(buckets);
 
-        var credentials = Substitute.For<IProviderCredentialStore>();
-        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(stored);
+        if (credentials is null)
+        {
+            credentials = Substitute.For<IProviderCredentialStore>();
+            credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(stored);
+        }
 
         var connections = Substitute.For<IConnectionStore>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -56,8 +60,11 @@ public class ProviderSetupReaderTests
             NullLogger<ProviderSetupReader>.Instance);
     }
 
-    private static ProviderCredentialInfo StoredKey() =>
-        new("aws", "AKIAEXAMPLE", "connapse-reader", Created);
+    private static ProviderCredentialInfo StoredKey(DateTime? verifiedAt = null) =>
+        new("aws", "AKIAEXAMPLE", "connapse-reader", Created, verifiedAt);
+
+    /// <summary>A key that has been seen working, which is what rules propagation delay out.</summary>
+    private static ProviderCredentialInfo VerifiedKey() => StoredKey(Created.AddMinutes(1));
 
     private static async Task<ProviderRequirement> AccessAsync(ProviderSetupReader reader) =>
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
@@ -155,6 +162,83 @@ public class ProviderSetupReaderTests
 
     private static readonly TimeSpan ProvisioningWindowPlus =
         ProviderSetupReader.ProvisioningWindow + TimeSpan.FromMinutes(1);
+
+    [Fact]
+    public async Task Access_KeyThatWorkedAndStopped_FailsImmediatelyRatherThanWaiting()
+    {
+        // Deleting the IAM user in AWS put the page into "Provisioning" -- it was young, so age
+        // alone said wait. A credential that has already worked is not waiting to start working,
+        // and offering to keep waiting for one that no longer exists is the page stalling somebody.
+        var access = await AccessAsync(Build(
+            AwsProbe<AwsCallerIdentity>.NoCredentials(),
+            AwsProbe<IReadOnlyList<string>>.NoCredentials(),
+            VerifiedKey(),
+            sinceCreated: TimeSpan.FromMinutes(2)));
+
+        access.Status.Should().Be(RequirementStatus.Failed);
+    }
+
+    [Fact]
+    public async Task Access_KeyThatWorkedAndStopped_SaysItWasProbablyDeleted()
+    {
+        // "AWS has not finished issuing this key" is actively misleading here: it describes a wait
+        // that will never end, for a key nothing will bring back.
+        var access = await AccessAsync(Build(
+            Authenticated(AwsCredentialKind.StoredKey),
+            AwsProbe<IReadOnlyList<string>>.Denied("AccessDenied"),
+            VerifiedKey(),
+            sinceCreated: TimeSpan.FromMinutes(2)));
+
+        access.Detail.Should().Contain("worked before").And.Contain("deleted");
+    }
+
+    [Fact]
+    public async Task Access_WhenS3Answers_RecordsThatTheKeyWorked()
+    {
+        // Nothing else is positioned to notice. Without this the distinction above has no input,
+        // and every failure looks like a slow start.
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
+
+        await AccessAsync(Build(
+            Authenticated(AwsCredentialKind.StoredKey), Buckets("docs"), StoredKey(),
+            credentials: credentials));
+
+        await credentials.Received(1)
+            .MarkVerifiedAsync("aws", Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Access_WithNoStoredCredential_RecordsNothing()
+    {
+        // There is no row to mark, and an ambient credential is not Connapse's to track.
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns((ProviderCredentialInfo?)null);
+
+        await AccessAsync(Build(
+            Authenticated(AwsCredentialKind.InstanceOrTaskRole), Buckets("docs"),
+            credentials: credentials));
+
+        await credentials.DidNotReceive()
+            .MarkVerifiedAsync(Arg.Any<string>(), Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Access_WhenRecordingTheSuccessFails_StillReportsReady()
+    {
+        // Losing the timestamp costs a wrong message on some later failure. Losing the status page
+        // costs every message on it.
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
+        credentials.MarkVerifiedAsync("aws", Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
+            .Returns<bool>(_ => throw new InvalidOperationException("database is down"));
+
+        var access = await AccessAsync(Build(
+            Authenticated(AwsCredentialKind.StoredKey), Buckets("docs"),
+            credentials: credentials));
+
+        access.Status.Should().Be(RequirementStatus.Satisfied);
+    }
 
     [Fact]
     public async Task Access_AmbientCredentialThatCannotListBuckets_IsNotCalledAFailure()
