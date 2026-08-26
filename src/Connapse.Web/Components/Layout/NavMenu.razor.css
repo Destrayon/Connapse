@@ -92,6 +92,68 @@
     margin: 0.75rem 1rem;
 }
 
+/* The administrator-only group. A rule above it rather than a box around it: the entries
+   inside are the same kind of thing as the ones above, and a border would read as a
+   different control. */
+.nav-group {
+    border-top: 1px solid var(--bs-border-color);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+}
+
+.nav-group-summary {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-nav);
+    opacity: 0.65;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.nav-group-summary:hover {
+    opacity: 1;
+}
+
+/* Both are needed: Safari uses the pseudo-element, everything else honours list-style. */
+.nav-group-summary::-webkit-details-marker {
+    display: none;
+}
+
+/* The disclosure triangle, drawn on the trailing edge so the label lines up with the
+   icons of the entries below it. */
+.nav-group-summary::after {
+    content: "";
+    margin-left: auto;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s;
+}
+
+.nav-group[open] > .nav-group-summary::after {
+    transform: rotate(-135deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-group-summary::after {
+        transition: none;
+    }
+}
+
+/* Without this the first entry in the group inherits the 1rem top padding meant to
+   separate the very first item in the menu from the logo. */
+.nav-group .nav-item:first-of-type {
+    padding-top: 0;
+}
+
 .nav-user-info {
     padding: 0.5rem 0;
     display: flex;

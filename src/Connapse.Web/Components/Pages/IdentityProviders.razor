@@ -1,0 +1,127 @@
+@page "/admin/identity-providers"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Components.Settings
+@using Connapse.Storage.Settings
+@using Microsoft.Extensions.Options
+@inject ISettingsStore SettingsStore
+@inject ISettingsReloader ReloadService
+@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
+@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@rendermode InteractiveServer
+
+@*
+    Identity providers — who may sign in, and what they may search.
+
+    Its own page rather than two tabs in Settings. Listed beside embedding, chunking and
+    search, AWS SSO and Azure AD read as though they configured ingestion, which is the
+    opposite of what they do: an identity provider authenticates a person, while a
+    Connection holds the credential Connapse's own background sync reads with.
+
+    The two cannot be merged. SourceSyncService is a BackgroundService on a timer with no
+    user present, and IAM Identity Center requires an interactive browser sign-in, so an
+    SSO session can never drive a sync.
+
+    Providers stay settings records rather than entities: there is one Identity Center
+    instance and one AD tenant per organisation, and promoting them would need a migration
+    and secret storage, reopening the epic #348 review of which surfaces may create
+    credential-bearing configuration.
+*@
+
+<PageTitle>Identity Providers - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+    <h1 class="mb-1">
+        <span class="bi-person-badge-fill me-2"></span>
+        Identity Providers
+    </h1>
+    <p class="text-muted">
+        Who can sign into Connapse, and which cloud identity their search results are scoped
+        against. This is separate from <a href="/connections">Connections</a>, which hold the
+        credentials Connapse reads your files with.
+    </p>
+
+    @if (!string.IsNullOrEmpty(saveMessage))
+    {
+        <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+            @saveMessage
+            <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+        </div>
+    }
+
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
+                    @onclick='() => activeTab = "awssso"'
+                    type="button">
+                AWS SSO
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
+                    @onclick='() => activeTab = "azuread"'
+                    type="button">
+                Azure AD
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        @if (activeTab == "awssso")
+        {
+            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
+        }
+        else if (activeTab == "azuread")
+        {
+            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "awssso";
+    private string? saveMessage;
+    private bool saveSuccess;
+
+    private AwsSsoSettings awsSsoSettings = new();
+    private AzureAdSettings azureAdSettings = new();
+
+    protected override void OnInitialized()
+    {
+        // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
+        // table, which overrides appsettings.json, and reloads without a restart.
+        awsSsoSettings = AwsSsoOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
+    }
+
+    // The category keys are unchanged from when these tabs lived in Settings. Renaming them
+    // would orphan whatever is already in the settings table.
+    private Task SaveAwsSsoSettings(AwsSsoSettings settings)
+    {
+        awsSsoSettings = settings;
+        return SaveSettings("awssso", settings);
+    }
+
+    private Task SaveAzureAdSettings(AzureAdSettings settings)
+    {
+        azureAdSettings = settings;
+        return SaveSettings("azuread", settings);
+    }
+
+    private async Task SaveSettings<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            await SettingsStore.SaveAsync(category, settings);
+            ReloadService.Reload();
+            saveMessage = $"{category} settings saved successfully!";
+            saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveSuccess = false;
+        }
+    }
+}
