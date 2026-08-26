@@ -311,8 +311,18 @@ public static class AwsSsoSetup
         if (string.IsNullOrWhiteSpace(pasted))
             return null;
 
-        int start = pasted.IndexOf(BeginMarker, StringComparison.Ordinal);
-        int end = pasted.IndexOf(EndMarker, StringComparison.Ordinal);
+        // The last pair, not the first.
+        //
+        // The script is pasted straight into CloudShell, which echoes every line back — and the
+        // script contains both marker literals, since printing them is its job. So a pasted
+        // terminal buffer holds the markers twice: once in the echoed source, once in the real
+        // output below it. Taking the first pair selects the echo, whose body is nothing but
+        // `printf 'region=%s\n' "$REGION"` lines. Those parse to no fields at all, so an
+        // administrator with a perfectly good instance was told there wasn't one.
+        int end = pasted.LastIndexOf(EndMarker, StringComparison.Ordinal);
+        int start = end < 0
+            ? -1
+            : pasted.LastIndexOf(BeginMarker, end, StringComparison.Ordinal);
 
         // Without both markers there is nothing to be confident about. Guessing at loose
         // key=value lines would happily accept a paste from somewhere else entirely.

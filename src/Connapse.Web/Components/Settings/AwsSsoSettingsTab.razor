@@ -75,14 +75,16 @@
                                 <span class="bi-terminal me-1"></span> Open CloudShell
                                 <span class="bi-box-arrow-up-right ms-1 small"></span>
                             </a>
-                            <span class="align-self-center small text-muted">Safe to run more than once.</span>
+                            <span class="align-self-center small @(copyMessage is null ? "text-muted" : copySucceeded ? "text-success" : "text-danger")">
+                                @(copyMessage ?? "Safe to run more than once.")
+                            </span>
                         </div>
 
                         <div class="alert alert-secondary py-2 mb-0 small">
                             <span class="bi-shield-check me-1"></span>
                             <strong>Read-only.</strong> It lists your Identity Center instances and prints
                             what it found — it creates and changes nothing. It needs
-                            <code>@string.Join("</code>, <code>", AwsSsoSetup.RequiredPermissions)</code>,
+                            <code>@string.Join(", ", AwsSsoSetup.RequiredPermissions)</code>,
                             and says so if you don't have it. No AWS credential is created here or stored
                             by Connapse; CloudShell uses the session you are already signed into.
                         </div>
@@ -118,7 +120,7 @@
                                 <div class="alert alert-danger py-2 mt-2 mb-0 small">
                                     <span class="bi-x-circle me-1"></span>
                                     AWS refused the lookup. The account you ran this as needs
-                                    <code>@string.Join("</code>, <code>", parsed.MissingPermissions)</code>.
+                                    <code>@string.Join(", ", parsed.MissingPermissions)</code>.
                                     Ask whoever administers your AWS organisation, or run it again as
                                     someone who has it.
                                 </div>
@@ -309,11 +311,28 @@
     /// </remarks>
     private const string CloudShellUrl = "https://console.aws.amazon.com/cloudshell/home";
 
+    private string? copyMessage;
+    private bool copySucceeded;
+
     /// <summary>Where an organisation instance is actually enabled.</summary>
     private const string IdentityCenterConsoleUrl = "https://console.aws.amazon.com/singlesignon/home";
 
-    private async Task CopyFindScript() =>
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", AwsSsoSetup.GenerateScript());
+    /// <summary>Copies the command, and says so — including when it could not.</summary>
+    /// <remarks>
+    /// Through the shared helper rather than <c>navigator.clipboard</c> directly: that API is
+    /// undefined outside a secure context, and Connapse is routinely served over plain HTTP on a
+    /// LAN. Called directly, the button would throw and appear to do nothing at all.
+    /// </remarks>
+    private async Task CopyFindScript()
+    {
+        bool copied = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", AwsSsoSetup.GenerateScript());
+
+        copyMessage = copied
+            ? "Copied. Paste it into CloudShell."
+            : "Could not copy — select the command above and copy it manually.";
+        copySucceeded = copied;
+    }
 
     [Parameter]
     public AwsSsoSettings Settings { get; set; } = new();
@@ -333,6 +352,7 @@
     {
         guidedSetup = true;
         pastedResult = null;
+        copyMessage = null;
         testMessage = null;
     }
 

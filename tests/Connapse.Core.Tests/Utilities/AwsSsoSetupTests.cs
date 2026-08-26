@@ -362,4 +362,66 @@ public class AwsSsoSetupTests
         script.Should().NotContain("create-instance");
         script.Should().NotContain("sso-admin create");
     }
+
+    /// <summary>
+    /// The buffer an administrator actually has after pasting the command inline.
+    /// </summary>
+    /// <remarks>
+    /// Built from the real generated script rather than a hand-written excerpt, because the point
+    /// is that the script <i>contains</i> both markers — printing them is its job — so the shell's
+    /// echo of it carries a complete decoy pair above the true output. A fixture written by hand
+    /// would drift the moment the script changed and stop covering the case.
+    /// </remarks>
+    private static string InlinePasteBuffer() =>
+        "~ $ " +
+        string.Join("\n", AwsSsoSetup.GenerateScript().Split('\n').Select(l => "> " + l)) +
+        "\n\n" +
+        AwsSsoSetup.BeginMarker + "\n" +
+        "accountType=management\n" +
+        "region=us-west-1\n" +
+        "instanceArn=arn:aws:sso:::instance/ssoins-8201fe6971208a1a\n" +
+        "identityStoreId=d-91670f356b\n" +
+        "portalUrl=https://d-91670f356b.awsapps.com/start\n" +
+        AwsSsoSetup.EndMarker + "\n\n" +
+        "Copy the block above, including both marker lines, back into Connapse.\n";
+
+    [Fact]
+    public void InlinePasteBuffer_ReallyDoesContainTheMarkersTwice()
+    {
+        // Guards the test above it. If the script ever stopped carrying the markers in its own
+        // text, the regression fixture would quietly become an ordinary one and prove nothing.
+        string buffer = InlinePasteBuffer();
+
+        buffer.Split(AwsSsoSetup.BeginMarker).Should().HaveCount(3, "echoed once, printed once");
+        buffer.Split(AwsSsoSetup.EndMarker).Should().HaveCount(3, "echoed once, printed once");
+    }
+
+    [Fact]
+    public void ParseResult_InlinePasteWithEchoedScript_ReadsThePrintedBlockNotTheEcho()
+    {
+        // The failure this replaces: taking the first marker pair selected the echoed script,
+        // whose body is nothing but printf lines, so an administrator with a working instance was
+        // told there wasn't one.
+        var result = AwsSsoSetup.ParseResult(InlinePasteBuffer());
+
+        result.Should().NotBeNull();
+        result!.Instances.Should().ContainSingle(
+            "the printed block is the last marker pair, and the only one with real fields");
+
+        result.Instances[0].Region.Should().Be("us-west-1");
+        result.Instances[0].IdentityStoreId.Should().Be("d-91670f356b");
+        result.Posture.Should().Be(AwsAccountPosture.Management);
+    }
+
+    [Fact]
+    public void ParseResult_TrailingTextAfterTheBlock_DoesNotHideIt()
+    {
+        // LastIndexOf anchors on the end marker, so anything the shell prints afterwards -- the
+        // "copy the block above" line, a fresh prompt -- must not move the window.
+        var result = AwsSsoSetup.ParseResult(
+            InlinePasteBuffer() + "\n~ $ echo done\ndone\n~ $ ");
+
+        result!.Instances.Should().ContainSingle();
+        result.Instances[0].Region.Should().Be("us-west-1");
+    }
 }
