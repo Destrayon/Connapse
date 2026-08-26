@@ -33,6 +33,15 @@ public class ProviderSetupReader(
     /// </remarks>
     public static readonly TimeSpan ProvisioningWindow = TimeSpan.FromHours(1);
 
+    /// <summary>The sign-in form's section on the provider page.</summary>
+    /// <remarks>
+    /// A fragment rather than a path, which the page renders as a scroll rather than a link. Both
+    /// href forms are wrong for a same-page target here: the full path is intercepted by Blazor's
+    /// router and re-navigated without scrolling, and a bare fragment resolves against
+    /// <c>&lt;base href="/"&gt;</c> and lands on the home page.
+    /// </remarks>
+    private const string SignInSection = "#signin";
+
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
@@ -92,7 +101,10 @@ public class ProviderSetupReader(
             configured ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
             configured ? $"{settings.IssuerUrl} ({settings.Region})" : null,
             configured ? "Change" : "Set up",
-            "/admin/providers#aws-signin");
+            // The section on this page, not the list page. "aws-signin" was an anchor from when
+            // every provider shared one page; it survived the split as a link that left the page
+            // you were configuring and landed on a fragment that no longer exists anywhere.
+            SignInSection);
     }
 
     private static ProviderRequirement SignIn(AzureAdSettings settings)
@@ -105,7 +117,7 @@ public class ProviderSetupReader(
             configured ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
             configured ? $"Tenant {settings.TenantId}" : null,
             configured ? "Change" : "Set up",
-            "/admin/providers#azure-signin");
+            SignInSection);
     }
 
     /// <summary>
