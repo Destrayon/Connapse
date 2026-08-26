@@ -151,9 +151,22 @@
                                 </div>
                             }
 
+                            @* A same-page target cannot be an href here. The full path is
+                               intercepted by Blazor's router, which re-navigates without scrolling;
+                               a bare "#id" resolves against <base href="/"> and lands on the home
+                               page. Both read as a link that does nothing, and the second one
+                               quietly went somewhere else entirely. *@
                             @if (requirement.ActionHref is { } href && requirement.ActionLabel is { } label)
                             {
-                                <a class="small" href="@href">@label</a>
+                                @if (href.StartsWith('#'))
+                                {
+                                    <button type="button" class="btn btn-link btn-sm p-0 small"
+                                            @onclick="() => ScrollTo(href[1..])">@label</button>
+                                }
+                                else
+                                {
+                                    <a class="small" href="@href">@label</a>
+                                }
                             }
                         </div>
                     </div>
@@ -448,6 +461,20 @@
         {
             awsBusy = false;
         }
+    }
+
+    /// <summary>Scrolls to a section of this page, and opens it if it is the setup.</summary>
+    /// <remarks>
+    /// The setup form is already rendered whenever access is not confirmed, so opening it matters
+    /// only for the case where the credential works and somebody wants to replace it — scrolling to
+    /// a collapsed section would be the same dead end in a new place.
+    /// </remarks>
+    private async Task ScrollTo(string elementId)
+    {
+        if (elementId == "access")
+            showSetup = true;
+
+        await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
 
     private async Task RefreshSetups()
