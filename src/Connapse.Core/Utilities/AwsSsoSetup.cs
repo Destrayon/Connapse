@@ -26,6 +26,37 @@ public record AwsSsoInstance(
     string PortalUrl);
 
 /// <summary>
+/// Where the account sits relative to AWS Organizations, which decides whether an instance can be
+/// created and what kind it would be.
+/// </summary>
+public enum AwsAccountPosture
+{
+    /// <summary>The script could not tell — usually no permission to call DescribeOrganization.</summary>
+    Unknown = 0,
+
+    /// <summary>
+    /// Not in an organisation. <c>CreateInstance</c> works here and produces the only instance the
+    /// account will have, which is unambiguously the right one.
+    /// </summary>
+    Standalone = 1,
+
+    /// <summary>
+    /// A member account inside an organisation. <c>CreateInstance</c> is permitted but produces an
+    /// <i>account</i> instance: no multi-account permissions, no organisation-wide application
+    /// assignment, no multi-region replication. Almost always the organisation already has an
+    /// instance and this would be a weaker parallel one.
+    /// </summary>
+    Member = 2,
+
+    /// <summary>
+    /// The Organizations management account. <c>CreateInstance</c> is rejected outright here — an
+    /// organisation instance is enabled through the console, where the primary region and the
+    /// encryption key are chosen.
+    /// </summary>
+    Management = 3
+}
+
+/// <summary>
 /// What the setup script reported.
 /// </summary>
 /// <param name="Instances">
@@ -39,11 +70,24 @@ public record AwsSsoInstance(
 /// "no permission to look" and "looked, found nothing" need different advice and produce the
 /// same empty list otherwise.
 /// </param>
+/// <param name="Posture">
+/// Only meaningful when <paramref name="Instances"/> is empty, which is the one case where what to
+/// do next depends on it.
+/// </param>
 public record AwsSsoSetupResult(
     IReadOnlyList<AwsSsoInstance> Instances,
-    IReadOnlyList<string>? MissingPermissions = null)
+    IReadOnlyList<string>? MissingPermissions = null,
+    AwsAccountPosture Posture = AwsAccountPosture.Unknown)
 {
     public IReadOnlyList<string> MissingPermissions { get; init; } = MissingPermissions ?? [];
+
+    /// <summary>
+    /// Whether <see cref="AwsSsoSetup.GenerateCreateScript"/> would be accepted by AWS. Says
+    /// nothing about whether it is a good idea — for a member account it is permitted and usually
+    /// wrong, which is a judgement only the administrator can make.
+    /// </summary>
+    public bool CanCreateInstance =>
+        Posture is AwsAccountPosture.Standalone or AwsAccountPosture.Member;
 }
 
 /// <summary>
@@ -176,9 +220,33 @@ public static class AwsSsoSetup
           done
         fi
 
+        # Where this account sits relative to Organizations. Only consulted when nothing was
+        # found, but probed unconditionally so the answer travels in the same block.
+        #
+        # A denial has to be told apart from "not in an organisation": both leave the query
+        # empty, and treating a denial as standalone would offer a create step that AWS rejects.
+        ORG_OUT=$(aws organizations describe-organization \
+                    --query 'Organization.MasterAccountId' --output text 2>&1)
+        ORG_STATUS=$?
+        CALLER=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
+
+        if [ $ORG_STATUS -ne 0 ]; then
+          case "$ORG_OUT" in
+            *AWSOrganizationsNotInUse*) POSTURE="standalone" ;;
+            *) POSTURE="unknown" ;;
+          esac
+        elif [ -z "$CALLER" ]; then
+          POSTURE="unknown"
+        elif [ "$ORG_OUT" = "$CALLER" ]; then
+          POSTURE="management"
+        else
+          POSTURE="member"
+        fi
+
         # The markers go through %s rather than being the format string themselves. They begin
         # with dashes, and printf reads a leading '-' as an option.
         printf '\n%s\n' '{{BeginMarker}}'
+        printf 'accountType=%s\n' "$POSTURE"
 
         if [ -n "$FOUND" ]; then
           printf '%s' "$FOUND" | while IFS='|' read -r REGION ARN STORE; do
@@ -198,6 +266,102 @@ public static class AwsSsoSetup
         printf '%s\n\n' '{{EndMarker}}'
         echo 'Copy the block above, including both marker lines, back into Connapse.'
         """;
+    }
+
+    /// <summary>
+    /// The command that creates an Identity Center instance, for an administrator who has decided
+    /// they want one.
+    /// </summary>
+    /// <param name="name">
+    /// The instance name. Constrained by AWS to <c>[\w+=,.@-]+</c>, so anything else is replaced
+    /// rather than passed through to fail in the shell.
+    /// </param>
+    /// <remarks>
+    /// Deliberately a second script rather than a branch inside <see cref="GenerateScript"/>. That
+    /// one is offered as read-only and the UI says so; folding a create into it would make the
+    /// claim false for everyone, including the people who only ever wanted to look.
+    /// <para>
+    /// It re-checks the posture itself instead of trusting what the first script reported. The two
+    /// runs are separated by however long the administrator spent reading, and the second is the
+    /// one that writes.
+    /// </para>
+    /// <para>
+    /// This creates an <i>account</i> instance. In the Organizations management account AWS rejects
+    /// the call outright: an organisation instance is enabled through the console, which is where
+    /// the primary region — unchangeable afterwards — and the encryption key are chosen.
+    /// </para>
+    /// </remarks>
+    public static string GenerateCreateScript(string? name = null)
+    {
+        string safe = SanitiseInstanceName(name);
+
+        return $$"""
+        # Creates an IAM Identity Center instance in THIS account. Unlike the previous command,
+        # this one makes a change.
+
+        ORG_OUT=$(aws organizations describe-organization \
+                    --query 'Organization.MasterAccountId' --output text 2>&1)
+        CALLER=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
+
+        if [ "$ORG_OUT" = "$CALLER" ] && [ -n "$CALLER" ]; then
+          echo 'This is your AWS Organizations management account.'
+          echo 'AWS rejects CreateInstance here. Enable an organization instance from the console:'
+          echo '  https://console.aws.amazon.com/singlesignon/home'
+          echo 'You will choose a primary region, which CANNOT be changed afterwards.'
+          exit 1
+        fi
+
+        case "$ORG_OUT" in
+          *AWSOrganizationsNotInUse*) ;;
+          *)
+            # Permitted, and usually not what they want. Said plainly rather than blocked: the
+            # administrator knows their organisation and Connapse does not.
+            echo 'NOTE: this account belongs to an AWS Organization.'
+            echo 'What gets created is an ACCOUNT instance: no multi-account permissions, no'
+            echo 'organization-wide application assignment, no multi-region replication. If your'
+            echo 'organization already has an instance, this will be a separate, weaker one and'
+            echo 'your users will not be in it.'
+            echo ''
+            echo 'Press Ctrl-C now to stop, or wait 10 seconds to continue.'
+            sleep 10 ;;
+        esac
+
+        OUT=$(aws sso-admin create-instance --name '{{safe}}' \
+                --query 'InstanceArn' --output text 2>&1)
+
+        if [ $? -ne 0 ]; then
+          echo "Could not create the instance:"
+          printf '%s\n' "$OUT"
+          exit 1
+        fi
+
+        printf 'Created %s\n' "$OUT"
+        echo 'Now run the first command again to read it back into Connapse.'
+        """;
+    }
+
+    /// <summary>
+    /// Coerces an instance name to the character set AWS accepts, so a name with a space in it
+    /// fails validation here rather than inside the administrator's shell.
+    /// </summary>
+    public static string SanitiseInstanceName(string? name)
+    {
+        const string fallback = "Connapse";
+
+        if (string.IsNullOrWhiteSpace(name))
+            return fallback;
+
+        var cleaned = new string(name.Trim()
+            .Select(c => char.IsLetterOrDigit(c) || c is '_' or '+' or '=' or ',' or '.' or '@' or '-'
+                ? c
+                : '-')
+            .ToArray());
+
+        // 255 is the documented maximum. An all-punctuation name collapses to dashes, which is
+        // valid but meaningless, so an empty-after-trim result falls back too.
+        cleaned = cleaned.Trim('-');
+
+        return cleaned.Length == 0 ? fallback : cleaned[..Math.Min(cleaned.Length, 255)];
     }
 
     /// <summary>
@@ -231,6 +395,7 @@ public static class AwsSsoSetup
 
         var instances = new List<AwsSsoInstance>();
         var missing = new List<string>();
+        var posture = AwsAccountPosture.Unknown;
 
         string? region = null, arn = null, store = null, portal = null;
 
@@ -267,11 +432,22 @@ public static class AwsSsoSetup
                 case "identityStoreId": store = value; break;
                 case "portalUrl": portal = value; break;
                 case "missingPermission": missing.Add(value); break;
+                case "accountType":
+                    // An unrecognised value stays Unknown, which is the honest reading: a newer
+                    // script talking to an older Connapse should not have its answer guessed at.
+                    posture = value.ToLowerInvariant() switch
+                    {
+                        "standalone" => AwsAccountPosture.Standalone,
+                        "member" => AwsAccountPosture.Member,
+                        "management" => AwsAccountPosture.Management,
+                        _ => AwsAccountPosture.Unknown
+                    };
+                    break;
             }
         }
 
         Flush();
 
-        return new AwsSsoSetupResult(instances, missing);
+        return new AwsSsoSetupResult(instances, missing, posture);
     }
 }

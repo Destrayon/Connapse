@@ -1,4 +1,4 @@
-@using Connapse.Core
+﻿@using Connapse.Core
 @using Connapse.Core.Utilities
 @using Connapse.Storage.ConnectionTesters
 
@@ -58,15 +58,25 @@
                         </div>
 
                         <p class="small mb-2">
-                            Open
-                            <a href="https://console.aws.amazon.com/cloudshell/home" target="_blank" rel="noopener">
-                                CloudShell <span class="bi-box-arrow-up-right"></span>
-                            </a>
-                            in the AWS console, signed in as someone who can read your organisation's
-                            Identity Center, and paste this in.
+                            Copy the command, open CloudShell — a terminal that runs inside the AWS
+                            console, already signed in as you — and paste it there. Sign in as someone
+                            who can read your organisation's Identity Center.
                         </p>
 
                         <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height: 18rem; overflow: auto;"><code>@AwsSsoSetup.GenerateScript()</code></pre>
+
+                        @* Copy first, then open: the order the two buttons are used in, so the one
+                           that opens a new tab is not the one the eye lands on first. *@
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyFindScript">
+                                <span class="bi-clipboard me-1"></span> Copy command
+                            </button>
+                            <a class="btn btn-sm btn-primary" href="@CloudShellUrl" target="_blank" rel="noopener">
+                                <span class="bi-terminal me-1"></span> Open CloudShell
+                                <span class="bi-box-arrow-up-right ms-1 small"></span>
+                            </a>
+                            <span class="align-self-center small text-muted">Safe to run more than once.</span>
+                        </div>
 
                         <div class="alert alert-secondary py-2 mb-0 small">
                             <span class="bi-shield-check me-1"></span>
@@ -115,13 +125,102 @@
                             }
                             else if (parsed.Instances.Count == 0)
                             {
-                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                @* No instance. What to do next depends entirely on where the account
+                                   sits relative to Organizations, so the posture decides the advice
+                                   rather than everyone getting the same dead end. *@
+                                <div class="alert alert-warning py-2 mt-2 mb-2 small">
                                     <span class="bi-exclamation-triangle me-1"></span>
-                                    The command ran but found no Identity Center instance. Either your
-                                    organisation has not enabled one, or it is in a region this scan does not
-                                    cover — GovCloud and the China partitions need different endpoints. You can
-                                    still fill the fields in by hand from the Identity Center console.
+                                    The command ran but found no Identity Center instance.
+                                    @switch (parsed.Posture)
+                                    {
+                                        case AwsAccountPosture.Standalone:
+                                            <text>
+                                                This account isn't part of an AWS Organization, so you can
+                                                create one here and it will be the only instance the account
+                                                has.
+                                            </text>
+                                            break;
+                                        case AwsAccountPosture.Member:
+                                            <text>
+                                                This account belongs to an AWS Organization, so your
+                                                organisation most likely already has one — reachable from the
+                                                management account, not this one.
+                                            </text>
+                                            break;
+                                        case AwsAccountPosture.Management:
+                                            <text>
+                                                This is your Organizations management account. AWS only lets an
+                                                organisation instance be enabled from the console, because
+                                                enabling it fixes a primary region that
+                                                <strong>cannot be changed afterwards</strong>.
+                                            </text>
+                                            break;
+                                        default:
+                                            <text>
+                                                It may also be in a region this scan doesn't cover — GovCloud
+                                                and the China partitions need different endpoints.
+                                            </text>
+                                            break;
+                                    }
                                 </div>
+
+                                @if (parsed.Posture == AwsAccountPosture.Management)
+                                {
+                                    <a class="btn btn-outline-primary btn-sm"
+                                       href="https://console.aws.amazon.com/singlesignon/home"
+                                       target="_blank" rel="noopener">
+                                        <span class="bi-box-arrow-up-right me-1"></span> Enable it in the console
+                                    </a>
+                                }
+                                else if (parsed.CanCreateInstance && !showCreateScript)
+                                {
+                                    <button type="button" class="btn btn-outline-primary btn-sm"
+                                            @onclick="() => showCreateScript = true">
+                                        <span class="bi-plus-lg me-1"></span> Create one instead
+                                    </button>
+                                    @if (parsed.Posture == AwsAccountPosture.Member)
+                                    {
+                                        <div class="form-text">
+                                            You can, but read what it creates first — it won't be the instance
+                                            your organisation signs in through.
+                                        </div>
+                                    }
+                                }
+
+                                @if (showCreateScript && parsed.CanCreateInstance)
+                                {
+                                    <div class="card border-warning mt-2">
+                                        <div class="card-body">
+                                            <h6 class="card-title">
+                                                <span class="bi-exclamation-triangle text-warning me-1"></span>
+                                                This one makes a change
+                                            </h6>
+                                            <p class="small mb-2">
+                                                Unlike the command above, this creates something in your AWS
+                                                account. It checks again where it is running before it does, and
+                                                stops if that turns out to be the management account.
+                                            </p>
+                                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height: 18rem; overflow: auto;"><code>@AwsSsoSetup.GenerateCreateScript()</code></pre>
+
+                                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                        @onclick="CopyCreateScript">
+                                                    <span class="bi-clipboard me-1"></span> Copy command
+                                                </button>
+                                                <a class="btn btn-sm btn-warning" href="@CloudShellUrl"
+                                                   target="_blank" rel="noopener">
+                                                    <span class="bi-terminal me-1"></span> Open CloudShell
+                                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                                </a>
+                                            </div>
+
+                                            <div class="form-text">
+                                                When it finishes, run the first command again and paste the
+                                                result here.
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
                             }
                             else
                             {
@@ -226,8 +325,27 @@
 </EditForm>
 
 @inject AwsSsoConnectionTester ConnectionTester
+@inject IJSRuntime JS
 
 @code {
+    /// <summary>
+    /// CloudShell, opened in a new tab so the wizard stays put behind it.
+    /// </summary>
+    /// <remarks>
+    /// Region-agnostic on purpose. The script scans regardless of where the session lands, and
+    /// pinning a region here would send people to the wrong one more often than the right one.
+    /// </remarks>
+    private const string CloudShellUrl = "https://console.aws.amazon.com/cloudshell/home";
+
+    /// <summary>Revealed only after a scan found nothing, and only on request.</summary>
+    private bool showCreateScript;
+
+    private async Task CopyFindScript() =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", AwsSsoSetup.GenerateScript());
+
+    private async Task CopyCreateScript() =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", AwsSsoSetup.GenerateCreateScript());
+
     [Parameter]
     public AwsSsoSettings Settings { get; set; } = new();
 
@@ -246,6 +364,7 @@
     {
         guidedSetup = true;
         pastedResult = null;
+        showCreateScript = false;
         testMessage = null;
     }
 
@@ -253,6 +372,7 @@
     {
         guidedSetup = false;
         pastedResult = null;
+        showCreateScript = false;
     }
 
     /// <summary>
@@ -281,6 +401,7 @@
 
         guidedSetup = false;
         pastedResult = null;
+        showCreateScript = false;
 
         testSuccess = true;
         testMessage = $"Filled in from {instance.Region}. Test the connection, then save.";

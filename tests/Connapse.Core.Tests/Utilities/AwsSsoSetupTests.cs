@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
 
@@ -225,5 +225,92 @@ public class AwsSsoSetupTests
 
         result!.Instances.Should().ContainSingle();
         result.Instances[0].Region.Should().Be("eu-west-1");
+    }
+
+    // -- Account posture, and the create script ------------------------------------
+
+    [Theory]
+    [InlineData("standalone", AwsAccountPosture.Standalone)]
+    [InlineData("member", AwsAccountPosture.Member)]
+    [InlineData("management", AwsAccountPosture.Management)]
+    [InlineData("unknown", AwsAccountPosture.Unknown)]
+    [InlineData("something-newer", AwsAccountPosture.Unknown)]
+    public void ParseResult_ReadsThePosture(string reported, AwsAccountPosture expected)
+    {
+        var result = AwsSsoSetup.ParseResult(Block($"accountType={reported}"));
+
+        result!.Posture.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(AwsAccountPosture.Standalone, true)]
+    [InlineData(AwsAccountPosture.Member, true)]
+    [InlineData(AwsAccountPosture.Management, false)]
+    [InlineData(AwsAccountPosture.Unknown, false)]
+    public void CanCreateInstance_MatchesWhatAwsWouldAccept(AwsAccountPosture posture, bool expected)
+    {
+        // Management is rejected by the API outright. Unknown means the script could not tell, and
+        // offering a create step on a guess would send them to a refusal.
+        new AwsSsoSetupResult([], null, posture).CanCreateInstance.Should().Be(expected);
+    }
+
+    [Fact]
+    public void GenerateCreateScript_StopsInTheManagementAccountBeforeCreatingAnything()
+    {
+        // AWS rejects CreateInstance there, and an organisation instance fixes a primary region
+        // that cannot be changed afterwards -- not a choice to make inside a pasted script.
+        string script = AwsSsoSetup.GenerateCreateScript();
+
+        int guard = script.IndexOf("management account", StringComparison.OrdinalIgnoreCase);
+        int create = script.IndexOf("create-instance", StringComparison.Ordinal);
+
+        guard.Should().BePositive("the script must recognise the management account");
+        create.Should().BeGreaterThan(guard, "the guard has to run before the create");
+        script.Should().Contain("exit 1", "recognising it is not enough - it has to stop");
+    }
+
+    [Fact]
+    public void GenerateCreateScript_WarnsBeforeCreatingInsideAnOrganisation()
+    {
+        // Permitted, and usually wrong: an account instance is not the one the organisation signs
+        // in through. Said plainly and then allowed, because the administrator knows their
+        // organisation and Connapse does not.
+        string script = AwsSsoSetup.GenerateCreateScript();
+
+        script.Should().Contain("ACCOUNT instance");
+        script.Should().Contain("Ctrl-C");
+    }
+
+    [Fact]
+    public void GenerateScript_StaysReadOnlyEvenThoughACreateScriptExists()
+    {
+        // The two are separate methods precisely so this stays true. The UI calls the find script
+        // read-only; folding a create branch into it would make that claim false for everyone.
+        AwsSsoSetup.GenerateScript().Should().NotContain("create-instance");
+    }
+
+    [Theory]
+    [InlineData(null, "Connapse")]
+    [InlineData("", "Connapse")]
+    [InlineData("   ", "Connapse")]
+    [InlineData("!!!", "Connapse")]
+    [InlineData("My Instance", "My-Instance")]
+    [InlineData("prod/eu", "prod-eu")]
+    [InlineData("Connapse", "Connapse")]
+    [InlineData("a.b_c@d+e=f,g-h", "a.b_c@d+e=f,g-h")]
+    public void SanitiseInstanceName_CoercesToWhatAwsAccepts(string? given, string expected)
+    {
+        // AWS constrains the name to word characters plus + = , . @ and -. A space would break the
+        // quoting in the generated shell line before AWS ever saw it.
+        AwsSsoSetup.SanitiseInstanceName(given).Should().Be(expected);
+    }
+
+    [Fact]
+    public void GenerateCreateScript_EmbedsTheSanitisedNameAndNotTheRawOne()
+    {
+        string script = AwsSsoSetup.GenerateCreateScript("My Prod; rm -rf /");
+
+        script.Should().NotContain("rm -rf /", "the name reaches a shell command line");
+        script.Should().Contain(AwsSsoSetup.SanitiseInstanceName("My Prod; rm -rf /"));
     }
 }
