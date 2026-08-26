@@ -120,17 +120,41 @@ public static class S3SetupPolicy
     /// home rather than <c>/root</c>.
     /// </para>
     /// </remarks>
-    // $$ so that a lone brace is literal: the snippet contains ${HOME}, which compose expands and
-    // C# must not.
-    public static string ComposeCredentialMount(string containerHome = "/home/app") =>
-        $$"""
-        services:
-          web:
-            volumes:
-              - ${HOME}/.aws:{{containerHome}}/.aws:ro
-            environment:
-              # Only needed if the profile you want is not [default].
-              # - AWS_PROFILE=my-profile
+    /// <summary>The folder, beside docker-compose.yml, that is already mounted at ~/.aws.</summary>
+    public const string CredentialFolder = "aws";
+
+    /// <summary>The .env variable that points the mount somewhere else instead.</summary>
+    public const string CredentialDirVariable = "CONNAPSE_AWS_DIR";
+
+    /// <summary>
+    /// What to do when Connapse can see no credentials.
+    /// </summary>
+    /// <remarks>
+    /// Two steps, neither of which touches YAML. The compose file already mounts
+    /// <c>./aws</c> read-only at the container user's <c>~/.aws</c>, so supplying credentials is
+    /// dropping a file into a folder — which is the whole point: an operator who has to edit
+    /// compose to make a feature work will conclude the feature does not work.
+    /// <para>
+    /// The mount is unconditional and defaults to a repo-relative path deliberately. A
+    /// <c>${HOME}</c>-based default is blank in Windows PowerShell and silently mounts
+    /// <c>/.aws</c>, and some Compose versions refuse to start when a bind source is missing —
+    /// which a home directory without <c>.aws</c> very often is.
+    /// </para>
+    /// </remarks>
+    public static string CredentialInstructions(string containerHome = "/home/app") =>
+        $"""
+        1. Put your AWS credentials file in the "{CredentialFolder}" folder beside
+           docker-compose.yml. It is already mounted read-only at {containerHome}/.aws,
+           and nothing is copied into Connapse.
+
+           Or, to use a profile you already keep elsewhere, add one line to .env:
+
+               {CredentialDirVariable}=C:\Users\you\.aws     (Windows)
+               {CredentialDirVariable}=/home/you/.aws        (Linux, macOS)
+
+        2. Restart, then run this check again:
+
+               docker compose restart web
         """;
 
     private static readonly JsonSerializerOptions PolicyJson = new() { WriteIndented = true };

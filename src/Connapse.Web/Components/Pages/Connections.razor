@@ -621,19 +621,30 @@
                             {
                                 <p class="small mb-2">
                                     Connapse reads whatever credentials its own environment provides and
-                                    stores none of its own. Inside a container that means nothing is
-                                    visible until you pass something in — most simply, by mounting the
-                                    AWS profile you already use:
+                                    stores none of its own — so nothing is visible until you supply
+                                    something. No config file needs editing:
                                 </p>
-                                <pre class="bg-body-tertiary border rounded p-2 small mb-2"><code>@S3SetupPolicy.ComposeCredentialMount()</code></pre>
+                                <pre class="bg-body-tertiary border rounded p-2 small mb-2"><code>@S3SetupPolicy.CredentialInstructions()</code></pre>
                                 <div class="form-text mb-0">
-                                    Read-only, and nothing is copied into Connapse. The same mount carries
-                                    whichever kind of profile you keep there — a static one, an SSO one, or
-                                    a <code>credential_process</code> entry pointing at the IAM Roles
-                                    Anywhere helper, which gives a workload outside AWS temporary
-                                    credentials with no static keys. On EC2, ECS or EKS, attach an instance
-                                    role instead and no mount is needed.
+                                    That folder is already mounted read-only, and nothing is copied into
+                                    Connapse. It carries whichever kind of profile you put there — a static
+                                    one, an SSO one, or a <code>credential_process</code> entry pointing at
+                                    the IAM Roles Anywhere helper, which gives a workload outside AWS
+                                    temporary credentials with no static keys. On EC2, ECS or EKS, attach an
+                                    instance role and leave the folder empty.
                                 </div>
+
+                                @* The SDK lists every provider it tried, which is more use than anything
+                                   written here: it names the one the operator meant to configure. *@
+                                @if (!string.IsNullOrWhiteSpace(probe.Detail))
+                                {
+                                    <details class="mt-2">
+                                        <summary class="small text-muted" style="cursor:pointer">
+                                            What Connapse looked for
+                                        </summary>
+                                        <pre class="bg-body-tertiary border rounded p-2 small mt-2 mb-0" style="max-height:14rem;overflow:auto"><code>@probe.Detail</code></pre>
+                                    </details>
+                                }
                             }
                             else
                             {

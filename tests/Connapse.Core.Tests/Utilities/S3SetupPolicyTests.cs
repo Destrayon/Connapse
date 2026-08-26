@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
@@ -127,25 +127,46 @@ public class S3SetupPolicyTests
     }
 
     [Fact]
-    public void ComposeCredentialMount_MountsReadOnlyIntoTheContainerUsersHome()
+    public void CredentialInstructions_AskForAFileInAFolder_NotAComposeEdit()
+    {
+        // The point of the whole arrangement. An operator who has to edit docker-compose.yml to
+        // make a feature work concludes the feature does not work, so the compose file mounts
+        // ./aws unconditionally and this only has to say where to put the file.
+        string text = S3SetupPolicy.CredentialInstructions();
+
+        text.Should().Contain(S3SetupPolicy.CredentialFolder);
+        text.Should().NotContain("volumes:", "editing compose is what this exists to avoid");
+        text.Should().NotContain("services:");
+    }
+
+    [Fact]
+    public void CredentialInstructions_OfferTheEnvVariableAsTheAlternative()
+    {
+        // For anyone who would rather point at the profile they already keep than copy it. One
+        // line, in a file that already exists for exactly this purpose.
+        string text = S3SetupPolicy.CredentialInstructions();
+
+        text.Should().Contain(S3SetupPolicy.CredentialDirVariable);
+        text.Should().Contain(".env");
+    }
+
+    [Fact]
+    public void CredentialInstructions_NameTheContainerUsersHome()
     {
         // The image runs as the non-root user "app" with HOME=/home/app, verified against the
         // running container. Mounting to /root would put the profile somewhere the process cannot
         // read, and the SDK would report no credentials with nothing to explain why.
-        string snippet = S3SetupPolicy.ComposeCredentialMount();
-
-        snippet.Should().Contain("/home/app/.aws:ro");
-        snippet.Should().Contain("${HOME}/.aws", "compose expands this, and C# must not");
+        S3SetupPolicy.CredentialInstructions().Should().Contain("/home/app/.aws");
     }
 
     [Fact]
-    public void ComposeCredentialMount_DoesNotSuggestPastingKeys()
+    public void CredentialInstructions_DoNotSuggestPastingKeys()
     {
-        // The whole point of the mount is that no credential is copied anywhere. A snippet with
-        // AWS_SECRET_ACCESS_KEY in it would undo that in the one place people copy from.
-        string snippet = S3SetupPolicy.ComposeCredentialMount();
+        // Nothing is copied into Connapse, and the one place people copy from must not imply
+        // otherwise.
+        string text = S3SetupPolicy.CredentialInstructions();
 
-        snippet.Should().NotContain("AWS_SECRET_ACCESS_KEY");
-        snippet.Should().NotContain("AWS_ACCESS_KEY_ID");
+        text.Should().NotContain("AWS_SECRET_ACCESS_KEY");
+        text.Should().NotContain("AWS_ACCESS_KEY_ID");
     }
 }
