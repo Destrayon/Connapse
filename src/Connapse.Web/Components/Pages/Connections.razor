@@ -15,7 +15,6 @@
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
 @inject S3ConnectionTester S3Tester
-@inject IS3Discovery S3Discovery
 @inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
 
@@ -479,211 +478,25 @@
 
         @if (form.Provider == ConnectionProvider.S3)
         {
-            @*
-                Guided setup.
-
-                No script here, unlike SFTP and the identity provider. Connapse's own process is
-                meant to hold these credentials — that is what the default provider chain is for —
-                so it can call STS and S3 itself and fill the form in.
-
-                What the chain will not say is whether the credential it found is a *good* one: a
-                static key from years ago resolves exactly as smoothly as an instance role. So the
-                preflight reports the kind, not only the identity.
-            *@
+            @* Setting AWS up lives on the provider page, not here. This form is about one
+               bucket; whether Connapse can reach AWS at all is a property of the deployment and
+               is the same for every connection made against it. *@
             <div class="col-12">
-                @if (s3Identity is null && s3Probe is null)
-                {
-                    <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 py-2 mb-0">
-                        <span class="bi-magic"></span>
-                        <span class="flex-grow-1 small">
-                            Connapse can check which AWS identity it is running as, list the buckets it
-                            can reach, and fill in the region for you.
-                        </span>
-                        <button type="button" class="btn btn-primary btn-sm"
-                                @onclick="RunS3Preflight" disabled="@s3Busy">
-                            @if (s3Busy)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>Checking…</span>
-                            }
-                            else
-                            {
-                                <span class="bi-search me-1"></span>
-                                <span>Check my AWS access</span>
-                            }
-                        </button>
-                    </div>
-                }
-                else if (s3Identity is { } who)
-                {
-                    <div class="card border-success mb-0">
-                        <div class="card-body py-2">
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                <span class="bi-check-circle-fill text-success"></span>
-                                <div class="flex-grow-1 small">
-                                    @if (who.AssumedRoleArn is not null)
-                                    {
-                                        @* Named explicitly: the assumed role can live in a different
-                                           AWS account from the base credentials, and the policy below
-                                           has to be attached to this principal, not the other one. *@
-                                        <text>
-                                            This connection runs as <code>@who.Arn</code> in account
-                                            <code>@who.AccountId</code>, assumed from
-                                            <code>@who.AssumedRoleArn</code>.
-                                        </text>
-                                    }
-                                    else
-                                    {
-                                        <text>
-                                            Connapse is running as <code>@who.Arn</code> in account
-                                            <code>@who.AccountId</code>.
-                                        </text>
-                                    }
-                                </div>
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        @onclick="ResetS3Preflight">Recheck</button>
-                            </div>
-
-                            @* Posture, not connectivity. Everything below works either way; this is
-                               the only place anything tells an operator their production deployment
-                               is resting on a key that never expires. *@
-                            <div class="mt-2 small">
-                                @switch (who.Kind)
-                                {
-                                    case AwsCredentialKind.StaticKey:
-                                        <span class="badge text-bg-warning">Static access key</span>
-                                        <span class="text-muted ms-1">
-                                            Works, and never expires — which is why AWS steers deployments
-                                            towards roles instead. On EC2, ECS or EKS an instance role needs
-                                            no configuration at all; elsewhere, IAM Roles Anywhere gives
-                                            temporary credentials with no static keys.
-                                        </span>
-                                        break;
-                                    case AwsCredentialKind.SsoSession:
-                                        <span class="badge text-bg-warning">SSO session</span>
-                                        <span class="text-muted ms-1">
-                                            Temporary, which is good — but it expires and needs a browser
-                                            sign-in to renew, so unattended syncing stops when it does.
-                                        </span>
-                                        break;
-                                    case AwsCredentialKind.InstanceOrTaskRole:
-                                        <span class="badge text-bg-success">Instance role</span>
-                                        <span class="text-muted ms-1">Rotates itself. Nothing to maintain.</span>
-                                        break;
-                                    case AwsCredentialKind.ExternalProcess:
-                                        <span class="badge text-bg-success">External credential process</span>
-                                        <span class="text-muted ms-1">
-                                            Temporary credentials, no static keys — how IAM Roles Anywhere
-                                            is wired in.
-                                        </span>
-                                        break;
-                                    case AwsCredentialKind.AssumedRole:
-                                        <span class="badge text-bg-success">Assumed role</span>
-                                        <span class="text-muted ms-1">Temporary and scoped.</span>
-                                        break;
-                                    default:
-                                        <span class="badge text-bg-secondary">Unrecognised source</span>
-                                        break;
-                                }
-                            </div>
-
-                            @if (s3Buckets is { Count: > 0 })
-                            {
-                                <div class="mt-3">
-                                    <label class="form-label small mb-1">Buckets Connapse can see</label>
-                                    <div class="d-flex flex-wrap gap-1">
-                                        @foreach (string bucket in s3Buckets)
-                                        {
-                                            <button type="button"
-                                                    class="btn btn-sm @(IsAllowed(bucket) ? "btn-success" : "btn-outline-secondary")"
-                                                    @onclick="() => ToggleBucket(bucket)">
-                                                @bucket
-                                            </button>
-                                        }
-                                    </div>
-                                    <div class="form-text">
-                                        Selecting a bucket adds it to <strong>Allowed locations</strong> below
-                                        and fills in the region from the first one chosen.
-                                    </div>
-                                </div>
-                            }
-                            else if (s3BucketsDenied)
-                            {
-                                @* Correct, not broken: s3:ListAllMyBuckets is account-wide, so a
-                                   credential scoped to one bucket is supposed to be refused. *@
-                                <div class="alert alert-secondary py-2 mt-3 mb-0 small">
-                                    <span class="bi-info-circle me-1"></span>
-                                    These credentials can't list buckets, which is normal for a scoped
-                                    key — <code>s3:ListAllMyBuckets</code> is account-wide. Type the
-                                    bucket name below and Connapse will still look up its region.
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-                else if (s3Probe is { } probe)
-                {
-                    <div class="card border-warning mb-0">
-                        <div class="card-body py-2">
-                            <h6 class="card-title">
-                                <span class="bi-exclamation-triangle text-warning me-1"></span>
-                                @(probe.Outcome == AwsProbeOutcome.NoCredentials
-                                    ? "Connapse can't see any AWS credentials"
-                                    : "AWS refused the check")
-                            </h6>
-
-                            @if (probe.Outcome == AwsProbeOutcome.NoCredentials)
-                            {
-                                <p class="small mb-2">
-                                    Connapse reads whatever credentials its own environment provides and
-                                    stores none of its own — so nothing is visible until you supply
-                                    something. No config file needs editing:
-                                </p>
-                                <pre class="bg-body-tertiary border rounded p-2 small mb-2"><code>@S3SetupPolicy.CredentialInstructions()</code></pre>
-                                <div class="form-text mb-0">
-                                    That folder is already mounted read-only, and nothing is copied into
-                                    Connapse. It carries whichever kind of profile you put there — a static
-                                    one, an SSO one, or a <code>credential_process</code> entry pointing at
-                                    the IAM Roles Anywhere helper, which gives a workload outside AWS
-                                    temporary credentials with no static keys. On EC2, ECS or EKS, attach an
-                                    instance role and leave the folder empty.
-                                </div>
-
-                                @* The SDK lists every provider it tried, which is more use than anything
-                                   written here: it names the one the operator meant to configure. *@
-                                @if (!string.IsNullOrWhiteSpace(probe.Detail))
-                                {
-                                    <details class="mt-2">
-                                        <summary class="small text-muted" style="cursor:pointer">
-                                            What Connapse looked for
-                                        </summary>
-                                        <pre class="bg-body-tertiary border rounded p-2 small mt-2 mb-0" style="max-height:14rem;overflow:auto"><code>@probe.Detail</code></pre>
-                                    </details>
-                                }
-                            }
-                            else
-                            {
-                                <p class="small mb-0">@probe.Detail</p>
-                            }
-
-                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
-                                    @onclick="RunS3Preflight" disabled="@s3Busy">
-                                Try again
-                            </button>
-                        </div>
-                    </div>
-                }
+                <div class="alert alert-secondary d-flex flex-wrap align-items-center gap-2 py-2 mb-0 small">
+                    <span class="bi-cloud-fill"></span>
+                    <span class="flex-grow-1">
+                        Connapse reads S3 with the AWS identity set up on its provider page — nothing
+                        is entered here.
+                    </span>
+                    <a class="btn btn-outline-secondary btn-sm" href="/admin/providers/aws">
+                        AWS setup <span class="bi-box-arrow-up-right ms-1 small"></span>
+                    </a>
+                </div>
             </div>
 
             <div class="col-md-6">
                 <label class="form-label">Region</label>
                 <input class="form-control" @bind="form.Region" placeholder="us-east-1" />
-                @if (s3RegionNote is not null)
-                {
-                    <div class="form-text text-success">
-                        <span class="bi-check-lg me-1"></span>@s3RegionNote
-                    </div>
-                }
             </div>
             <div class="col-md-6">
                 <label class="form-label">Role ARN <span class="text-muted">(optional)</span></label>
@@ -1003,118 +816,11 @@
     private string setupScript = "";
     private string? pastedResult;
 
-    // ── S3 guided setup ───────────────────────────────────────────────────────────
-
-    private AwsCallerIdentity? s3Identity;
-
-    /// <summary>The failed preflight, kept so its reason can be shown rather than just "no".</summary>
-    private AwsProbe<AwsCallerIdentity>? s3Probe;
-
-    private IReadOnlyList<string>? s3Buckets;
-    private bool s3BucketsDenied;
-    private bool s3Busy;
-    private string? s3RegionNote;
-
-    /// <summary>
-    /// Asks AWS who Connapse is, then what it can see.
-    /// </summary>
-    /// <remarks>
-    /// The bucket listing is attempted only once the identity is known, and its failure is not
-    /// the preflight's failure: a credential scoped to a single bucket is refused
-    /// <c>s3:ListAllMyBuckets</c> by design, and that operator still has a working setup.
-    /// </remarks>
-    private async Task RunS3Preflight()
-    {
-        s3Busy = true;
-        s3Probe = null;
-        s3Identity = null;
-        s3Buckets = null;
-        s3BucketsDenied = false;
-
-        try
-        {
-            // The connection's role, not the ambient identity. S3Connector and S3ConnectionTester
-            // both assume it, so probing without it would describe a different account entirely
-            // from the one that ends up syncing.
-            string? role = form.RoleArn;
-
-            var identity = await S3Discovery.WhoAmIAsync(role);
-            if (!identity.Succeeded)
-            {
-                s3Probe = identity;
-                return;
-            }
-
-            s3Identity = identity.Value;
-
-            var buckets = await S3Discovery.ListBucketsAsync(role);
-            if (buckets.Succeeded)
-                s3Buckets = buckets.Value;
-            else
-                s3BucketsDenied = buckets.Outcome == AwsProbeOutcome.Denied;
-        }
-        finally
-        {
-            s3Busy = false;
-        }
-    }
-
-    private void ResetS3Preflight()
-    {
-        s3Identity = null;
-        s3Probe = null;
-        s3Buckets = null;
-        s3BucketsDenied = false;
-        s3RegionNote = null;
-    }
-
+    /// <summary>The allowed-locations field, one entry per line.</summary>
     private List<string> AllowedList() =>
         (form.AllowedLocations ?? "")
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
-
-    private bool IsAllowed(string bucket) =>
-        AllowedList().Any(l => l == bucket || l.StartsWith(bucket + "/", StringComparison.Ordinal));
-
-    /// <summary>
-    /// Adds or removes a bucket from the allowlist, and fills the region from the first one added.
-    /// </summary>
-    /// <remarks>
-    /// The region comes from the bucket rather than being typed, because a wrong one fails in a way
-    /// that reads like a permissions problem. Only the first selection sets it: a connection has one
-    /// region, and quietly rewriting it on each click would leave the last bucket clicked deciding
-    /// where the whole connection points.
-    /// </remarks>
-    private async Task ToggleBucket(string bucket)
-    {
-        var list = AllowedList();
-
-        if (IsAllowed(bucket))
-        {
-            list.RemoveAll(l => l == bucket || l.StartsWith(bucket + "/", StringComparison.Ordinal));
-        }
-        else
-        {
-            list.Add(bucket);
-
-            if (string.IsNullOrWhiteSpace(form.Region))
-            {
-                var region = await S3Discovery.GetBucketRegionAsync(bucket, form.RoleArn);
-                if (region.Succeeded && !string.IsNullOrWhiteSpace(region.Value))
-                {
-                    form.Region = region.Value;
-                    s3RegionNote = $"Read from {bucket}.";
-                }
-            }
-
-            // Testing needs a bucket and the connection stores none, so the first one chosen is a
-            // better default than an empty field.
-            if (string.IsNullOrWhiteSpace(probeTarget))
-                probeTarget = bucket;
-        }
-
-        form.AllowedLocations = string.Join("\n", list);
-    }
 
     /// <summary>The least-privilege policy for whatever is currently allowed.</summary>
     /// <remarks>

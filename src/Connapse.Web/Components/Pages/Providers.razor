@@ -1,9 +1,11 @@
 ﻿@page "/admin/providers"
+@page "/admin/providers/{Key}"
 @* The old route, so links and bookmarks made while this was Identity Providers still land. *@
 @page "/admin/identity-providers"
 @attribute [Authorize(Policy = "RequireAdmin")]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
+@using Connapse.Core.Utilities
 @using Connapse.Web.Components.Settings
 @using Connapse.Storage.Settings
 @using Microsoft.Extensions.Options
@@ -12,137 +14,214 @@
 @inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IProviderSetupReader SetupReader
+@inject IS3Discovery S3Discovery
 @rendermode InteractiveServer
 
 @*
-    Providers — everything Connapse needs from a cloud, in one place.
+    Providers — everything Connapse needs from one cloud, in one place.
 
-    Two jobs per provider that read as unrelated because they lived on different pages:
-    configure sign-in here, arrange access somewhere else. They are usually done in one
-    sitting with the same console open.
+    A list, then a page per provider. Rendering every provider at once was fine for two and a
+    wall for a dozen, and it showed an administrator working on AWS a column of Azure they had
+    not asked about.
 
-    Sign-in and access are genuinely different things and must stay so. An identity
-    provider authenticates a *person* and scopes what they may search; a Connection holds
-    the credential Connapse's own background sync reads with. They cannot be merged:
-    SourceSyncService runs on a timer with no user present, and an SSO session needs an
-    interactive browser sign-in to renew, so it can never drive a sync.
+    Sign-in and access are genuinely different and must stay so. An identity provider
+    authenticates a *person* and scopes what they may search; the access credential is what
+    Connapse's own background sync reads with. They cannot be merged: SourceSyncService runs on
+    a timer with no user present, and an SSO session needs an interactive browser sign-in to
+    renew, so it can never drive a sync.
 
-    This page holds nothing. It reads settings and probes AWS, and links out for anything
-    that changes. That restraint is the design: a provider that stored credentials would be
-    a service-account layer above Connection, which already *is* the credential boundary —
-    and neither Airbyte nor Fivetran has such a layer, because the configured source
-    carries its own authentication.
-
-    Requirements are a list each provider declares rather than two fixed sections, so
-    adding a third is a list entry rather than a change here.
+    Requirements are a list each provider declares rather than fixed sections, so adding a third
+    is a list entry rather than a change here.
 *@
 
-<PageTitle>Providers - Connapse</PageTitle>
+<PageTitle>@(Current?.DisplayName is { } n ? n + " - Providers" : "Providers") - Connapse</PageTitle>
 
 <div class="container-fluid py-4">
-    <h1 class="mb-1">
-        <span class="bi-cloud-fill me-2"></span>
-        Providers
-    </h1>
-    <p class="text-muted">
-        What Connapse needs from each cloud, and what is still missing. Nothing is stored on this
-        page — credentials live on <a href="/connections">Connections</a>.
-    </p>
 
-    @* Status first, settings below. Someone arriving here is usually asking "what is left to
-       do", and answering that before showing forms is the whole reason this page changed. *@
-    @if (setups is null)
+    @if (Key is null)
     {
-        <div class="text-muted small mb-4">
-            <span class="spinner-border spinner-border-sm me-1"></span> Checking providers…
+        <h1 class="mb-1"><span class="bi-cloud-fill me-2"></span>Providers</h1>
+        <p class="text-muted">
+            What Connapse needs from each cloud, and what is still missing.
+        </p>
+
+        @if (setups is null)
+        {
+            <div class="text-muted small">
+                <span class="spinner-border spinner-border-sm me-1"></span> Checking providers…
+            </div>
+        }
+        else
+        {
+            <div class="list-group mt-3">
+                @foreach (var provider in setups)
+                {
+                    <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                       href="/admin/providers/@provider.Key">
+                        <span class="@IconClass(provider.Overall) fs-5" aria-hidden="true"></span>
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">@provider.DisplayName</div>
+                            <div class="small text-muted">@Summarise(provider)</div>
+                        </div>
+                        <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                        <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                    </a>
+                }
+            </div>
+        }
+    }
+    else if (setups is null)
+    {
+        <div class="text-muted small">
+            <span class="spinner-border spinner-border-sm me-1"></span> Checking @Key…
         </div>
+    }
+    else if (Current is null)
+    {
+        <h1 class="mb-3">Provider not found</h1>
+        <p class="text-muted">
+            No provider called <code>@Key</code>. <a href="/admin/providers">Back to providers</a>.
+        </p>
     }
     else
     {
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb small">
+                <li class="breadcrumb-item"><a href="/admin/providers">Providers</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@Current.DisplayName</li>
+            </ol>
+        </nav>
+
+        <h1 class="mb-3"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+
+        @* Requirements first: someone arriving here is asking what is left to do, and answering
+           that before showing forms is the reason this page exists. *@
         <div class="row g-3 mb-4">
-            @foreach (var provider in setups)
+            @foreach (var requirement in Current.Requirements)
             {
                 <div class="col-md-6">
                     <div class="card h-100">
                         <div class="card-body">
-                            <div class="d-flex align-items-center gap-2 mb-3">
-                                <h5 class="card-title mb-0">@provider.DisplayName</h5>
-                                <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
+                                <strong>@requirement.Name</strong>
+                                <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
                             </div>
+                            <div class="form-text mb-2">@requirement.Description</div>
 
-                            @foreach (var requirement in provider.Requirements)
+                            @if (!string.IsNullOrWhiteSpace(requirement.Detail))
                             {
-                                <div class="mb-3">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
-                                        <strong class="small">@requirement.Name</strong>
-                                        <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
-                                    </div>
-                                    <div class="form-text mb-1">@requirement.Description</div>
-
-                                    @if (!string.IsNullOrWhiteSpace(requirement.Detail))
-                                    {
-                                        <div class="small text-body-secondary font-monospace text-break">
-                                            @requirement.Detail
-                                        </div>
-                                    }
-
-                                    @if (requirement.ActionHref is { } href && requirement.ActionLabel is { } label)
-                                    {
-                                        <a class="small" href="@href">@label</a>
-                                    }
+                                <div class="small text-body-secondary font-monospace text-break mb-2">
+                                    @requirement.Detail
                                 </div>
+                            }
+
+                            @if (requirement.ActionHref is { } href && requirement.ActionLabel is { } label)
+                            {
+                                <a class="small" href="@href">@label</a>
                             }
                         </div>
                     </div>
                 </div>
             }
         </div>
-    }
 
-    @if (!string.IsNullOrEmpty(saveMessage))
-    {
-        <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
-            @saveMessage
-            <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
-        </div>
-    }
-
-    <h2 class="h5 mt-4">Sign-in settings</h2>
-
-    <ul class="nav nav-tabs mb-4" role="tablist">
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "awssso" ? "active" : "")"
-                    @onclick='() => activeTab = "awssso"'
-                    type="button">
-                AWS SSO
-            </button>
-        </li>
-        <li class="nav-item" role="presentation">
-            <button class="nav-link @(activeTab == "azuread" ? "active" : "")"
-                    @onclick='() => activeTab = "azuread"'
-                    type="button">
-                Azure AD
-            </button>
-        </li>
-    </ul>
-
-    <div class="tab-content">
-        @if (activeTab == "awssso")
+        @if (!string.IsNullOrEmpty(saveMessage))
         {
-            <div id="aws-signin"></div>
+            <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                @saveMessage
+                <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+            </div>
+        }
+
+        @if (Key == "aws")
+        {
+            <h2 class="h5" id="access">Access</h2>
+            <p class="text-muted small">
+                What Connapse reads as when it syncs an S3 source. Connections choose a bucket;
+                this decides whether any of them can reach AWS at all.
+            </p>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    @if (awsAccess is null)
+                    {
+                        <button type="button" class="btn btn-primary btn-sm"
+                                @onclick="CheckAwsAccess" disabled="@awsBusy">
+                            @if (awsBusy)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Checking…</span>
+                            }
+                            else
+                            {
+                                <span class="bi-search me-1"></span>
+                                <span>Check what Connapse can reach</span>
+                            }
+                        </button>
+                    }
+                    else if (awsAccess is { Succeeded: true, Value: { } who })
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="bi-check-circle-fill text-success"></span>
+                            <div class="flex-grow-1 small">
+                                Running as <code>@who.Arn</code> in account <code>@who.AccountId</code>.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => awsAccess = null">Recheck</button>
+                        </div>
+
+                        @* Posture, not connectivity. Everything works either way; this is the only
+                           place anything says a production deployment rests on a key that never
+                           expires. *@
+                        @if (who.Kind is AwsCredentialKind.StaticKey or AwsCredentialKind.SsoSession)
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                <span class="bi-exclamation-triangle me-1"></span>
+                                @(who.Kind == AwsCredentialKind.StaticKey
+                                    ? "A static access key. It works and never expires, which is why AWS steers deployments towards roles instead."
+                                    : "An SSO session. Temporary, but it expires and needs a browser sign-in to renew, so unattended syncing stops when it does.")
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning py-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            @(awsAccess.Outcome == AwsProbeOutcome.NoCredentials
+                                ? "Connapse cannot see any AWS credentials."
+                                : awsAccess.Detail)
+                        </div>
+                        <pre class="bg-body-tertiary border rounded p-2 small mt-2 mb-0"><code>@S3SetupPolicy.CredentialInstructions()</code></pre>
+                    }
+                </div>
+            </div>
+        }
+
+        <h2 class="h5" id="signin">Sign-in</h2>
+        <p class="text-muted small">
+            Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
+            search results are scoped against.
+        </p>
+
+        @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
+           between once the page is about one cloud. *@
+        @if (Key == "aws")
+        {
             <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
         }
-        else if (activeTab == "azuread")
+        else if (Key == "azure")
         {
-            <div id="azure-signin"></div>
             <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
-    </div>
+    }
 </div>
 
 @code {
-    private string activeTab = "awssso";
+    /// <summary>Which provider is being shown; null means the list.</summary>
+    [Parameter]
+    public string? Key { get; set; }
+
     private string? saveMessage;
     private bool saveSuccess;
 
@@ -151,6 +230,9 @@
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
+
+    private ProviderSetup? Current =>
+        Key is null ? null : setups?.FirstOrDefault(p => p.Key == Key);
 
     protected override void OnInitialized()
     {
@@ -161,12 +243,12 @@
     }
 
     /// <summary>
-    /// Loads the status cards after the first render.
+    /// Loads the requirements after the first render.
     /// </summary>
     /// <remarks>
-    /// Separate from OnInitialized because reading the AWS requirement calls STS, and off-AWS the
-    /// credential chain can spend a second failing to reach EC2 metadata before it gives up. Doing
-    /// that before the first render would leave the page blank for the wait.
+    /// Separate from OnInitialized because reading the AWS access requirement calls STS, and
+    /// off-AWS the credential chain can spend a second failing to reach EC2 metadata before it
+    /// gives up. Doing that before the first render would leave the page blank for the wait.
     /// </remarks>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -176,11 +258,71 @@
         StateHasChanged();
     }
 
+    /// <summary>The last access probe, or null before one has been run.</summary>
+    /// <remarks>
+    /// Run on request rather than with the page. The requirement card above already reports the
+    /// same thing; this is for watching it change after fixing something, and re-probing STS on
+    /// every render would be a call per visit for an answer that rarely moves.
+    /// </remarks>
+    private AwsProbe<AwsCallerIdentity>? awsAccess;
+
+    private bool awsBusy;
+
+    private async Task CheckAwsAccess()
+    {
+        awsBusy = true;
+        try
+        {
+            awsAccess = await S3Discovery.WhoAmIAsync();
+
+            // The card above reports this same check, so leaving it stale would show two answers.
+            await RefreshSetups();
+        }
+        finally
+        {
+            awsBusy = false;
+        }
+    }
+
     private async Task RefreshSetups()
     {
         setups = null;
         StateHasChanged();
         setups = await SetupReader.ReadAsync();
+    }
+
+    /// <summary>One line naming what still needs doing, for the list.</summary>
+    /// <remarks>
+    /// Names the outstanding requirements rather than counting them. "1 of 2" tells the reader how
+    /// much is left but not what, and only the latter is something they can act on.
+    /// </remarks>
+    private static string Summarise(ProviderSetup provider)
+    {
+        var outstanding = provider.Requirements
+            .Where(r => r.Status != RequirementStatus.Satisfied)
+            .Select(r => r.Name)
+            .ToList();
+
+        return outstanding.Count == 0
+            ? "Everything Connapse needs is set up."
+            : $"Needs attention: {string.Join(", ", outstanding)}";
+    }
+
+    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
+    {
+        awsSsoSettings = settings;
+        await SaveSettings("awssso", settings);
+
+        // The cards above report this very setting, so leaving them alone would show the old
+        // answer beside the new form.
+        await RefreshSetups();
+    }
+
+    private async Task SaveAzureAdSettings(AzureAdSettings settings)
+    {
+        azureAdSettings = settings;
+        await SaveSettings("azuread", settings);
+        await RefreshSetups();
     }
 
     private static string Label(RequirementStatus status) => status switch
@@ -208,28 +350,6 @@
         RequirementStatus.NotConfigured => "bi-circle text-secondary",
         _ => "bi-question-circle text-secondary"
     };
-
-    // The category keys are unchanged from when these tabs lived in Settings. Renaming them
-    // would orphan whatever is already in the settings table.
-    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
-    {
-        awsSsoSettings = settings;
-        await SaveSettings("awssso", settings);
-
-        // The cards above report this very setting, so leaving them alone would show the old
-        // answer beside the new form.
-        await RefreshSetups();
-    }
-
-    private async Task SaveAzureAdSettings(AzureAdSettings settings)
-    {
-        azureAdSettings = settings;
-        await SaveSettings("azuread", settings);
-
-        // The cards above report this very setting, so leaving them alone would show the old
-        // answer beside the new form.
-        await RefreshSetups();
-    }
 
     private async Task SaveSettings<T>(string category, T settings) where T : class
     {
