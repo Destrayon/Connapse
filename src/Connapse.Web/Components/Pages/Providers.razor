@@ -215,7 +215,6 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary"
                                     @onclick="() => { awsAccess = null; awsBuckets = null; }">Recheck</button>
                         </div>
-
                     }
                     else
                     {
@@ -225,14 +224,46 @@
                                 ? "Connapse has no AWS identity yet."
                                 : awsAccess.Detail)
                         </div>
+                    }
+
+                    @* Outside the branches, because the setup used to live inside the failure one
+                       and there were two ways to reach a dead end. A key that authenticates but
+                       cannot read S3 lands in the *success* branch, so the page said Connapse
+                       cannot confirm it reads S3 and offered nothing but Recheck — and the failed
+                       requirement's own "Set up access" link pointed straight at it. A working
+                       identity had no way to be replaced at all, so rotating a key meant deleting
+                       it in AWS first and coming back to a broken install. *@
+                    @if (awsAccess is not null && (!AccessConfirmed || showSetup))
+                    {
+                        @if (AccessConfirmed)
+                        {
+                            <hr class="my-3" />
+                        }
 
                         @* An identity of its own, not a copy of somebody's. Borrowing an
                            administrator's credentials makes Connapse's reach depend on whose they
                            were, and change when that person's permissions do. *@
                         <p class="small mb-2">
-                            Give Connapse its own AWS user — read-only, separate from yours, and
-                            revocable on its own. You will run one command and paste the result back.
+                            @(AccessConfirmed
+                                ? "Create a replacement identity. The current one keeps working until you paste the new key in."
+                                : "Give Connapse its own AWS user — read-only, separate from yours, and revocable on its own. You will run one command and paste the result back.")
                         </p>
+
+                        @* A name it does not already hold. The script refuses to touch an existing
+                           user rather than minting a second key for one — so replacing an identity
+                           whose IAM user still exists needs a different name, and defaulting to the
+                           same one would send every rotation into that refusal. *@
+                        @if (AccessConfirmed)
+                        {
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-5">
+                                    <label class="form-label small mb-1">Name for the new user</label>
+                                    <input class="form-control form-control-sm" @bind="newUserName"
+                                           @bind:event="oninput"
+                                           placeholder="@AwsIamUserSetup.DefaultUserName-2" />
+                                </div>
+                            </div>
+                        }
 
                         @* One setup, not a scope picker. The easy path exists to remove
                            decisions, and asking an operator to size an IAM grant against sources
@@ -246,7 +277,7 @@
                             buckets its sources may actually name.
                         </p>
 
-                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript()</code></pre>
+                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript(newUserName)</code></pre>
 
                         <div class="d-flex flex-wrap gap-2 mb-2">
                             <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -296,7 +327,21 @@
                                     is not recoverable from AWS afterwards.
                                 </div>
                             }
-                        }                    }
+                        }
+                    }
+                    else if (awsAccess is not null)
+                    {
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => showSetup = true">
+                                <span class="bi-arrow-repeat me-1"></span> Replace this identity
+                            </button>
+                            <div class="form-text">
+                                Creates a second IAM user and switches to it. Delete the old one in
+                                AWS afterwards — nothing here can, and nothing here should.
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
         }
@@ -374,6 +419,22 @@
 
     private bool awsBusy;
 
+    /// <summary>Whether the replace-identity form is open over a working credential.</summary>
+    private bool showSetup;
+
+    /// <summary>IAM user name for a replacement; null uses the default.</summary>
+    private string? newUserName;
+
+    /// <summary>
+    /// Whether Connapse is known to read S3, as opposed to merely known to authenticate.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the whole card turns on. A credential whose policy never attached answers
+    /// <c>GetCallerIdentity</c> perfectly, so treating that as success is what put the setup form
+    /// out of reach for the one person who needed it.
+    /// </remarks>
+    private bool AccessConfirmed => awsBuckets is { Succeeded: true };
+
     private string? pastedKey;
     private string? copyMessage;
     private bool copySucceeded;
@@ -383,7 +444,7 @@
         // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
         // Connapse is routinely served over plain HTTP on a LAN.
         copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard",
-            AwsIamUserSetup.GenerateScript());
+            AwsIamUserSetup.GenerateScript(newUserName));
 
         copyMessage = copySucceeded
             ? "Copied."
@@ -402,6 +463,13 @@
             // Nothing keeps the pasted secret around once it is stored.
             pastedKey = null;
             awsAccess = null;
+            awsBuckets = null;
+
+            // Closed on success, so a replacement does not leave its own form open above the
+            // result. It reopens on demand, and stays open on failure because that is the case
+            // where somebody is still working.
+            showSetup = false;
+            newUserName = null;
 
             await CheckAwsAccess();
         }
