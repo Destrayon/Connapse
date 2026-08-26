@@ -1,4 +1,5 @@
-@using Connapse.Core
+﻿@using Connapse.Core
+@using Connapse.Core.Utilities
 @using Connapse.Storage.ConnectionTesters
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
@@ -13,6 +14,222 @@
                 on first use.
             </div>
         </div>
+
+        @*
+            Guided setup.
+
+            The region is the field people get wrong, and it cannot be derived: Identity Center
+            lives in one region per organisation, and the legacy portal URL
+            (https://d-1234567890.awsapps.com/start) does not encode it. A wrong region produces
+            InvalidClientMetadataException, which says the URL and region disagree without saying
+            which one is wrong.
+
+            CloudShell rather than a credential field or a CloudFormation callback. It already
+            holds temporary credentials from the administrator's console session, so nothing is
+            created, pasted here, or stored — the copy-paste round trip is the credential
+            boundary. A callback, which is how most services onboard an AWS account, needs a
+            public URL that a self-hosted Connapse usually does not have.
+        *@
+        @if (!guidedSetup)
+        {
+            <div class="col-12">
+                <div class="alert alert-primary d-flex flex-wrap align-items-center gap-2 py-2 mb-0">
+                    <span class="bi-magic"></span>
+                    <span class="flex-grow-1 small">
+                        Don't know your region or portal URL? Connapse will write one read-only command
+                        to run in AWS CloudShell, and read both back from what it prints.
+                    </span>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="StartGuidedSetup">
+                        <span class="bi-cloud me-1"></span> Find my instance
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="col-12">
+                <div class="card border-primary">
+                    <div class="card-body">
+                        <div class="d-flex align-items-start mb-3">
+                            <h6 class="card-title flex-grow-1 mb-0">1 &middot; Run this in AWS CloudShell</h6>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelGuidedSetup">
+                                Cancel
+                            </button>
+                        </div>
+
+                        <p class="small mb-2">
+                            Copy the command, open CloudShell — a terminal that runs inside the AWS
+                            console, already signed in as you — and paste it there. Sign in as someone
+                            who can read your organisation's Identity Center.
+                        </p>
+
+                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height: 18rem; overflow: auto;"><code>@AwsSsoSetup.GenerateScript()</code></pre>
+
+                        @* Copy first, then open: the order the two buttons are used in, so the one
+                           that opens a new tab is not the one the eye lands on first. *@
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyFindScript">
+                                <span class="bi-clipboard me-1"></span> Copy command
+                            </button>
+                            <a class="btn btn-sm btn-primary" href="@CloudShellUrl" target="_blank" rel="noopener">
+                                <span class="bi-terminal me-1"></span> Open CloudShell
+                                <span class="bi-box-arrow-up-right ms-1 small"></span>
+                            </a>
+                            <span class="align-self-center small @(copyMessage is null ? "text-muted" : copySucceeded ? "text-success" : "text-danger")">
+                                @(copyMessage ?? "Safe to run more than once.")
+                            </span>
+                        </div>
+
+                        <div class="alert alert-secondary py-2 mb-0 small">
+                            <span class="bi-shield-check me-1"></span>
+                            <strong>Read-only.</strong> It lists your Identity Center instances and prints
+                            what it found — it creates and changes nothing. It needs
+                            <code>@string.Join(", ", AwsSsoSetup.RequiredPermissions)</code>,
+                            and says so if you don't have it. No AWS credential is created here or stored
+                            by Connapse; CloudShell uses the session you are already signed into.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">2 &middot; Paste back what it printed</h6>
+                        <textarea class="form-control font-monospace" rows="5" @bind="pastedResult"
+                                  @bind:event="oninput"
+                                  placeholder="@AwsSsoSetup.BeginMarker&#10;region=…&#10;identityStoreId=…&#10;@AwsSsoSetup.EndMarker"></textarea>
+                        <div class="form-text">
+                            The whole terminal output is fine — Connapse finds the block.
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(pastedResult))
+                        {
+                            var parsed = AwsSsoSetup.ParseResult(pastedResult);
+
+                            @if (parsed is null)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    No setup block found yet. Copy everything the command printed, including
+                                    both <code>-----</code> marker lines.
+                                </div>
+                            }
+                            else if (parsed.MissingPermissions.Count > 0)
+                            {
+                                <div class="alert alert-danger py-2 mt-2 mb-0 small">
+                                    <span class="bi-x-circle me-1"></span>
+                                    AWS refused the lookup. The account you ran this as needs
+                                    <code>@string.Join(", ", parsed.MissingPermissions)</code>.
+                                    Ask whoever administers your AWS organisation, or run it again as
+                                    someone who has it.
+                                </div>
+                            }
+                            else if (parsed.Instances.Count == 0)
+                            {
+                                @* No instance. Connapse needs an ORGANISATION instance, which is
+                                   enabled from the console in the Organizations management account.
+                                   An account instance -- the only kind sso-admin create-instance can
+                                   make -- does not support permission sets, and so does not support
+                                   access to AWS accounts. Connapse scopes search by calling
+                                   ListAccounts, so that kind would sign someone in and then have
+                                   nothing to scope by.
+
+                                   Hence a pointer to the right place rather than a create button:
+                                   the thing that can be scripted is not the thing that works. *@
+                                <div class="alert alert-warning py-2 mt-2 mb-2 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    The command ran but found no Identity Center instance.
+                                    @switch (parsed.Posture)
+                                    {
+                                        case AwsAccountPosture.Management:
+                                            <text>
+                                                This is your Organizations management account, which is
+                                                where one gets enabled — so you can do it yourself.
+                                            </text>
+                                            break;
+                                        case AwsAccountPosture.Member:
+                                            <text>
+                                                This account belongs to an AWS Organization but isn't the
+                                                management account, and that's the only place an
+                                                organization instance can be enabled. Whoever administers
+                                                your organization needs to turn it on.
+                                            </text>
+                                            break;
+                                        case AwsAccountPosture.Standalone:
+                                            <text>
+                                                This account isn't part of an AWS Organization. Identity
+                                                Center needs one, so enabling it starts by creating an
+                                                organization — the console walks you through both.
+                                            </text>
+                                            break;
+                                        default:
+                                            <text>
+                                                It may also be in a region this scan doesn't cover —
+                                                GovCloud and the China partitions need different endpoints.
+                                            </text>
+                                            break;
+                                    }
+                                </div>
+
+                                <div class="d-flex flex-wrap gap-2 align-items-center">
+                                    <a class="btn btn-sm @(parsed.CanEnableItself ? "btn-primary" : "btn-outline-primary")"
+                                       href="@IdentityCenterConsoleUrl" target="_blank" rel="noopener">
+                                        <span class="bi-box-arrow-up-right me-1"></span>
+                                        @(parsed.CanEnableItself ? "Enable Identity Center" : "Open the Identity Center console")
+                                    </a>
+                                    <span class="small text-muted">
+                                        You'll pick a primary region there, which can't be changed later.
+                                        Then run the command above again.
+                                    </span>
+                                </div>
+
+                                @* Said once, plainly, because the obvious next move for someone
+                                   technical is to reach for the CLI -- and that path produces an
+                                   instance Connapse cannot use. *@
+                                <div class="form-text mt-2">
+                                    <span class="bi-info-circle me-1"></span>
+                                    It has to be enabled from the console.
+                                    <code>aws sso-admin create-instance</code> makes an
+                                    <em>account</em> instance, which doesn't support access to AWS
+                                    accounts — Connapse would sign people in and find nothing to scope
+                                    their search by.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="mt-3">
+                                    @if (parsed.Instances.Count > 1)
+                                    {
+                                        @* Multi-region replication gives one portal per region, and only
+                                           the administrator knows which their users sign in through. *@
+                                        <div class="alert alert-info py-2 small">
+                                            <span class="bi-info-circle me-1"></span>
+                                            Found @parsed.Instances.Count instances — pick the one your users
+                                            sign in through.
+                                        </div>
+                                    }
+
+                                    @foreach (var instance in parsed.Instances)
+                                    {
+                                        <div class="border rounded p-2 mb-2 d-flex flex-wrap align-items-center gap-2">
+                                            <div class="flex-grow-1 small">
+                                                <div><strong>@instance.Region</strong> &middot; <code>@instance.IdentityStoreId</code></div>
+                                                <div class="text-muted">@instance.PortalUrl</div>
+                                            </div>
+                                            <button type="button" class="btn btn-primary btn-sm"
+                                                    @onclick="() => ApplyInstance(instance)">
+                                                <span class="bi-check-lg me-1"></span> Use this
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        }
 
         <div class="col-md-8">
             <label class="form-label">Issuer URL</label>
@@ -82,8 +299,41 @@
 </EditForm>
 
 @inject AwsSsoConnectionTester ConnectionTester
+@inject IJSRuntime JS
 
 @code {
+    /// <summary>
+    /// CloudShell, opened in a new tab so the wizard stays put behind it.
+    /// </summary>
+    /// <remarks>
+    /// Region-agnostic on purpose. The script scans regardless of where the session lands, and
+    /// pinning a region here would send people to the wrong one more often than the right one.
+    /// </remarks>
+    private const string CloudShellUrl = "https://console.aws.amazon.com/cloudshell/home";
+
+    private string? copyMessage;
+    private bool copySucceeded;
+
+    /// <summary>Where an organisation instance is actually enabled.</summary>
+    private const string IdentityCenterConsoleUrl = "https://console.aws.amazon.com/singlesignon/home";
+
+    /// <summary>Copies the command, and says so — including when it could not.</summary>
+    /// <remarks>
+    /// Through the shared helper rather than <c>navigator.clipboard</c> directly: that API is
+    /// undefined outside a secure context, and Connapse is routinely served over plain HTTP on a
+    /// LAN. Called directly, the button would throw and appear to do nothing at all.
+    /// </remarks>
+    private async Task CopyFindScript()
+    {
+        bool copied = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", AwsSsoSetup.GenerateScript());
+
+        copyMessage = copied
+            ? "Copied. Paste it into CloudShell."
+            : "Could not copy — select the command above and copy it manually.";
+        copySucceeded = copied;
+    }
+
     [Parameter]
     public AwsSsoSettings Settings { get; set; } = new();
 
@@ -94,6 +344,54 @@
     private bool isTestingConnection;
     private string? testMessage;
     private bool testSuccess;
+
+    private bool guidedSetup;
+    private string? pastedResult;
+
+    private void StartGuidedSetup()
+    {
+        guidedSetup = true;
+        pastedResult = null;
+        copyMessage = null;
+        testMessage = null;
+    }
+
+    private void CancelGuidedSetup()
+    {
+        guidedSetup = false;
+        pastedResult = null;
+    }
+
+    /// <summary>
+    /// Fills the form from the instance the administrator picked.
+    /// </summary>
+    /// <remarks>
+    /// Fills rather than saves. The portal URL is derived from the identity store id, which is
+    /// wrong for an organisation using a custom vanity domain — so the values land in editable
+    /// fields, and Test Connection is the thing that confirms them.
+    /// <para>
+    /// Any previously registered client is cleared. Those credentials belong to the instance they
+    /// were issued by; carrying them across to a different region would leave a client id that
+    /// RegisterClient never issued for it.
+    /// </para>
+    /// </remarks>
+    private void ApplyInstance(AwsSsoInstance instance)
+    {
+        localSettings = new AwsSsoSettings
+        {
+            IssuerUrl = instance.PortalUrl,
+            Region = instance.Region,
+            ClientId = null,
+            ClientSecret = null,
+            ClientSecretExpiresAt = null
+        };
+
+        guidedSetup = false;
+        pastedResult = null;
+
+        testSuccess = true;
+        testMessage = $"Filled in from {instance.Region}. Test the connection, then save.";
+    }
 
     protected override void OnParametersSet()
     {
