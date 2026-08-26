@@ -39,8 +39,8 @@
         @if (isAdmin)
         {
             <div class="d-flex gap-2">
-                <a class="btn btn-outline-secondary" href="/settings">
-                    <span class="bi-gear me-1"></span> Connections
+                <a class="btn btn-outline-secondary" href="/connections">
+                    <span class="bi-plug me-1"></span> Connections
                 </a>
                 <button class="btn btn-primary" @onclick="BeginCreate" disabled="@(connections.Count == 0)">
                     <span class="bi-plus-lg me-1"></span> New source
@@ -55,7 +55,7 @@
            attach it to would open a modal whose first field has no options. *@
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
-            No connections yet. <a href="/settings" class="alert-link">Add one</a> before creating a source —
+            No connections yet. <a href="/connections" class="alert-link">Add one</a> before creating a source —
             a connection holds the credential, a source picks a scope inside it.
         </div>
     }
