@@ -110,8 +110,7 @@ public class ProviderSetupReader(
     {
         const string name = "Access";
         const string description =
-            "What Connapse reads as when it syncs an S3 source. Nothing is stored here — "
-            + "it uses whatever credentials its environment provides.";
+            "Whether Connapse can actually read S3, and as whom.";
 
         try
         {
@@ -119,12 +118,39 @@ public class ProviderSetupReader(
 
             if (identity is { Succeeded: true, Value: { } who })
             {
-                bool weak = who.Kind is AwsCredentialKind.StaticKey or AwsCredentialKind.SsoSession;
+                // Who, then whether. sts:GetCallerIdentity is unauthenticated against IAM policy --
+                // it answers for any valid credential no matter what that credential may do -- so
+                // asking it alone reported a green tick for an identity whose policy had not
+                // attached, and the first sync was where anyone found out.
+                var buckets = await s3Discovery.ListBucketsAsync(ct: ct);
+                string who_ = $"{who.Arn} — {Describe(who.Kind)}";
 
+                if (buckets is { Succeeded: true, Value: { } found })
+                {
+                    // Unrecognised is not a pass. It used to fall through to Satisfied because only
+                    // StaticKey and SsoSession were treated as weak, so the one case where Connapse
+                    // cannot say what it is holding looked like the healthiest.
+                    bool unsure = who.Kind is AwsCredentialKind.Unrecognised
+                                           or AwsCredentialKind.StaticKey
+                                           or AwsCredentialKind.SsoSession;
+
+                    return new ProviderRequirement(
+                        name, description,
+                        unsure ? RequirementStatus.Warning : RequirementStatus.Satisfied,
+                        $"{who_}. Can see {found.Count} bucket{(found.Count == 1 ? "" : "s")}.",
+                        "Connections", "/connections");
+                }
+
+                // Denied is not broken. A credential the operator scoped to named buckets lacks
+                // s3:ListAllMyBuckets by design and works perfectly; what it cannot do is prove
+                // itself here, so this says exactly that rather than calling it a failure.
                 return new ProviderRequirement(
-                    name, description,
-                    weak ? RequirementStatus.Warning : RequirementStatus.Satisfied,
-                    $"{who.Arn} — {Describe(who.Kind)}",
+                    name, description, RequirementStatus.Warning,
+                    buckets.Outcome == AwsProbeOutcome.Denied
+                        ? $"{who_}. It may not list buckets, so Connapse cannot confirm what it "
+                          + "reaches — expected if you scoped this credential yourself. Test a "
+                          + "connection to be sure."
+                        : $"{who_}. Listing buckets failed: {buckets.Detail}",
                     "Connections", "/connections");
             }
 
@@ -171,6 +197,7 @@ public class ProviderSetupReader(
         AwsCredentialKind.ExternalProcess => "external credential process, no static keys",
         AwsCredentialKind.SsoSession => "SSO session, which expires and needs a browser to renew",
         AwsCredentialKind.StaticKey => "static access key, which never expires",
+        AwsCredentialKind.StoredKey => "the read-only key Connapse created for itself",
         _ => "source not recognised"
     };
 }

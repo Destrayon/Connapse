@@ -272,6 +272,10 @@ public class S3Discovery(
                 nameof(ProcessAWSCredentials) => AwsCredentialKind.ExternalProcess,
                 nameof(EnvironmentVariablesAWSCredentials) => AwsCredentialKind.StaticKey,
                 nameof(BasicAWSCredentials) => AwsCredentialKind.StaticKey,
+                // Ours, and it has to be named here or it falls through: it derives from
+                // RefreshingAWSCredentials, which nothing above matches, so the whole base chain
+                // misses and the page reported a working identity as "source not recognised".
+                nameof(ConnapseAwsCredentials) => AwsCredentialKind.StoredKey,
                 _ => AwsCredentialKind.Unrecognised
             };
 

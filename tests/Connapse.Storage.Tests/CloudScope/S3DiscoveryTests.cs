@@ -45,6 +45,27 @@ public class S3DiscoveryTests
     }
 
     [Fact]
+    public void ClassifyType_ConnapseOwnCredential_IsAStoredKey()
+    {
+        // The regression this pins: ConnapseAwsCredentials derives from RefreshingAWSCredentials,
+        // which matches nothing in the chain, so the identity Connapse creates for itself was
+        // reported as "source not recognised" -- and Unrecognised was not treated as weak, so the
+        // page put a green tick beside it.
+        S3Discovery.ClassifyType(typeof(ConnapseAwsCredentials))
+            .Should().Be(AwsCredentialKind.StoredKey);
+    }
+
+    [Fact]
+    public void ClassifyType_StoredKey_IsNotConfusedWithAnAmbientOne()
+    {
+        // Deliberately distinct. An ambient key is somebody's, of unknown age and scope; this one
+        // is read-only, Connapse's alone, and revocable -- so the UI says different things about
+        // them, and collapsing the two would make the recommended setup warn about itself.
+        S3Discovery.ClassifyType(typeof(ConnapseAwsCredentials))
+            .Should().NotBe(AwsCredentialKind.StaticKey);
+    }
+
+    [Fact]
     public void ClassifyType_UnknownType_IsUnrecognisedRatherThanStrong()
     {
         // A newer SDK adding a chain link must not be reported as an instance role by default.
