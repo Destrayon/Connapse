@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -190,6 +190,7 @@ public class PgVectorStore : IVectorStore
         float[] queryVector,
         int topK,
         Dictionary<string, string>? filters = null,
+        SearchScopes? scopes = null,
         CancellationToken ct = default)
     {
         if (queryVector == null || queryVector.Length == 0)
@@ -231,6 +232,37 @@ public class PgVectorStore : IVectorStore
             {
                 whereClauses.Add("cv.model_id = @modelId");
                 parameters.Add(new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId });
+            }
+        }
+
+        // Permission filtering. Pushed into the query rather than applied to its results: a
+        // post-filter would take the top K and then remove most of them, so a user with narrow
+        // access would get a handful of hits for a query that had plenty — worse answers for
+        // being less privileged, with nothing on screen to say so.
+        if (scopes is { IsUnrestricted: false })
+        {
+            if (scopes.IsEmpty)
+            {
+                // Nothing is reachable. Say so in SQL rather than returning early, so this reads
+                // the same as any other empty result to everything downstream.
+                whereClauses.Add("1=0");
+            }
+            else
+            {
+                // A document with no resource URI is denied, never allowed. It is one nothing can
+                // locate, so no permission rule can be checked against it — an upload, or a row
+                // not synced since the column existed.
+                var ors = new List<string>();
+                for (int i = 0; i < scopes.UriPrefixes.Count; i++)
+                {
+                    ors.Add($"d.resource_uri LIKE @scope{i}");
+                    parameters.Add(new NpgsqlParameter($"@scope{i}", NpgsqlDbType.Text)
+                    {
+                        Value = scopes.UriPrefixes[i] + "%"
+                    });
+                }
+
+                whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");
             }
         }
 

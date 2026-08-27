@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -19,9 +19,14 @@ public class KeywordSearchService
         _logger = logger;
     }
 
+    /// <param name="scopes">
+    /// What the caller may reach. Required rather than optional: a default would make forgetting
+    /// it compile, and forgetting it here returns everything to everyone.
+    /// </param>
     public async Task<List<SearchHit>> SearchAsync(
         string query,
         SearchOptions options,
+        SearchScopes scopes,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -63,6 +68,28 @@ public class KeywordSearchService
 
         var topKIdx = parameters.Count;
         parameters.Add(options.TopK);
+
+        // The same rule as the vector side, and it has to be: a hit reachable through one
+        // mode and not the other is a leak through whichever the caller happens to choose.
+        if (scopes is { IsUnrestricted: false })
+        {
+            if (scopes.IsEmpty)
+            {
+                whereClauses.Add("1=0");
+            }
+            else
+            {
+                var ors = new List<string>();
+                foreach (string prefix in scopes.UriPrefixes)
+                {
+                    int scopeIdx = parameters.Count;
+                    ors.Add($"d.resource_uri LIKE {{{scopeIdx}}}");
+                    parameters.Add(prefix + "%");
+                }
+
+                whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");
+            }
+        }
 
         var whereClause = string.Join(" AND ", whereClauses);
 

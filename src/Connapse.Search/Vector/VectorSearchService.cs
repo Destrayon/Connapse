@@ -32,9 +32,14 @@ public class VectorSearchService
     /// <summary>
     /// Performs semantic search by embedding the query and searching the vector store.
     /// </summary>
+    /// <param name="scopes">
+    /// What the caller may reach. Required rather than optional: a default would make forgetting
+    /// it compile, and forgetting it here returns everything to everyone.
+    /// </param>
     public async Task<List<SearchHit>> SearchAsync(
         string query,
         SearchOptions options,
+        SearchScopes scopes,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -74,6 +79,7 @@ public class VectorSearchService
             queryVector,
             options.TopK,
             filters.Count > 0 ? filters : null,
+            scopes,
             ct);
 
         // Convert VectorSearchResult to SearchHit (MinScore applied later by HybridSearchService)
