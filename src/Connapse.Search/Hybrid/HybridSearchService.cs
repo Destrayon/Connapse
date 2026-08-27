@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Keyword;
@@ -106,19 +106,27 @@ public class HybridSearchService : IKnowledgeSearch
         var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
         var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
 
+        // One resolution per search, taken here because this is where the query fans out. Doing it
+        // inside each leaf would mean two answers for one query, and hybrid would be the mode in
+        // which they could disagree — half a result set from one set of permissions and half from
+        // another, with no way to tell from the outside.
+        var scopes = await scope.ServiceProvider
+            .GetRequiredService<ISearchScopeResolver>()
+            .ResolveAsync(options.UserId, ct);
+
         switch (mode)
         {
             case SearchMode.Semantic:
-                hits = await vectorSearch.SearchAsync(query, options, ct);
+                hits = await vectorSearch.SearchAsync(query, options, scopes, ct);
                 break;
 
             case SearchMode.Keyword:
-                hits = await keywordSearch.SearchAsync(query, options, ct);
+                hits = await keywordSearch.SearchAsync(query, options, scopes, ct);
                 break;
 
             case SearchMode.Hybrid:
             default:
-                hits = await PerformHybridSearchAsync(query, options, ct);
+                hits = await PerformHybridSearchAsync(query, options, scopes, ct);
                 break;
         }
 
@@ -178,6 +186,7 @@ public class HybridSearchService : IKnowledgeSearch
     private async Task<List<SearchHit>> PerformHybridSearchAsync(
         string query,
         SearchOptions options,
+        SearchScopes scopes,
         CancellationToken ct)
     {
         // Run both searches in parallel, each with its own scope (and thus separate DbContext)
@@ -185,7 +194,7 @@ public class HybridSearchService : IKnowledgeSearch
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
-            var results = await vectorSearch.SearchAsync(query, options, ct);
+            var results = await vectorSearch.SearchAsync(query, options, scopes, ct);
             return results;
         }, ct);
 
@@ -193,7 +202,7 @@ public class HybridSearchService : IKnowledgeSearch
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
-            var results = await keywordSearch.SearchAsync(query, options, ct);
+            var results = await keywordSearch.SearchAsync(query, options, scopes, ct);
             return results;
         }, ct);
 

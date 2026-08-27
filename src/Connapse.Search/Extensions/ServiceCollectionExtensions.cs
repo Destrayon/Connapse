@@ -1,9 +1,11 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Hybrid;
 using Connapse.Search.Keyword;
 using Connapse.Search.Reranking;
 using Connapse.Search.Vector;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Connapse.Search.Extensions;
 
@@ -21,6 +23,10 @@ public static class ServiceCollectionExtensions
         // Register individual search services
         services.AddScoped<VectorSearchService>();
         services.AddScoped<KeywordSearchService>();
+
+        // The default is no filtering, so registering the enforcement path changes nothing.
+        // A deployment opts in by replacing this with a resolver that resolves something.
+        services.TryAddScoped<ISearchScopeResolver, UnrestrictedScopeResolver>();
 
         // Register rerankers
         services.AddScoped<ISearchReranker, CrossEncoderReranker>();

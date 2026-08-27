@@ -30,7 +30,7 @@ public class KeywordSearchServiceTests
     {
         var options = new Connapse.Core.SearchOptions { TopK = 10, ContainerId = Guid.NewGuid().ToString() };
 
-        var results = await _service.SearchAsync(query!, options);
+        var results = await _service.SearchAsync(query!, options, SearchScopes.Unrestricted);
 
         results.Should().BeEmpty();
     }
