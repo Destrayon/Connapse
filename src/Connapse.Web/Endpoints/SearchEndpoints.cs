@@ -2,6 +2,8 @@
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
+using System.Security.Claims;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -25,6 +27,7 @@ public static class SearchEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
             [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -52,7 +55,8 @@ public static class SearchEndpoints
                 TopK: topK ?? 10,
                 MinScore: effectiveMinScore,
                 ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null);
+                Filters: filters.Count > 0 ? filters : null,
+                UserId: SearchPrincipal.Resolve(user));
 
             var results = await searchService.SearchAsync(q, options, ct);
             return Results.Ok(results);
@@ -67,6 +71,7 @@ public static class SearchEndpoints
             [FromServices] IContainerStore containerStore,
             [FromServices] IKnowledgeSearch searchService,
             [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
+            ClaimsPrincipal user,
             CancellationToken ct) =>
         {
             var container = await containerStore.GetAsync(containerId, ct);
@@ -92,7 +97,8 @@ public static class SearchEndpoints
                 TopK: request.TopK ?? 10,
                 MinScore: effectiveMinScore,
                 ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null);
+                Filters: filters.Count > 0 ? filters : null,
+                UserId: SearchPrincipal.Resolve(user));
 
             var results = await searchService.SearchAsync(request.Query, options, ct);
             return Results.Ok(results);

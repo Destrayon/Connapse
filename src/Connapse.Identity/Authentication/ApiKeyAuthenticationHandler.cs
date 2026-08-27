@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -155,6 +155,13 @@ public class ApiKeyAuthenticationHandler(
             new("agent_id", agentKey.Agent.Id.ToString()),
             new("agent_key_id", agentKey.Id.ToString()),
             new("auth_method", "agent_api_key"),
+
+            // The user an agent acts for. NameIdentifier is the agent's own id, so without this
+            // an agent request carries no person at all — and an agent is meant to reach what its
+            // creator reaches, not more. Emitted here rather than looked up later because the
+            // agent row is already loaded, and a per-search lookup would be a database round trip
+            // for a value that cannot change within a request.
+            new("on_behalf_of", agentKey.Agent.CreatedByUserId.ToString()),
             // Synthetic role claim — satisfies RequireAgent policy without the DB role row existing
             new(ClaimTypes.Role, "Agent"),
         };

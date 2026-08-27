@@ -149,6 +149,11 @@ builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 
+// So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
+// without this the MCP surface cannot resolve a principal at all — and #421 will deny what it
+// cannot identify, which would silently turn every MCP search into no results.
+builder.Services.AddHttpContextAccessor();
+
 // Injected rather than read statically so the provisioning window ProviderSetupReader applies to a
 // freshly created access key can be tested without waiting an hour for it.
 builder.Services.AddSingleton(TimeProvider.System);

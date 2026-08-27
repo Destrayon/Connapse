@@ -170,12 +170,19 @@ public class McpTools
         if (!string.IsNullOrWhiteSpace(path))
             filters = new Dictionary<string, string> { ["pathPrefix"] = path };
 
+        // Through IHttpContextAccessor because an MCP tool is handed only an IServiceProvider.
+        // The accessor is registered for this: without it these tools are the one surface that
+        // cannot name its caller, and a permission filter is only as good as its weakest entry
+        // point.
+        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
+
         var options = new SearchOptions(
             Mode: parsedMode,
             TopK: effectiveTopK,
             MinScore: effectiveMinScore,
             ContainerId: resolvedId.Value.ToString(),
-            Filters: filters);
+            Filters: filters,
+            UserId: SearchPrincipal.Resolve(caller));
 
         var searchService = services.GetRequiredService<IKnowledgeSearch>();
         var result = await searchService.SearchAsync(query, options, ct);
