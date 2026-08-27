@@ -18,6 +18,7 @@
 @inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
 @inject IS3Discovery S3Discovery
+@inject IProviderSetupReader SetupReader
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -479,21 +480,38 @@
 
         @if (form.Provider == ConnectionProvider.S3)
         {
-            @* Setting AWS up lives on the provider page, not here. This form is about one
-               bucket; whether Connapse can reach AWS at all is a property of the deployment and
-               is the same for every connection made against it. *@
-            <div class="col-12">
-                <div class="alert alert-secondary d-flex flex-wrap align-items-center gap-2 py-2 mb-0 small">
-                    <span class="bi-cloud-fill"></span>
-                    <span class="flex-grow-1">
-                        Connapse reads S3 with the AWS identity set up on its provider page — nothing
-                        is entered here.
-                    </span>
-                    <a class="btn btn-outline-secondary btn-sm" href="/admin/providers/aws">
-                        AWS setup <span class="bi-box-arrow-up-right ms-1 small"></span>
-                    </a>
+            @* Only while it is still true that something needs doing. Setting AWS up lives on
+               the provider page, not here — this form is about one bucket, and whether Connapse
+               can reach AWS at all is a property of the deployment, the same for every connection
+               made against it. Once that is working the notice is answering a question nobody is
+               asking, on a form they are trying to fill in.
+
+               Nothing renders until the check has run, so a working install never sees it flash
+               and disappear. Unknown is excluded for the same reason: it means the check could
+               not complete, and "Connapse cannot read S3" would be a claim nothing supports.
+               Testing the connection still answers it. *@
+            @if (awsAccess is RequirementStatus.NotConfigured or RequirementStatus.Failed
+                              or RequirementStatus.Provisioning or RequirementStatus.Warning)
+            {
+                <div class="col-12">
+                    <div class="alert @(awsAccess == RequirementStatus.Warning ? "alert-secondary" : "alert-warning") d-flex flex-wrap align-items-center gap-2 py-2 mb-0 small">
+                        <span class="bi-cloud-fill"></span>
+                        <span class="flex-grow-1">
+                            @(awsAccess switch
+                            {
+                                RequirementStatus.Provisioning =>
+                                    "AWS is still issuing Connapse's access key. Sources on this connection will not sync until it does.",
+                                RequirementStatus.Warning =>
+                                    "Connapse cannot confirm what its AWS identity reaches. Test this connection to be sure.",
+                                _ => "Connapse cannot read S3 yet — its AWS identity is set up on the provider page, not here."
+                            })
+                        </span>
+                        <a class="btn btn-outline-secondary btn-sm" href="/admin/providers/aws">
+                            AWS setup <span class="bi-box-arrow-up-right ms-1 small"></span>
+                        </a>
+                    </div>
                 </div>
-            </div>
+            }
 
             <div class="col-md-6">
                 <label class="form-label">Region</label>
@@ -846,6 +864,34 @@
         await LoadAsync();
     }
 
+    /// <summary>
+    /// Reads whether AWS is ready, after the first render rather than before it.
+    /// </summary>
+    /// <remarks>
+    /// The check calls STS, and off AWS the credential chain can spend a second failing to reach
+    /// EC2 metadata before it gives up. Doing that in OnInitializedAsync would hold the whole
+    /// connections list behind a question only the S3 form asks.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        try
+        {
+            var aws = (await SetupReader.ReadAsync()).FirstOrDefault(p => p.Key == "aws");
+            awsAccess = aws?.Requirements.FirstOrDefault(r => r.Name == "Access")?.Status;
+        }
+        catch
+        {
+            // A notice that cannot be shown is not worth failing the page for. Leaving it null
+            // renders nothing, which is the same as the state where everything is fine — and a
+            // connection that genuinely cannot reach AWS still says so when it is tested.
+            awsAccess = null;
+        }
+
+        StateHasChanged();
+    }
+
     private async Task LoadAsync()
     {
         loading = true;
@@ -864,6 +910,16 @@
     private SshKeyPair? localKeyPair;
     private string setupScript = "";
     private string? pastedResult;
+
+    /// <summary>
+    /// Whether AWS is ready, or null until the check has run.
+    /// </summary>
+    /// <remarks>
+    /// Through <c>IProviderSetupReader</c> rather than a probe of its own, so this page and the
+    /// provider page cannot disagree about whether AWS is set up. Duplicating that judgement is
+    /// what let the Access card and its own requirement drift apart before.
+    /// </remarks>
+    private RequirementStatus? awsAccess;
 
     /// <summary>Buckets the credential can see, or null before anyone asked.</summary>
     private IReadOnlyList<string>? discoveredBuckets;
