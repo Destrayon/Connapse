@@ -15,12 +15,38 @@
 /// open door, which is the failure this distinction exists to prevent.
 /// </para>
 /// </remarks>
+/// <summary>Why a search may reach what it may.</summary>
+/// <remarks>
+/// Three of these mean "nothing", and they are kept apart because they send whoever investigates to
+/// three different places. <see cref="NoGrants"/> is almost always configuration — a deployment
+/// with no S3 Access Grants instance returns an empty list for every user, which is
+/// indistinguishable from denial unless something says so.
+/// </remarks>
+public enum ScopeOutcome
+{
+    /// <summary>This deployment does not filter.</summary>
+    Unrestricted,
+
+    /// <summary>The user has grants, and they are in <c>Matches</c>.</summary>
+    Granted,
+
+    /// <summary>The user was resolved and has no grants.</summary>
+    NoGrants,
+
+    /// <summary>The caller could not be resolved to a person.</summary>
+    NoPrincipal,
+
+    /// <summary>Permissions could not be determined. Denies, deliberately.</summary>
+    ResolverFailed,
+}
+
 public sealed record SearchScopes
 {
-    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches)
+    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches, ScopeOutcome outcome)
     {
         IsUnrestricted = unrestricted;
         Matches = matches;
+        Outcome = outcome;
     }
 
     /// <summary>
@@ -31,10 +57,25 @@ public sealed record SearchScopes
     /// deployment until a resolver exists. Filtering is opt-in because denying by default here
     /// would leave every existing installation unable to search anything after an upgrade.
     /// </remarks>
-    public static readonly SearchScopes Unrestricted = new(true, []);
+    public static readonly SearchScopes Unrestricted =
+        new(true, [], ScopeOutcome.Unrestricted);
 
     /// <summary>Nothing is reachable. A resolved user with no grants.</summary>
-    public static readonly SearchScopes None = new(false, []);
+    public static readonly SearchScopes None =
+        new(false, [], ScopeOutcome.NoGrants);
+
+    /// <summary>Nothing is reachable, because nobody could be named.</summary>
+    public static readonly SearchScopes NoPrincipal =
+        new(false, [], ScopeOutcome.NoPrincipal);
+
+    /// <summary>Nothing is reachable, because permissions could not be determined.</summary>
+    /// <remarks>
+    /// Failing closed. XACML 3.0 §7.2.2: a deny-biased enforcement point denies without an explicit
+    /// permit, and an indeterminate answer is not a permit. The caller is told this is an error
+    /// rather than an empty result, because they are not the same thing.
+    /// </remarks>
+    public static readonly SearchScopes Failed =
+        new(false, [], ScopeOutcome.ResolverFailed);
 
     /// <summary>Only documents matching one of these rules.</summary>
     public static SearchScopes Of(IReadOnlyList<GrantMatch> matches)
@@ -42,7 +83,9 @@ public sealed record SearchScopes
         ArgumentNullException.ThrowIfNull(matches);
 
         var usable = matches.Where(m => !string.IsNullOrWhiteSpace(m.Value)).ToList();
-        return usable.Count == 0 ? None : new SearchScopes(false, usable);
+        return usable.Count == 0
+            ? None
+            : new SearchScopes(false, usable, ScopeOutcome.Granted);
     }
 
     /// <summary>Only documents whose resource URI starts with one of these.</summary>
@@ -60,6 +103,9 @@ public sealed record SearchScopes
 
     /// <summary>The rules a document's resource URI must satisfy one of.</summary>
     public IReadOnlyList<GrantMatch> Matches { get; }
+
+    /// <summary>Why this scope set is what it is.</summary>
+    public ScopeOutcome Outcome { get; }
 
     /// <summary>True when this permits nothing, so a query need not run at all.</summary>
     public bool IsEmpty => !IsUnrestricted && Matches.Count == 0;

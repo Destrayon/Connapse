@@ -122,4 +122,26 @@ public class SearchScopesTests
         FluentActions.Invoking(() => SearchScopes.ToLikePattern(null!))
             .Should().Throw<ArgumentNullException>();
     }
+
+    [Fact]
+    public void Outcome_DistinguishesTheThreeWaysOfReachingNothing()
+    {
+        // All three deny, and they must not be one state. "You have no grants" is a configuration
+        // message, "we could not tell who you are" is a token problem, and "the resolver failed" is
+        // an outage. Collapsing them sends whoever debugs it to the wrong place every time.
+        SearchScopes.None.Outcome.Should().Be(ScopeOutcome.NoGrants);
+        SearchScopes.NoPrincipal.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+        SearchScopes.Failed.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+
+        SearchScopes.None.IsEmpty.Should().BeTrue();
+        SearchScopes.NoPrincipal.IsEmpty.Should().BeTrue();
+        SearchScopes.Failed.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Outcome_SeparatesNotFilteringFromReachingEverything()
+    {
+        SearchScopes.Unrestricted.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+        SearchScopes.Of(["s3://acme/team/"]).Outcome.Should().Be(ScopeOutcome.Granted);
+    }
 }
