@@ -9,7 +9,8 @@ namespace Connapse.Web.Tests.Components;
 /// <remarks>
 /// The wording matters more than the markup. "Re-sync to record where these came from" tells an
 /// operator what to do; "some documents are missing metadata" does not, and the consequence of not
-/// acting -- an entire corpus vanishing when filtering is enabled -- is invisible from the second.
+/// acting -- these documents staying visible to everyone instead of being filtered by cloud
+/// permissions -- is invisible from the second.
 /// </remarks>
 [Trait("Category", "Unit")]
 public class UnlocatedSourceWarningTests

@@ -177,21 +177,32 @@ Four states, distinguishable, never collapsed into one another:
 | Not configured | No resolver registered | `SearchScopes.Unrestricted` — today's behaviour |
 | No grants | Resolver answered, user has none | Empty results **and** a configuration message |
 | Resolver error | Timeout, throttle, revoked token | Fail closed, distinguishable error, not empty results |
-| Document predates filtering | `resource_uri` is null | Re-sync prompt naming the sources involved |
+| No cloud coordinate | `resource_uri` is null | Not governed by cloud permissions at all — falls back to Connapse's own access control (container/source reachability), same as before cloud filtering existed |
 
-The third and fourth states matter most. Failing closed follows XACML 3.0 §7.2.2 — a deny-biased
-policy enforcement point denies without an explicit permit — but a user must never be told "you have
-no access" when the truth is "this deployment has no Access Grants instance" or "these documents
-were indexed before coordinates were recorded".
+The third state matters most among the AWS-dependent ones. Failing closed follows XACML 3.0 §7.2.2 —
+a deny-biased policy enforcement point denies without an explicit permit — but a user must never be
+told "you have no access" when the truth is "this deployment has no Access Grants instance". The
+fourth state is not a failure at all: a document with no cloud coordinate is simply outside the
+cloud's permission model, so cloud filtering has nothing to say about it and does not exclude it.
 
-## Two things that must happen before filtering can be switched on
+### Design correction (2026-08-27)
 
-**Re-sync for `resource_uri`.** Both enforcement predicates gate on `resource_uri IS NOT NULL`.
-Every document indexed before migration `20260827062208_AddDocumentResourceUri` has a null value and
-would vanish the moment filtering is enabled, indistinguishably from a denial. Phase 2 declined a
-SQL backfill on purpose — the derivation is silently wrong for a re-pointed source — so the remedy
-is a forced re-sync per source, and the admin UI must name which sources still hold documents with
-no recorded coordinate.
+The row above originally read "Document predates filtering | `resource_uri` is null | Re-sync prompt
+naming the sources involved", treating a null `resource_uri` as **denied**. Real-deployment testing
+against issue #421 found 127,898 documents, of which 127,880 were uploads and 12 were SFTP-backed —
+none of which have, or can ever have, a cloud address, because uploads have no external location by
+design and only the S3 and Azure connectors report one at all. Switching that rule on would have
+hidden 127,892 of those 127,898 documents, indistinguishably from a denial nobody could fix.
+
+The corrected rule, and the one implemented: a document with no cloud coordinate is not governed by
+cloud permissions. It falls back to Connapse's own access control instead — reachable through this
+container the same as before cloud filtering existed. Cloud scope filtering only narrows the subset
+of documents that actually carry a cloud address; it never removes one that doesn't. The
+`DocumentCoordinateReport` re-sync prompt is retained as an optional operator aid for narrowing that
+subset further, restricted to sources backed by an S3 or Azure connection — the only ones where a
+re-sync could ever produce a coordinate — but it is no longer a precondition for enabling filtering.
+
+## What must happen before filtering can be switched on
 
 **A null-principal rule.** `ISearchScopeResolver.ResolveAsync` takes a nullable user id, null when
 the caller is not a person — the ordinary state for the MCP server and for personal-access-token
@@ -215,8 +226,9 @@ deployment can enable filtering, and the provider page refuses to enable it unti
 ## Sequencing
 
 - **5a — Enforcement correctness.** Grant-scope normalisation, the four failure states, the
-  null-principal rule, the re-sync. No cloud dependency; ships alone; prevents the corpus-vanishing
-  bug.
+  null-principal rule, and the corrected no-cloud-coordinate rule (a document with no cloud address
+  falls back to Connapse's own access control rather than being denied). No cloud dependency; ships
+  alone; is what prevents the corpus-vanishing bug the original design would have shipped.
 - **5b — Sign-in and token store.** Components 2 and 3.
 - **5c — Provider setup and detection.** Component 4, opening with a spike that stands up a Cognito
   pool and proves the jwt-bearer exchange returns an identity context before the UI is built.

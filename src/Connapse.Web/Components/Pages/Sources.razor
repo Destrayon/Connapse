@@ -189,9 +189,12 @@
                                     <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
                                         <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
                                         here @(unlocatedCount == 1 ? "has" : "have") no recorded location.
-                                        Re-sync this source to record where @(unlocatedCount == 1 ? "it" : "they") came
-                                        from — until then @(unlocatedCount == 1 ? "it" : "they") cannot be reached once
-                                        per-user permissions are switched on.
+                                        @(unlocatedCount == 1 ? "It" : "They") came from a cloud source but
+                                        @(unlocatedCount == 1 ? "has" : "have") no location Connapse can check
+                                        cloud permissions against, so @(unlocatedCount == 1 ? "it is" : "they are")
+                                        visible to everyone rather than filtered by per-user permissions.
+                                        Re-sync this source to record where @(unlocatedCount == 1 ? "it" : "they")
+                                        came from.
                                     </div>
                                 </td>
                             </tr>

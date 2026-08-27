@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,13 +8,21 @@ namespace Connapse.Storage.Documents;
 public sealed record UnlocatedSource(Guid SourceId, string SourceName, int DocumentCount);
 
 /// <summary>
-/// Reports documents that no permission rule can be checked against.
+/// Reports documents that no cloud permission rule can be checked against.
 /// </summary>
 /// <remarks>
-/// Both search predicates require <c>resource_uri IS NOT NULL</c>, so a document indexed before that
-/// column existed becomes unreachable the moment per-user filtering is switched on — and
-/// indistinguishably from a denial. This exists so an operator is told which sources to re-sync
-/// beforehand, rather than discovering it as a support ticket afterwards.
+/// A document with a null <c>resource_uri</c> is not denied by cloud permission filtering — it
+/// falls outside it entirely, governed instead by Connapse's own access control (#421). So the
+/// consequence here is not that these documents become unreachable; it is that they will not be
+/// permission-filtered by cloud grants, a permissive gap rather than a destructive one. This
+/// exists so an operator can close that gap by re-syncing the sources involved, where re-syncing
+/// can actually produce a coordinate.
+/// <para>
+/// Only the S3 and Azure Blob connectors ever report a coordinate at sync time — SFTP, filesystem,
+/// and MinIO sources never do, by design, so a null coordinate there is not a defect and re-sync
+/// advice for it would never resolve. The query below is restricted to sources backed by a
+/// connection whose provider is S3 or AzureBlob for that reason.
+/// </para>
 /// <para>
 /// A SQL backfill is deliberately not offered. Deriving the URI from a source's scope and a
 /// document's stored path is silently wrong for a source that has been re-pointed since ingestion,
@@ -22,7 +31,13 @@ public sealed record UnlocatedSource(Guid SourceId, string SourceName, int Docum
 /// </remarks>
 public sealed class DocumentCoordinateReport(IDbContextFactory<KnowledgeDbContext> factory)
 {
-    /// <summary>Sources with at least one document that has no recorded coordinate.</summary>
+    private static readonly int[] CoordinateCapableProviders =
+        [(int)ConnectionProvider.S3, (int)ConnectionProvider.AzureBlob];
+
+    /// <summary>
+    /// Sources — backed by a connection that can report a coordinate (S3 or AzureBlob) — with at
+    /// least one document that has no recorded coordinate.
+    /// </summary>
     public async Task<IReadOnlyList<UnlocatedSource>> UnlocatedBySourceAsync(
         CancellationToken ct = default)
     {
@@ -44,9 +59,17 @@ public sealed class DocumentCoordinateReport(IDbContextFactory<KnowledgeDbContex
             return [];
 
         List<Guid> sourceIds = counts.Select(c => c.Key).ToList();
+
+        // Restrict to sources whose connection provider can ever produce a coordinate. This is a
+        // plain join (no GroupBy), so it translates and runs server-side unlike the aggregate above.
         Dictionary<Guid, string> names = await db.Sources
             .Where(s => sourceIds.Contains(s.Id))
-            .ToDictionaryAsync(s => s.Id, s => s.Name, ct);
+            .Join(
+                db.Connections.Where(c => CoordinateCapableProviders.Contains(c.Provider)),
+                s => s.ConnectionId,
+                c => c.Id,
+                (s, c) => new { s.Id, s.Name })
+            .ToDictionaryAsync(x => x.Id, x => x.Name, ct);
 
         return counts
             .Where(c => names.ContainsKey(c.Key))
