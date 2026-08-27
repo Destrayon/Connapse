@@ -18,8 +18,12 @@
     This page shows what each source is *doing*, never what is *inside* it. There is no file
     list, no path, and no document name anywhere on it, and that is the point of the whole
     epic rather than an omission: the file tree exposed every synced object to any Connapse
-    user regardless of what they could see in the source system, which is a far wider surface
-    than search results, and search already passes through CloudScopeService.
+    user regardless of what they could see in the source system.
+
+    An earlier version of this comment justified that by saying search already passes through
+    CloudScopeService. It does not — CloudScopeService has no production caller, and search
+    returns every document to every user (#421). Removing the file tree is still right, but it
+    narrows one surface rather than leaving the other one guarded.
 
     The aggregate document count is the one exception, accepted during design as a weak signal
     in exchange for the page being useful at all.

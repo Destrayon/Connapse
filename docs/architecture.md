@@ -135,7 +135,7 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IManagedStorageProvider` | Managed Storage abstraction (routes to active backend) | `MinioManagedStorageProvider` (default); overridable per deployment |
 | `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
 | `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
-| `ICloudScopeService` | IAM-derived access control | `CloudScopeService` |
+| `ICloudScopeService` | IAM-derived access control — **written but not wired to anything; see Scope Enforcement** | `CloudScopeService` |
 | `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `AzureBlobConnectionTester`, `AwsSsoConnectionTester`, `AzureAdConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
 
 **Identity (`Connapse.Identity`)**:
@@ -787,16 +787,31 @@ Users link one cloud identity per provider via their Profile page:
 
 Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`).
 
-### Scope Enforcement
+### Scope Enforcement — not implemented
 
-`CloudScopeService` checks cloud identity permissions before allowing access to cloud-backed containers:
+**There is no per-user permission filtering in Connapse today. Every user can search every indexed
+document.** Access is controlled by ASP.NET role authorization (`RequireViewer` and above) and by
+container scoping, both of which are the same for all users of a given role.
 
-1. Retrieve user's linked identity for the container's cloud provider
-2. Call provider-specific `ICloudIdentityProvider.DiscoverScopesAsync()`
-3. Cache result: 15-min allow TTL, 5-min deny TTL (`IConnectorScopeCache`)
-4. Inject allowed prefix filter into search/browse queries
+This section previously described `CloudScopeService` enforcing cloud identity permissions across
+document, search and folder endpoints and the sync trigger. None of that happens. The service is
+registered in `Program.cs` and has no production caller; `CloudScopeResult.IsPathAllowed` is
+invoked only from its own unit tests. `SearchOptions` carries no principal, so there is no channel
+through which a per-user scope could reach a query.
 
-Enforcement applied to: document endpoints, search endpoints, folder endpoints, sync trigger.
+What does exist:
+
+| Piece | State |
+|---|---|
+| `ICloudIdentityService` | Working. Links a user's AWS or Azure identity and stores identity metadata. |
+| `CloudScopeService` | Written, registered, uncalled. Shaped per source rather than per request. |
+| `AwsIdentityProvider` | Returns `FullAccess()` when Connapse's own AWS account appears in the user's SSO account list. Account membership, not RBAC — that is the ceiling of what the SSO device flow reports. |
+| `AzureIdentityProvider` | Probes with the *service's* credential, not the user's, and returns the source's configured prefix. |
+| `ConnectorScopeCache` | Working. Note the TTLs are inverted for a security boundary: allows cached 15 min, denies 5. |
+
+Planned work is tracked in [#421](https://github.com/Destrayon/Connapse/issues/421) and
+[docs/plans/search-permission-filtering.md](plans/search-permission-filtering.md). Until it lands,
+do not describe Connapse as filtering search by cloud permissions.
 
 See [aws-sso-setup.md](aws-sso-setup.md) and [azure-identity-setup.md](azure-identity-setup.md) for setup guides.
 
