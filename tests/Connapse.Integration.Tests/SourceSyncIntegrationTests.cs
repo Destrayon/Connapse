@@ -158,6 +158,9 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     private static ConnectorFile File(string path, long size = 10) =>
         new(path, size, DateTime.UtcNow, "text/markdown");
 
+    private static ConnectorFile Located(string path, string uri, long size = 10) =>
+        new(path, size, DateTime.UtcNow, "text/markdown", uri);
+
     private async Task<(Source Source, Connection Connection)> SeedSourceAsync(IServiceProvider sp)
     {
         var connections = sp.GetRequiredService<IConnectionStore>();
@@ -747,5 +750,87 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             .SyncSourceAsync(source, connection, CancellationToken.None);
 
         result.Upserted.Should().Be(0, "enqueueing again would race the in-flight job");
+    }
+
+    // -- Document coordinates (#421) ------------------------------------------------
+
+    [Fact]
+    public async Task SyncSourceAsync_NewDocument_RecordsWhereItCameFrom()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new FakeListConnector(
+            Located("/q3/report.pdf", "s3://b/team/q3/report.pdf"));
+
+        await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        var factory = scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+
+        var document = await db.Documents.AsNoTracking()
+            .SingleAsync(d => d.SourceId == source.Id);
+
+        // The connector's answer, stored verbatim. Not rebuilt from bucket + prefix + path, which
+        // is the derivation this column exists to avoid.
+        document.ResourceUri.Should().Be("s3://b/team/q3/report.pdf");
+        document.Path.Should().Be("/q3/report.pdf", "the virtual path is unchanged by this");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_UnchangedDocument_StillRecordsWhereItCameFrom()
+    {
+        // The case that decides whether this works at all. A stable source skips every file on
+        // every cycle -- that skip is what stops a five-minute poll re-embedding everything -- so
+        // populating only on ingest would leave a source that never changes without coordinates
+        // for ever, and its documents permanently denied once filtering is on.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var factory = scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+
+        // First cycle: the connector reports no location, as one built before this column did.
+        await BuildService(scope.ServiceProvider, new FakeListConnector(File("/a.md")))
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using (var before = await factory.CreateDbContextAsync())
+        {
+            (await before.Documents.AsNoTracking().SingleAsync(d => d.SourceId == source.Id))
+                .ResourceUri.Should().BeNull();
+        }
+
+        // Second cycle: same file, same size and timestamp, so the sync skips it entirely.
+        var located = new FakeListConnector(Located("/a.md", "s3://b/a.md"));
+        var result = await BuildService(scope.ServiceProvider, located)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(0, "nothing changed, so nothing was re-ingested");
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.AsNoTracking().SingleAsync(d => d.SourceId == source.Id))
+            .ResourceUri.Should().Be("s3://b/a.md", "a skipped file still learns where it is");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_ConnectorReportsNoLocation_LeavesItNull()
+    {
+        // Filesystem and SFTP have no external address. Null is the honest answer, and once
+        // filtering is on it means denied -- never allowed, because a document nothing can locate
+        // is a document no permission rule can be checked against.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        await BuildService(scope.ServiceProvider, new FakeListConnector(File("/a.md")))
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        var factory = scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+
+        (await db.Documents.AsNoTracking().SingleAsync(d => d.SourceId == source.Id))
+            .ResourceUri.Should().BeNull();
     }
 }

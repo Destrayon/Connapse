@@ -11,7 +11,32 @@ public record ContainerSettingsOverrides
     public SummarySettings? Summary { get; init; }
 }
 
-public record ConnectorFile(string Path, long SizeBytes, DateTime LastModified, string? ContentType);
+/// <summary>One file a connector found, as the connector sees it.</summary>
+/// <param name="Path">
+/// Virtual path within the source: the key with the source's prefix stripped and a leading slash
+/// added. This is what a document row stores, and what the connector is asked for later.
+/// </param>
+/// <param name="ResourceUri">
+/// Where the file actually is, absolutely and outside Connapse — <c>s3://bucket/key</c> for S3.
+/// Null for connectors with no meaningful external address.
+/// </param>
+/// <remarks>
+/// <paramref name="ResourceUri"/> is reported rather than reconstructed, because reconstruction is
+/// wrong in cases nothing can detect. <paramref name="Path"/> is relative to the source's prefix,
+/// and a source's prefix is editable with no reconciliation of existing rows — so a source
+/// re-pointed after ingestion leaves paths relative to a prefix no longer on record.
+/// <para>
+/// It also survives a normalisation that <paramref name="Path"/> does not. S3 permits
+/// <c>docs/a.md</c>, <c>/docs/a.md</c> and <c>//docs/a.md</c> as three distinct keys; prefix
+/// stripping collapses all three to one path.
+/// </para>
+/// </remarks>
+public record ConnectorFile(
+    string Path,
+    long SizeBytes,
+    DateTime LastModified,
+    string? ContentType,
+    string? ResourceUri = null);
 public record ConnectorFileEvent(ConnectorFileEventType EventType, string Path, string? OldPath = null);
 public enum ConnectorFileEventType { Created, Changed, Deleted, Renamed }
 
