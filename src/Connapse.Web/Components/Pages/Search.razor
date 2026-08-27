@@ -1,12 +1,14 @@
-@page "/search"
+﻿@page "/search"
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Microsoft.Extensions.Options
+@using Connapse.Web.Services
 @inject IContainerStore ContainerStore
 @inject ISourceStore SourceStore
 @inject IKnowledgeSearch SearchService
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IOptionsMonitor<SearchSettings> SearchSettings
 @inject Connapse.Storage.Vectors.VectorModelDiscovery ModelDiscovery
 @inject IOptionsMonitor<EmbeddingSettings> EmbeddingSettingsMonitor
@@ -268,6 +270,15 @@
         }
     }
 
+    /// <summary>Who is searching, from the circuit's authentication state.</summary>
+    /// <remarks>
+    /// The one surface with no HttpContext to read, so it reaches the same resolver by way of the
+    /// circuit's own principal. Same answer as the REST and MCP paths, which is the point of there
+    /// being a single resolver rather than a copy per surface.
+    /// </remarks>
+    private async Task<Guid?> CurrentUserIdAsync() =>
+        SearchPrincipal.Resolve((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
     private async Task PerformSearch()
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -309,7 +320,8 @@
                 TopK: topK,
                 MinScore: (float)SearchSettings.CurrentValue.MinimumScore,
                 ContainerId: selectedContainerId,
-                Filters: filters.Count > 0 ? filters : null);
+                Filters: filters.Count > 0 ? filters : null,
+                UserId: await CurrentUserIdAsync());
 
             searchResult = await SearchService.SearchAsync(query, options);
         }
