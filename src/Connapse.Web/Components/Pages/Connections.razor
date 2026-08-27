@@ -726,9 +726,12 @@
                    connection that saves cleanly and fails at the first sync. *@
                 @if (form.Provider == ConnectionProvider.S3)
                 {
-                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                    @* A searchable list, not a row of chips. An account with three buckets looked
+                       fine as chips; one with two hundred is a wall of them above the field they
+                       belong to, and the one you want is found by reading rather than typing. *@
+                    <div class="mt-2 position-relative" style="max-width:32rem">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="ListBuckets" disabled="@listingBuckets">
+                                @onclick="ToggleBucketPicker" disabled="@listingBuckets">
                             @if (listingBuckets)
                             {
                                 <span class="spinner-border spinner-border-sm me-1"></span>
@@ -737,32 +740,64 @@
                             {
                                 <span class="bi-list-ul me-1"></span>
                             }
-                            <span>List buckets Connapse can see</span>
+                            <span>Choose from buckets Connapse can see</span>
+                            <span class="@(bucketPickerOpen ? "bi-chevron-up" : "bi-chevron-down") ms-1 small"></span>
                         </button>
-                        @if (!string.IsNullOrEmpty(bucketListMessage))
+
+                        @if (bucketPickerOpen)
                         {
-                            <span class="small text-muted">@bucketListMessage</span>
+                            <div class="card mt-1 shadow-sm">
+                                <div class="card-body p-2">
+                                    @* Escape closes, Enter takes the first match. Whoever is
+                                       filtering has their hands on the keyboard already. *@
+                                    <input class="form-control form-control-sm mb-2"
+                                           placeholder="Search buckets"
+                                           @bind="bucketFilter" @bind:event="oninput"
+                                           @onkeydown="BucketSearchKey" @ref="bucketSearchBox" />
+
+                                    @if (!string.IsNullOrEmpty(bucketListMessage))
+                                    {
+                                        <div class="small text-muted px-1 py-2">@bucketListMessage</div>
+                                    }
+                                    else if (MatchingBuckets() is { Count: 0 })
+                                    {
+                                        <div class="small text-muted px-1 py-2">
+                                            No bucket matches “@bucketFilter”.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="list-group list-group-flush overflow-auto"
+                                             style="max-height:14rem">
+                                            @foreach (string bucket in MatchingBuckets())
+                                            {
+                                                bool already = IsAllowed(bucket);
+                                                <button type="button"
+                                                        class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-1 px-2"
+                                                        disabled="@already"
+                                                        @onclick="() => AllowBucket(bucket)">
+                                                    <span class="@(already ? "bi-check-lg text-success" : "bi-plus-lg text-primary") small"></span>
+                                                    <code class="flex-grow-1 text-start text-break">@bucket</code>
+                                                    @if (already)
+                                                    {
+                                                        <span class="small text-muted">added</span>
+                                                    }
+                                                </button>
+                                            }
+                                        </div>
+
+                                        @* The count, because a scrolling list hides how much is
+                                           below it and "did it find them all" is the question a
+                                           truncated-looking list provokes. *@
+                                        <div class="form-text px-1 mb-0">
+                                            @MatchingBuckets().Count of @(discoveredBuckets?.Count ?? 0)
+                                            bucket@(discoveredBuckets?.Count == 1 ? "" : "s")
+                                        </div>
+                                    }
+                                </div>
+                            </div>
                         }
                     </div>
-
-                    @if (discoveredBuckets is { Count: > 0 })
-                    {
-                        <div class="d-flex flex-wrap gap-1 mt-2">
-                            @foreach (string bucket in discoveredBuckets)
-                            {
-                                bool already = IsAllowed(bucket);
-                                <button type="button"
-                                        class="btn btn-sm @(already ? "btn-success" : "btn-outline-primary")"
-                                        disabled="@already" @onclick="() => AllowBucket(bucket)">
-                                    @if (already)
-                                    {
-                                        <span class="bi-check-lg me-1"></span>
-                                    }
-                                    <code class="@(already ? "text-white" : "")">@bucket</code>
-                                </button>
-                            }
-                        </div>
-                    }
                 }
 
                 @* Offered once something is allowed, because until then there is nothing to scope
@@ -874,6 +909,8 @@
     /// </remarks>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        await FocusBucketSearchIfOpened();
+
         if (!firstRender) return;
 
         try
@@ -890,6 +927,26 @@
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>Puts the cursor in the bucket search box when the picker opens.</summary>
+    /// <remarks>
+    /// Here rather than at the click, because the element does not exist until the render that
+    /// follows it — focusing in the handler would throw on a reference to nothing.
+    /// </remarks>
+    private async Task FocusBucketSearchIfOpened()
+    {
+        if (!focusBucketSearch) return;
+
+        focusBucketSearch = false;
+        try
+        {
+            await bucketSearchBox.FocusAsync();
+        }
+        catch
+        {
+            // A picker that opened without taking focus is still a usable picker.
+        }
     }
 
     private async Task LoadAsync()
@@ -926,6 +983,69 @@
 
     private bool listingBuckets;
     private string? bucketListMessage;
+
+    /// <summary>Whether the picker is open.</summary>
+    private bool bucketPickerOpen;
+
+    /// <summary>What has been typed into the picker's search box.</summary>
+    private string? bucketFilter;
+
+    private ElementReference bucketSearchBox;
+
+    /// <summary>Set while the search box still needs focus, cleared once it has had it.</summary>
+    private bool focusBucketSearch;
+
+    /// <summary>
+    /// Buckets matching the current search, in the order AWS returned them.
+    /// </summary>
+    /// <remarks>
+    /// Contains rather than starts-with. Bucket names carry their meaning in the middle as often as
+    /// the front — an account naming them <c>acme-prod-docs</c> and <c>acme-dev-docs</c> is searched
+    /// by "docs" far more usefully than by "acme".
+    /// </remarks>
+    private IReadOnlyList<string> MatchingBuckets()
+    {
+        var all = discoveredBuckets ?? [];
+        if (string.IsNullOrWhiteSpace(bucketFilter)) return all;
+
+        return [.. all.Where(b => b.Contains(bucketFilter.Trim(), StringComparison.OrdinalIgnoreCase))];
+    }
+
+    /// <summary>Opens the picker, listing the buckets the first time it is opened.</summary>
+    /// <remarks>
+    /// Loaded on first open rather than with the page: it is an AWS call, and most visits to this
+    /// form are not about choosing a bucket. Kept afterwards, so reopening is instant.
+    /// </remarks>
+    private async Task ToggleBucketPicker()
+    {
+        bucketPickerOpen = !bucketPickerOpen;
+        if (!bucketPickerOpen) return;
+
+        focusBucketSearch = true;
+
+        if (discoveredBuckets is null)
+            await ListBuckets();
+    }
+
+    /// <summary>Escape closes the picker; Enter takes the first match.</summary>
+    /// <remarks>
+    /// Enter on a filter that has narrowed to one bucket is the whole reason to type rather than
+    /// scroll, and without it the search box is a filter that still makes you reach for the mouse.
+    /// </remarks>
+    private void BucketSearchKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            bucketPickerOpen = false;
+            return;
+        }
+
+        if (e.Key != "Enter") return;
+
+        string? first = MatchingBuckets().FirstOrDefault(b => !IsAllowed(b));
+        if (first is not null)
+            AllowBucket(first);
+    }
 
     /// <summary>
     /// Asks AWS which buckets exist, as the connection's own identity.
@@ -969,6 +1089,11 @@
         .Any(entry => entry == bucket || entry.StartsWith(bucket + "/", StringComparison.Ordinal));
 
     /// <summary>Appends a bucket to the allowlist, leaving any prefixes already typed alone.</summary>
+    /// <remarks>
+    /// The picker stays open and the search stays as typed. Choosing several buckets is the normal
+    /// case for an allowlist, and closing after each one would make the second harder than the
+    /// first.
+    /// </remarks>
     private void AllowBucket(string bucket)
     {
         if (IsAllowed(bucket)) return;
