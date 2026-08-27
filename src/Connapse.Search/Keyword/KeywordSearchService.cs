@@ -83,8 +83,8 @@ public class KeywordSearchService
                 foreach (string prefix in scopes.UriPrefixes)
                 {
                     int scopeIdx = parameters.Count;
-                    ors.Add($"d.resource_uri LIKE {{{scopeIdx}}}");
-                    parameters.Add(prefix + "%");
+                    ors.Add($"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
+                    parameters.Add(SearchScopes.ToLikePattern(prefix));
                 }
 
                 whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");

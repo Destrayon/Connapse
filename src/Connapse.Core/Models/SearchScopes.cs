@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>
 /// What a search is allowed to reach, as resource-URI prefixes.
@@ -51,6 +51,38 @@ public sealed record SearchScopes
 
     /// <summary>True when this permits nothing, so a query need not run at all.</summary>
     public bool IsEmpty => !IsUnrestricted && UriPrefixes.Count == 0;
+
+    /// <summary>The character that turns a wildcard back into a literal.</summary>
+    /// <remarks>
+    /// Not backslash. Postgres accepts it, but it collides with string-literal escaping in enough
+    /// contexts to be worth avoiding when the choice is free.
+    /// </remarks>
+    public const char LikeEscape = '!';
+
+    /// <summary>
+    /// Turns a URI prefix into a <c>LIKE</c> pattern that matches it literally.
+    /// </summary>
+    /// <remarks>
+    /// <c>%</c> and <c>_</c> are wildcards to <c>LIKE</c>, and a grant is not a pattern — it is a
+    /// location. Without this a grant for <c>s3://acme/team_docs/</c> also matches
+    /// <c>s3://acme/teamXdocs/</c>, because <c>_</c> matches any single character. That is a user
+    /// reading a prefix nobody granted them, and underscores in S3 key prefixes are ordinary.
+    /// <para>
+    /// Here rather than in each store, because the escape character chosen in the pattern and the
+    /// one named in the <c>ESCAPE</c> clause have to agree, and they are written in two files.
+    /// </para>
+    /// </remarks>
+    public static string ToLikePattern(string uriPrefix)
+    {
+        ArgumentNullException.ThrowIfNull(uriPrefix);
+
+        // The escape character first, or escaping the wildcards would re-escape its own output.
+        return uriPrefix
+            .Replace("!", "!!", StringComparison.Ordinal)
+            .Replace("%", "!%", StringComparison.Ordinal)
+            .Replace("_", "!_", StringComparison.Ordinal)
+            + "%";
+    }
 }
 
 /// <summary>

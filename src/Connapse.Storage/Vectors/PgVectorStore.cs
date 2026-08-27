@@ -255,10 +255,10 @@ public class PgVectorStore : IVectorStore
                 var ors = new List<string>();
                 for (int i = 0; i < scopes.UriPrefixes.Count; i++)
                 {
-                    ors.Add($"d.resource_uri LIKE @scope{i}");
+                    ors.Add($"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
                     parameters.Add(new NpgsqlParameter($"@scope{i}", NpgsqlDbType.Text)
                     {
-                        Value = scopes.UriPrefixes[i] + "%"
+                        Value = SearchScopes.ToLikePattern(scopes.UriPrefixes[i])
                     });
                 }
 

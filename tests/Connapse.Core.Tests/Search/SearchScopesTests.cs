@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using FluentAssertions;
 using Xunit;
 
@@ -55,6 +55,50 @@ public class SearchScopesTests
     public void Of_WithNull_Throws()
     {
         FluentActions.Invoking(() => SearchScopes.Of(null!))
+            .Should().Throw<ArgumentNullException>();
+    }
+
+    // -- LIKE escaping -------------------------------------------------------------
+
+    [Fact]
+    public void ToLikePattern_EscapesUnderscore_SoAGrantIsNotAWildcard()
+    {
+        // The bypass this closes. "_" matches any single character, so a grant for
+        // s3://acme/team_docs/ also matched s3://acme/teamXdocs/ -- a prefix nobody granted, and
+        // underscores in S3 key prefixes are ordinary rather than exotic.
+        SearchScopes.ToLikePattern("s3://acme/team_docs/")
+            .Should().Be("s3://acme/team!_docs/%");
+    }
+
+    [Fact]
+    public void ToLikePattern_EscapesPercent()
+    {
+        // Worse than the underscore: "%" matches any sequence, so one in a prefix widens the grant
+        // to everything sharing whatever came before it.
+        SearchScopes.ToLikePattern("s3://acme/50%off/")
+            .Should().Be("s3://acme/50!%off/%");
+    }
+
+    [Fact]
+    public void ToLikePattern_EscapesTheEscapeCharacterItself()
+    {
+        // And does it first. Escaping the wildcards before the escape character would re-escape
+        // this method's own output, turning a literal "!" into an escape and shifting everything
+        // after it by one.
+        SearchScopes.ToLikePattern("s3://acme/hey!/")
+            .Should().Be("s3://acme/hey!!/%");
+    }
+
+    [Fact]
+    public void ToLikePattern_LeavesAnOrdinaryPrefixAlone()
+    {
+        SearchScopes.ToLikePattern("s3://acme/team/").Should().Be("s3://acme/team/%");
+    }
+
+    [Fact]
+    public void ToLikePattern_WithNull_Throws()
+    {
+        FluentActions.Invoking(() => SearchScopes.ToLikePattern(null!))
             .Should().Throw<ArgumentNullException>();
     }
 }
