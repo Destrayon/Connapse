@@ -162,3 +162,33 @@ public interface ISearchScopeResolver
     /// </param>
     Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default);
 }
+
+/// <summary>
+/// The rule applied to a resolver's answer before anything acts on it.
+/// </summary>
+/// <remarks>
+/// A pure function rather than a line inside the search pipeline, so the rule can be tested without
+/// a database, an HTTP context, or a resolver.
+/// </remarks>
+public static class ScopeResolution
+{
+    /// <summary>
+    /// Refuses grants handed back for a caller who is not a person.
+    /// </summary>
+    /// <remarks>
+    /// Unrestricted passes through untouched: a deployment that does not filter has made no
+    /// permission decision, and denying here would break every installation that has not opted in.
+    /// An existing denial passes through too, because its reason is more specific than this one.
+    /// </remarks>
+    public static SearchScopes Guard(SearchScopes resolved, Guid? userId)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+
+        if (userId is not null)
+            return resolved;
+
+        return resolved is { IsUnrestricted: false, IsEmpty: false }
+            ? SearchScopes.NoPrincipal
+            : resolved;
+    }
+}
