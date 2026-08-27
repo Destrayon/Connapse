@@ -198,8 +198,14 @@ public class ProvidersPageTests
             PageTestPaths.RepositoryRoot(),
             "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
 
+        // The boundary this guards moved, and the reason has to move with it. The page does now
+        // write a credential -- one row, through IProviderCredentialStore, for Connapse's own
+        // identity -- because the alternative was an operator pasting an admin key into a config
+        // file. What it still must not do is create or edit connections: those name a filesystem
+        // root or a cloud identity that every source inherits, and they are managed on Connections
+        // and nowhere else, deliberately without a REST, CLI or MCP route.
         markup.Should().NotContain("IConnectionStore",
-            "credentials belong on Connections, and a page that reads them will soon write them");
+            "connections are managed on the Connections page, not here");
         markup.Should().NotContain("CreateConnectionRequest");
     }
 
