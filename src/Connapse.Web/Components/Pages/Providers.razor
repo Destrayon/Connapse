@@ -240,21 +240,30 @@
                                 : "Give Connapse its own AWS user — read-only, separate from yours, and revocable on its own. You will run one command and paste the result back.")
                         </p>
 
-                        @* A name it does not already hold. The script refuses to touch an existing
-                           user rather than minting a second key for one — so replacing an identity
-                           whose IAM user still exists needs a different name, and defaulting to the
-                           same one would send every rotation into that refusal. *@
-                        @if (AccessConfirmed)
-                        {
-                            <div class="row g-2 mb-2">
-                                <div class="col-md-5">
-                                    <label class="form-label small mb-1">Name for the new user</label>
-                                    <input class="form-control form-control-sm" @bind="newUserName"
-                                           @bind:event="oninput"
-                                           placeholder="@AwsIamUserSetup.DefaultUserName-2" />
+                        @* Always, not only when the credential works. The script refuses to touch
+                           an existing IAM user rather than minting a second key for one, and the
+                           commonest reason to be on this form is a key that stopped working —
+                           deactivating a key or deleting its policy leaves the user in AWS, so the
+                           default name walks straight into that refusal with no field to change it. *@
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-5">
+                                <label class="form-label small mb-1">
+                                    IAM user name
+                                    @if (AccessConfirmed)
+                                    {
+                                        <span class="text-muted">(must differ from the current one)</span>
+                                    }
+                                </label>
+                                <input class="form-control form-control-sm" @bind="newUserName"
+                                       @bind:event="oninput"
+                                       placeholder="@AwsIamUserSetup.DefaultUserName" />
+                                <div class="form-text">
+                                    If a user by this name already exists in AWS, the script stops
+                                    rather than adding a second key to it. Pick another name, or
+                                    delete the old user first.
                                 </div>
                             </div>
-                        }
+                        </div>
 
                         @* One setup, not a scope picker. The easy path exists to remove
                            decisions, and asking an operator to size an IAM grant against sources
@@ -456,6 +465,16 @@
             newUserName = null;
 
             await RefreshSetups();
+        }
+        catch (Exception ex)
+        {
+            // Caught, and the pasted text deliberately left alone. An exception escaping a Blazor
+            // event handler tears down the circuit, which clears the form — and AWS returns a
+            // secret access key exactly once, so the operator would have to delete the IAM user
+            // and start again over a failure that might be a momentary database error.
+            saveSuccess = false;
+            saveMessage = $"Could not store the key: {ex.Message} " +
+                          "The text you pasted is still below — try again.";
         }
         finally
         {

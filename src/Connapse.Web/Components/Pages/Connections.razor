@@ -1391,6 +1391,28 @@
             return;
         }
 
+        // The region is optional on the form because choosing a bucket fills it in. That leaves one
+        // way to reach a save with it blank -- typing a bucket name instead of picking one, or a
+        // lookup that failed -- and ToConfigJson writes "us-east-1" for a blank, which is a guess.
+        // An S3 client pointed at the wrong region fails as a missing bucket or a permissions
+        // problem, so a wrong region costs more to diagnose than an empty one.
+        if (form.Provider == ConnectionProvider.S3 && string.IsNullOrWhiteSpace(form.Region))
+        {
+            // The first allowed location names a bucket, optionally with a prefix after a slash.
+            string? bucket = AllowedList().FirstOrDefault()?.Split('/')[0]
+                             ?? NullIfBlank(probeTarget);
+
+            if (!string.IsNullOrWhiteSpace(bucket))
+                await FillRegionFromBucket(bucket);
+
+            if (string.IsNullOrWhiteSpace(form.Region))
+            {
+                Fail("Connapse could not work out which region this bucket is in. Enter one, or "
+                     + "choose the bucket from the list so it can be looked up.");
+                return;
+            }
+        }
+
         saving = true;
         try
         {

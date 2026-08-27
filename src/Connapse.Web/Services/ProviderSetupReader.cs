@@ -66,13 +66,35 @@ public class ProviderSetupReader(
     /// succeeded": ambient AWS credentials can resolve on a machine whose owner has never chosen
     /// to use AWS with Connapse, and marking the provider in use on that basis would put work in
     /// front of somebody who asked for none.
+    /// <para>
+    /// Every page, not the first. <c>ListAsync</c> pages, so a single call read the first 200
+    /// connections and stopped — and the answer this produces is a boolean per provider, so one
+    /// S3 connection sorting past the cutoff was enough to report AWS as unused and hide its
+    /// requirements behind an invitation to set it up.
+    /// </para>
     /// </remarks>
     private async Task<HashSet<ConnectionProvider>> InUseProvidersAsync(CancellationToken ct)
     {
+        const int pageSize = 200;
+
         try
         {
-            var all = await connections.ListAsync(0, 200, ct);
-            return all.Select(c => c.Provider).ToHashSet();
+            var found = new HashSet<ConnectionProvider>();
+
+            for (int skip = 0; ; skip += pageSize)
+            {
+                var page = await connections.ListAsync(skip, pageSize, ct);
+                if (page.Count == 0) break;
+
+                foreach (var connection in page)
+                    found.Add(connection.Provider);
+
+                // A short page is the last one. Asking again would be a query guaranteed to return
+                // nothing on every installation that fits in one page, which is most of them.
+                if (page.Count < pageSize) break;
+            }
+
+            return found;
         }
         catch (Exception ex)
         {

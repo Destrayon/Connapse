@@ -267,6 +267,44 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
+    public async Task InUse_FindsAProviderPastTheFirstPage()
+    {
+        // ListAsync pages. A single call read the first 200 connections and stopped, and the answer
+        // is a boolean per provider -- so one S3 connection sorting past the cutoff was enough to
+        // report AWS as unused and hide its requirements behind an invitation to set it up.
+        var connections = Substitute.For<IConnectionStore>();
+
+        var filler = Enumerable.Range(0, 200)
+            .Select(i => new Connection(Guid.NewGuid(), $"sftp-{i}", ConnectionProvider.Sftp,
+                null, null, Created, Created))
+            .ToList();
+
+        IReadOnlyList<Connection> secondPage =
+        [
+            new Connection(Guid.NewGuid(), "the-s3-one", ConnectionProvider.S3,
+                null, null, Created, Created)
+        ];
+
+        // Answered from the skip the reader actually passes. Stubbing the two pages as separate
+        // calls mixes a literal with argument matchers, which NSubstitute does not match on, so
+        // both stubs are ignored and every page comes back null.
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<int>(0) == 0 ? filler : secondPage);
+
+        var reader = new ProviderSetupReader(
+            Options.Create(new AwsSsoSettings()).AsMonitor(),
+            Options.Create(new AzureAdSettings()).AsMonitor(),
+            Substitute.For<IS3Discovery>(), connections,
+            Substitute.For<IProviderCredentialStore>(),
+            new FixedClock(new DateTimeOffset(Created)),
+            NullLogger<ProviderSetupReader>.Instance);
+
+        var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
+
+        aws.InUse.Should().BeTrue();
+    }
+
+    [Fact]
     public void Overall_TakesTheWorstRequirement_AndFailedIsTheWorst()
     {
         var setup = new ProviderSetup("aws", "AWS",

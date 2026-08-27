@@ -169,7 +169,9 @@ public class S3Connector : IConnector, IDisposable
 
         if (!string.IsNullOrWhiteSpace(config.RoleArn))
         {
-            var stsClient = baseCredentials is null
+            // Disposed. ConnectorFactory builds a connector every sync cycle, so without this
+            // each cross-account source leaks a client and its HTTP handler per cycle.
+            using var stsClient = baseCredentials is null
                 ? new AmazonSecurityTokenServiceClient(region)
                 : new AmazonSecurityTokenServiceClient(baseCredentials, region);
             var assumeResponse = stsClient.AssumeRoleAsync(new AssumeRoleRequest

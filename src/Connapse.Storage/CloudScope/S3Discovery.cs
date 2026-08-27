@@ -44,7 +44,7 @@ public class S3Discovery(
     public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<AwsCallerIdentity>.NoCredentials(error
                 ?? "The AWS SDK found no credentials in its provider chain.");
@@ -83,7 +83,7 @@ public class S3Discovery(
     public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
@@ -125,7 +125,7 @@ public class S3Discovery(
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<string>.NoCredentials(error);
 
@@ -216,21 +216,27 @@ public class S3Discovery(
     /// likely state of a fresh deployment.
     /// </para>
     /// </remarks>
-    private (AWSCredentials? Credentials, string? Error) Resolve()
+    private Task<(AWSCredentials? Credentials, string? Error)> ResolveAsync() => Task.Run(() =>
     {
         try
         {
             // Forces a resolve now, so a missing or unreadable credential is an answer here rather
             // than an exception from the first API call.
+            //
+            // On the thread pool, because this is not as cheap as it looks and every caller is an
+            // async method that promised not to block. A refresh reads the credential from
+            // PostgreSQL and decrypts it; with nothing stored, the SDK's ambient chain spends
+            // roughly a second failing to reach EC2 metadata before giving up. Called directly,
+            // all of that ran on the Blazor circuit thread before the first await.
             credentials.GetCredentials();
-            return (credentials, null);
+            return ((AWSCredentials?)credentials, (string?)null);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "No AWS credentials available");
-            return (null, ex.Message);
+            return ((AWSCredentials?)null, (string?)ex.Message);
         }
-    }
+    });
 
     /// <summary>
     /// Names the chain link the credentials came from.

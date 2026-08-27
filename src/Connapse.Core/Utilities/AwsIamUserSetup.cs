@@ -35,9 +35,15 @@ public static class AwsIamUserSetup
     public const string DefaultUserName = "connapse-reader";
 
     /// <summary>The IAM actions the script itself needs.</summary>
+    /// <remarks>
+    /// <c>iam:GetUser</c> is in the list because the script calls it first. Without it the check
+    /// returns AccessDenied, which is indistinguishable from "no such user" at the shell, so the
+    /// script decides an existing user is absent and falls through to <c>create-user</c> — which
+    /// then fails for a different reason and reads as a broken script.
+    /// </remarks>
     public static readonly IReadOnlyList<string> RequiredPermissions =
     [
-        "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey"
+        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey"
     ];
 
     /// <summary>
