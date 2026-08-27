@@ -1,20 +1,5 @@
 ﻿namespace Connapse.Core;
 
-/// <summary>
-/// What a search is allowed to reach, as resource-URI prefixes.
-/// </summary>
-/// <remarks>
-/// Prefixes rather than document ids. A user's grants are a handful of locations —
-/// <c>s3://bucket/team/</c> — while the documents inside them are unbounded, so matching prefixes
-/// costs a predicate whose size is the number of grants and an id list costs one whose size is the
-/// corpus.
-/// <para>
-/// <see cref="Unrestricted"/> and an empty <see cref="Matches"/> are opposites and must never
-/// be confused: the first is "this deployment does not filter", the second is "this user reaches
-/// nothing". A type that represented both as an empty list would turn a misconfiguration into an
-/// open door, which is the failure this distinction exists to prevent.
-/// </para>
-/// </remarks>
 /// <summary>Why a search may reach what it may.</summary>
 /// <remarks>
 /// Three of these mean "nothing", and they are kept apart because they send whoever investigates to
@@ -40,6 +25,21 @@ public enum ScopeOutcome
     ResolverFailed,
 }
 
+/// <summary>
+/// What a search is allowed to reach, as resource-URI prefixes.
+/// </summary>
+/// <remarks>
+/// Prefixes rather than document ids. A user's grants are a handful of locations —
+/// <c>s3://bucket/team/</c> — while the documents inside them are unbounded, so matching prefixes
+/// costs a predicate whose size is the number of grants and an id list costs one whose size is the
+/// corpus.
+/// <para>
+/// <see cref="Unrestricted"/> and an empty <see cref="Matches"/> are opposites and must never
+/// be confused: the first is "this deployment does not filter", the second is "this user reaches
+/// nothing". A type that represented both as an empty list would turn a misconfiguration into an
+/// open door, which is the failure this distinction exists to prevent.
+/// </para>
+/// </remarks>
 public sealed record SearchScopes
 {
     private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches, ScopeOutcome outcome)
