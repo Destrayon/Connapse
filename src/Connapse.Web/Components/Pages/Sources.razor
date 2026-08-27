@@ -188,7 +188,7 @@
                                 <td colspan="7" class="pt-0 border-top-0">
                                     <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
                                         <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
-                                        here have no recorded location.
+                                        here @(unlocatedCount == 1 ? "has" : "have") no recorded location.
                                         Re-sync this source to record where they came from — until then they cannot be
                                         reached once per-user permissions are switched on.
                                     </div>
@@ -563,7 +563,6 @@
             sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
             connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
             connectionNames = connections.ToDictionary(c => c.Id, c => c.Name);
-            await LoadUnlocatedAsync();
         }
         catch (Exception ex)
         {
@@ -580,6 +579,13 @@
         {
             loading = false;
         }
+
+        // Deliberately outside the try/catch above: this is a separate query against a separate
+        // report, and folding it into the source load's catch meant a report failure reset
+        // `sources` and `connections` to empty and showed "Could not load sources" even though
+        // both had already loaded successfully moments earlier. A cosmetic warning must not be
+        // able to take the whole page down with it.
+        await LoadUnlocatedAsync();
     }
 
     /// <summary>
@@ -589,8 +595,20 @@
     /// </summary>
     private async Task LoadUnlocatedAsync()
     {
-        var rows = await CoordinateReport.UnlocatedBySourceAsync();
-        _unlocated = rows.ToDictionary(r => r.SourceId, r => r.DocumentCount);
+        try
+        {
+            var rows = await CoordinateReport.UnlocatedBySourceAsync();
+            _unlocated = rows.ToDictionary(r => r.SourceId, r => r.DocumentCount);
+        }
+        catch (Exception)
+        {
+            // No operator-visible signal on purpose. The warning's absence is already this
+            // page's safe default when nothing is known to be unlocated, so a failed report
+            // query and "nothing to warn about" look the same to the reader — which is
+            // correct here, because an error banner about a diagnostic report would alarm the
+            // operator over something that isn't the source load itself failing.
+            _unlocated = new Dictionary<Guid, int>();
+        }
     }
 
     private string ConnectionName(Guid connectionId) =>
