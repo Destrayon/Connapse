@@ -3,6 +3,8 @@
 @attribute [Authorize]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
+@using Connapse.Core.Utilities
+@using System.Text.Json
 
 @using Connapse.Web.Services
 @inject ISourceStore SourceStore
@@ -259,12 +261,48 @@
                        one produces a source that silently syncs nothing. *@
                     @if (selectedProvider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob)
                     {
+                        @* The connection already names which buckets it permits, so asking for
+                           one in free text made the reader supply a fact Connapse was holding —
+                           and a name typed from memory saves cleanly, then fails at the first
+                           sync or is refused by the scope preflight afterwards. *@
                         <div class="mb-3">
                             <label class="form-label">
                                 @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
                             </label>
-                            <input class="form-control font-monospace" @bind="form.Container"
-                                   placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+
+                            @if (AllowedScopes() is { Count: > 0 } allowed)
+                            {
+                                <select class="form-select font-monospace" @bind="form.Container">
+                                    <option value="">Choose one…</option>
+                                    @foreach (string scope in allowed)
+                                    {
+                                        <option value="@scope">@scope</option>
+                                    }
+                                </select>
+                                @* Named rather than linked. Every link to the Connections page
+                                   here sits inside an isAdmin block, and a test counts them —
+                                   this dialog opens only from an administrator's button, but that
+                                   is an indirect guarantee the test cannot see, and weakening the
+                                   count to accommodate two help links would cost more than the
+                                   links are worth. *@
+                                <div class="form-text">
+                                    @(selectedProvider == ConnectionProvider.S3 ? "Buckets" : "Containers")
+                                    this connection is allowed to read. To use another, add it to
+                                    that connection's allowed locations on the Connections page.
+                                </div>
+                            }
+                            else
+                            {
+                                <input class="form-control font-monospace" @bind="form.Container"
+                                       placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+                                <div class="form-text">
+                                    Which
+                                    @(selectedProvider == ConnectionProvider.S3 ? "bucket" : "container")
+                                    inside this connection the source reads. This connection lists
+                                    no allowed locations, so it permits any its credential can
+                                    reach — naming them on the Connections page bounds that.
+                                </div>
+                            }
                         </div>
 
                         <div class="mb-3">
@@ -378,8 +416,40 @@
     private string? createError;
     private string? createWarning;
 
-    private ConnectionProvider? selectedProvider =>
-        connections.FirstOrDefault(c => c.Id == form?.ConnectionId)?.Provider;
+    private ConnectionProvider? selectedProvider => SelectedConnection?.Provider;
+
+    private Connection? SelectedConnection =>
+        connections.FirstOrDefault(c => c.Id == form?.ConnectionId);
+
+    /// <summary>
+    /// The buckets or containers the chosen connection permits, or null when it permits any.
+    /// </summary>
+    /// <remarks>
+    /// Read from the connection rather than probed: this is about what the connection allows, not
+    /// what exists in the cloud account, and those are deliberately different questions. A bucket
+    /// that exists but is outside the allowlist is refused at sync time, so offering it here would
+    /// be offering a choice that cannot work.
+    /// <para>
+    /// Entries may name a prefix after a slash. They are offered whole, because an entry of
+    /// <c>bucket/team</c> permits only that subtree and the bucket alone would be refused.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyList<string>? AllowedScopes()
+    {
+        if (SelectedConnection?.ConfigJson is not { Length: > 0 } json) return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            // An unreadable configuration is not a reason to block the form. Falling through to
+            // free text leaves the operator exactly where they were before this existed.
+            return null;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
