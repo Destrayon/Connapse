@@ -1,4 +1,4 @@
-@page "/profile/integrations"
+﻿@page "/profile/integrations"
 @layout ProfileLayout
 @attribute [Authorize]
 @using Connapse.Core
@@ -34,9 +34,13 @@
         <h2 class="h5 mb-0">Cloud Identities</h2>
     </div>
     <p class="text-muted small mb-4">
-        Link your cloud accounts so search results from an S3 or Azure Blob source are narrowed to
-        what your own cloud permissions allow. Only identity metadata is stored — no access keys or
-        tokens, and linking does not grant Connapse access to your storage.
+        Link your cloud accounts so Connapse knows who you are in AWS or Azure. Only identity
+        metadata is stored — no access keys or tokens, and linking does not grant Connapse access to
+        your storage.
+        <br />
+        <strong>Linking does not yet filter your search results.</strong> Per-user search
+        permissions are not implemented, so every Connapse user can currently search everything
+        indexed, whether or not an account is linked. See issue #421.
     </p>
 
     <div class="row g-3">
@@ -129,8 +133,9 @@
                     else
                     {
                         <p class="text-muted small mb-0">
-                            Sign in with AWS IAM Identity Center so results from S3 sources are limited to the
-                            accounts your SSO identity covers.
+                            Sign in with AWS IAM Identity Center to record which AWS accounts your
+                            SSO identity covers. Connapse stores this for future per-user search
+                            filtering; nothing filters on it today.
                         </p>
                     }
                 </div>
