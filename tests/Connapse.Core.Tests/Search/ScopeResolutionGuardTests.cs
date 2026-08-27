@@ -17,7 +17,7 @@ public class ScopeResolutionGuardTests
         // asked. Refused here rather than trusting every implementation to remember, because the
         // surfaces that legitimately have no user -- MCP, personal access tokens -- are exactly the
         // ones where believing it would be a hole rather than a bug.
-        var resolved = SearchScopes.Of(["s3://acme/team/"]);
+        var resolved = SearchScopes.OfPrefixes(["s3://acme/team/"]);
 
         ScopeResolution.Guard(resolved, userId: null)
             .Should().BeSameAs(SearchScopes.NoPrincipal);
@@ -35,14 +35,14 @@ public class ScopeResolutionGuardTests
     [Fact]
     public void Guard_WhenUserIsPresent_PassesTheAnswerThrough()
     {
-        var resolved = SearchScopes.Of(["s3://acme/team/"]);
+        var resolved = SearchScopes.OfPrefixes(["s3://acme/team/"]);
 
         ScopeResolution.Guard(resolved, userId: Guid.NewGuid())
             .Should().BeSameAs(resolved);
     }
 
     [Fact]
-    public void Guard_WhenNoUserAndResolverDenied_KeepsTheReason()
+    public void Guard_WhenNoUserAndResolvedToNoGrants_KeepsTheReason()
     {
         // Already a denial, and its reason is more specific than NoPrincipal would be.
         ScopeResolution.Guard(SearchScopes.None, userId: null)

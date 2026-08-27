@@ -89,7 +89,15 @@ public sealed record SearchScopes
     }
 
     /// <summary>Only documents whose resource URI starts with one of these.</summary>
-    public static SearchScopes Of(IReadOnlyList<string> uriPrefixes)
+    /// <remarks>
+    /// The caller owns normalisation: every string here is trusted as an already-normalised prefix
+    /// and used as-is. Anything that originated from an S3 access grant must be run through
+    /// <see cref="GrantScope.Parse"/> first, not handed to this method directly — AWS reports a
+    /// whole-bucket grant as <c>s3://acme*</c>, and without the confining trailing slash that
+    /// <see cref="GrantScope.Parse"/> adds, the same prefix also matches an unrelated bucket named
+    /// <c>s3://acme-secrets/...</c>.
+    /// </remarks>
+    public static SearchScopes OfPrefixes(IReadOnlyList<string> uriPrefixes)
     {
         ArgumentNullException.ThrowIfNull(uriPrefixes);
 

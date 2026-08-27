@@ -26,7 +26,7 @@ public class SearchScopesTests
     [Fact]
     public void Of_WithPrefixes_RestrictsToThem()
     {
-        var scopes = SearchScopes.Of(["s3://acme/team/", "s3://acme/shared/"]);
+        var scopes = SearchScopes.OfPrefixes(["s3://acme/team/", "s3://acme/shared/"]);
 
         scopes.IsUnrestricted.Should().BeFalse();
         scopes.IsEmpty.Should().BeFalse();
@@ -38,8 +38,8 @@ public class SearchScopesTests
     {
         // A resolver that returns an empty or blank-filled list means the user has no grants. The
         // dangerous reading is "no restrictions", and this is where that reading is refused.
-        SearchScopes.Of(Array.Empty<string>()).Should().BeSameAs(SearchScopes.None);
-        SearchScopes.Of(["", "   "]).Should().BeSameAs(SearchScopes.None);
+        SearchScopes.OfPrefixes([]).Should().BeSameAs(SearchScopes.None);
+        SearchScopes.OfPrefixes(["", "   "]).Should().BeSameAs(SearchScopes.None);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class SearchScopesTests
     {
         // A blank prefix would match every URI, so one stray empty string in a resolver's output
         // would silently grant everything to a user who should see one bucket.
-        SearchScopes.Of(["s3://acme/team/", "", "s3://acme/shared/"])
+        SearchScopes.OfPrefixes(["s3://acme/team/", "", "s3://acme/shared/"])
             .Matches.Select(m => m.Value)
             .Should().BeEquivalentTo(["s3://acme/team/", "s3://acme/shared/"]);
     }
@@ -55,7 +55,7 @@ public class SearchScopesTests
     [Fact]
     public void Of_WithNull_Throws()
     {
-        FluentActions.Invoking(() => SearchScopes.Of((IReadOnlyList<string>)null!))
+        FluentActions.Invoking(() => SearchScopes.OfPrefixes(null!))
             .Should().Throw<ArgumentNullException>();
     }
 
@@ -75,7 +75,7 @@ public class SearchScopesTests
     [Fact]
     public void Of_WithStrings_TreatsEachAsAPrefix()
     {
-        SearchScopes.Of(["s3://acme/team/"]).Matches
+        SearchScopes.OfPrefixes(["s3://acme/team/"]).Matches
             .Should().BeEquivalentTo([new GrantMatch("s3://acme/team/", IsExact: false)]);
     }
 
@@ -142,6 +142,6 @@ public class SearchScopesTests
     public void Outcome_SeparatesNotFilteringFromReachingEverything()
     {
         SearchScopes.Unrestricted.Outcome.Should().Be(ScopeOutcome.Unrestricted);
-        SearchScopes.Of(["s3://acme/team/"]).Outcome.Should().Be(ScopeOutcome.Granted);
+        SearchScopes.OfPrefixes(["s3://acme/team/"]).Outcome.Should().Be(ScopeOutcome.Granted);
     }
 }

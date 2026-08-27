@@ -189,8 +189,8 @@ public class PgVectorStore : IVectorStore
     public async Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
         float[] queryVector,
         int topK,
-        Dictionary<string, string>? filters = null,
-        SearchScopes? scopes = null,
+        Dictionary<string, string>? filters,
+        SearchScopes scopes,
         CancellationToken ct = default)
     {
         if (queryVector == null || queryVector.Length == 0)
@@ -239,7 +239,7 @@ public class PgVectorStore : IVectorStore
         // post-filter would take the top K and then remove most of them, so a user with narrow
         // access would get a handful of hits for a query that had plenty — worse answers for
         // being less privileged, with nothing on screen to say so.
-        if (scopes is { IsUnrestricted: false })
+        if (!scopes.IsUnrestricted)
         {
             if (scopes.IsEmpty)
             {

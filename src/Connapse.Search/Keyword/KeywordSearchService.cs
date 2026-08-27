@@ -84,8 +84,9 @@ public class KeywordSearchService
                 {
                     int scopeIdx = parameters.Count;
 
-                    // The same rule as the vector side, and it has to be: a hit reachable through
-                    // one mode and not the other is a leak through whichever the caller chooses.
+                    // A grant scoped to one object is exact-matched rather than treated as a
+                    // prefix: as a prefix it would also let through a sibling like
+                    // "report.pdf.bak", a different object nobody granted.
                     ors.Add(match.IsExact
                         ? $"d.resource_uri = {{{scopeIdx}}}"
                         : $"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");

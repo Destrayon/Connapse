@@ -5,11 +5,10 @@ public interface IVectorStore
     Task UpsertAsync(string id, float[] vector, Dictionary<string, string> metadata, CancellationToken ct = default);
     Task UpsertBatchAsync(IReadOnlyList<(string Id, float[] Vector, Dictionary<string, string> Metadata)> items, CancellationToken ct = default);
     /// <param name="scopes">
-    /// What the caller may reach. Null means unrestricted, which is correct for the internal
-    /// callers that are not answering a user's query — clustering and reindex read the whole
-    /// corpus by design. The search path always passes a resolved value.
+    /// What the caller may reach. Required rather than optional: a default would make forgetting
+    /// it compile, and forgetting it here returns everything to everyone.
     /// </param>
-    Task<IReadOnlyList<VectorSearchResult>> SearchAsync(float[] queryVector, int topK, Dictionary<string, string>? filters = null, SearchScopes? scopes = null, CancellationToken ct = default);
+    Task<IReadOnlyList<VectorSearchResult>> SearchAsync(float[] queryVector, int topK, Dictionary<string, string>? filters, SearchScopes scopes, CancellationToken ct = default);
     Task DeleteAsync(string id, CancellationToken ct = default);
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
 

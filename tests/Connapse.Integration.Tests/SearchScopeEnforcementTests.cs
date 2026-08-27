@@ -96,7 +96,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         var containerId = await SeedAsync(db);
 
         var hits = await Build(db).SearchAsync(
-            Term, For(containerId), SearchScopes.Of(["s3://acme/team/"]));
+            Term, For(containerId), SearchScopes.OfPrefixes(["s3://acme/team/"]));
 
         hits.Should().ContainSingle();
         hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("mine.md");
@@ -174,7 +174,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         (await service.SearchAsync(Term, For(container.Id), SearchScopes.Unrestricted))
             .Should().ContainSingle("the document is findable when nothing is filtering");
 
-        (await service.SearchAsync(Term, For(container.Id), SearchScopes.Of(["s3://acme/"])))
+        (await service.SearchAsync(Term, For(container.Id), SearchScopes.OfPrefixes(["s3://acme/"])))
             .Should().BeEmpty("a document with no location cannot be inside any scope");
     }
 
@@ -223,7 +223,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         await db.SaveChangesAsync();
 
         var hits = await Build(db).SearchAsync(
-            Term, For(container.Id), SearchScopes.Of(["s3://acme/team_docs/"]));
+            Term, For(container.Id), SearchScopes.OfPrefixes(["s3://acme/team_docs/"]));
 
         hits.Should().ContainSingle("only the granted prefix is reachable");
         hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
