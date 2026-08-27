@@ -1,4 +1,4 @@
-﻿@page "/sources"
+@page "/sources"
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Connapse.Core
@@ -270,9 +270,32 @@
                                 @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
                             </label>
 
-                            @if (AllowedScopes() is { Count: > 0 } allowed)
+                            @{ var choices = AllowedScopes(); }
+
+                            @if (choices.Unreadable)
                             {
-                                <select class="form-select font-monospace" @bind="form.Container">
+                                @* Not the same as "no allowlist", and saying so matters: the free-text
+                                   branch below tells the reader this connection permits anything its
+                                   credential can reach, which for an unreadable configuration is a
+                                   claim nothing supports. *@
+                                <div class="alert alert-warning py-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    This connection's allowed locations cannot be read, so Connapse
+                                    cannot say which
+                                    @(selectedProvider == ConnectionProvider.S3 ? "buckets" : "containers")
+                                    it permits. Fix them on the Connections page before adding a
+                                    source — a source saved now would be refused at sync time.
+                                </div>
+                            }
+                            else if (choices.Entries is { Count: > 0 } allowed)
+                            {
+                                @* Bound to the entry, which is then split across two fields. An entry
+                                   may name a prefix — bucket/team — and writing that whole string into
+                                   Container puts "bucket/team" in bucketName, which the S3 and Azure
+                                   connectors use as a literal bucket or container name. The source
+                                   passes preflight and then never syncs. *@
+                                <select class="form-select font-monospace"
+                                        value="@selectedScope" @onchange="SelectScope">
                                     <option value="">Choose one…</option>
                                     @foreach (string scope in allowed)
                                     {
@@ -434,22 +457,67 @@
     /// <c>bucket/team</c> permits only that subtree and the bucket alone would be refused.
     /// </para>
     /// </remarks>
-    private IReadOnlyList<string>? AllowedScopes()
-    {
-        if (SelectedConnection?.ConfigJson is not { Length: > 0 } json) return null;
+    /// <summary>What a connection permits, and whether that could be determined at all.</summary>
+    /// <param name="Entries">Allowlist entries. Empty means the connection bounds nothing.</param>
+    /// <param name="Unreadable">
+    /// The configuration exists and could not be understood. Distinct from an empty allowlist,
+    /// because the two call for opposite messages — one permits everything, the other permits
+    /// nothing and needs fixing.
+    /// </param>
+    private sealed record ScopeChoices(IReadOnlyList<string> Entries, bool Unreadable);
 
+    private ScopeChoices AllowedScopes()
+    {
+        if (SelectedConnection?.ConfigJson is not { Length: > 0 } json)
+            return new ScopeChoices([], Unreadable: false);
+
+        IReadOnlyList<string>? entries;
         try
         {
             using var document = JsonDocument.Parse(json);
-            return StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
+            entries = StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
         }
         catch (JsonException)
         {
-            // An unreadable configuration is not a reason to block the form. Falling through to
-            // free text leaves the operator exactly where they were before this existed.
-            return null;
+            return new ScopeChoices([], Unreadable: true);
         }
+
+        // A blank entry is the reader's sentinel for present-but-unusable — a non-array value, a
+        // number where a string belongs. It is not an offer, and rendering it produced a dropdown
+        // with one empty option and no explanation.
+        if (entries is null)
+            return new ScopeChoices([], Unreadable: false);
+
+        return entries.Any(string.IsNullOrWhiteSpace)
+            ? new ScopeChoices([], Unreadable: true)
+            : new ScopeChoices(entries, Unreadable: false);
     }
+
+    /// <summary>The allowlist entry currently chosen, kept apart from the two fields it fills.</summary>
+    /// <remarks>
+    /// Separate state rather than a computed round-trip, so that narrowing the prefix by hand after
+    /// choosing a grant does not blank the dropdown. The entry records which grant was picked; the
+    /// prefix field records where inside it the source points.
+    /// </remarks>
+    private string? selectedScope;
+
+    private void SelectScope(ChangeEventArgs e)
+    {
+        selectedScope = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(selectedScope))
+        {
+            form!.Container = null;
+            form.Prefix = null;
+            return;
+        }
+
+        var (container, prefix) = StorageLocationPolicy.SplitEntry(selectedScope);
+        form!.Container = container;
+        form.Prefix = prefix;
+    }
+
+
 
     protected override async Task OnInitializedAsync()
     {
