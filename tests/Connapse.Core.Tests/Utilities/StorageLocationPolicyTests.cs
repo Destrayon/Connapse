@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Core.Utilities;
 using FluentAssertions;
@@ -253,5 +253,72 @@ public class StorageLocationPolicyTests
         read.Should().NotBeNull();
         StorageLocationPolicy.Evaluate(read, "any-bucket", null)
             .Should().Be(StorageLocationDecision.Denied);
+    }
+
+    // -- Splitting an entry back into the two fields a source stores -----------------
+
+    [Theory]
+    [InlineData("my-bucket", "my-bucket", null)]
+    [InlineData("my-bucket/team", "my-bucket", "team")]
+    [InlineData("my-bucket/team/", "my-bucket", "team/")]
+    [InlineData("my-bucket/team/docs", "my-bucket", "team/docs")]
+    [InlineData("  my-bucket/team  ", "my-bucket", "team")]
+    [InlineData("/my-bucket/team", "my-bucket", "team")]
+    [InlineData("my-bucket/", "my-bucket", null)]
+    [InlineData("my-bucket\\team", "my-bucket", "team")]
+    public void SplitEntry_SeparatesTheContainerFromThePrefix(
+        string entry, string container, string? prefix)
+    {
+        var split = StorageLocationPolicy.SplitEntry(entry);
+
+        split.Container.Should().Be(container);
+        split.Prefix.Should().Be(prefix);
+    }
+
+    [Fact]
+    public void SplitEntry_KeepsATrailingSlashOnThePrefix()
+    {
+        // Evaluate normalises it away, but the connectors use the prefix as a literal S3 key
+        // prefix -- where "team" also matches "team-archive/" and "team/" does not. Trimming it
+        // here would widen the source past what the connection allows, silently.
+        StorageLocationPolicy.SplitEntry("my-bucket/team/").Prefix.Should().Be("team/");
+    }
+
+    [Theory]
+    [InlineData("my-bucket")]
+    [InlineData("my-bucket/team")]
+    [InlineData("my-bucket/team/")]
+    [InlineData("my-bucket/team/docs")]
+    [InlineData("/my-bucket/team/")]
+    public void SplitEntry_RoundTripsThroughEvaluate(string entry)
+    {
+        // The property that matters, and the reason this lives beside Evaluate rather than in the
+        // page that offers the entries. A source built from an entry must be permitted by that
+        // entry -- otherwise the form hands somebody a choice the enforcement path then refuses,
+        // or worse, one the connector cannot use at all.
+        var (container, prefix) = StorageLocationPolicy.SplitEntry(entry);
+
+        StorageLocationPolicy.Evaluate([entry], container, prefix)
+            .Should().Be(StorageLocationDecision.Allowed);
+    }
+
+    [Fact]
+    public void SplitEntry_DoesNotHandTheWholeEntryToTheConnectorAsABucketName()
+    {
+        // The bug this replaces: the picker wrote "bucket/team" into the source's bucketName. It
+        // passed preflight, because the allowlist check is about the pair -- and then the S3
+        // connector used it as a literal bucket name and the source never synced.
+        StorageLocationPolicy.SplitEntry("my-bucket/team").Container
+            .Should().NotContain("/");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SplitEntry_WithNothingUsable_Throws(string? entry)
+    {
+        FluentActions.Invoking(() => StorageLocationPolicy.SplitEntry(entry!))
+            .Should().Throw<ArgumentException>();
     }
 }

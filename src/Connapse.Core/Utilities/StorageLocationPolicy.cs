@@ -130,6 +130,36 @@ public static class StorageLocationPolicy
     }
 
     /// <summary>
+    /// Splits an allowlist entry into the container and the prefix within it.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the page that offers these entries, because the split has to agree with
+    /// <see cref="Evaluate"/> and the two drifting apart is the whole failure this class exists to
+    /// prevent. The property worth holding is round-trip: splitting an entry and feeding the parts
+    /// back must be <see cref="StorageLocationDecision.Allowed"/> against that same entry.
+    /// <para>
+    /// The prefix keeps whatever trailing slash the entry had. <c>Evaluate</c> normalises it away,
+    /// but the connectors use it as a literal key prefix — where <c>team/</c> and <c>team</c>
+    /// differ, because the second also matches <c>team-archive/</c>.
+    /// </para>
+    /// </remarks>
+    public static (string Container, string? Prefix) SplitEntry(string entry)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entry);
+
+        string trimmed = entry.Replace('\\', '/').Trim().TrimStart('/');
+        int slash = trimmed.IndexOf('/');
+
+        if (slash < 0)
+            return (trimmed, null);
+
+        string container = trimmed[..slash];
+        string prefix = trimmed[(slash + 1)..];
+
+        return (container, prefix.Length == 0 ? null : prefix);
+    }
+
+    /// <summary>
     /// Collapses a location to a comparable form. Bucket and container names are
     /// case-sensitive in both S3 and Azure, so this never changes case.
     /// </summary>

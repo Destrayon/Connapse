@@ -1,8 +1,10 @@
-﻿@page "/sources"
+@page "/sources"
 @rendermode InteractiveServer
 @attribute [Authorize]
 @using Connapse.Core
 @using Connapse.Core.Interfaces
+@using Connapse.Core.Utilities
+@using System.Text.Json
 
 @using Connapse.Web.Services
 @inject ISourceStore SourceStore
@@ -263,12 +265,71 @@
                        one produces a source that silently syncs nothing. *@
                     @if (selectedProvider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob)
                     {
+                        @* The connection already names which buckets it permits, so asking for
+                           one in free text made the reader supply a fact Connapse was holding —
+                           and a name typed from memory saves cleanly, then fails at the first
+                           sync or is refused by the scope preflight afterwards. *@
                         <div class="mb-3">
                             <label class="form-label">
                                 @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
                             </label>
-                            <input class="form-control font-monospace" @bind="form.Container"
-                                   placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+
+                            @{ var choices = AllowedScopes(); }
+
+                            @if (choices.Unreadable)
+                            {
+                                @* Not the same as "no allowlist", and saying so matters: the free-text
+                                   branch below tells the reader this connection permits anything its
+                                   credential can reach, which for an unreadable configuration is a
+                                   claim nothing supports. *@
+                                <div class="alert alert-warning py-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    This connection's allowed locations cannot be read, so Connapse
+                                    cannot say which
+                                    @(selectedProvider == ConnectionProvider.S3 ? "buckets" : "containers")
+                                    it permits. Fix them on the Connections page before adding a
+                                    source — a source saved now would be refused at sync time.
+                                </div>
+                            }
+                            else if (choices.Entries is { Count: > 0 } allowed)
+                            {
+                                @* Bound to the entry, which is then split across two fields. An entry
+                                   may name a prefix — bucket/team — and writing that whole string into
+                                   Container puts "bucket/team" in bucketName, which the S3 and Azure
+                                   connectors use as a literal bucket or container name. The source
+                                   passes preflight and then never syncs. *@
+                                <select class="form-select font-monospace"
+                                        value="@selectedScope" @onchange="SelectScope">
+                                    <option value="">Choose one…</option>
+                                    @foreach (string scope in allowed)
+                                    {
+                                        <option value="@scope">@scope</option>
+                                    }
+                                </select>
+                                @* Named rather than linked. Every link to the Connections page
+                                   here sits inside an isAdmin block, and a test counts them —
+                                   this dialog opens only from an administrator's button, but that
+                                   is an indirect guarantee the test cannot see, and weakening the
+                                   count to accommodate two help links would cost more than the
+                                   links are worth. *@
+                                <div class="form-text">
+                                    @(selectedProvider == ConnectionProvider.S3 ? "Buckets" : "Containers")
+                                    this connection is allowed to read. To use another, add it to
+                                    that connection's allowed locations on the Connections page.
+                                </div>
+                            }
+                            else
+                            {
+                                <input class="form-control font-monospace" @bind="form.Container"
+                                       placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+                                <div class="form-text">
+                                    Which
+                                    @(selectedProvider == ConnectionProvider.S3 ? "bucket" : "container")
+                                    inside this connection the source reads. This connection lists
+                                    no allowed locations, so it permits any its credential can
+                                    reach — naming them on the Connections page bounds that.
+                                </div>
+                            }
                         </div>
 
                         <div class="mb-3">
@@ -382,8 +443,85 @@
     private string? createError;
     private string? createWarning;
 
-    private ConnectionProvider? selectedProvider =>
-        connections.FirstOrDefault(c => c.Id == form?.ConnectionId)?.Provider;
+    private ConnectionProvider? selectedProvider => SelectedConnection?.Provider;
+
+    private Connection? SelectedConnection =>
+        connections.FirstOrDefault(c => c.Id == form?.ConnectionId);
+
+    /// <summary>
+    /// The buckets or containers the chosen connection permits, or null when it permits any.
+    /// </summary>
+    /// <remarks>
+    /// Read from the connection rather than probed: this is about what the connection allows, not
+    /// what exists in the cloud account, and those are deliberately different questions. A bucket
+    /// that exists but is outside the allowlist is refused at sync time, so offering it here would
+    /// be offering a choice that cannot work.
+    /// <para>
+    /// Entries may name a prefix after a slash. They are offered whole, because an entry of
+    /// <c>bucket/team</c> permits only that subtree and the bucket alone would be refused.
+    /// </para>
+    /// </remarks>
+    /// <summary>What a connection permits, and whether that could be determined at all.</summary>
+    /// <param name="Entries">Allowlist entries. Empty means the connection bounds nothing.</param>
+    /// <param name="Unreadable">
+    /// The configuration exists and could not be understood. Distinct from an empty allowlist,
+    /// because the two call for opposite messages — one permits everything, the other permits
+    /// nothing and needs fixing.
+    /// </param>
+    private sealed record ScopeChoices(IReadOnlyList<string> Entries, bool Unreadable);
+
+    private ScopeChoices AllowedScopes()
+    {
+        if (SelectedConnection?.ConfigJson is not { Length: > 0 } json)
+            return new ScopeChoices([], Unreadable: false);
+
+        IReadOnlyList<string>? entries;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            entries = StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return new ScopeChoices([], Unreadable: true);
+        }
+
+        // A blank entry is the reader's sentinel for present-but-unusable — a non-array value, a
+        // number where a string belongs. It is not an offer, and rendering it produced a dropdown
+        // with one empty option and no explanation.
+        if (entries is null)
+            return new ScopeChoices([], Unreadable: false);
+
+        return entries.Any(string.IsNullOrWhiteSpace)
+            ? new ScopeChoices([], Unreadable: true)
+            : new ScopeChoices(entries, Unreadable: false);
+    }
+
+    /// <summary>The allowlist entry currently chosen, kept apart from the two fields it fills.</summary>
+    /// <remarks>
+    /// Separate state rather than a computed round-trip, so that narrowing the prefix by hand after
+    /// choosing a grant does not blank the dropdown. The entry records which grant was picked; the
+    /// prefix field records where inside it the source points.
+    /// </remarks>
+    private string? selectedScope;
+
+    private void SelectScope(ChangeEventArgs e)
+    {
+        selectedScope = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(selectedScope))
+        {
+            form!.Container = null;
+            form.Prefix = null;
+            return;
+        }
+
+        var (container, prefix) = StorageLocationPolicy.SplitEntry(selectedScope);
+        form!.Container = container;
+        form.Prefix = prefix;
+    }
+
+
 
     protected override async Task OnInitializedAsync()
     {
