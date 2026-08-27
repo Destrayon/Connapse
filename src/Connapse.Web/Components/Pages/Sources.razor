@@ -13,6 +13,7 @@
 @inject IAuditLogger AuditLogger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject SourceScopePreflight Preflight
+@inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -176,6 +177,20 @@
                                     <div class="alert alert-danger py-2 mb-0 small">
                                         <span class="bi-exclamation-triangle me-1"></span>
                                         @source.LastSyncError
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+
+                        @if (isAdmin && _unlocated.TryGetValue(source.Id, out int unlocatedCount))
+                        {
+                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                                <td colspan="7" class="pt-0 border-top-0">
+                                    <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
+                                        <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
+                                        here have no recorded location.
+                                        Re-sync this source to record where they came from — until then they cannot be
+                                        reached once per-user permissions are switched on.
                                     </div>
                                 </td>
                             </tr>
@@ -433,6 +448,14 @@
     private bool loading = true;
     private bool isAdmin;
 
+    /// <summary>
+    /// Sources holding documents with no recorded <c>resource_uri</c>, keyed by source id, with the
+    /// count of affected documents. Populated from <see cref="DocumentCoordinateReport"/> so this
+    /// page never guesses at what filtering would hide.
+    /// </summary>
+    private IReadOnlyDictionary<Guid, int> _unlocated =
+        new Dictionary<Guid, int>();
+
     private Guid? syncing;
     private Source? pendingDelete;
     private string? message;
@@ -540,6 +563,7 @@
             sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
             connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
             connectionNames = connections.ToDictionary(c => c.Id, c => c.Name);
+            await LoadUnlocatedAsync();
         }
         catch (Exception ex)
         {
@@ -556,6 +580,17 @@
         {
             loading = false;
         }
+    }
+
+    /// <summary>
+    /// Refreshes which sources hold documents with no recorded location, so the warning clears as
+    /// soon as a re-sync records one — this runs every time <see cref="LoadAsync"/> does, which
+    /// includes right after a sync completes, not only on first page load.
+    /// </summary>
+    private async Task LoadUnlocatedAsync()
+    {
+        var rows = await CoordinateReport.UnlocatedBySourceAsync();
+        _unlocated = rows.ToDictionary(r => r.SourceId, r => r.DocumentCount);
     }
 
     private string ConnectionName(Guid connectionId) =>
