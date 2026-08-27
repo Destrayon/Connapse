@@ -9,7 +9,7 @@
 /// costs a predicate whose size is the number of grants and an id list costs one whose size is the
 /// corpus.
 /// <para>
-/// <see cref="Unrestricted"/> and an empty <see cref="UriPrefixes"/> are opposites and must never
+/// <see cref="Unrestricted"/> and an empty <see cref="Matches"/> are opposites and must never
 /// be confused: the first is "this deployment does not filter", the second is "this user reaches
 /// nothing". A type that represented both as an empty list would turn a misconfiguration into an
 /// open door, which is the failure this distinction exists to prevent.
@@ -17,10 +17,10 @@
 /// </remarks>
 public sealed record SearchScopes
 {
-    private SearchScopes(bool unrestricted, IReadOnlyList<string> uriPrefixes)
+    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches)
     {
         IsUnrestricted = unrestricted;
-        UriPrefixes = uriPrefixes;
+        Matches = matches;
     }
 
     /// <summary>
@@ -36,21 +36,33 @@ public sealed record SearchScopes
     /// <summary>Nothing is reachable. A resolved user with no grants.</summary>
     public static readonly SearchScopes None = new(false, []);
 
+    /// <summary>Only documents matching one of these rules.</summary>
+    public static SearchScopes Of(IReadOnlyList<GrantMatch> matches)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+
+        var usable = matches.Where(m => !string.IsNullOrWhiteSpace(m.Value)).ToList();
+        return usable.Count == 0 ? None : new SearchScopes(false, usable);
+    }
+
     /// <summary>Only documents whose resource URI starts with one of these.</summary>
     public static SearchScopes Of(IReadOnlyList<string> uriPrefixes)
     {
         ArgumentNullException.ThrowIfNull(uriPrefixes);
 
-        var usable = uriPrefixes.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
-        return usable.Count == 0 ? None : new SearchScopes(false, usable);
+        return Of(uriPrefixes
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => new GrantMatch(p, IsExact: false))
+            .ToList());
     }
 
     public bool IsUnrestricted { get; }
 
-    public IReadOnlyList<string> UriPrefixes { get; }
+    /// <summary>The rules a document's resource URI must satisfy one of.</summary>
+    public IReadOnlyList<GrantMatch> Matches { get; }
 
     /// <summary>True when this permits nothing, so a query need not run at all.</summary>
-    public bool IsEmpty => !IsUnrestricted && UriPrefixes.Count == 0;
+    public bool IsEmpty => !IsUnrestricted && Matches.Count == 0;
 
     /// <summary>The character that turns a wildcard back into a literal.</summary>
     /// <remarks>

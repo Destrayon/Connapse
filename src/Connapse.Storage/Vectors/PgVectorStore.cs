@@ -253,12 +253,19 @@ public class PgVectorStore : IVectorStore
                 // locate, so no permission rule can be checked against it — an upload, or a row
                 // not synced since the column existed.
                 var ors = new List<string>();
-                for (int i = 0; i < scopes.UriPrefixes.Count; i++)
+                for (int i = 0; i < scopes.Matches.Count; i++)
                 {
-                    ors.Add($"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
+                    GrantMatch match = scopes.Matches[i];
+
+                    // An object-scoped grant is one object. As a prefix it would also admit
+                    // "report.pdf.bak", which is a different object nobody named.
+                    ors.Add(match.IsExact
+                        ? $"d.resource_uri = @scope{i}"
+                        : $"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
+
                     parameters.Add(new NpgsqlParameter($"@scope{i}", NpgsqlDbType.Text)
                     {
-                        Value = SearchScopes.ToLikePattern(scopes.UriPrefixes[i])
+                        Value = match.IsExact ? match.Value : SearchScopes.ToLikePattern(match.Value)
                     });
                 }
 

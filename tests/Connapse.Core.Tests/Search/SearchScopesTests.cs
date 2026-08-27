@@ -30,7 +30,7 @@ public class SearchScopesTests
 
         scopes.IsUnrestricted.Should().BeFalse();
         scopes.IsEmpty.Should().BeFalse();
-        scopes.UriPrefixes.Should().HaveCount(2);
+        scopes.Matches.Should().HaveCount(2);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class SearchScopesTests
     {
         // A resolver that returns an empty or blank-filled list means the user has no grants. The
         // dangerous reading is "no restrictions", and this is where that reading is refused.
-        SearchScopes.Of([]).Should().BeSameAs(SearchScopes.None);
+        SearchScopes.Of(Array.Empty<string>()).Should().BeSameAs(SearchScopes.None);
         SearchScopes.Of(["", "   "]).Should().BeSameAs(SearchScopes.None);
     }
 
@@ -48,14 +48,35 @@ public class SearchScopesTests
         // A blank prefix would match every URI, so one stray empty string in a resolver's output
         // would silently grant everything to a user who should see one bucket.
         SearchScopes.Of(["s3://acme/team/", "", "s3://acme/shared/"])
-            .UriPrefixes.Should().BeEquivalentTo(["s3://acme/team/", "s3://acme/shared/"]);
+            .Matches.Select(m => m.Value)
+            .Should().BeEquivalentTo(["s3://acme/team/", "s3://acme/shared/"]);
     }
 
     [Fact]
     public void Of_WithNull_Throws()
     {
-        FluentActions.Invoking(() => SearchScopes.Of(null!))
+        FluentActions.Invoking(() => SearchScopes.Of((IReadOnlyList<string>)null!))
             .Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Of_WithMatches_KeepsExactAndPrefixApart()
+    {
+        // The two kinds cannot be collapsed: an exact match is one object, a prefix is a subtree.
+        var scopes = SearchScopes.Of([
+            new GrantMatch("s3://acme/team/", IsExact: false),
+            new GrantMatch("s3://acme/reports/q3.pdf", IsExact: true),
+        ]);
+
+        scopes.Matches.Should().HaveCount(2);
+        scopes.Matches.Should().ContainSingle(m => m.IsExact);
+    }
+
+    [Fact]
+    public void Of_WithStrings_TreatsEachAsAPrefix()
+    {
+        SearchScopes.Of(["s3://acme/team/"]).Matches
+            .Should().BeEquivalentTo([new GrantMatch("s3://acme/team/", IsExact: false)]);
     }
 
     // -- LIKE escaping -------------------------------------------------------------

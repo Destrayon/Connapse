@@ -80,11 +80,19 @@ public class KeywordSearchService
             else
             {
                 var ors = new List<string>();
-                foreach (string prefix in scopes.UriPrefixes)
+                foreach (GrantMatch match in scopes.Matches)
                 {
                     int scopeIdx = parameters.Count;
-                    ors.Add($"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
-                    parameters.Add(SearchScopes.ToLikePattern(prefix));
+
+                    // The same rule as the vector side, and it has to be: a hit reachable through
+                    // one mode and not the other is a leak through whichever the caller chooses.
+                    ors.Add(match.IsExact
+                        ? $"d.resource_uri = {{{scopeIdx}}}"
+                        : $"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
+
+                    parameters.Add(match.IsExact
+                        ? match.Value
+                        : SearchScopes.ToLikePattern(match.Value));
                 }
 
                 whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");

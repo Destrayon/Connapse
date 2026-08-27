@@ -228,4 +228,103 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         hits.Should().ContainSingle("only the granted prefix is reachable");
         hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
     }
+
+    [Fact]
+    public async Task Search_WithABucketScopedGrant_DoesNotReachASimilarlyNamedBucket()
+    {
+        // Against real SQL, because this is the shape AWS actually returns for a whole-bucket
+        // grant and the leak is invisible in a unit test of the pattern string.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await NewContextAsync(scope.ServiceProvider);
+
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new[]
+                 {
+                     ("granted.md", "s3://acme/report.md"),
+                     ("sneaky.md", "s3://acme-secrets/payroll.md"),
+                 })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                Status = "Ready",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var hits = await Build(db).SearchAsync(
+            Term, For(container.Id), SearchScopes.Of([GrantScope.Parse("s3://acme*")]));
+
+        hits.Should().ContainSingle("a grant for one bucket does not reach another whose name starts the same");
+        hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
+    }
+
+    [Fact]
+    public async Task Search_WithAnObjectScopedGrant_DoesNotReachASuffixedSibling()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await NewContextAsync(scope.ServiceProvider);
+
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new[]
+                 {
+                     ("granted.md", "s3://acme/reports/q3.pdf"),
+                     ("sneaky.md", "s3://acme/reports/q3.pdf.bak"),
+                 })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                Status = "Ready",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var hits = await Build(db).SearchAsync(
+            Term, For(container.Id),
+            SearchScopes.Of([GrantScope.Parse("s3://acme/reports/q3.pdf", isObjectScope: true)]));
+
+        hits.Should().ContainSingle("an object grant names one object");
+        hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
+    }
 }
