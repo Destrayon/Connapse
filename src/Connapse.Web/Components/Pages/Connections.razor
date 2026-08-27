@@ -48,9 +48,9 @@
             <span class="bi-info-circle me-2"></span>
             A <strong>connection</strong> names an external system and how to reach it. A
             <strong>source</strong> names a scope inside one — a bucket, a blob container, or a
-            directory — and is what Connapse actually syncs. Credentials are never entered here:
-            AWS resolves through IAM roles and Azure through managed identity, both from the
-            environment the server runs in.
+            directory — and is what Connapse actually syncs. Cloud credentials are not entered
+            here: AWS uses the identity on its <a href="/admin/providers/aws">provider page</a>,
+            and Azure managed identity from the environment the server runs in.
         </div>
     </div>
 
@@ -513,14 +513,31 @@
                 </div>
             }
 
+            @* Region is filled in by choosing a bucket below, and a cross-account role is a thing
+               most installations never touch. Both were first-screen fields on a form whose real
+               question is "which bucket", which is the one thing that was not asked directly. *@
             <div class="col-md-6">
-                <label class="form-label">Region</label>
-                <input class="form-control" @bind="form.Region" placeholder="us-east-1" />
+                <label class="form-label">Region <span class="text-muted">(optional)</span></label>
+                <input class="form-control" @bind="form.Region" placeholder="Found from the bucket" />
+                <div class="form-text">
+                    Connapse asks AWS where the bucket lives when you choose one below. Set it only
+                    to override that.
+                </div>
             </div>
-            <div class="col-md-6">
-                <label class="form-label">Role ARN <span class="text-muted">(optional)</span></label>
-                <input class="form-control" @bind="form.RoleArn" placeholder="arn:aws:iam::123456789012:role/connapse" />
-                <div class="form-text">Assumed via STS for cross-account access. Leave blank to use the ambient credentials.</div>
+
+            <div class="col-12">
+                <details>
+                    <summary class="small text-muted" style="cursor:pointer">Cross-account access</summary>
+                    <div class="mt-2" style="max-width:32rem">
+                        <label class="form-label">Role ARN</label>
+                        <input class="form-control" @bind="form.RoleArn"
+                               placeholder="arn:aws:iam::123456789012:role/connapse" />
+                        <div class="form-text">
+                            Assumed via STS, so this connection reads another account's buckets
+                            rather than Connapse's own. Leave blank unless that is what you need.
+                        </div>
+                    </div>
+                </details>
             </div>
         }
         else if (form.Provider == ConnectionProvider.AzureBlob)
@@ -1032,7 +1049,7 @@
     /// Enter on a filter that has narrowed to one bucket is the whole reason to type rather than
     /// scroll, and without it the search box is a filter that still makes you reach for the mouse.
     /// </remarks>
-    private void BucketSearchKey(KeyboardEventArgs e)
+    private async Task BucketSearchKey(KeyboardEventArgs e)
     {
         if (e.Key == "Escape")
         {
@@ -1044,7 +1061,7 @@
 
         string? first = MatchingBuckets().FirstOrDefault(b => !IsAllowed(b));
         if (first is not null)
-            AllowBucket(first);
+            await AllowBucket(first);
     }
 
     /// <summary>
@@ -1094,13 +1111,46 @@
     /// case for an allowlist, and closing after each one would make the second harder than the
     /// first.
     /// </remarks>
-    private void AllowBucket(string bucket)
+    private async Task AllowBucket(string bucket)
     {
         if (IsAllowed(bucket)) return;
 
         var entries = AllowedList().ToList();
         entries.Add(bucket);
         form.AllowedLocations = string.Join("\n", entries);
+
+        // The bucket just chosen is the obvious thing to test against, and retyping it was the
+        // form asking twice for the same answer.
+        if (string.IsNullOrWhiteSpace(probeTarget))
+            probeTarget = bucket;
+
+        await FillRegionFromBucket(bucket);
+    }
+
+    /// <summary>Asks AWS where a bucket lives, when the region has not been set by hand.</summary>
+    /// <remarks>
+    /// Only when blank, so a region typed deliberately is never overwritten. Failure is silent:
+    /// the field stays empty and can be typed, which is exactly where it was before this ran.
+    /// <para>
+    /// This is what <c>s3:GetBucketLocation</c> is granted for. Guessing wrong is not a harmless
+    /// default — an S3 client pointed at the wrong region fails in ways that read as a missing
+    /// bucket or a permissions problem.
+    /// </para>
+    /// </remarks>
+    private async Task FillRegionFromBucket(string bucket)
+    {
+        if (!string.IsNullOrWhiteSpace(form.Region)) return;
+
+        try
+        {
+            var probe = await S3Discovery.GetBucketRegionAsync(bucket, NullIfBlank(form.RoleArn));
+            if (probe is { Succeeded: true, Value: { Length: > 0 } region })
+                form.Region = region;
+        }
+        catch
+        {
+            // Left blank on purpose. A region nobody could look up is one somebody can type.
+        }
     }
 
     /// <summary>The allowed-locations field, one entry per line.</summary>
