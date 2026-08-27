@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 
 namespace Connapse.Storage.Data.Entities;
 
@@ -28,6 +28,24 @@ public class DocumentEntity
     public string FileName { get; set; } = string.Empty;
     public string? ContentType { get; set; }
     public string Path { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Where this document came from, absolutely and outside Connapse — <c>s3://bucket/key</c>.
+    /// Null for uploads, and for anything not synced since this column existed.
+    /// </summary>
+    /// <remarks>
+    /// Reported by the connector at sync time rather than derived from <see cref="Path"/> and the
+    /// source's scope. That derivation is wrong in cases nothing can detect: a source's prefix is
+    /// editable with no reconciliation of existing rows, so a source re-pointed after ingestion
+    /// leaves paths relative to a prefix no longer on record, and the arithmetic would produce a
+    /// confident wrong answer. For a permission filter, a document attributed to the wrong key is
+    /// worse than one attributed to none.
+    /// <para>
+    /// Null is denied once per-user filtering is switched on (#421) — never allowed. An upload has
+    /// no external address at all, so a URI scheme built for cloud RBAC cannot describe one.
+    /// </para>
+    /// </remarks>
+    public string? ResourceUri { get; set; }
     public string ContentHash { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
     public int ChunkCount { get; set; }

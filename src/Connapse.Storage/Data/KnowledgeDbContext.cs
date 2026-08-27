@@ -226,6 +226,17 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasDatabaseName("idx_documents_owner_path")
                 .IsUnique();
 
+            entity.Property(e => e.ResourceUri)
+                .HasColumnName("resource_uri")
+                .HasMaxLength(2048);
+
+            // The predicate a permission filter runs is a prefix match over this column, so it is
+            // indexed for that rather than for equality. text_pattern_ops is what lets LIKE
+            // 's3://bucket/team/%' use an index at all.
+            entity.HasIndex(e => e.ResourceUri)
+                .HasDatabaseName("idx_documents_resource_uri")
+                .HasOperators("text_pattern_ops");
+
             entity.HasOne(e => e.Container)
                 .WithMany(c => c.Documents)
                 .HasForeignKey(e => e.ContainerId)

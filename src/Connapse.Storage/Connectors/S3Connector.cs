@@ -82,7 +82,12 @@ public class S3Connector : IConnector, IDisposable
                     Path: virtualPath,
                     SizeBytes: obj.Size ?? 0,
                     LastModified: obj.LastModified?.ToUniversalTime() ?? DateTime.UtcNow,
-                    ContentType: null));
+                    ContentType: null,
+                    // The key exactly as S3 gave it. Reconstructing this later from the bucket, the
+                    // source's prefix and the stored path is wrong in two ways nothing can detect:
+                    // the prefix is editable after ingestion with no reconciliation, and the line
+                    // above collapses "a", "/a" and "//a" into one path where S3 has three keys.
+                    ResourceUri: $"s3://{_config.BucketName}/{obj.Key}"));
             }
             request.ContinuationToken = response.NextContinuationToken;
         } while (response.IsTruncated == true);

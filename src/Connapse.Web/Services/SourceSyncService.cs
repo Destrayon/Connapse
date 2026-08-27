@@ -350,9 +350,33 @@ public class SourceSyncService(
         var due = new List<ConnectorFile>();
         var claims = new Dictionary<string, Guid>(StringComparer.Ordinal);
 
+        // Counted separately from claims and due, because a coordinate update is neither. On a
+        // source where nothing has changed it is the only pending write, and the save below is
+        // conditional -- so without this the update is built and then silently discarded, which
+        // is exactly the case that matters: a stable source is the one that would otherwise never
+        // acquire coordinates at all.
+        int located = 0;
+
         foreach (var file in files)
         {
             existingByPath.TryGetValue(file.Path, out var existing);
+
+            // Before the skip below, deliberately. A source that has not changed still needs its
+            // documents to learn where they came from, and the skip is the common case -- leaving
+            // it until a file changes would mean a stable source never acquires coordinates at
+            // all. One listing pass therefore populates a whole source.
+            //
+            // Rows arrive AsNoTracking, so a stub carries the single changed column rather than
+            // the whole entity, and rides the SaveChangesAsync already at the end of this method.
+            if (existing is not null &&
+                file.ResourceUri is not null &&
+                !string.Equals(existing.ResourceUri, file.ResourceUri, StringComparison.Ordinal))
+            {
+                var stub = new DocumentEntity { Id = existing.Id };
+                context.Documents.Attach(stub);
+                stub.ResourceUri = file.ResourceUri;
+                located++;
+            }
 
             // Without this the fallback path re-ingests the entire remote on every cycle:
             // the content hash is computed after the download and parse, so it dedupes
@@ -406,6 +430,7 @@ public class SourceSyncService(
                     FileName = Path.GetFileName(file.Path),
                     ContentType = file.ContentType,
                     Path = file.Path,
+                    ResourceUri = file.ResourceUri,
                     ContentHash = string.Empty,
                     SizeBytes = file.SizeBytes,
                     Status = "Pending",
@@ -423,7 +448,7 @@ public class SourceSyncService(
 
         // One round trip, and before any enqueue: a claim that did not persist must not have a
         // job pointing at it, and a retry that was not counted would not be bounded.
-        if (claims.Count > 0 || due.Count > 0)
+        if (claims.Count > 0 || due.Count > 0 || located > 0)
             await context.SaveChangesAsync(ct);
 
         foreach (var file in due)

@@ -1,4 +1,4 @@
-using Azure.Identity;
+﻿using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Connapse.Core;
@@ -69,7 +69,11 @@ public class AzureBlobConnector : IConnector
                 Path: virtualPath,
                 SizeBytes: blob.Properties.ContentLength ?? 0,
                 LastModified: blob.Properties.LastModified?.UtcDateTime ?? DateTime.UtcNow,
-                ContentType: blob.Properties.ContentType));
+                ContentType: blob.Properties.ContentType,
+                // The account is on the connection rather than here, so this names the container
+                // and blob. Enough to be unique within an account and to match an Azure RBAC
+                // scope, which is what it exists for.
+                ResourceUri: $"azblob://{_config.ContainerName}/{blob.Name}"));
         }
 
         return files;
