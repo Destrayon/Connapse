@@ -1,7 +1,8 @@
-﻿using Azure.Identity;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Core.Interfaces;
 
 namespace Connapse.Storage.Connectors;
@@ -70,10 +71,12 @@ public class AzureBlobConnector : IConnector
                 SizeBytes: blob.Properties.ContentLength ?? 0,
                 LastModified: blob.Properties.LastModified?.UtcDateTime ?? DateTime.UtcNow,
                 ContentType: blob.Properties.ContentType,
-                // The account is on the connection rather than here, so this names the container
-                // and blob. Enough to be unique within an account and to match an Azure RBAC
-                // scope, which is what it exists for.
-                ResourceUri: $"azblob://{_config.ContainerName}/{blob.Name}"));
+                // Account, container, blob. The account is not optional: container names are
+                // unique only within an account, so two connections to different accounts each
+                // holding a "docs" container would mint identical URIs -- and a permission rule
+                // matching one would silently match the other's documents too.
+                ResourceUri: ResourceUri.ForAzureBlob(
+                    _config.StorageAccountName, _config.ContainerName, blob.Name)));
         }
 
         return files;

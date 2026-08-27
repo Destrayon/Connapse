@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using FluentAssertions;
 using Xunit;
 
@@ -25,7 +25,7 @@ namespace Connapse.Core.Tests.Connectors;
 public class ConnectorFileResourceUriTests
 {
     [Fact]
-    public void ConnectorFile_ReportsAnAbsoluteLocationAlongsideTheVirtualPath()
+    public void ConnectorFile_WithResourceUri_KeepsItAlongsideTheVirtualPath()
     {
         // The pair is the point: Path is what a document row stores and what the connector is
         // asked for later; ResourceUri is what an external permission system names.
@@ -41,7 +41,7 @@ public class ConnectorFileResourceUriTests
     }
 
     [Fact]
-    public void ConnectorFile_ResourceUriIsOptional()
+    public void ConnectorFile_WithoutResourceUri_LeavesItNull()
     {
         // Filesystem, SFTP and managed storage have no meaningful external address. They are not
         // broken for lacking one; they are simply not describable by a cloud RBAC scope, and a
@@ -55,7 +55,7 @@ public class ConnectorFileResourceUriTests
     [InlineData("docs/a.md")]
     [InlineData("/docs/a.md")]
     [InlineData("//docs/a.md")]
-    public void ResourceUri_DistinguishesKeysThatPrefixStrippingCollapses(string key)
+    public void ResourceUri_ForKeysPrefixStrippingCollapses_KeepsThemDistinct(string key)
     {
         // S3 permits all three as distinct keys. StripConfigPrefix returns "/" + TrimStart('/'),
         // so all three become the same stored path -- and any reconstruction from that path can

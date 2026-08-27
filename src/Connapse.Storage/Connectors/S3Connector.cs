@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Amazon;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -6,6 +6,7 @@ using Amazon.S3.Model;
 using Amazon.SecurityToken;
 using Amazon.SecurityToken.Model;
 using Connapse.Core;
+using Connapse.Core.Utilities;
 using Connapse.Core.Interfaces;
 
 namespace Connapse.Storage.Connectors;
@@ -87,7 +88,7 @@ public class S3Connector : IConnector, IDisposable
                     // source's prefix and the stored path is wrong in two ways nothing can detect:
                     // the prefix is editable after ingestion with no reconciliation, and the line
                     // above collapses "a", "/a" and "//a" into one path where S3 has three keys.
-                    ResourceUri: $"s3://{_config.BucketName}/{obj.Key}"));
+                    ResourceUri: ResourceUri.ForS3(_config.BucketName, obj.Key)));
             }
             request.ContinuationToken = response.NextContinuationToken;
         } while (response.IsTruncated == true);

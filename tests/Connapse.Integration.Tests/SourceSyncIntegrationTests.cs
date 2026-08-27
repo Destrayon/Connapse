@@ -755,7 +755,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     // -- Document coordinates (#421) ------------------------------------------------
 
     [Fact]
-    public async Task SyncSourceAsync_RecordsWhereEachDocumentCameFrom()
+    public async Task SyncSourceAsync_NewDocument_RecordsWhereItCameFrom()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
@@ -780,7 +780,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task SyncSourceAsync_GivesCoordinatesToDocumentsThatDidNotChange()
+    public async Task SyncSourceAsync_UnchangedDocument_StillRecordsWhereItCameFrom()
     {
         // The case that decides whether this works at all. A stable source skips every file on
         // every cycle -- that skip is what stops a five-minute poll re-embedding everything -- so
@@ -815,7 +815,7 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task SyncSourceAsync_LeavesCoordinatesNullWhenTheConnectorReportsNone()
+    public async Task SyncSourceAsync_ConnectorReportsNoLocation_LeavesItNull()
     {
         // Filesystem and SFTP have no external address. Null is the honest answer, and once
         // filtering is on it means denied -- never allowed, because a document nothing can locate
