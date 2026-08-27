@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using Amazon;
 using Amazon.Runtime;
@@ -8,26 +8,42 @@ using Amazon.SecurityToken;
 using Amazon.SecurityToken.Model;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Connapse.Storage.Connectors;
 using Microsoft.Extensions.Logging;
 
 namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>
-/// Tests connectivity to an AWS S3 bucket using DefaultAWSCredentials (IAM roles, env vars, instance profile).
-/// Optionally assumes a role via STS if RoleArn is configured.
+/// Tests that Connapse can read a bucket, as the identity it will sync with.
 /// </summary>
+/// <remarks>
+/// Through <see cref="ConnapseAwsCredentials"/>, which is the whole point of the test: it has to
+/// run as the thing that will do the work, or a pass means nothing.
+/// <para>
+/// It did not. Both clients were built without credentials, so the SDK fell back to its own default
+/// chain and never saw the key Connapse stores — the bucket picker beside this button listed
+/// buckets happily while the test reported "No AWS credentials found", from the same page, about
+/// the same account.
+/// </para>
+/// <para>
+/// A <c>RoleArn</c> is still assumed via STS when one is given, but from these credentials rather
+/// than from whatever the environment happens to offer.
+/// </para>
+/// </remarks>
 public class S3ConnectionTester : IConnectionTester
 {
     private readonly ILogger<S3ConnectionTester> _logger;
+    private readonly ConnapseAwsCredentials _credentials;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public S3ConnectionTester(ILogger<S3ConnectionTester> logger)
+    public S3ConnectionTester(ConnapseAwsCredentials credentials, ILogger<S3ConnectionTester> logger)
     {
+        _credentials = credentials;
         _logger = logger;
     }
 
@@ -58,7 +74,7 @@ public class S3ConnectionTester : IConnectionTester
             IAmazonS3 s3Client;
             if (!string.IsNullOrWhiteSpace(config.RoleArn))
             {
-                using var stsClient = new AmazonSecurityTokenServiceClient(region);
+                using var stsClient = new AmazonSecurityTokenServiceClient(_credentials, region);
                 var assumeResponse = await stsClient.AssumeRoleAsync(new AssumeRoleRequest
                 {
                     RoleArn = config.RoleArn,
@@ -79,7 +95,7 @@ public class S3ConnectionTester : IConnectionTester
             }
             else
             {
-                s3Client = new AmazonS3Client(new AmazonS3Config
+                s3Client = new AmazonS3Client(_credentials, new AmazonS3Config
                 {
                     RegionEndpoint = region,
                     Timeout = timeout

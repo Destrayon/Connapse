@@ -23,7 +23,9 @@ namespace Connapse.Storage.CloudScope;
 /// <see cref="Classify"/>.
 /// </para>
 /// </remarks>
-public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
+public class S3Discovery(
+    ConnapseAwsCredentials credentials,
+    ILogger<S3Discovery> logger) : IS3Discovery
 {
     /// <summary>
     /// Endpoint for the calls that are not about a particular bucket.
@@ -36,10 +38,13 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>Key this provider's credential is stored under.</summary>
+    public const string AwsProviderKey = "aws";
+
     public async Task<AwsProbe<AwsCallerIdentity>> WhoAmIAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<AwsCallerIdentity>.NoCredentials(error
                 ?? "The AWS SDK found no credentials in its provider chain.");
@@ -78,7 +83,7 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
     public async Task<AwsProbe<IReadOnlyList<string>>> ListBucketsAsync(
         string? roleArn = null, CancellationToken ct = default)
     {
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<IReadOnlyList<string>>.NoCredentials(error);
 
@@ -120,7 +125,7 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
         if (string.IsNullOrWhiteSpace(bucket))
             return AwsProbe<string>.Failed("No bucket name given.");
 
-        var (baseCredentials, error) = Resolve();
+        var (baseCredentials, error) = await ResolveAsync();
         if (baseCredentials is null)
             return AwsProbe<string>.NoCredentials(error);
 
@@ -197,42 +202,41 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
     }
 
     /// <summary>
-    /// Walks the SDK's provider chain, returning null when it comes back empty.
+    /// The credential every AWS client in Connapse uses, or null with a reason.
     /// </summary>
     /// <remarks>
-    /// Through <c>DefaultAWSCredentialsIdentityResolver</c>, not <c>FallbackCredentialsFactory</c>
-    /// — the SDK deprecated the latter in v4 and says so at compile time. Same chain, current
-    /// entry point.
+    /// Through <see cref="ConnapseAwsCredentials"/> rather than resolving here. It is the one place
+    /// the order is decided — configured identity first, environment second — so discovery, the
+    /// connector and the connection tester cannot drift apart on what they run as, which they had
+    /// already started to do.
     /// <para>
-    /// The chain throws rather than returning null when nothing resolves, and "nothing configured"
-    /// is the single most likely state of a fresh deployment — so it is an answer here, not an
-    /// exception.
+    /// Every exception is caught. Nothing this can hit is worth crashing a page over: callers treat
+    /// null as "tell them how to supply a credential", which is the useful answer to any failure to
+    /// obtain one. The narrower catch that preceded this took the Blazor circuit down on the most
+    /// likely state of a fresh deployment.
     /// </para>
     /// </remarks>
-    private (AWSCredentials? Credentials, string? Error) Resolve()
+    private Task<(AWSCredentials? Credentials, string? Error)> ResolveAsync() => Task.Run(() =>
     {
         try
         {
-            return (Amazon.Runtime.Credentials.DefaultAWSCredentialsIdentityResolver
-                .GetCredentials(new AmazonS3Config { RegionEndpoint = DiscoveryRegion }), null);
+            // Forces a resolve now, so a missing or unreadable credential is an answer here rather
+            // than an exception from the first API call.
+            //
+            // On the thread pool, because this is not as cheap as it looks and every caller is an
+            // async method that promised not to block. A refresh reads the credential from
+            // PostgreSQL and decrypts it; with nothing stored, the SDK's ambient chain spends
+            // roughly a second failing to reach EC2 metadata before giving up. Called directly,
+            // all of that ran on the Blazor circuit thread before the first await.
+            credentials.GetCredentials();
+            return ((AWSCredentials?)credentials, (string?)null);
         }
         catch (Exception ex)
         {
-            // Every exception, and deliberately not a specific AWS type.
-            //
-            // This caught AmazonServiceException first, which looks like the careful choice. The
-            // resolver throws AmazonClientException when nothing is configured, and those two are
-            // siblings — each derives straight from Exception, neither from the other — so that
-            // catch covered none of it. The most likely state of a fresh deployment took the
-            // Blazor circuit down instead of returning an answer.
-            //
-            // Nothing this method can hit is worth crashing a page over: every caller treats a
-            // null as "tell them how to supply credentials", which is the useful response to any
-            // failure to obtain them.
-            logger.LogDebug(ex, "No AWS credentials resolved from the provider chain");
-            return (null, ex.Message);
+            logger.LogDebug(ex, "No AWS credentials available");
+            return ((AWSCredentials?)null, (string?)ex.Message);
         }
-    }
+    });
 
     /// <summary>
     /// Names the chain link the credentials came from.
@@ -274,6 +278,10 @@ public class S3Discovery(ILogger<S3Discovery> logger) : IS3Discovery
                 nameof(ProcessAWSCredentials) => AwsCredentialKind.ExternalProcess,
                 nameof(EnvironmentVariablesAWSCredentials) => AwsCredentialKind.StaticKey,
                 nameof(BasicAWSCredentials) => AwsCredentialKind.StaticKey,
+                // Ours, and it has to be named here or it falls through: it derives from
+                // RefreshingAWSCredentials, which nothing above matches, so the whole base chain
+                // misses and the page reported a working identity as "source not recognised".
+                nameof(ConnapseAwsCredentials) => AwsCredentialKind.StoredKey,
                 _ => AwsCredentialKind.Unrecognised
             };
 

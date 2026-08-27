@@ -24,69 +24,83 @@ public class S3SetupPolicyTests
         Parse(policy).GetProperty("Statement").EnumerateArray()
             .Single(s => s.GetProperty("Sid").GetString() == sid);
 
+    // -- The identity Connapse creates for itself ----------------------------------
+
     [Fact]
-    public void ForBucket_IsValidJsonWithAPolicyVersion()
+    public void ForManagedIdentity_IsValidJsonWithAPolicyVersion()
     {
-        var root = Parse(S3SetupPolicy.ForBucket("my-bucket"));
+        // IAM rejects a malformed document and the UI presents this as something to paste, so
+        // parsing is the assertion that matters -- a string check passes on output nobody can use.
+        var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(2);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(3);
     }
 
     [Fact]
-    public void ForBucket_NoPrefix_OmitsTheConditionRatherThanNullingIt()
+    public void ForManagedIdentity_ReadsEverythingAndChangesNothing()
     {
-        // Caught by generating one and reading it: the entry serialised as "Condition": null,
-        // which IAM rejects outright. WhenWritingNull governs object properties, not dictionary
-        // entries, so the key has to be absent rather than empty.
-        string policy = S3SetupPolicy.ForBucket("my-bucket");
-
-        policy.Should().NotContain("null");
-        Statement(policy, "ConnapseListBucket").TryGetProperty("Condition", out _)
-            .Should().BeFalse("an unscoped grant has no prefix to condition on");
-    }
-
-    [Fact]
-    public void ForBucket_SplitsBucketAndObjectActionsAcrossTwoStatements()
-    {
-        // s3:ListBucket is a bucket-level action and s3:GetObject an object-level one. Granting
-        // both against a single resource is the classic mistake: against the bucket ARN alone,
-        // every object read is denied, and the policy looks correct while nothing can be read.
-        string policy = S3SetupPolicy.ForBucket("my-bucket", "docs");
-
-        Statement(policy, "ConnapseListBucket").GetProperty("Resource").GetString()
-            .Should().Be("arn:aws:s3:::my-bucket");
-
-        Statement(policy, "ConnapseReadObjects").GetProperty("Resource").GetString()
-            .Should().Be("arn:aws:s3:::my-bucket/docs/*");
-    }
-
-    [Fact]
-    public void ForBucket_GrantsNothingBeyondReading()
-    {
-        // Connapse has no write surface against a source at all — IConnector does not expose one —
-        // so a policy suggesting otherwise would ask for authority the product cannot use.
-        string policy = S3SetupPolicy.ForBucket("my-bucket");
-
-        var actions = Parse(policy).GetProperty("Statement").EnumerateArray()
-            .SelectMany(s => s.GetProperty("Action").EnumerateArray())
-            .Select(a => a.GetString())
+        // The whole trade rests on this. A credential that can read every bucket is a real cost,
+        // accepted knowingly; one that can also delete them is a different product. Connapse has no
+        // write surface against a source at all -- IConnector does not expose one -- so a policy
+        // granting more asks for authority the product cannot use.
+        var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
+            .EnumerateArray()
+            .SelectMany(x => x.GetProperty("Action").EnumerateArray())
+            .Select(a => a.GetString()!)
             .ToList();
 
-        actions.Should().BeEquivalentTo(S3SetupPolicy.ReadActions);
-        actions.Should().NotContain(a => a!.Contains("Put") || a.Contains("Delete") || a.Contains("*"));
+        actions.Should().BeEquivalentTo(
+            ["s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"]);
+
+        actions.Should().OnlyContain(a => a.StartsWith("s3:Get") || a.StartsWith("s3:List"));
+        actions.Should().NotContain(a => a.Contains("*"));
     }
 
     [Fact]
-    public void ForBucket_WithPrefix_BoundsListingAsWellAsReading()
+    public void ForManagedIdentity_KeepsListAllMyBucketsOnItsOwnUnscopedStatement()
     {
-        // Without the condition the grant still bounds *reading* to the prefix, but lets the holder
-        // enumerate every key in the bucket — more than the source needs, and more than the
-        // operator agreed to by typing a prefix.
-        var condition = Statement(S3SetupPolicy.ForBucket("my-bucket", "docs"), "ConnapseListBucket")
-            .GetProperty("Condition").GetProperty("StringLike").GetProperty("s3:prefix");
+        // IAM accepts only "*" as the resource for ListAllMyBuckets. Written against
+        // arn:aws:s3:::* the statement parses, attaches, and then denies the call it exists for --
+        // and that call is what lets the connection form list buckets instead of asking for a name.
+        Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseFindBuckets")
+            .GetProperty("Resource").GetString().Should().Be("*");
+    }
 
-        condition.EnumerateArray().Single().GetString().Should().Be("docs/*");
+    [Fact]
+    public void ForManagedIdentity_SeparatesBucketResourcesFromObjectResources()
+    {
+        string policy = S3SetupPolicy.ForManagedIdentity();
+
+        Statement(policy, "ConnapseInspectBuckets").GetProperty("Resource").GetString()
+            .Should().Be("arn:aws:s3:::*");
+
+        // Without the trailing /* the object statement names buckets, not keys, and every read is
+        // denied while the policy looks correct.
+        Statement(policy, "ConnapseReadObjects").GetProperty("Resource").GetString()
+            .Should().Be("arn:aws:s3:::*/*");
+    }
+
+    [Fact]
+    public void ForManagedIdentity_LocatesBucketsWithoutAPrefixCondition()
+    {
+        // S3Discovery asks for a bucket's region before its first read. GetBucketLocation does not
+        // understand s3:prefix, so it belongs on an unconditioned bucket-level statement -- the
+        // narrow ForBuckets policies split it out for the same reason.
+        var inspect = Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseInspectBuckets");
+
+        inspect.GetProperty("Action").EnumerateArray().Select(a => a.GetString())
+            .Should().Contain("s3:GetBucketLocation");
+        inspect.TryGetProperty("Condition", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ManagedIdentitySummary_SaysBothWhatItReadsAndWhatItCannotDo()
+    {
+        // This sentence is what an operator reads before running a script that mints a credential.
+        // "Every bucket" without "cannot write" describes something scarier than what is granted.
+        S3SetupPolicy.ManagedIdentitySummary.Should()
+            .Contain("every S3 bucket").And.Contain("cannot write");
     }
 
     [Theory]
@@ -105,25 +119,13 @@ public class S3SetupPolicyTests
     }
 
     [Fact]
-    public void ForBucket_PrefixWithoutTrailingSlash_DoesNotLeakIntoASiblingFolder()
+    public void ForBuckets_PrefixWithoutTrailingSlash_DoesNotLeakIntoASiblingFolder()
     {
-        string policy = S3SetupPolicy.ForBucket("my-bucket", "docs");
+        string policy = S3SetupPolicy.ForBuckets(["my-bucket/docs"]);
 
-        Statement(policy, "ConnapseReadObjects").GetProperty("Resource").GetString()
+        Statement(policy, "ConnapseReadObjects0").GetProperty("Resource").GetString()
             .Should().NotBe("arn:aws:s3:::my-bucket/docs*",
                 "that also matches docs-archive/, which the operator did not grant");
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void ForBucket_WithoutABucket_Throws(string? bucket)
-    {
-        // A policy naming arn:aws:s3::: with no bucket is not a narrower grant, it is a malformed
-        // one — better to fail here than to hand someone a document IAM will reject.
-        FluentActions.Invoking(() => S3SetupPolicy.ForBucket(bucket!))
-            .Should().Throw<ArgumentException>();
     }
 
     [Fact]
@@ -183,7 +185,7 @@ public class S3SetupPolicyTests
 
         var root = Parse(policy);
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(4, "two statements per bucket");
+        root.GetProperty("Statement").GetArrayLength().Should().Be(6, "three statements per bucket");
     }
 
     [Fact]
@@ -197,7 +199,7 @@ public class S3SetupPolicyTests
             .ToList();
 
         sids.Should().OnlyHaveUniqueItems();
-        sids.Should().HaveCount(6);
+        sids.Should().HaveCount(9);
     }
 
     [Fact]
@@ -254,6 +256,7 @@ public class S3SetupPolicyTests
         // Splitting a textarea on newlines leaves blanks behind whenever somebody hits enter twice.
         string policy = S3SetupPolicy.ForBuckets(["docs-bucket", "  ", "shared-bucket"]);
 
-        Parse(policy).GetProperty("Statement").GetArrayLength().Should().Be(4);
+        Parse(policy).GetProperty("Statement").GetArrayLength().Should().Be(6);
     }
+
 }

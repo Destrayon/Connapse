@@ -187,6 +187,26 @@ public static class ServiceCollectionExtensions
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
+        // Scoped, not singleton: it now reads the stored credential through a DbContext
+        // factory, and a singleton holding a scoped dependency is the classic captive.
+        // All singletons, and they have to be: ConnectorFactory is a singleton and takes the
+        // credential provider, so anything scoped here is a captive dependency. The integration
+        // tests catch that through WebApplicationFactory's scope validation; the container does
+        // not, because validation is only on in Development — so this passed locally and failed
+        // in CI.
+        //
+        // Singleton is also the better shape. The store reaches the database through
+        // IDbContextFactory and creates a short-lived context per call, which is what makes it
+        // safe to hold; and RefreshingAWSCredentials caches on its own window, so one instance
+        // means one cache for the whole application rather than one per scope.
+        // The store stays scoped: it reaches the database through IDbContextFactory, which this
+        // application registers as scoped, so nothing consuming it directly can be a singleton.
+        services.AddScoped<IProviderCredentialStore, Connections.PostgresProviderCredentialStore>();
+
+        // These two must be singletons, because ConnectorFactory is one and consumes them. The
+        // credential provider therefore takes IServiceScopeFactory and opens a scope per refresh
+        // rather than holding the store.
+        services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();

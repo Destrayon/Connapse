@@ -60,3 +60,6 @@ docs/v0.3.0-plan.md
 # AWS credentials dropped in for S3 sources — never commit these.
 aws/*
 !aws/README.md
+
+# Playwright MCP session artifacts (snapshots, traces)
+.playwright-mcp/

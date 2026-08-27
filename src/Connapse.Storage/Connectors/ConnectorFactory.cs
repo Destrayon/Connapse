@@ -13,6 +13,7 @@ namespace Connapse.Storage.Connectors;
 public class ConnectorFactory(
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
     ISshHostKeyStore hostKeyStore,
+    CloudScope.ConnapseAwsCredentials awsCredentials,
     ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -64,7 +65,10 @@ public class ConnectorFactory(
                     Str(scope, "prefix"),
                     connection.Name, source.Name),
                 Prefix = Str(scope, "prefix"),
-            }),
+            },
+            // The identity an administrator configured, so a sync runs as whatever the
+            // Providers page reports rather than as whatever the container is carrying.
+            awsCredentials),
 
             ConnectionProvider.AzureBlob => new AzureBlobConnector(new AzureBlobConnectorConfig
             {

@@ -30,7 +30,19 @@ public enum AwsCredentialKind
 
     /// <summary>A long-lived access key, from the environment or a profile. Works, never expires,
     /// and is the thing AWS guidance tells people to move away from.</summary>
-    StaticKey = 5
+    StaticKey = 5,
+
+    /// <summary>
+    /// The access key Connapse holds for the IAM user it created for itself.
+    /// </summary>
+    /// <remarks>
+    /// Long-lived like <see cref="StaticKey"/>, and deliberately not reported the same way. An
+    /// ambient key found in the environment is somebody's, of unknown age and scope; this one is
+    /// read-only, belongs to Connapse alone, is stored encrypted, and can be revoked without
+    /// touching anyone else's access. Collapsing the two would make the setup Connapse itself
+    /// recommends warn about itself forever, which teaches operators to ignore the warning.
+    /// </remarks>
+    StoredKey = 6
 }
 
 /// <summary>What the container could see and reach.</summary>

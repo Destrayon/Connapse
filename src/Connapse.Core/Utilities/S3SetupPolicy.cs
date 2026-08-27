@@ -3,8 +3,8 @@
 namespace Connapse.Core.Utilities;
 
 /// <summary>
-/// Builds the IAM policy that lets Connapse read one bucket, and the deployment snippet that lets
-/// it see any credentials at all.
+/// Builds the IAM policy that lets Connapse read S3, and the deployment snippet that lets it see
+/// any credentials at all.
 /// </summary>
 /// <remarks>
 /// Both are text an operator copies into their own files — an IAM policy into AWS, a volume into
@@ -25,68 +25,112 @@ public static class S3SetupPolicy
     public static readonly IReadOnlyList<string> ReadActions = ["s3:ListBucket", "s3:GetObject"];
 
     /// <summary>
-    /// A policy granting read access to <paramref name="bucket"/>, narrowed to
-    /// <paramref name="prefix"/> when one is given.
+    /// The two actions Connapse needs to offer a bucket <i>list</i> rather than a text box.
     /// </summary>
     /// <remarks>
-    /// Offered so an operator can tighten credentials that currently allow more, which is the
-    /// usual state of an access key someone made to get started. It is deliberately not the
-    /// policy Connapse needs to <i>discover</i> buckets — that needs
-    /// <c>s3:ListAllMyBuckets</c> across every bucket, and handing out a wide grant to save one
-    /// dropdown is the wrong trade once the bucket is known.
+    /// <c>ListAllMyBuckets</c> cannot be scoped: IAM only accepts <c>"Resource": "*"</c> for it, so
+    /// it is either granted account-wide or not at all. It reveals bucket names, nothing inside
+    /// them. <c>GetBucketLocation</c> can be scoped, and is separated from the listing statement
+    /// because it does not understand the <c>s3:prefix</c> condition — folded in beside
+    /// <c>ListBucket</c>, every prefixed grant would silently deny the region lookup that
+    /// <c>S3Discovery</c> performs before its first read.
     /// </remarks>
-    public static string ForBucket(string bucket, string? prefix = null)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
+    public static readonly IReadOnlyList<string> DiscoveryActions =
+        ["s3:ListAllMyBuckets", "s3:GetBucketLocation"];
 
-        string cleanBucket = bucket.Trim();
-        string cleanPrefix = NormalisePrefix(prefix);
-
-        // The object statement is scoped by key, the bucket statement by a ListBucket condition.
-        // Without the condition the grant still bounds *reading* to the prefix, but lets the
-        // holder enumerate every key in the bucket, which is more than Connapse needs.
-        string objectResource = $"arn:aws:s3:::{cleanBucket}/{cleanPrefix}*";
-
-        var listStatement = new Dictionary<string, object>
-        {
-            ["Sid"] = "ConnapseListBucket",
-            ["Effect"] = "Allow",
-            ["Action"] = new[] { "s3:ListBucket" },
-            ["Resource"] = $"arn:aws:s3:::{cleanBucket}"
-        };
-
-        // Added rather than set to null. A dictionary entry whose value is null still serialises,
-        // and IAM rejects "Condition": null outright — WhenWritingNull governs object properties,
-        // not dictionary entries, so the key has to be absent instead of empty.
-        if (cleanPrefix.Length > 0)
-        {
-            listStatement["Condition"] = new Dictionary<string, object>
-            {
-                ["StringLike"] = new Dictionary<string, object>
-                {
-                    ["s3:prefix"] = new[] { $"{cleanPrefix}*" }
-                }
-            };
-        }
-
-        var policy = new Dictionary<string, object>
+    /// <summary>
+    /// The complete grant for the identity Connapse creates for itself: read-only across every
+    /// AWS storage service Connapse can read from.
+    /// </summary>
+    /// <remarks>
+    /// One policy, not a choice of several. The easy setup exists to remove decisions, and a scope
+    /// picker put the hardest one back: an operator sizing an IAM grant against sources that do not
+    /// exist yet. Anyone who wants a narrower credential can create one themselves and point
+    /// Connapse at it — that path is untouched, and <see cref="ForBuckets"/> writes the policy for
+    /// it.
+    /// <para>
+    /// Account-wide rather than per-bucket because the grant lives in AWS and the choice of bucket
+    /// lives in Connapse. A per-bucket grant sends someone back to CloudShell for every source
+    /// added afterwards, possibly someone who no longer has IAM rights, to widen a policy nobody
+    /// re-reads. That produces a policy edited under pressure, not least privilege.
+    /// </para>
+    /// <para>
+    /// What it costs, plainly: a leaked key reads every object in the account, and any Connapse
+    /// administrator can point a source at any bucket, which moves that decision out of IAM and
+    /// into this application. Against that — the identity is read-only, belongs to Connapse alone,
+    /// and revoking it touches nobody else's access. The narrowing lives in each connection's
+    /// allowed-locations list, which <c>ConnectorFactory</c> enforces on every read.
+    /// </para>
+    /// <para>
+    /// S3 alone today because S3 is the only AWS storage <c>ConnectionProvider</c> names. Adding
+    /// another AWS storage service means appending its statements to <see cref="StorageStatements"/>
+    /// — and only once Connapse can actually read from it, since a grant the product cannot use is
+    /// authority asked for and wasted.
+    /// </para>
+    /// <para>
+    /// Read this before appending. What this method returns is written into an inline IAM policy
+    /// once, when the identity is created, so widening it here does nothing for an identity that
+    /// already exists. Every installation set up before that release keeps the narrower policy and
+    /// fails the new service with AccessDenied, while a developer testing against a freshly created
+    /// user sees it work. Deliberately not solved in advance: the fix is small when it is needed
+    /// and speculative now. <c>iam:PutUserPolicy</c> replaces an inline policy of the same name, so
+    /// re-applying <c>ConnapseRead</c> to the existing user updates it in place and leaves the
+    /// access key untouched — no new key, nothing to paste back.
+    /// </para>
+    /// </remarks>
+    public static string ForManagedIdentity() =>
+        JsonSerializer.Serialize(new Dictionary<string, object>
         {
             ["Version"] = "2012-10-17",
-            ["Statement"] = new object[]
-            {
-                listStatement,
-                new Dictionary<string, object>
-                {
-                    ["Sid"] = "ConnapseReadObjects",
-                    ["Effect"] = "Allow",
-                    ["Action"] = new[] { "s3:GetObject" },
-                    ["Resource"] = objectResource
-                }
-            }
-        };
+            ["Statement"] = StorageStatements
+        }, PolicyJson);
 
-        return JsonSerializer.Serialize(policy, PolicyJson);
-    }
+    /// <summary>
+    /// One sentence describing <see cref="ForManagedIdentity"/>, for the operator about to run it.
+    /// </summary>
+    public const string ManagedIdentitySummary =
+        "reading every S3 bucket in the account. It cannot write, delete, or change anything.";
+
+    /// <summary>
+    /// Every statement in the managed identity's policy, one group per AWS storage service.
+    /// </summary>
+    /// <remarks>
+    /// <c>ListAllMyBuckets</c> is separate because IAM accepts only <c>"Resource": "*"</c> for it —
+    /// written against <c>arn:aws:s3:::*</c> the statement parses, attaches, and then denies the
+    /// call it exists for. It reveals bucket names, nothing inside them, and it is what lets the
+    /// connection form offer a list of buckets rather than asking someone to type one from memory.
+    /// <para>
+    /// <c>GetBucketLocation</c> sits with <c>ListBucket</c> rather than in the object statement
+    /// because it is a bucket-level call; <c>S3Discovery</c> makes it to find a bucket's region
+    /// before the first read.
+    /// </para>
+    /// </remarks>
+    private static readonly object[] StorageStatements =
+    [
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseFindBuckets",
+            ["Effect"] = "Allow",
+            ["Action"] = new[] { "s3:ListAllMyBuckets" },
+            ["Resource"] = "*"
+        },
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseInspectBuckets",
+            ["Effect"] = "Allow",
+            ["Action"] = new[] { "s3:ListBucket", "s3:GetBucketLocation" },
+            ["Resource"] = "arn:aws:s3:::*"
+        },
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseReadObjects",
+            ["Effect"] = "Allow",
+            ["Action"] = new[] { "s3:GetObject" },
+            // The trailing /* is the whole difference between reading objects and reading nothing:
+            // without it this names buckets, and every object read is denied.
+            ["Resource"] = "arn:aws:s3:::*/*"
+        }
+    ];
 
     /// <summary>
     /// One policy document covering every allowed location.
@@ -140,6 +184,13 @@ public static class S3SetupPolicy
                 };
             }
 
+            statements.Add(new Dictionary<string, object>
+            {
+                ["Sid"] = $"ConnapseLocateBucket{index}",
+                ["Effect"] = "Allow",
+                ["Action"] = new[] { "s3:GetBucketLocation" },
+                ["Resource"] = $"arn:aws:s3:::{bucket}"
+            });
             statements.Add(list);
             statements.Add(new Dictionary<string, object>
             {

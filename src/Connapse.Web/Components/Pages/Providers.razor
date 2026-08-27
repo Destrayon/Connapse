@@ -1,0 +1,602 @@
+﻿@page "/admin/providers"
+@page "/admin/providers/{Key}"
+@* The old route, so links and bookmarks made while this was Identity Providers still land. *@
+@page "/admin/identity-providers"
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Core.Utilities
+@using Connapse.Web.Components.Settings
+@using Connapse.Storage.Settings
+@using Microsoft.Extensions.Options
+@inject ISettingsStore SettingsStore
+@inject ISettingsReloader ReloadService
+@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
+@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IProviderSetupReader SetupReader
+@inject IProviderCredentialStore CredentialStore
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+@*
+    Providers — everything Connapse needs from one cloud, in one place.
+
+    A list, then a page per provider. Rendering every provider at once was fine for two and a
+    wall for a dozen, and it showed an administrator working on AWS a column of Azure they had
+    not asked about.
+
+    Sign-in and access are genuinely different and must stay so. An identity provider
+    authenticates a *person* and scopes what they may search; the access credential is what
+    Connapse's own background sync reads with. They cannot be merged: SourceSyncService runs on
+    a timer with no user present, and an SSO session needs an interactive browser sign-in to
+    renew, so it can never drive a sync.
+
+    Requirements are a list each provider declares rather than fixed sections, so adding a third
+    is a list entry rather than a change here.
+*@
+
+<PageTitle>@(Current?.DisplayName is { } n ? n + " - Providers" : "Providers") - Connapse</PageTitle>
+
+<div class="container-fluid py-4">
+
+    @if (Key is null)
+    {
+        <h1 class="mb-1"><span class="bi-cloud-fill me-2"></span>Providers</h1>
+        <p class="text-muted">
+            Connect the clouds you use. Nothing here is required — most installations need one, and
+            plenty need none.
+        </p>
+
+        @if (setups is null)
+        {
+            <div class="text-muted small">
+                <span class="spinner-border spinner-border-sm me-1"></span> Checking providers…
+            </div>
+        }
+        else
+        {
+            @* Split by whether the installation has taken the provider up. Listing every provider
+               with a status was read as a checklist of obligations: an install using only local
+               files was told twice that it had work outstanding, when it had chosen neither cloud.
+               Status belongs to what you use; everything else is an offer. *@
+            var inUse = setups.Where(p => p.InUse).ToList();
+            var available = setups.Where(p => !p.InUse).ToList();
+
+            @if (inUse.Count > 0)
+            {
+                <h2 class="h6 text-uppercase text-muted mt-4">In use</h2>
+                <div class="list-group">
+                    @foreach (var provider in inUse)
+                    {
+                        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                           href="/admin/providers/@provider.Key">
+                            <span class="@IconClass(provider.Overall) fs-5" aria-hidden="true"></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">@provider.DisplayName</div>
+                                <div class="small text-muted">@Summarise(provider)</div>
+                            </div>
+                            <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                        </a>
+                    }
+                </div>
+            }
+
+            @if (available.Count > 0)
+            {
+                <h2 class="h6 text-uppercase text-muted mt-4">Available</h2>
+                <div class="list-group">
+                    @foreach (var provider in available)
+                    {
+                        @* No status icon and no badge. A provider you have not chosen has nothing
+                           outstanding, and marking it would invent work. *@
+                        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                           href="/admin/providers/@provider.Key">
+                            <span class="bi-cloud text-muted fs-5" aria-hidden="true"></span>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">@provider.DisplayName</div>
+                                <div class="small text-muted">@Offer(provider)</div>
+                            </div>
+                            <span class="small text-primary">Set up</span>
+                            <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
+                        </a>
+                    }
+                </div>
+            }
+        }
+    }
+    else if (setups is null)
+    {
+        <div class="text-muted small">
+            <span class="spinner-border spinner-border-sm me-1"></span> Checking @Key…
+        </div>
+    }
+    else if (Current is null)
+    {
+        <h1 class="mb-3">Provider not found</h1>
+        <p class="text-muted">
+            No provider called <code>@Key</code>. <a href="/admin/providers">Back to providers</a>.
+        </p>
+    }
+    else
+    {
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb small">
+                <li class="breadcrumb-item"><a href="/admin/providers">Providers</a></li>
+                <li class="breadcrumb-item active" aria-current="page">@Current.DisplayName</li>
+            </ol>
+        </nav>
+
+        <h1 class="mb-3"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
+
+        @* Requirements first: someone arriving here is asking what is left to do, and answering
+           that before showing forms is the reason this page exists. *@
+        <div class="row g-3 mb-4">
+            @foreach (var requirement in Current.Requirements)
+            {
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
+                                <strong>@requirement.Name</strong>
+                                <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
+                            </div>
+                            <div class="form-text mb-2">@requirement.Description</div>
+
+                            @if (!string.IsNullOrWhiteSpace(requirement.Detail))
+                            {
+                                <div class="small text-body-secondary font-monospace text-break mb-2">
+                                    @requirement.Detail
+                                </div>
+                            }
+
+                            @* A same-page target cannot be an href here. The full path is
+                               intercepted by Blazor's router, which re-navigates without scrolling;
+                               a bare "#id" resolves against <base href="/"> and lands on the home
+                               page. Both read as a link that does nothing, and the second one
+                               quietly went somewhere else entirely. *@
+                            @if (requirement.ActionHref is { } href && requirement.ActionLabel is { } label)
+                            {
+                                @if (href.StartsWith('#'))
+                                {
+                                    <button type="button" class="btn btn-link btn-sm p-0 small"
+                                            @onclick="() => ScrollTo(href[1..])">@label</button>
+                                }
+                                else
+                                {
+                                    <a class="small" href="@href">@label</a>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(saveMessage))
+        {
+            <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                @saveMessage
+                <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+            </div>
+        }
+
+        @if (Key == "aws")
+        {
+            <h2 class="h5" id="access">Access</h2>
+            <p class="text-muted small">
+                What Connapse reads as when it syncs an S3 source. Connections choose a bucket;
+                this decides whether any of them can reach AWS at all.
+            </p>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    @* Rendered from the probe the page already ran, not a second one. This card
+                       used to do its own, which left it showing a "Check what Connapse can reach"
+                       button until somebody pressed it — so the failed requirement's own
+                       "Set up access" link landed here and appeared to do nothing, and every visit
+                       that did press it cost a duplicate pair of AWS calls. *@
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="@IconClass(AccessStatus)" aria-hidden="true"></span>
+                        <div class="flex-grow-1 small">
+                            @(AccessStatus switch
+                            {
+                                RequirementStatus.Satisfied => "Connapse can read S3.",
+                                RequirementStatus.Provisioning => "AWS is still issuing this key.",
+                                RequirementStatus.NotConfigured => "Connapse has no AWS identity yet.",
+                                RequirementStatus.Failed => "Connapse cannot read S3.",
+                                _ => "Connapse cannot confirm it can read S3."
+                            })
+                            @if (AccessRequirement?.Detail is { Length: > 0 } detail)
+                            {
+                                <span class="text-body-secondary">@detail</span>
+                            }
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="RefreshSetups">Recheck</button>
+                    </div>
+
+                    @* Outside the branches, because the setup used to live inside the failure one
+                       and there were two ways to reach a dead end. A key that authenticates but
+                       cannot read S3 lands in the *success* branch, so the page said Connapse
+                       cannot confirm it reads S3 and offered nothing but Recheck — and the failed
+                       requirement's own "Set up access" link pointed straight at it. A working
+                       identity had no way to be replaced at all, so rotating a key meant deleting
+                       it in AWS first and coming back to a broken install. *@
+                    @if (!AccessConfirmed || showSetup)
+                    {
+                        @if (AccessConfirmed)
+                        {
+                            <hr class="my-3" />
+                        }
+
+                        @* An identity of its own, not a copy of somebody's. Borrowing an
+                           administrator's credentials makes Connapse's reach depend on whose they
+                           were, and change when that person's permissions do. *@
+                        <p class="small mb-2">
+                            @(AccessConfirmed
+                                ? "Create a replacement identity. The current one keeps working until you paste the new key in."
+                                : "Give Connapse its own AWS user — read-only, separate from yours, and revocable on its own. You will run one command and paste the result back.")
+                        </p>
+
+                        @* Always, not only when the credential works. The script refuses to touch
+                           an existing IAM user rather than minting a second key for one, and the
+                           commonest reason to be on this form is a key that stopped working —
+                           deactivating a key or deleting its policy leaves the user in AWS, so the
+                           default name walks straight into that refusal with no field to change it. *@
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-5">
+                                <label class="form-label small mb-1">
+                                    IAM user name
+                                    @if (AccessConfirmed)
+                                    {
+                                        <span class="text-muted">(must differ from the current one)</span>
+                                    }
+                                </label>
+                                <input class="form-control form-control-sm" @bind="newUserName"
+                                       @bind:event="oninput"
+                                       placeholder="@AwsIamUserSetup.DefaultUserName" />
+                                <div class="form-text">
+                                    If a user by this name already exists in AWS, the script stops
+                                    rather than adding a second key to it. Pick another name, or
+                                    delete the old user first.
+                                </div>
+                            </div>
+                        </div>
+
+                        @* One setup, not a scope picker. The easy path exists to remove
+                           decisions, and asking an operator to size an IAM grant against sources
+                           that do not exist yet is the hardest decision on the page. Anyone who
+                           wants a narrower credential makes one in AWS and points Connapse at it;
+                           that path is supported and untouched. *@
+                        <p class="small mb-2">
+                            <span class="bi-shield-check me-1 text-muted"></span>
+                            Allows @S3SetupPolicy.ManagedIdentitySummary
+                            Each connection's allowed-locations list is what decides which of those
+                            buckets its sources may actually name.
+                        </p>
+
+                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript(newUserName)</code></pre>
+
+                        <div class="d-flex flex-wrap gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="CopyIdentityScript">
+                                <span class="bi-clipboard me-1"></span> Copy command
+                            </button>
+                            <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                               href="https://console.aws.amazon.com/cloudshell/home">
+                                <span class="bi-terminal me-1"></span> Open CloudShell
+                                <span class="bi-box-arrow-up-right ms-1 small"></span>
+                            </a>
+                            <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")">
+                                @copyMessage
+                            </span>
+                        </div>
+
+                        <label class="form-label small mb-1">Paste what it printed</label>
+                        <textarea class="form-control font-monospace" rows="4" @bind="pastedKey"
+                                  @bind:event="oninput"
+                                  placeholder="@AwsIamUserSetup.BeginMarker&#10;accessKeyId=…&#10;@AwsIamUserSetup.EndMarker"></textarea>
+
+                        @if (!string.IsNullOrWhiteSpace(pastedKey))
+                        {
+                            var parsed = AwsIamUserSetup.ParseResult(pastedKey);
+                            @if (parsed is null)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                    <span class="bi-exclamation-triangle me-1"></span>
+                                    No key block found yet. Copy everything the command printed,
+                                    including both <code>-----</code> marker lines.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    <span class="small flex-grow-1">
+                                        Read key <code>@parsed.AccessKeyId</code> for
+                                        <code>@parsed.UserName</code>.
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                            @onclick="() => SaveIdentity(parsed)" disabled="@awsBusy">
+                                        <span class="bi-check-lg me-1"></span> Use this identity
+                                    </button>
+                                </div>
+                                <div class="form-text">
+                                    Stored encrypted, the same way SFTP private keys are. The secret
+                                    is not recoverable from AWS afterwards.
+                                </div>
+                            }
+                        }
+                    }
+                    else
+                    {
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="() => showSetup = true">
+                                <span class="bi-arrow-repeat me-1"></span> Replace this identity
+                            </button>
+                            <div class="form-text">
+                                Creates a second IAM user and switches to it. Delete the old one in
+                                AWS afterwards — nothing here can, and nothing here should.
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <h2 class="h5" id="signin">Sign-in</h2>
+        <p class="text-muted small">
+            Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
+            search results are scoped against.
+        </p>
+
+        @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
+           between once the page is about one cloud. *@
+        @if (Key == "aws")
+        {
+            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
+        }
+        else if (Key == "azure")
+        {
+            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Which provider is being shown; null means the list.</summary>
+    [Parameter]
+    public string? Key { get; set; }
+
+    private string? saveMessage;
+    private bool saveSuccess;
+
+    private AwsSsoSettings awsSsoSettings = new();
+    private AzureAdSettings azureAdSettings = new();
+
+    /// <summary>Null while the providers are still being checked.</summary>
+    private IReadOnlyList<ProviderSetup>? setups;
+
+    private ProviderSetup? Current =>
+        Key is null ? null : setups?.FirstOrDefault(p => p.Key == Key);
+
+    protected override void OnInitialized()
+    {
+        // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
+        // table, which overrides appsettings.json, and reloads without a restart.
+        awsSsoSettings = AwsSsoOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
+    }
+
+    /// <summary>
+    /// Loads the requirements after the first render.
+    /// </summary>
+    /// <remarks>
+    /// Separate from OnInitialized because reading the AWS access requirement calls STS, and
+    /// off-AWS the credential chain can spend a second failing to reach EC2 metadata before it
+    /// gives up. Doing that before the first render would leave the page blank for the wait.
+    /// </remarks>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        setups = await SetupReader.ReadAsync();
+        StateHasChanged();
+    }
+
+    private bool awsBusy;
+
+    /// <summary>Whether the replace-identity form is open over a working credential.</summary>
+    private bool showSetup;
+
+    /// <summary>IAM user name for a replacement; null uses the default.</summary>
+    private string? newUserName;
+
+    /// <summary>The Access requirement, once the page has read it.</summary>
+    private ProviderRequirement? AccessRequirement =>
+        Current?.Requirements.FirstOrDefault(r => r.Name == "Access");
+
+    /// <summary>Unknown until the requirements have loaded, which keeps the card honest while it does.</summary>
+    private RequirementStatus AccessStatus => AccessRequirement?.Status ?? RequirementStatus.Unknown;
+
+    /// <summary>
+    /// Whether Connapse is known to read S3, as opposed to merely known to authenticate.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the whole card turns on. A credential whose policy never attached answers
+    /// <c>GetCallerIdentity</c> perfectly, so treating that as success is what put the setup form
+    /// out of reach for the one person who needed it.
+    /// </remarks>
+    private bool AccessConfirmed => AccessStatus == RequirementStatus.Satisfied;
+
+    private string? pastedKey;
+    private string? copyMessage;
+    private bool copySucceeded;
+
+    private async Task CopyIdentityScript()
+    {
+        // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
+        // Connapse is routinely served over plain HTTP on a LAN.
+        copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard",
+            AwsIamUserSetup.GenerateScript(newUserName));
+
+        copyMessage = copySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>Stores the key the script produced, and rechecks.</summary>
+    private async Task SaveIdentity(AwsGeneratedKey key)
+    {
+        awsBusy = true;
+        try
+        {
+            await CredentialStore.SaveAsync(
+                "aws", key.AccessKeyId, key.SecretAccessKey, key.UserName, null);
+
+            // Nothing keeps the pasted secret around once it is stored.
+            pastedKey = null;
+
+            // Closed on success, so a replacement does not leave its own form open above the
+            // result. It reopens on demand.
+            showSetup = false;
+            newUserName = null;
+
+            await RefreshSetups();
+        }
+        catch (Exception ex)
+        {
+            // Caught, and the pasted text deliberately left alone. An exception escaping a Blazor
+            // event handler tears down the circuit, which clears the form — and AWS returns a
+            // secret access key exactly once, so the operator would have to delete the IAM user
+            // and start again over a failure that might be a momentary database error.
+            saveSuccess = false;
+            saveMessage = $"Could not store the key: {ex.Message} " +
+                          "The text you pasted is still below — try again.";
+        }
+        finally
+        {
+            awsBusy = false;
+        }
+    }
+
+    /// <summary>Scrolls to a section of this page, and opens it if it is the setup.</summary>
+    /// <remarks>
+    /// The setup form is already rendered whenever access is not confirmed, so opening it matters
+    /// only for the case where the credential works and somebody wants to replace it — scrolling to
+    /// a collapsed section would be the same dead end in a new place.
+    /// </remarks>
+    private async Task ScrollTo(string elementId)
+    {
+        if (elementId == "access")
+            showSetup = true;
+
+        await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
+    }
+
+    private async Task RefreshSetups()
+    {
+        setups = null;
+        StateHasChanged();
+        setups = await SetupReader.ReadAsync();
+    }
+
+    /// <summary>What a provider would let you do, for one you have not taken up.</summary>
+    /// <remarks>
+    /// Says what it is for rather than what is missing. Somebody scanning this list is deciding
+    /// whether they need the provider at all, and "Sign-in not configured" answers a question
+    /// they have not asked yet.
+    /// </remarks>
+    private static string Offer(ProviderSetup provider) => provider.Key switch
+    {
+        "aws" => "Sign in with AWS, and read files from S3.",
+        "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
+        _ => $"Set up {provider.DisplayName}."
+    };
+
+    /// <summary>One line naming what still needs doing, for the list.</summary>
+    /// <remarks>
+    /// Names the outstanding requirements rather than counting them. "1 of 2" tells the reader how
+    /// much is left but not what, and only the latter is something they can act on.
+    /// </remarks>
+    private static string Summarise(ProviderSetup provider)
+    {
+        var outstanding = provider.Requirements
+            .Where(r => r.Status != RequirementStatus.Satisfied)
+            .Select(r => r.Name)
+            .ToList();
+
+        return outstanding.Count == 0
+            ? "Everything Connapse needs is set up."
+            : $"Needs attention: {string.Join(", ", outstanding)}";
+    }
+
+    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
+    {
+        awsSsoSettings = settings;
+        await SaveSettings("awssso", settings);
+
+        // The cards above report this very setting, so leaving them alone would show the old
+        // answer beside the new form.
+        await RefreshSetups();
+    }
+
+    private async Task SaveAzureAdSettings(AzureAdSettings settings)
+    {
+        azureAdSettings = settings;
+        await SaveSettings("azuread", settings);
+        await RefreshSetups();
+    }
+
+    private static string Label(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "Ready",
+        RequirementStatus.Provisioning => "Provisioning",
+        RequirementStatus.Failed => "Failed",
+        RequirementStatus.Warning => "Works, but",
+        RequirementStatus.NotConfigured => "Not set up",
+        _ => "Unknown"
+    };
+
+    private static string BadgeClass(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "text-bg-success",
+        // The only red on the page. Something the administrator already did did not take, which is
+        // a different thing from a fresh install with a next step.
+        RequirementStatus.Failed => "text-bg-danger",
+        RequirementStatus.Provisioning => "text-bg-info",
+        RequirementStatus.Warning => "text-bg-warning",
+        // Not "danger": nothing is broken, it simply has not been done, and colouring a fresh
+        // install red tells the reader they have a problem rather than a next step.
+        RequirementStatus.NotConfigured => "text-bg-secondary",
+        _ => "text-bg-light"
+    };
+
+    private static string IconClass(RequirementStatus status) => status switch
+    {
+        RequirementStatus.Satisfied => "bi-check-circle-fill text-success",
+        RequirementStatus.Failed => "bi-x-circle-fill text-danger",
+        RequirementStatus.Provisioning => "bi-hourglass-split text-info",
+        RequirementStatus.Warning => "bi-exclamation-triangle-fill text-warning",
+        RequirementStatus.NotConfigured => "bi-circle text-secondary",
+        _ => "bi-question-circle text-secondary"
+    };
+
+    private async Task SaveSettings<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            await SettingsStore.SaveAsync(category, settings);
+            ReloadService.Reload();
+            saveMessage = $"{category} settings saved successfully!";
+            saveSuccess = true;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveSuccess = false;
+        }
+    }
+}
