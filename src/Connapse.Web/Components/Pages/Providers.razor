@@ -835,16 +835,23 @@
         }
     }
 
-    /// <summary>Scrolls to a section of this page, and opens it if it is the setup.</summary>
+    /// <summary>Scrolls to a section of this page, and opens whatever it is you came to change.</summary>
     /// <remarks>
-    /// The setup form is already rendered whenever access is not confirmed, so opening it matters
-    /// only for the case where the credential works and somebody wants to replace it — scrolling to
-    /// a collapsed section would be the same dead end in a new place.
+    /// Each requirement that is already satisfied shows its section as a summary, so scrolling
+    /// alone lands on something with nothing to do on it — and on a tall enough window it does not
+    /// even move, which is indistinguishable from a dead link. Both sections are therefore opened
+    /// before the scroll rather than after somebody hunts for the button that opens them.
+    /// <para>
+    /// Only these two need it. Every other action on a requirement card is a real link elsewhere.
+    /// </para>
     /// </remarks>
     private async Task ScrollTo(string elementId)
     {
         if (elementId == "access")
             showSetup = true;
+
+        if (elementId == "permissions")
+            showCognitoManual = true;
 
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
