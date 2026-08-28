@@ -1032,7 +1032,6 @@ volumes:
 - [architecture.md](architecture.md) — System architecture
 - [api.md](api.md) — API reference
 - [connectors.md](connectors.md) — Connector types and configuration
-- [aws-sso-setup.md](aws-sso-setup.md) — AWS IAM Identity Center integration
 - [azure-identity-setup.md](azure-identity-setup.md) — Azure AD OAuth2+PKCE integration
 - [Docker Compose Docs](https://docs.docker.com/compose/)
 - [PostgreSQL Docs](https://www.postgresql.org/docs/)

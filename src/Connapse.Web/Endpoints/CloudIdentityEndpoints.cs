@@ -119,11 +119,11 @@ public static class CloudIdentityEndpoints
         // --- Cognito (per-user AWS identity link) ---
         //
         // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the
-        // Azure/AWS-SSO pair above, which write to UserCloudIdentityEntity via
+        // Azure connect/callback above, which write to UserCloudIdentityEntity via
         // ICloudIdentityService. This link exists so per-user AWS permissions can later be
         // resolved for search — it is not a connector credential. It shares the same versioned
-        // route group as the pair above: this callback URL is registered in the customer's
-        // Cognito app client, so it must not need to change again after ship.
+        // route group as the Azure endpoints above: this callback URL is registered in the
+        // customer's Cognito app client, so it must not need to change again after ship.
 
         // GET /api/v1/auth/cloud/cognito/connect — redirect to the pool's authorize endpoint.
         // Mirrors /azure/connect deliberately. A second convention for the same job in the same

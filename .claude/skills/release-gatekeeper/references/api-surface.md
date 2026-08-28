@@ -115,9 +115,9 @@ These shapes were verified in live testing and differ from what you might assume
 | GET | `/api/settings/embedding-models` | Admin | List embedding models |
 | GET | `/api/containers/{id}/search/models` | Admin | Container embedding models |
 
-Categories: `embedding`, `chunking`, `search`, `llm`, `upload`, `awssso`, `azuread`
+Categories: `embedding`, `chunking`, `search`, `llm`, `upload`, `azuread`
 
-Test connection categories: `Embedding`, `Llm`, `AwsSso`, `AzureAd`, `CrossEncoder`
+Test connection categories: `Embedding`, `Llm`, `AzureAd`, `CrossEncoder`
 
 ### Connector Endpoints
 | Method | Path | Auth | Purpose |
@@ -140,8 +140,6 @@ Subscribe: `SubscribeToJob(jobId)` → Listen: `IngestionProgress` events
 ### Cloud Identity (`/api/v1/auth/cloud`)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| POST | `/api/v1/auth/cloud/aws/device-auth` | Any user | Start AWS device flow |
-| POST | `/api/v1/auth/cloud/aws/device-auth/poll` | Any user | Poll AWS device flow |
 | GET | `/api/v1/auth/cloud/azure/connect` | Any user | Start Azure OAuth flow |
 | GET | `/api/v1/auth/cloud/azure/callback` | — | Azure OAuth callback |
 | GET | `/api/v1/auth/cloud` | Any user | List cloud identities |

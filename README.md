@@ -343,7 +343,6 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [Architecture Guide](docs/architecture.md) - System design and component overview
 - [API Reference](docs/api.md) - REST API endpoints and examples
 - [Connectors Guide](docs/connectors.md) - Connector types, configuration, and background sync
-- [AWS SSO Setup](docs/aws-sso-setup.md) - AWS IAM Identity Center integration
 - [Azure Identity Setup](docs/azure-identity-setup.md) - Azure AD OAuth2+PKCE integration
 - [Deployment Guide](docs/deployment.md) - Docker and production setup
 - [Security Policy](SECURITY.md) - Security limitations and roadmap
