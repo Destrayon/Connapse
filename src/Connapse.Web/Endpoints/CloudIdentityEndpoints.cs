@@ -22,7 +22,7 @@ public static class CloudIdentityEndpoints
     private const string CognitoStateCookieName = "__connapse_cog_state";
     private const string CognitoPkceCookieName = "__connapse_cog_pkce";
     private const string CognitoNonceCookieName = "__connapse_cog_nonce";
-    private const string CognitoCookiePath = "/api/cloud-identity/cognito";
+    private const string CognitoCookiePath = "/api/v1/auth/cloud/cognito";
 
     // Cached per issuer so signing keys are fetched from the pool's discovery document once and
     // reused, rather than refetched on every callback.
@@ -118,19 +118,23 @@ public static class CloudIdentityEndpoints
 
         // --- Cognito (per-user AWS identity link) ---
         //
-        // A separate route group and a separate table (AwsIdentityLinkStore /
-        // UserAwsIdentityLinkEntity) from the Azure/AWS-SSO pair above, which write to
-        // UserCloudIdentityEntity via ICloudIdentityService. This link exists so per-user AWS
-        // permissions can later be resolved for search — it is not a connector credential.
-        var cognitoGroup = app.MapGroup("/api/cloud-identity").WithTags("Cloud Identity");
+        // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the
+        // Azure/AWS-SSO pair above, which write to UserCloudIdentityEntity via
+        // ICloudIdentityService. This link exists so per-user AWS permissions can later be
+        // resolved for search — it is not a connector credential. It shares the same versioned
+        // route group as the pair above: this callback URL is registered in the customer's
+        // Cognito app client, so it must not need to change again after ship.
 
-        // GET /api/cloud-identity/cognito/connect — redirect to the pool's authorize endpoint.
+        // GET /api/v1/auth/cloud/cognito/connect — redirect to the pool's authorize endpoint.
         // Mirrors /azure/connect deliberately. A second convention for the same job in the same
         // file costs more than reusing an imperfect one.
-        cognitoGroup.MapGet("/cognito/connect", (
+        group.MapGet("/cognito/connect", (
             HttpContext http,
             IOptionsMonitor<CognitoSettings> settings) =>
         {
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
             var cognito = settings.CurrentValue;
             if (!cognito.IsConfigured)
                 return Results.Problem(
@@ -141,7 +145,16 @@ public static class CloudIdentityEndpoints
             // holds until the callback proves possession of the verifier that produced it.
             string verifier = GenerateCodeVerifier();
             string challenge = ComputeCodeChallenge(verifier);
-            string state = GenerateOpaqueToken();
+            // State, verifier and nonce are stashed as browser-scoped cookies, not
+            // session-scoped ones: they carry no user identity of their own. Without more, the
+            // callback would decide whose account to link by trusting whichever principal
+            // happens to be signed in when it runs — which can be a different person than the
+            // one who clicked Connect, if their session ends and someone else signs in on the
+            // same browser inside the cookie's lifetime. Prefixing the initiating user's id onto
+            // the opaque state lets the callback catch that without a fourth cookie. The id is
+            // not a secret, so it must not be treated as contributing entropy — the random half
+            // is generated exactly as it was before this was added.
+            string state = $"{userId.Value}:{GenerateOpaqueToken()}";
             // Bound in the authorize request; checked against the ID token's `nonce` claim in the
             // callback. Cheap, and stops a token minted for a different request being replayed
             // into this one.
@@ -163,8 +176,8 @@ public static class CloudIdentityEndpoints
             return Results.Redirect(authorize);
         }).RequireAuthorization();
 
-        // GET /api/cloud-identity/cognito/callback — Cognito OAuth2 callback.
-        cognitoGroup.MapGet("/cognito/callback", async (
+        // GET /api/v1/auth/cloud/cognito/callback — Cognito OAuth2 callback.
+        group.MapGet("/cognito/callback", async (
             HttpContext http,
             [FromQuery] string code,
             [FromQuery] string state,
@@ -197,6 +210,18 @@ public static class CloudIdentityEndpoints
 
             var userId = GetUserId(http);
             if (userId is null) return Results.Unauthorized();
+
+            // Rule: the flow is bound to whoever started it, not whoever happens to be signed in
+            // when Cognito redirects back. State, verifier and nonce are browser-scoped cookies
+            // with no session identity of their own, so without this check a session that ended
+            // (or was switched) mid-flow on the same browser would silently link the verified AWS
+            // email to whoever is signed in now instead of who clicked Connect.
+            var initiatingUserId = ParseInitiatingUserId(expectedState);
+            if (initiatingUserId is null || initiatingUserId != userId.Value)
+            {
+                logger.LogWarning("Cognito callback rejected: the signed-in user did not match who started the flow");
+                return Results.Redirect("/profile/integrations?error=cognito_user_mismatch");
+            }
 
             var cognito = settings.CurrentValue;
             if (!cognito.IsConfigured)
@@ -436,7 +461,20 @@ public static class CloudIdentityEndpoints
     }
 
     private static string CognitoCallbackUri(HttpContext http) =>
-        $"{http.Request.Scheme}://{http.Request.Host}/api/cloud-identity/cognito/callback";
+        $"{http.Request.Scheme}://{http.Request.Host}/api/v1/auth/cloud/cognito/callback";
+
+    /// <summary>
+    /// Splits the initiating user's id off the front of a stashed Cognito state value (format
+    /// <c>"{userId}:{random}"</c>), or null when the state does not have that shape at all — e.g.
+    /// an old-format state left over from before this existed, which must not be trusted as
+    /// belonging to anyone.
+    /// </summary>
+    private static Guid? ParseInitiatingUserId(string state)
+    {
+        var separatorIndex = state.IndexOf(':');
+        if (separatorIndex <= 0) return null;
+        return Guid.TryParse(state[..separatorIndex], out var id) ? id : null;
+    }
 
     private static string GenerateOpaqueToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));

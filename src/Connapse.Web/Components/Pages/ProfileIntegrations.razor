@@ -38,9 +38,11 @@
         <h2 class="h5 mb-0">Cloud Identities</h2>
     </div>
     <p class="text-muted small mb-4">
-        Link your cloud accounts so Connapse knows who you are in AWS or Azure. Only identity
-        metadata is stored — no access keys or tokens, and linking does not grant Connapse access to
-        your storage.
+        Link your cloud accounts so Connapse knows who you are in AWS or Azure. The AWS and Azure
+        sign-in cards below store identity metadata only — no access keys or tokens — and linking
+        does not grant Connapse access to your storage. The AWS Permissions card is different:
+        connecting it stores an encrypted refresh token so Connapse can check your AWS permissions
+        on your behalf.
         <br />
         <strong>Linking does not yet filter your search results.</strong> Per-user search
         permissions are not implemented, so every Connapse user can currently search everything
@@ -347,35 +349,40 @@
                         </p>
                     }
                 </div>
-                @if (cognitoConfigured)
+                @if (cognitoIdentity is not null)
                 {
+                    <!-- Always reachable, even if an admin cleared the pool settings after this user
+                         connected: disconnecting must never depend on cognitoConfigured, or a
+                         connected user's row (and its live refresh token) becomes unremovable
+                         through any surface. AwsIdentityLinkService.DisconnectAsync already
+                         handles the not-configured case — it deletes the local row and reports
+                         that AWS could not be told, rather than failing outright. -->
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                        @if (cognitoIdentity is not null)
+                        @if (confirmDisconnectCognito)
                         {
-                            @if (confirmDisconnectCognito)
-                            {
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm btn-danger" @onclick="DisconnectCognitoAsync" disabled="@isProcessing">
-                                        Confirm Disconnect
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectCognito = false">
-                                        Cancel
-                                    </button>
-                                </div>
-                            }
-                            else
-                            {
-                                <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectCognito = true" disabled="@isProcessing">
-                                    <span class="bi-x-circle me-1"></span>Disconnect
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-danger" @onclick="DisconnectCognitoAsync" disabled="@isProcessing">
+                                    Confirm Disconnect
                                 </button>
-                            }
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectCognito = false">
+                                    Cancel
+                                </button>
+                            </div>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-primary" @onclick="ConnectCognitoAsync" disabled="@isProcessing">
-                                <span class="bi-link-45deg me-1"></span>Connect AWS Permissions
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectCognito = true" disabled="@isProcessing">
+                                <span class="bi-x-circle me-1"></span>Disconnect
                             </button>
                         }
+                    </div>
+                }
+                else if (cognitoConfigured)
+                {
+                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                        <button class="btn btn-sm btn-primary" @onclick="ConnectCognitoAsync" disabled="@isProcessing">
+                            <span class="bi-link-45deg me-1"></span>Connect AWS Permissions
+                        </button>
                     </div>
                 }
             </div>
@@ -449,6 +456,7 @@
             "exchange_failed" => "Could not connect your AWS identity: the token exchange with Cognito failed.",
             "token_invalid" => "Could not connect your AWS identity: Cognito returned a token that could not be verified.",
             "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
+            "user_mismatch" => "Could not connect your AWS identity: you were signed in as a different user by the time AWS responded. Please try again.",
             "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
             _ => "Could not connect your AWS identity. Please try again.",
         };
@@ -462,7 +470,7 @@
 
     private void ConnectCognitoAsync()
     {
-        Navigation.NavigateTo("/api/cloud-identity/cognito/connect", forceLoad: true);
+        Navigation.NavigateTo("/api/v1/auth/cloud/cognito/connect", forceLoad: true);
     }
 
     private async Task DisconnectCognitoAsync()

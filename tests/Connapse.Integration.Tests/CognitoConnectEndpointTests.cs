@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Identity.Data.Entities;
+using Connapse.Identity.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -25,6 +30,15 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
 {
+    private const string OtherUserEmail = "other-cognito-user@integration-tests.connapse.io";
+    private const string OtherUserPassword = "OtherCognitoUserTest1!";
+
+    // Must match the private cookie-name consts in CloudIdentityEndpoints — there is no public
+    // surface to read them from, and the user-mismatch test needs the raw stashed state value.
+    private const string CognitoStateCookieName = "__connapse_cog_state";
+    private const string CognitoPkceCookieName = "__connapse_cog_pkce";
+    private const string CognitoNonceCookieName = "__connapse_cog_nonce";
+
     private static CognitoSettings ConfiguredSettings() => new()
     {
         IssuerUrl = "https://cognito-idp.us-west-1.amazonaws.com/us-west-1_test",
@@ -46,12 +60,73 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
         return client;
     }
 
+    /// <summary>Creates a second Connapse user distinct from the admin, and returns its id.</summary>
+    private static async Task<Guid> SeedOtherUserAsync(IServiceProvider services)
+    {
+        var userManager = services.GetRequiredService<UserManager<ConnapseUser>>();
+
+        var existing = await userManager.FindByEmailAsync(OtherUserEmail);
+        if (existing is not null)
+            return existing.Id;
+
+        var user = new ConnapseUser
+        {
+            UserName = OtherUserEmail,
+            Email = OtherUserEmail,
+            EmailConfirmed = true,
+            DisplayName = OtherUserEmail,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        var createResult = await userManager.CreateAsync(user, OtherUserPassword);
+        createResult.Succeeded.Should().BeTrue(
+            because: string.Join(", ", createResult.Errors.Select(e => e.Description)));
+
+        await userManager.AddToRoleAsync(user, "Viewer");
+        return user.Id;
+    }
+
+    private async Task<string> LoginAsAsync(string email, string password)
+    {
+        using var anonClient = fixture.Factory.CreateClient();
+        var response = await anonClient.PostAsJsonAsync("/api/v1/auth/token", new LoginRequest(email, password));
+        response.StatusCode.Should().Be(HttpStatusCode.OK, because: $"login as {email} should succeed");
+
+        var token = await response.Content.ReadFromJsonAsync<TokenResponse>(
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        token.Should().NotBeNull();
+        return token!.AccessToken;
+    }
+
+    /// <summary>Pulls the three stashed Cognito cookies' raw name=value pairs off a /connect response.</summary>
+    private static Dictionary<string, string> ExtractCognitoCookies(HttpResponseMessage response)
+    {
+        var names = new[] { CognitoStateCookieName, CognitoPkceCookieName, CognitoNonceCookieName };
+        var result = new Dictionary<string, string>();
+
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+            return result;
+
+        foreach (var header in setCookieHeaders)
+        {
+            var nameValue = header.Split(';', 2)[0];
+            var parts = nameValue.Split('=', 2);
+            if (parts.Length == 2 && names.Contains(parts[0]))
+                result[parts[0]] = parts[1];
+        }
+
+        return result;
+    }
+
+    private static string BuildCookieHeader(Dictionary<string, string> cookies) =>
+        string.Join("; ", cookies.Select(kv => $"{kv.Key}={kv.Value}"));
+
     [Fact]
     public async Task Connect_WhenCognitoIsNotConfigured_Returns409()
     {
         // A deployment with no Cognito settings must fail in a way that says so. Redirecting to a
         // half-built URL sends the user to a 404 on a domain they have never heard of.
-        var response = await fixture.AdminClient.GetAsync("/api/cloud-identity/cognito/connect");
+        var response = await fixture.AdminClient.GetAsync("/api/v1/auth/cloud/cognito/connect");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
         response.StatusCode.Should().Be(HttpStatusCode.Conflict, "there is nowhere valid to redirect to");
@@ -65,7 +140,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             AllowAutoRedirect = false,
         });
 
-        var response = await anonClient.GetAsync("/api/cloud-identity/cognito/connect");
+        var response = await anonClient.GetAsync("/api/v1/auth/cloud/cognito/connect");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -76,7 +151,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
     {
         // An unsolicited callback is either a bug or an attempt to plant a token against someone
         // else's account. Either way it is not a connection.
-        var response = await fixture.AdminClient.GetAsync("/api/cloud-identity/cognito/callback?code=abc");
+        var response = await fixture.AdminClient.GetAsync("/api/v1/auth/cloud/cognito/callback?code=abc");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
@@ -101,13 +176,13 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             // builds a redirect URL and never dials out.
             using var client = CreateAuthenticatedClient();
 
-            var connectResponse = await client.GetAsync("/api/cloud-identity/cognito/connect");
+            var connectResponse = await client.GetAsync("/api/v1/auth/cloud/cognito/connect");
             connectResponse.StatusCode.Should().Be(HttpStatusCode.Redirect,
                 "Cognito is configured now, so this must actually start a connection and stash a state cookie");
 
             // A state nobody issued, sent alongside the *real* stashed cookie from the call above.
             var response = await client.GetAsync(
-                "/api/cloud-identity/cognito/callback?code=abc&state=not-a-state-we-issued");
+                "/api/v1/auth/cloud/cognito/callback?code=abc&state=not-a-state-we-issued");
 
             response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
             response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -117,6 +192,82 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             // Always restore, even if an assertion above threw — otherwise this leaves Cognito
             // configured for whichever test in this shared fixture happens to run next, turning one
             // real failure into a second, unrelated one.
+            await store.SaveAsync("cognito", new CognitoSettings());
+        }
+    }
+
+    [Fact]
+    public async Task Callback_WhenSignedInUserDiffersFromWhoStartedTheFlow_IsRejectedAndStoresNothing()
+    {
+        // The failure this guards against needs no attacker: user A clicks Connect, goes to the
+        // Cognito hosted UI, and while they are there their Connapse session ends and user B signs
+        // in on the same browser. The redirect lands inside the cookie window. State, PKCE verifier
+        // and nonce are all still valid — they are browser-scoped cookies, not session-scoped — so
+        // without the fix the callback would decide whose account to link by reading whichever
+        // principal happens to be signed in right now (B), storing A's verified AWS identity
+        // against B's account.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        await store.SaveAsync("cognito", ConfiguredSettings());
+        try
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
+            var initiatingUser = await userManager.FindByEmailAsync(SharedWebAppFixture.AdminEmail);
+            initiatingUser.Should().NotBeNull("the shared admin account is the one used to start the flow below");
+
+            var switchedInUserId = await SeedOtherUserAsync(scope.ServiceProvider);
+            var switchedInUserToken = await LoginAsAsync(OtherUserEmail, OtherUserPassword);
+
+            // Start the flow as the admin (user A) — this is the request whose cookies carry A's id.
+            using var initiatingClient = CreateAuthenticatedClient();
+            var connectResponse = await initiatingClient.GetAsync("/api/v1/auth/cloud/cognito/connect");
+            connectResponse.StatusCode.Should().Be(HttpStatusCode.Redirect,
+                "Cognito is configured, so /connect must stash state and redirect");
+
+            var cognitoCookies = ExtractCognitoCookies(connectResponse);
+            cognitoCookies.Should().ContainKey(CognitoStateCookieName,
+                "the state cookie has to exist for the mismatch check downstream to have anything to parse");
+
+            // The callback arrives with the same browser's cookies, but a different signed-in user
+            // (B) — simulated here by sending them explicitly on a client authenticated as B rather
+            // than A, since the two are otherwise indistinguishable to the server. HandleCookies
+            // must be off: WebApplicationFactory's cookie handler manages the Cookie header from
+            // its own (empty, for this brand-new client) container and discards a manually set one
+            // otherwise, which would defeat the whole point of forwarding A's cookies here.
+            using var switchedInClient = fixture.Factory.CreateClient(new() { AllowAutoRedirect = false, HandleCookies = false });
+            switchedInClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", switchedInUserToken);
+
+            // Set-Cookie values are percent-encoded by ASP.NET Core (Response.Cookies.Append
+            // escapes them; Request.Cookies[name] decodes them back on the way in). The raw
+            // extracted cookie value is already in that encoded form, so it goes on the Cookie
+            // header unchanged — but the query string's `state` needs the *decoded* value
+            // re-escaped exactly once, or the endpoint reads two different strings for
+            // "the state the cookie carries" vs. "the state the query string carries" and
+            // rejects the callback as a state mismatch before ever reaching the check this test
+            // is for.
+            var decodedState = Uri.UnescapeDataString(cognitoCookies[CognitoStateCookieName]);
+            var callbackUrl =
+                $"/api/v1/auth/cloud/cognito/callback?code=abc&state={Uri.EscapeDataString(decodedState)}";
+            using var callbackRequest = new HttpRequestMessage(HttpMethod.Get, callbackUrl);
+            callbackRequest.Headers.TryAddWithoutValidation("Cookie", BuildCookieHeader(cognitoCookies));
+
+            var callbackResponse = await switchedInClient.SendAsync(callbackRequest);
+
+            callbackResponse.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
+            callbackResponse.StatusCode.Should().Be(HttpStatusCode.Redirect,
+                "a user mismatch is reported the same way the other rejection reasons are: a redirect back with ?error=");
+            callbackResponse.Headers.Location.Should().NotBeNull();
+            callbackResponse.Headers.Location!.ToString().Should().Contain("error=cognito_user_mismatch");
+
+            var linkStore = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
+            (await linkStore.GetAsync(initiatingUser!.Id)).Should().BeNull(
+                "the user who started the flow must not gain a link from a callback that ran under someone else's session");
+            (await linkStore.GetAsync(switchedInUserId)).Should().BeNull(
+                "the user signed in at callback time must not gain a link either — the callback stores nothing on a mismatch");
+        }
+        finally
+        {
             await store.SaveAsync("cognito", new CognitoSettings());
         }
     }

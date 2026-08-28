@@ -44,6 +44,20 @@ public class AwsIdentityLinkCopyTests
     }
 
     [Fact]
+    public void Page_DoesNotClaimNoTokensAreStoredForEveryCard()
+    {
+        // The intro paragraph above all three cards used to say "Only identity metadata is
+        // stored — no access keys or tokens" as a single blanket claim covering all of them. This
+        // card broke that the moment it started storing an encrypted Cognito refresh token: the
+        // card's own copy is careful, but the page-level sentence framing it was left
+        // contradicting it (#433 review finding). The intro must instead scope the "no tokens"
+        // claim to the sign-in cards and admit this card is the exception.
+        Markup.Should().NotContain("Only identity metadata is stored");
+        Markup.Should().Contain("encrypted refresh token",
+            "the intro must admit this card is the one that stores a token, not claim none are stored");
+    }
+
+    [Fact]
     public void Page_CanBeRead()
     {
         // A source-pinning test that passes when it cannot find its subject is worse than none.
