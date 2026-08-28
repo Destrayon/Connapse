@@ -125,23 +125,31 @@ public static class CognitoSetup
         REGION="${AWS_REGION:-$(aws configure get region)}"
         [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
 
-        printf '\n%s\n' '{{PoolsBeginMarker}}'
-        aws cognito-idp list-user-pools --region "$REGION" --max-results 60 \
-          --query 'UserPools[].[Id,Name]' --output text | while IFS=$(printf '\t') read -r ID NAME; do
-          [ -z "$ID" ] && continue
+        # Built up and printed at the end, not as it goes. An interactive shell echoes a pasted
+        # multi-line command, and printing the markers inline puts that echo between them.
+        BLOCK=$(
+          printf '%s\n' '{{PoolsBeginMarker}}'
+          aws cognito-idp list-user-pools --region "$REGION" --max-results 60 \
+            --query 'UserPools[].[Id,Name]' --output text | while IFS=$(printf '\t') read -r ID NAME; do
+            [ -z "$ID" ] && continue
 
-          # Two calls per pool, because neither fact is in the list response. Pools are few and
-          # this runs once.
-          DESC=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
-                   --query 'UserPool.[Domain,AutoVerifiedAttributes]' --output text 2>/dev/null || true)
-          DOMAIN=$(printf '%s' "$DESC" | awk '{print $1}')
-          VERIFIED=$(printf '%s' "$DESC" | awk '{print $2}')
+            # One query each. Asking for both in a single --query puts them on separate lines,
+            # because AutoVerifiedAttributes is a list and --output text gives a list its own row —
+            # so reading them positionally landed the attribute in the domain and left the pool
+            # looking like it does not verify email when it does.
+            DOMAIN=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
+                       --query 'UserPool.Domain' --output text 2>/dev/null || true)
+            VERIFIED=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
+                         --query 'UserPool.AutoVerifiedAttributes' --output text 2>/dev/null || true)
 
-          printf 'pool=%s\t%s\t%s\t%s\n' "$ID" "$NAME" \
-            "$([ "$DOMAIN" = 'None' ] && printf -- '-' || printf '%s' "$DOMAIN")" \
-            "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')"
-        done
-        printf '%s\n\n' '{{PoolsEndMarker}}'
+            printf 'pool=%s\t%s\t%s\t%s\n' "$ID" "$NAME" \
+              "$([ -z "$DOMAIN" ] || [ "$DOMAIN" = 'None' ] && printf -- '-' || printf '%s' "$DOMAIN")" \
+              "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')"
+          done
+          printf '%s\n' '{{PoolsEndMarker}}'
+        )
+
+        printf '\n%s\n\n' "$BLOCK"
         echo 'Copy the block above into Connapse.'
         """;
     }

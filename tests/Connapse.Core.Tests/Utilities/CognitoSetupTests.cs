@@ -315,4 +315,63 @@ public class CognitoSetupTests
         script.Should().Contain("describe-trusted-token-issuer");
         script.Should().NotContain("TrustedTokenIssuers[?Name==");
     }
+
+    [Fact]
+    public void GenerateDiscoveryScript_AsksForEachFactSeparately()
+    {
+        // Regression. Asking for both in one --query puts them on separate lines, because
+        // AutoVerifiedAttributes is a list and --output text gives a list its own row. Reading them
+        // positionally then landed the attribute inside the domain and produced a row with three
+        // fields instead of four, which ParsePools drops — so a perfectly good pool came back as
+        // "no pools found".
+        string script = CognitoSetup.GenerateDiscoveryScript();
+
+        script.Should().Contain("--query 'UserPool.Domain'");
+        script.Should().Contain("--query 'UserPool.AutoVerifiedAttributes'");
+        script.Should().NotContain("UserPool.[Domain,AutoVerifiedAttributes]");
+    }
+
+    [Fact]
+    public void GenerateDiscoveryScript_PrintsTheBlockInOnePiece()
+    {
+        // An interactive shell echoes a pasted multi-line command, so printing the markers as it
+        // goes puts that echo between them. Collected first, printed after — the same shape
+        // AwsIamUserSetup uses.
+        CognitoSetup.GenerateDiscoveryScript().Should().Contain("BLOCK=$(");
+    }
+
+    [Fact]
+    public void ParsePools_IgnoresTheShellEchoingTheCommandIntoTheBlock()
+    {
+        // Taken from a real CloudShell paste: the prompt echoes the pipeline source between the
+        // markers, and one of those lines contains the literal text "pool=".
+        string pasted = CognitoSetup.PoolsBeginMarker + "\n"
+            + "~ $ aws cognito-idp list-user-pools --region \"$REGION\" --max-results 60 \\\n"
+            + ">   --query 'UserPools[].[Id,Name]' --output text | while read -r ID NAME; do\n"
+            + ">   printf 'pool=%s\\t%s\\t%s\\t%s\\n' \"$ID\" \"$NAME\" \\\n"
+            + "> done\n"
+            + "pool=us-west-1_faPljPr3c\tconnapse-pool\tconnapse-086015909943-us-west-1\temail\n"
+            + CognitoSetup.PoolsEndMarker;
+
+        var pools = CognitoSetup.ParsePools(pasted);
+
+        pools.Should().ContainSingle();
+        pools[0].PoolId.Should().Be("us-west-1_faPljPr3c");
+        pools[0].DomainPrefix.Should().Be("connapse-086015909943-us-west-1");
+        pools[0].IsUsable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParsePools_WithAThreeFieldRow_FindsNothingRatherThanGuessing()
+    {
+        // What the broken script produced. Dropping the row is the right failure: the fourth field
+        // decides whether the pool can be used at all, and defaulting it either way would either
+        // hide a usable pool or offer one that cannot work.
+        string pasted = CognitoSetup.PoolsBeginMarker + "\n"
+            + "pool=us-west-1_faPljPr3c\tconnapse-pool\tconnapse-086015909943-us-west-1\n"
+            + "email\t-\n"
+            + CognitoSetup.PoolsEndMarker;
+
+        CognitoSetup.ParsePools(pasted).Should().BeEmpty();
+    }
 }
