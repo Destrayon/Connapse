@@ -30,9 +30,10 @@ public class CognitoSetupTests
         // The instance, the location and its role are infrastructure; a grant is a permission.
         string script = CognitoSetup.GenerateScript(Request());
 
-        script.Should().Contain("AWS::S3::AccessGrantsInstance");
-        script.Should().Contain("AWS::S3::AccessGrantsLocation");
-        script.Should().NotContain("AWS::S3::AccessGrant\n");
+        // The resources moved to the template; the script must not reach around it and make one
+        // by hand either.
+        CognitoSetup.GenerateTemplate().Should().Contain("AWS::S3::AccessGrantsInstance");
+        CognitoSetup.GenerateTemplate().Should().Contain("AWS::S3::AccessGrantsLocation");
         script.Should().NotContain("create-access-grant");
     }
 
@@ -84,7 +85,7 @@ public class CognitoSetupTests
             Request(idp: "https://idp.example.com/metadata.xml"));
 
         script.Should().Contain("IDP_METADATA='https://idp.example.com/metadata.xml'");
-        script.Should().Contain("AWS::Cognito::UserPoolIdentityProvider");
+        CognitoSetup.GenerateTemplate().Should().Contain("AWS::Cognito::UserPoolIdentityProvider");
     }
 
     [Theory]
@@ -276,9 +277,11 @@ public class CognitoSetupTests
             new CognitoSetupRequest(Callback, Actor, ExistingPoolId: "us-east-1_aaa"));
 
         script.Should().Contain("EXISTING_POOL='us-east-1_aaa'");
+
         // The pool resource is conditional, and the condition is false when a pool is named.
-        script.Should().Contain("Condition: CreatePool");
-        script.Should().Contain("CreatePool: !Equals [ !Ref ExistingPoolId, '' ]");
+        CognitoSetup.GenerateTemplate().Should().Contain("Condition: CreatePool");
+        CognitoSetup.GenerateTemplate()
+            .Should().Contain("CreatePool: !Equals [ !Ref ExistingPoolId, '' ]");
     }
 
     [Fact]
@@ -289,7 +292,7 @@ public class CognitoSetupTests
         string script = CognitoSetup.GenerateScript(
             new CognitoSetupRequest(Callback, Actor, ExistingPoolId: "us-east-1_aaa"));
 
-        script.Should().Contain("AWS::Cognito::UserPoolClient");
+        CognitoSetup.GenerateTemplate().Should().Contain("AWS::Cognito::UserPoolClient");
         script.Should().NotContain("update-user-pool-client");
     }
 
@@ -302,7 +305,8 @@ public class CognitoSetupTests
             Callback, Actor, ExistingPoolId: "us-east-1_aaa", ExistingDomainPrefix: "acme-login"));
 
         script.Should().Contain("EXISTING_DOMAIN='acme-login'");
-        script.Should().Contain("CreateDomain: !Equals [ !Ref ExistingDomainPrefix, '' ]");
+        CognitoSetup.GenerateTemplate()
+            .Should().Contain("CreateDomain: !Equals [ !Ref ExistingDomainPrefix, '' ]");
     }
 
     [Fact]
@@ -404,59 +408,59 @@ public class CognitoSetupTests
             .Should().Contain("list-application-authentication-methods");
     }
 
-    // ── What actually gets pasted ────────────────────────────────────
+    // ── The template is its own artifact ─────────────────────────────
 
     [Fact]
-    public void GenerateBootstrap_RebuildsTheScriptExactly()
+    public void GenerateTemplate_IsTheCloudFormationTemplate()
     {
-        // The whole point: what is pasted is not what is read, so the two must be provably the
-        // same bytes. Decoded here the way the shell decodes it.
-        var request = Request();
-        string bootstrap = CognitoSetup.GenerateBootstrap(request);
+        string template = CognitoSetup.GenerateTemplate();
 
-        string encoded = string.Concat(bootstrap
-            .Split('\n')
-            .Where(l => l.StartsWith("printf %s '", StringComparison.Ordinal))
-            .Select(l => l["printf %s '".Length..l.LastIndexOf('\'')]));
-
-        System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded))
-            .Should().Be(CognitoSetup.GenerateScript(request).ReplaceLineEndings("\n"));
+        template.Should().StartWith("AWSTemplateFormatVersion");
+        template.Should().Contain("AWS::Cognito::UserPool");
+        template.Should().Contain("AWS::SSO::Application");
+        template.Should().Contain("AWS::S3::AccessGrantsInstance");
     }
 
     [Fact]
-    public void GenerateBootstrap_HasNoLineLongEnoughToTruncate()
+    public void GenerateTemplate_CreatesNoAccessGrant()
     {
-        // A terminal line editor is entitled to hold 1024 characters. Anything longer risks being
-        // silently cut, which would corrupt the base64 and produce a script that is not the one
-        // anybody reviewed.
-        CognitoSetup.GenerateBootstrap(Request())
-            .Split('\n').Select(l => l.Length).Max()
-            .Should().BeLessThan(1024);
+        // The constraint moved here with the resources. Instance, location and role are
+        // infrastructure; a grant is a permission, and those stay the administrator's.
+        CognitoSetup.GenerateTemplate().Should().NotContain("AWS::S3::AccessGrant\n");
     }
 
     [Fact]
-    public void GenerateBootstrap_UsesNoMultiLineShellConstruct()
+    public void GenerateScript_DoesNotCarryTheTemplate()
     {
-        // The failure this exists for. Pasting the script directly put CloudShell into
-        // continuation mode for the hundred-line heredoc and killed the session part-way through,
-        // twice. Every line here is a complete command, so the shell never continues.
-        string bootstrap = CognitoSetup.GenerateBootstrap(Request());
+        // Two things at once. The template is the reviewable artifact and belongs in a file an
+        // administrator reads, not buried in a shell script; and a hundred-line heredoc is what
+        // put CloudShell into continuation mode until it disconnected, twice.
+        string script = CognitoSetup.GenerateScript(Request());
 
-        bootstrap.Should().NotContain("<<");
-        bootstrap.Split('\n').Should().NotContain(l => l.EndsWith('\\'));
+        script.Should().NotContain("AWSTemplateFormatVersion");
+        script.Should().NotContain("<<");
     }
 
     [Fact]
-    public void GenerateBootstrap_LeavesTheScriptOnDiskToBeRead()
+    public void GenerateScript_SaysWhereToGetTheTemplateWhenItIsMissing()
     {
-        // Decoded to a file and then run, rather than piped straight into bash. An administrator
-        // who wants to check that the bootstrap matches what the page showed needs something to
-        // look at.
-        string bootstrap = CognitoSetup.GenerateBootstrap(Request());
+        // The one new way this can fail. Without the file the deploy fails inside the AWS CLI with
+        // a message about a path, which says nothing about the step that was skipped.
+        string script = CognitoSetup.GenerateScript(Request());
 
-        bootstrap.Should().Contain("> /tmp/connapse-setup.sh");
-        bootstrap.Should().Contain("bash /tmp/connapse-setup.sh");
-        bootstrap.Should().NotContain("| bash");
+        script.Should().Contain("connapse-cognito.yaml");
+        script.Should().Contain("Upload file");
+    }
+
+    [Fact]
+    public void GenerateScript_EncodesNothing()
+    {
+        // Deliberate, and worth a test because the alternative was shipped briefly. Piping base64
+        // into a shell is a documented malware signature — Google Cloud raises a threat finding on
+        // it — and it hides from the reader exactly what a setup script must show them.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        script.Should().NotContain("base64");
     }
 
     [Fact]

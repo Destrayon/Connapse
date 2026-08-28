@@ -485,9 +485,24 @@
                         </div>
                     }
 
+                <ol class="small mb-2">
+                    <li>
+                        Download the template and read it. Nothing runs at this point.
+                    </li>
+                    <li>
+                        In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and upload
+                        <code>connapse-cognito.yaml</code>.
+                    </li>
+                    <li>Paste the script below. It deploys that template, then finishes the setup.</li>
+                </ol>
+
                 <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
 
                 <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="DownloadTemplate">
+                        <span class="bi-download me-1"></span> Download template
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             @onclick="CopyCognitoScript">
                         <span class="bi-clipboard me-1"></span> Copy command
@@ -503,10 +518,10 @@
                 </div>
 
                 <div class="form-text mb-3">
-                    Copy gives you a short bootstrap that rebuilds the script above and runs it.
-                    Pasting the script itself would be two hundred lines and disconnects CloudShell
-                    part-way through. It decodes to exactly what is shown, and leaves the file at
-                    <code>/tmp/connapse-setup.sh</code> if you want to read it first.
+                    Two files, and you can read both before anything runs. The template declares
+                    what will exist; CloudFormation lists it back to you and asks before creating
+                    IAM resources. The script only makes the four Identity Center calls that have no
+                    CloudFormation resource type, then prints the settings above.
                 </div>
 
                 <label class="form-label small mb-1">Paste what it printed</label>
@@ -678,6 +693,19 @@
     private string? copyMessage;
     private bool copySucceeded;
 
+    /// <summary>Hands over the CloudFormation template to read and upload.</summary>
+    private async Task DownloadTemplate()
+    {
+        cognitoCopyMessage = null;
+
+        cognitoCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.downloadText", "connapse-cognito.yaml", CognitoSetup.GenerateTemplate());
+
+        cognitoCopyMessage = cognitoCopySucceeded
+            ? "Downloaded connapse-cognito.yaml."
+            : "Could not download — check whether the browser blocked it.";
+    }
+
     private async Task CopyDiscoveryScript()
     {
         cognitoCopyMessage = null;
@@ -694,12 +722,8 @@
     {
         cognitoCopyMessage = null;
 
-        // The bootstrap, not the script above it. What is displayed is 200 lines with a
-        // 100-line heredoc, and pasting that into an interactive shell kills the session part-way
-        // through — seen twice in CloudShell. The bootstrap rebuilds the same bytes from short,
-        // independent lines.
         cognitoCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.copyToClipboard", CognitoSetup.GenerateBootstrap(CognitoRequest));
+            "connapse.copyToClipboard", CognitoScript);
 
         cognitoCopyMessage = cognitoCopySucceeded
             ? "Copied."

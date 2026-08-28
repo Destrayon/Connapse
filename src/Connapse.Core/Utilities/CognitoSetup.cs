@@ -67,7 +67,8 @@ public record CognitoSetupResult(
 /// credentials already are so none are ever pasted into Connapse, and answered with a delimited
 /// block rather than a dozen fields copied by eye.
 /// <para>
-/// Two artifacts in one script because the AWS surface is split. A CloudFormation stack covers the
+/// Two artifacts, because the AWS surface is split and because only one of them is reviewable by
+/// reading it. A CloudFormation template covers the
 /// Cognito pool, the Identity Center application and the Access Grants instance; four
 /// <c>sso-admin</c> calls follow it because the trusted token issuer, the application's grant, its
 /// access scope and its authentication method have no CloudFormation resource type and never have.
@@ -195,89 +196,26 @@ public static class CognitoSetup
         return pools;
     }
 
-    /// <summary>
-    /// The command to paste into AWS CloudShell.
-    /// </summary>
+    /// <summary>The CloudFormation template, for the administrator to read and upload.</summary>
     /// <remarks>
-    /// Ordered so that nothing is created before the account has been checked. With an organization
-    /// instance the <c>sso-admin</c> writes only work from the management or delegated-admin
-    /// account, and a script that discovers that at the last step has already left a Cognito pool
-    /// and an Access Grants location behind that nobody asked for.
+    /// A separate artifact rather than a heredoc inside the script, for two reasons that happen to
+    /// point the same way.
+    /// <para>
+    /// It is the reviewable part. Every comparable product — Rapid7's AWS onboarding is typical —
+    /// hands the customer a template to download and inspect, then deploys it through
+    /// CloudFormation's own console or CLI, where AWS itself lists what will be created and asks
+    /// for acknowledgement before creating IAM resources. A template is a declaration of what will
+    /// exist; a shell script is an instruction to do something. Only the first can be reviewed by
+    /// reading it.
+    /// </para>
+    /// <para>
+    /// It is also what made the script unpasteable. A hundred and fifteen lines of heredoc puts an
+    /// interactive shell into continuation mode for the whole block, and CloudShell disconnected
+    /// part-way through it twice. What is left is plain commands, one per line.
+    /// </para>
     /// </remarks>
-    public static string GenerateScript(CognitoSetupRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.CallbackUrl);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.ActorArn);
-
-        string prefix = SanitisePrefix(request.NamePrefix);
-        string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
-        string existingPool = request.ExistingPoolId?.Trim() ?? string.Empty;
-        string existingDomain = request.ExistingDomainPrefix?.Trim() ?? string.Empty;
-
-        // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
-        // express one: the call fails with "Shorthand syntax does not support document types"
-        // before it ever reaches AWS.
-        //
-        // A printf format rather than a heredoc into a temp file. The file version worked on
-        // Linux and failed everywhere else, because file:// takes a literal path that nothing
-        // translates — and a setup script has no business caring which shell it is read in.
-        // printf's %s placeholders also keep the quoting flat: no nested double quotes inside an
-        // argument that is itself double-quoted.
-        //
-        // Built out here rather than inside the script literal because it ends in three closing
-        // braces, which a raw interpolated string reads as the end of an interpolation hole.
-        const string authMethodFormat =
-            "{\"Iam\":{\"ActorPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":"
-            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
-            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
-
-        return $$"""
-        # Sets up per-user AWS permissions for Connapse. Creates, in your account:
-        #   a Cognito user pool, its domain and one app client
-        #   an IAM Identity Center application, plus its trusted token issuer, grant,
-        #     access scope and authentication method
-        #   an S3 Access Grants instance, one location covering s3://, and that location's role
-        #
-        # It creates NO access grants. Who may read what stays yours to decide, in AWS.
-        # Nothing existing is modified.
-
-        set -e
-        PREFIX='{{prefix}}'
-        CALLBACK='{{request.CallbackUrl}}'
-        ACTOR='{{request.ActorArn}}'
-        IDP_METADATA='{{idp}}'
-        EXISTING_POOL='{{existingPool}}'
-        EXISTING_DOMAIN='{{existingDomain}}'
-        STACK="$PREFIX-cognito"
-
-        REGION="${AWS_REGION:-$(aws configure get region)}"
-        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
-        ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-
-        # Checked before anything is created. A missing instance, or the right instance seen from
-        # the wrong account, is the difference between this working and it half-working.
-        INSTANCE=$(aws sso-admin list-instances --region "$REGION" \
-                     --query 'Instances[0].InstanceArn' --output text 2>/dev/null || true)
-        if [ -z "$INSTANCE" ] || [ "$INSTANCE" = 'None' ]; then
-          echo "No IAM Identity Center instance is visible in $REGION from account $ACCOUNT."
-          echo 'With an organization instance, run this in the management or delegated-admin account.'
-          exit 1
-        fi
-        IDENTITY_STORE=$(aws sso-admin list-instances --region "$REGION" \
-                           --query 'Instances[0].IdentityStoreId' --output text)
-
-        # Globally unique, and stable for a given account and region so re-running is idempotent.
-        # An adopted pool that already has a domain keeps it: the sign-in page belongs to the pool,
-        # not to Connapse, and a second domain on it would change where its other clients send
-        # people.
-        if [ -n "$EXISTING_DOMAIN" ]; then
-          DOMAIN_PREFIX="$EXISTING_DOMAIN"
-        else
-          DOMAIN_PREFIX="$PREFIX-$ACCOUNT-$REGION"
-        fi
-
-        cat > /tmp/$STACK.yaml <<'TEMPLATE'
+    public static string GenerateTemplate() =>
+        """
         AWSTemplateFormatVersion: '2010-09-09'
         Parameters:
           Prefix: { Type: String }
@@ -391,10 +329,102 @@ public static class CognitoSetup
             Value: !If [ CreatePool, !Ref Pool, !Ref ExistingPoolId ]
           ClientId: { Value: !Ref Client }
           ApplicationArn: { Value: !GetAtt Application.ApplicationArn }
-        TEMPLATE
+        """;
+
+    /// <summary>
+    /// The command to paste into AWS CloudShell.
+    /// </summary>
+    /// <remarks>
+    /// Ordered so that nothing is created before the account has been checked. With an organization
+    /// instance the <c>sso-admin</c> writes only work from the management or delegated-admin
+    /// account, and a script that discovers that at the last step has already left a Cognito pool
+    /// and an Access Grants location behind that nobody asked for.
+    /// </remarks>
+    public static string GenerateScript(CognitoSetupRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CallbackUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.ActorArn);
+
+        string prefix = SanitisePrefix(request.NamePrefix);
+        string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
+        string existingPool = request.ExistingPoolId?.Trim() ?? string.Empty;
+        string existingDomain = request.ExistingDomainPrefix?.Trim() ?? string.Empty;
+
+        // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
+        // express one: the call fails with "Shorthand syntax does not support document types"
+        // before it ever reaches AWS.
+        //
+        // A printf format rather than a heredoc into a temp file. The file version worked on
+        // Linux and failed everywhere else, because file:// takes a literal path that nothing
+        // translates — and a setup script has no business caring which shell it is read in.
+        // printf's %s placeholders also keep the quoting flat: no nested double quotes inside an
+        // argument that is itself double-quoted.
+        //
+        // Built out here rather than inside the script literal because it ends in three closing
+        // braces, which a raw interpolated string reads as the end of an interpolation hole.
+        const string authMethodFormat =
+            "{\"Iam\":{\"ActorPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":"
+            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
+            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
+
+        return $$"""
+        # Sets up per-user AWS permissions for Connapse. Creates, in your account:
+        #   a Cognito user pool, its domain and one app client
+        #   an IAM Identity Center application, plus its trusted token issuer, grant,
+        #     access scope and authentication method
+        #   an S3 Access Grants instance, one location covering s3://, and that location's role
+        #
+        # It creates NO access grants. Who may read what stays yours to decide, in AWS.
+        # Nothing existing is modified.
+
+        set -e
+        PREFIX='{{prefix}}'
+        CALLBACK='{{request.CallbackUrl}}'
+        ACTOR='{{request.ActorArn}}'
+        IDP_METADATA='{{idp}}'
+        EXISTING_POOL='{{existingPool}}'
+        EXISTING_DOMAIN='{{existingDomain}}'
+        STACK="$PREFIX-cognito"
+
+        REGION="${AWS_REGION:-$(aws configure get region)}"
+        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
+        ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+
+        # Checked before anything is created. A missing instance, or the right instance seen from
+        # the wrong account, is the difference between this working and it half-working.
+        INSTANCE=$(aws sso-admin list-instances --region "$REGION" \
+                     --query 'Instances[0].InstanceArn' --output text 2>/dev/null || true)
+        if [ -z "$INSTANCE" ] || [ "$INSTANCE" = 'None' ]; then
+          echo "No IAM Identity Center instance is visible in $REGION from account $ACCOUNT."
+          echo 'With an organization instance, run this in the management or delegated-admin account.'
+          exit 1
+        fi
+        IDENTITY_STORE=$(aws sso-admin list-instances --region "$REGION" \
+                           --query 'Instances[0].IdentityStoreId' --output text)
+
+        # Globally unique, and stable for a given account and region so re-running is idempotent.
+        # An adopted pool that already has a domain keeps it: the sign-in page belongs to the pool,
+        # not to Connapse, and a second domain on it would change where its other clients send
+        # people.
+        if [ -n "$EXISTING_DOMAIN" ]; then
+          DOMAIN_PREFIX="$EXISTING_DOMAIN"
+        else
+          DOMAIN_PREFIX="$PREFIX-$ACCOUNT-$REGION"
+        fi
+
+        # The template is a separate file you downloaded from Connapse and can read before
+        # running any of this. Upload it here with Actions -> Upload file.
+        TEMPLATE_FILE="${TEMPLATE_FILE:-connapse-cognito.yaml}"
+        [ -f "$TEMPLATE_FILE" ] || {
+          echo "Cannot find $TEMPLATE_FILE in $(pwd)."
+          echo 'Download it from Connapse, then upload it here: Actions -> Upload file.'
+          exit 1
+        }
+
 
         aws cloudformation deploy --region "$REGION" \
-          --stack-name "$STACK" --template-file /tmp/$STACK.yaml \
+          --stack-name "$STACK" --template-file "$TEMPLATE_FILE" \
           --capabilities CAPABILITY_NAMED_IAM \
           --parameter-overrides Prefix="$PREFIX" DomainPrefix="$DOMAIN_PREFIX" \
             CallbackUrl="$CALLBACK" InstanceArn="$INSTANCE" IdpMetadataUrl="$IDP_METADATA" \
@@ -489,62 +519,6 @@ public static class CognitoSetup
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
         """;
-    }
-
-    /// <summary>
-    /// How much base64 goes on one line of the bootstrap.
-    /// </summary>
-    /// <remarks>
-    /// Comfortably under the 1024 characters a terminal line editor is entitled to hold. The
-    /// figure is not the interesting part; the constraint is that every line be a complete command
-    /// so the shell never enters continuation mode.
-    /// </remarks>
-    private const int ChunkLength = 900;
-
-    /// <summary>
-    /// The setup script as a sequence of short, independent commands that rebuild and run it.
-    /// </summary>
-    /// <remarks>
-    /// What an administrator actually pastes. <see cref="GenerateScript"/> is what they read: it is
-    /// two hundred lines with a hundred-line heredoc in the middle, and pasting that into an
-    /// interactive shell does not work. The terminal echoes each line with a continuation prompt,
-    /// the line editor fills, and the session dies part-way through the template — observed twice
-    /// in AWS CloudShell, which disconnects with "[exited]".
-    /// <para>
-    /// So nothing multi-line is ever pasted. Each line here is a complete command that appends one
-    /// chunk of base64 to a file; the last decodes the file and runs it. The shell never enters
-    /// continuation mode, and no single line approaches any buffer limit.
-    /// </para>
-    /// <para>
-    /// The trade is that what is pasted is no longer what is read. That is why the page shows the
-    /// script in full above this, and why the last line leaves the decoded file in place rather
-    /// than piping it straight to bash — an administrator who wants to confirm the two match can
-    /// read the file before it runs, or diff it against what the page displayed.
-    /// </para>
-    /// </remarks>
-    public static string GenerateBootstrap(CognitoSetupRequest request)
-    {
-        string script = GenerateScript(request);
-        string encoded = Convert.ToBase64String(
-            System.Text.Encoding.UTF8.GetBytes(script.ReplaceLineEndings("\n")));
-
-        var lines = new List<string>
-        {
-            "# Rebuilds the script shown above, then runs it. Paste all of this at once.",
-            "rm -f /tmp/connapse-setup.b64 /tmp/connapse-setup.sh"
-        };
-
-        for (int i = 0; i < encoded.Length; i += ChunkLength)
-        {
-            string chunk = encoded.Substring(i, Math.Min(ChunkLength, encoded.Length - i));
-            lines.Add($"printf %s '{chunk}' >> /tmp/connapse-setup.b64");
-        }
-
-        lines.Add("base64 -d /tmp/connapse-setup.b64 > /tmp/connapse-setup.sh");
-        lines.Add("rm -f /tmp/connapse-setup.b64");
-        lines.Add("bash /tmp/connapse-setup.sh");
-
-        return string.Join("\n", lines);
     }
 
     /// <summary>
