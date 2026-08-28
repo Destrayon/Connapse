@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using FluentAssertions;
@@ -16,14 +17,35 @@ namespace Connapse.Integration.Tests;
 /// and what these cover, is everything the endpoint decides on its own — whether it redirects at
 /// all, what it redirects to, what it refuses, and that a saved setting actually reaches
 /// <see cref="IOptionsMonitor{TOptions}"/>. The rejection paths inside ID token validation itself
-/// (bad signature, wrong nonce, unverified email) are covered separately in
-/// <c>CognitoIdTokenValidatorTests</c> against tokens forged with a throwaway key, since that logic
-/// needs no live pool and no HTTP round trip to exercise.
+/// (bad signature, wrong nonce, unverified email) and the validation parameters the endpoint builds
+/// are covered separately in <c>CognitoIdTokenValidatorTests</c> against tokens forged with a
+/// throwaway key, since none of that needs a live pool or an HTTP round trip.
 /// </remarks>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
 {
+    private static CognitoSettings ConfiguredSettings() => new()
+    {
+        IssuerUrl = "https://cognito-idp.us-west-1.amazonaws.com/us-west-1_test",
+        Domain = "https://example.auth.us-west-1.amazoncognito.com",
+        ClientId = "client-id",
+        ClientSecret = "secret",
+        Region = "us-west-1",
+    };
+
+    // A fresh, authenticated client per test that needs one — never the shared fixture.AdminClient
+    // — for two reasons: AllowAutoRedirect must be false (the shared client defaults to true, which
+    // would try to actually follow the redirect out to the fake configured Cognito domain), and each
+    // test needs its own cookie jar so a stashed state/PKCE/nonce cookie from one test's /connect
+    // call can never leak into another test's /callback call.
+    private HttpClient CreateAuthenticatedClient()
+    {
+        var client = fixture.Factory.CreateClient(new() { AllowAutoRedirect = false });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.AdminToken);
+        return client;
+    }
+
     [Fact]
     public async Task Connect_WhenCognitoIsNotConfigured_Returns409()
     {
@@ -64,16 +86,39 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task Callback_WithMismatchedState_IsRejected()
     {
-        // Start a real connection first so a valid state exists to mismatch against — comparing
-        // against a state nobody issued would test a different, easier branch.
-        var connectResponse = await fixture.AdminClient.GetAsync("/api/cloud-identity/cognito/connect");
-        connectResponse.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
+        // This must actually reach the `expectedState != state` branch, not the
+        // `expectedState is missing` branch Callback_WithNoState_IsRejected already covers — which
+        // means a real /connect call has to have set a real state cookie first. Cognito has to be
+        // configured for /connect to do anything but 409.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        await store.SaveAsync("cognito", ConfiguredSettings());
+        try
+        {
+            // One client for both calls: WebApplicationFactoryClientOptions.HandleCookies defaults
+            // to true, so the state/PKCE/nonce cookies /connect sets are carried automatically into
+            // the /callback request below — no live Cognito pool involved, since /connect only
+            // builds a redirect URL and never dials out.
+            using var client = CreateAuthenticatedClient();
 
-        var response = await fixture.AdminClient.GetAsync(
-            "/api/cloud-identity/cognito/callback?code=abc&state=not-a-state-we-issued");
+            var connectResponse = await client.GetAsync("/api/cloud-identity/cognito/connect");
+            connectResponse.StatusCode.Should().Be(HttpStatusCode.Redirect,
+                "Cognito is configured now, so this must actually start a connection and stash a state cookie");
 
-        response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            // A state nobody issued, sent alongside the *real* stashed cookie from the call above.
+            var response = await client.GetAsync(
+                "/api/cloud-identity/cognito/callback?code=abc&state=not-a-state-we-issued");
+
+            response.StatusCode.Should().NotBe(HttpStatusCode.NotFound, "the route must actually be registered");
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+        finally
+        {
+            // Always restore, even if an assertion above threw — otherwise this leaves Cognito
+            // configured for whichever test in this shared fixture happens to run next, turning one
+            // real failure into a second, unrelated one.
+            await store.SaveAsync("cognito", new CognitoSettings());
+        }
     }
 
     [Fact]
@@ -88,20 +133,18 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
 
-        await store.SaveAsync("cognito", new CognitoSettings
+        await store.SaveAsync("cognito", ConfiguredSettings());
+        try
         {
-            IssuerUrl = "https://cognito-idp.us-west-1.amazonaws.com/us-west-1_test",
-            Domain = "https://example.auth.us-west-1.amazoncognito.com",
-            ClientId = "client-id",
-            ClientSecret = "secret",
-            Region = "us-west-1",
-        });
-
-        var monitor = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<CognitoSettings>>();
-        monitor.CurrentValue.IsConfigured.Should().BeTrue();
-        monitor.CurrentValue.ClientId.Should().Be("client-id");
-
-        // Restore, so a later test in the shared fixture doesn't see Cognito as configured.
-        await store.SaveAsync("cognito", new CognitoSettings());
+            var monitor = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<CognitoSettings>>();
+            monitor.CurrentValue.IsConfigured.Should().BeTrue();
+            monitor.CurrentValue.ClientId.Should().Be("client-id");
+        }
+        finally
+        {
+            // Always restore, even if an assertion above threw — otherwise Connect_WhenCognitoIsNotConfigured_Returns409
+            // fails as collateral, pointing at the wrong place.
+            await store.SaveAsync("cognito", new CognitoSettings());
+        }
     }
 }

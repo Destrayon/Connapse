@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Connapse.Core;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.IdentityModel.Tokens;
@@ -172,5 +173,100 @@ public class CognitoIdTokenValidatorTests
 
         result.Success.Should().BeFalse();
         result.FailureReason.Should().Be("email_not_verified");
+    }
+
+    // --- BuildValidationParameters ---
+    //
+    // These exist because CognitoIdTokenValidatorTests above builds its own
+    // TokenValidationParameters by hand, which proves Validate() honours whatever it is handed —
+    // nothing proved the endpoint hands it the right thing. Each flag gets its own test so a single
+    // flag flipped back to false (or the endpoint forgetting to call this factory at all) fails a
+    // named test rather than a shared one.
+
+    private static CognitoSettings BuildSettings() => new()
+    {
+        IssuerUrl = Issuer,
+        Domain = "https://example.auth.us-west-1.amazoncognito.com",
+        ClientId = Audience,
+        ClientSecret = "secret",
+        Region = "us-west-1",
+    };
+
+    [Fact]
+    public void BuildValidationParameters_ValidatesIssuer()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidateIssuer.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildValidationParameters_ValidatesAudience()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidateAudience.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildValidationParameters_ValidatesLifetime()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidateLifetime.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildValidationParameters_ValidatesIssuerSigningKey()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidateIssuerSigningKey.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildValidationParameters_RequiresSignedTokens()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.RequireSignedTokens.Should().BeTrue();
+    }
+
+    [Fact]
+    public void BuildValidationParameters_UsesIssuerFromSettings()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidIssuer.Should().Be(Issuer);
+    }
+
+    [Fact]
+    public void BuildValidationParameters_UsesAudienceFromSettings()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.ValidAudience.Should().Be(Audience);
+    }
+
+    [Fact]
+    public void BuildValidationParameters_PassesThroughTheSigningKeysItWasGiven()
+    {
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+
+        parameters.IssuerSigningKeys.Should().ContainSingle().Which.Should().BeSameAs(SigningKey);
+    }
+
+    [Fact]
+    public void BuildValidationParameters_ThenValidate_AcceptsATokenSignedWithThePassedThroughKey()
+    {
+        // The end-to-end proof: parameters built by the factory, handed to Validate(), against a
+        // token forged with the same key the factory was given — exactly the endpoint's own path,
+        // minus the live network calls that fetch settings and signing keys.
+        var token = ForgeToken();
+
+        var parameters = CognitoIdTokenValidator.BuildValidationParameters(BuildSettings(), [SigningKey]);
+        var result = CognitoIdTokenValidator.Validate(token, parameters, Nonce);
+
+        result.Success.Should().BeTrue();
     }
 }

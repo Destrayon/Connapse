@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using Connapse.Core;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Connapse.Identity.Services;
@@ -22,6 +23,32 @@ namespace Connapse.Identity.Services;
 /// </remarks>
 public static class CognitoIdTokenValidator
 {
+    /// <summary>
+    /// Builds the <see cref="TokenValidationParameters"/> the callback endpoint validates a Cognito
+    /// ID token against: the pool's own issuer and client id from <paramref name="settings"/>, and
+    /// <paramref name="signingKeys"/> fetched by the caller from the pool's discovery document.
+    /// </summary>
+    /// <remarks>
+    /// Pulled out from the endpoint so the five validation flags are pinned by a named unit test
+    /// each — a single flag flipped back to <see langword="false"/> (or the endpoint forgetting to
+    /// call this at all) fails one specific test rather than silently weakening validation for
+    /// every token this deployment ever accepts.
+    /// </remarks>
+    public static TokenValidationParameters BuildValidationParameters(
+        CognitoSettings settings, IEnumerable<SecurityKey> signingKeys) =>
+        new()
+        {
+            ValidIssuer = settings.IssuerUrl,
+            ValidAudience = settings.ClientId,
+            IssuerSigningKeys = signingKeys,
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            RequireSignedTokens = true,
+            ClockSkew = TimeSpan.FromMinutes(2),
+        };
+
     /// <summary>
     /// Validates <paramref name="idToken"/> against <paramref name="validationParameters"/> (the
     /// pool's signing keys, issuer and audience — built by the caller from live discovery, or from

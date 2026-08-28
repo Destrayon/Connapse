@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Connapse.Web.Endpoints;
 
@@ -207,6 +206,9 @@ public static class CloudIdentityEndpoints
 
             var redirectUri = CognitoCallbackUri(http);
             var httpClient = httpClientFactory.CreateClient();
+            // A browser is waiting on this request. Don't rely on HttpClient's 100-second default —
+            // an unreachable or slow pool should redirect with an error well before the user gives up.
+            httpClient.Timeout = TimeSpan.FromSeconds(10);
 
             var tokenParams = new Dictionary<string, string>
             {
@@ -227,9 +229,12 @@ public static class CloudIdentityEndpoints
                     $"{cognito.Domain.TrimEnd('/')}/oauth2/token",
                     new FormUrlEncodedContent(tokenParams), ct);
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
-                logger.LogError("Cognito token exchange could not reach the pool");
+                // TaskCanceledException is what HttpClient throws on its own timeout above (and
+                // what a client-disconnect cancellation looks like) — neither carries a token or
+                // secret, so nothing more than the exception type is worth knowing here.
+                logger.LogError("Cognito token exchange could not reach the pool in time");
                 return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
             }
 
@@ -248,8 +253,11 @@ public static class CloudIdentityEndpoints
                 idToken = tokenJson.TryGetProperty("id_token", out var idTokenProp) ? idTokenProp.GetString() : null;
                 refreshToken = tokenJson.TryGetProperty("refresh_token", out var refreshTokenProp) ? refreshTokenProp.GetString() : null;
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
+                // InvalidOperationException is what JsonElement.GetString() throws when a property
+                // is present but not a string (e.g. the pool returned id_token as a number/object) —
+                // a malformed response, not a parse failure, but the same "give up cleanly" outcome.
                 logger.LogError("Cognito token response was not valid JSON");
                 return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
             }
@@ -274,18 +282,7 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect("/profile/integrations?error=cognito_token_invalid");
             }
 
-            var validationParameters = new TokenValidationParameters
-            {
-                ValidIssuer = cognito.IssuerUrl,
-                ValidAudience = cognito.ClientId,
-                IssuerSigningKeys = openIdConfig.SigningKeys,
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                RequireSignedTokens = true,
-                ClockSkew = TimeSpan.FromMinutes(2),
-            };
+            var validationParameters = CognitoIdTokenValidator.BuildValidationParameters(cognito, openIdConfig.SigningKeys);
 
             var result = CognitoIdTokenValidator.Validate(idToken, validationParameters, expectedNonce);
             if (!result.Success)
@@ -295,7 +292,11 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect($"/profile/integrations?error=cognito_{result.FailureReason}");
             }
 
-            await linkStore.SaveAsync(userId.Value, result.Email!, refreshToken, ct);
+            // Normalized because this is the join key into an IAM Identity Center lookup — a case
+            // difference between what Cognito emits and what the directory holds would fail the
+            // match at resolution time, long after this connection looked like it succeeded.
+            var normalizedEmail = result.Email!.ToLowerInvariant();
+            await linkStore.SaveAsync(userId.Value, normalizedEmail, refreshToken, ct);
 
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();
