@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>
 /// The customer's Amazon Cognito user pool — the identity provider they host inside their own AWS
@@ -44,6 +44,19 @@ public class CognitoSettings
 
     public string Region { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The IAM Identity Center customer-managed application, which
+    /// <c>sso-oauth:CreateTokenWithIAM</c> takes as its <c>clientId</c> when exchanging a Cognito
+    /// token for an identity context.
+    /// </summary>
+    /// <remarks>
+    /// An output of setting AWS up rather than something anybody types: it is an ARN nobody has
+    /// before the application exists. Absent on a pool configured by hand before this field
+    /// existed, which is why it is not part of <see cref="IsConfigured"/> — see
+    /// <see cref="CanResolvePermissions"/>.
+    /// </remarks>
+    public string ApplicationArn { get; set; } = string.Empty;
+
     /// <summary>True when every field needed to complete a connection is present and usable.</summary>
     /// <remarks>
     /// The URLs must be HTTPS, with no loopback exception. Both carry an authorization code or a
@@ -62,6 +75,19 @@ public class CognitoSettings
         && !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)
         && !string.IsNullOrWhiteSpace(Region);
+
+    /// <summary>
+    /// True when this pool can also answer what a person may read, not merely who they are.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="IsConfigured"/> rather than folded into it. They
+    /// answer different questions — one gates the connect button, the other gates permission
+    /// resolution — and merging them would have taken the connect button away from every pool
+    /// configured before <see cref="ApplicationArn"/> existed, to protect a resolver that does not
+    /// read it yet.
+    /// </remarks>
+    public bool CanResolvePermissions =>
+        IsConfigured && !string.IsNullOrWhiteSpace(ApplicationArn);
 
     /// <summary>HTTPS only — these are the provider's own endpoints, not Connapse's.</summary>
     /// <remarks>

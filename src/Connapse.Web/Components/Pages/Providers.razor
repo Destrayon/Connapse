@@ -16,6 +16,7 @@
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
 @rendermode InteractiveServer
 
 @*
@@ -354,7 +355,91 @@
                 permissions (see issue #421). This is the half that has to exist first.
             </p>
 
-            <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
+            @if (!AccessConfirmed)
+            {
+                @* Sequencing, not pedantry. The script names Connapse's own AWS identity as the
+                   principal allowed to exchange a token, so there has to be one that works before
+                   there is anything to name. *@
+                <div class="alert alert-secondary small">
+                    <span class="bi-info-circle me-1"></span>
+                    Set up <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
+                                   @onclick="@(() => ScrollTo("access"))">Access</button>
+                    first. This step names the identity Connapse reads AWS as, and there is not a
+                    working one yet.
+                </div>
+            }
+            else if (CognitoPool is null || showCognitoManual)
+            {
+                <p class="small mb-2">
+                    <span class="bi-shield-check me-1 text-muted"></span>
+                    Creates a Cognito pool, an Identity Center application and an S3 Access Grants
+                    instance, using your own AWS permissions. <strong>It writes no access
+                    grants</strong> — who may read what stays yours to decide, in AWS.
+                </p>
+
+                <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
+
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="CopyCognitoScript">
+                        <span class="bi-clipboard me-1"></span> Copy command
+                    </button>
+                    <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                       href="https://console.aws.amazon.com/cloudshell/home">
+                        <span class="bi-terminal me-1"></span> Open CloudShell
+                        <span class="bi-box-arrow-up-right ms-1 small"></span>
+                    </a>
+                    <span class="align-self-center small @(cognitoCopySucceeded ? "text-success" : "text-danger")">
+                        @cognitoCopyMessage
+                    </span>
+                </div>
+
+                <label class="form-label small mb-1">Paste what it printed</label>
+                <textarea class="form-control font-monospace" rows="4" @bind="pastedCognito"
+                          @bind:event="oninput"
+                          placeholder="@CognitoSetup.BeginMarker&#10;issuerUrl=…&#10;@CognitoSetup.EndMarker"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(pastedCognito))
+                {
+                    var parsedCognito = CognitoSetup.ParseResult(pastedCognito);
+                    @if (parsedCognito is null)
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            No settings block found yet. Copy everything the command printed,
+                            including both <code>-----</code> marker lines.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                            <span class="small flex-grow-1">
+                                Read pool <code>@parsedCognito.ClientId</code> in
+                                <code>@parsedCognito.Region</code>.
+                            </span>
+                            <button type="button" class="btn btn-sm btn-primary"
+                                    @onclick="() => SaveCognitoSetup(parsedCognito)">
+                                <span class="bi-check-lg me-1"></span> Use this pool
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            The client secret is stored the same way every other provider secret is.
+                        </div>
+                    }
+                }
+
+                <div class="mt-3">
+                    <button type="button" class="btn btn-link btn-sm p-0"
+                            @onclick="() => showCognitoManual = !showCognitoManual">
+                        @(showCognitoManual ? "Hide the fields" : "Or fill the fields in by hand")
+                    </button>
+                </div>
+            }
+
+            @if (CognitoPool is not null || showCognitoManual)
+            {
+                <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
+            }
         }
 
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
@@ -385,6 +470,28 @@
 
     private AzureAdSettings azureAdSettings = new();
     private CognitoSettings cognitoSettings = new();
+    private string? pastedCognito;
+    private bool showCognitoManual;
+    private string? cognitoCopyMessage;
+    private bool cognitoCopySucceeded;
+
+    /// <summary>The configured pool, or null when there is not one yet.</summary>
+    private CognitoSettings? CognitoPool =>
+        cognitoSettings.IsConfigured ? cognitoSettings : null;
+
+    /// <summary>
+    /// The script, built from the address this administrator reached Connapse on and the AWS
+    /// identity Connapse reads as.
+    /// </summary>
+    /// <remarks>
+    /// The ARN comes from the Access requirement's detail rather than a second call to STS. In the
+    /// Satisfied state that value is exactly the ARN, and this only renders in that state — which
+    /// is also the only state where naming an identity means anything.
+    /// </remarks>
+    private string CognitoScript =>
+        CognitoSetup.GenerateScript(new CognitoSetupRequest(
+            CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
+            AccessRequirement?.Detail ?? string.Empty));
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -444,6 +551,39 @@
     private string? pastedKey;
     private string? copyMessage;
     private bool copySucceeded;
+
+    private async Task CopyCognitoScript()
+    {
+        cognitoCopyMessage = null;
+
+        cognitoCopySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", CognitoScript);
+
+        cognitoCopyMessage = cognitoCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>Stores what the script printed, as one save.</summary>
+    private async Task SaveCognitoSetup(CognitoSetupResult read)
+    {
+        await SaveCognitoSettings(new CognitoSettings
+        {
+            IssuerUrl = read.IssuerUrl,
+            Domain = read.Domain,
+            ClientId = read.ClientId,
+            ClientSecret = read.ClientSecret,
+            Region = read.Region,
+            ApplicationArn = read.ApplicationArn
+        });
+
+        // Cleared on success only. Leaving the block in place after a failure means the
+        // administrator can retry without going back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+        {
+            pastedCognito = null;
+            showCognitoManual = false;
+        }
+    }
 
     private async Task CopyIdentityScript()
     {
