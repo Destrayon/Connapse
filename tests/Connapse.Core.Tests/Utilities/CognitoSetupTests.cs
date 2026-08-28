@@ -244,6 +244,60 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateDiscoveryScript_SeparatesFieldsWithAPipe()
+    {
+        // A terminal copies what it drew, and CloudShell draws a tab as a run of spaces. The
+        // tab-separated row therefore arrived as one field, every pool was dropped, and the page
+        // said the account had none.
+        string script = CognitoSetup.GenerateDiscoveryScript();
+
+        script.Should().Contain("pool=%s|%s|%s|%s");
+        script.Should().NotContain(@"pool=%s\t");
+    }
+
+    [Fact]
+    public void ParsePools_ReadsAPipeSeparatedRow()
+    {
+        var pools = CognitoSetup.ParsePools(
+            CognitoSetup.PoolsBeginMarker + "\n"
+            + "pool=us-west-1_brg6XHhA9|connapse-pool|connapse-086015909943-us-west-1|email\n"
+            + CognitoSetup.PoolsEndMarker);
+
+        pools.Should().ContainSingle();
+        pools[0].PoolId.Should().Be("us-west-1_brg6XHhA9");
+        pools[0].Name.Should().Be("connapse-pool");
+        pools[0].DomainPrefix.Should().Be("connapse-086015909943-us-west-1");
+        pools[0].IsUsable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParsePools_StillReadsATabSeparatedRow()
+    {
+        // A block copied before the emitter changed should not silently become "no pools found",
+        // which is the one answer this must never give wrongly.
+        var pools = CognitoSetup.ParsePools(
+            CognitoSetup.PoolsBeginMarker + "\n"
+            + "pool=us-west-1_aaa\tWorkforce\tacme-login\temail\n"
+            + CognitoSetup.PoolsEndMarker);
+
+        pools.Should().ContainSingle().Which.Name.Should().Be("Workforce");
+    }
+
+    [Fact]
+    public void ParsePools_WithAPoolNameContainingSpaces_KeepsItWhole()
+    {
+        // Why the separator is a pipe and not "a run of spaces". AWS allows whitespace in a pool
+        // name, so splitting on it would cut the name in half and shift every later field.
+        var pools = CognitoSetup.ParsePools(
+            CognitoSetup.PoolsBeginMarker + "\n"
+            + "pool=us-west-1_aaa|Acme Staff Directory|acme-login|email\n"
+            + CognitoSetup.PoolsEndMarker);
+
+        pools.Should().ContainSingle().Which.Name.Should().Be("Acme Staff Directory");
+        pools[0].DomainPrefix.Should().Be("acme-login");
+    }
+
+    [Fact]
     public void ParsePools_TakesTheLastBlock()
     {
         string pasted = PoolBlock("pool=us-east-1_old\tEchoed\t-\temail")

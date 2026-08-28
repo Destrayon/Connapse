@@ -115,6 +115,13 @@ public static class CognitoSetup
     /// it. A pool needs a hosted domain for the browser sign-in — absent is fine, the setup script
     /// adds one — and it must verify email, because the trusted token issuer joins to an Identity
     /// Center user on the email claim and nothing else this deployment controls.
+    /// <para>
+    /// Fields are separated by a pipe rather than a tab. A terminal copies what it drew, and
+    /// CloudShell draws a tab as a run of spaces — so the tab-separated row arrived as a single
+    /// field and every pool was dropped. A pool name may contain spaces, which rules out
+    /// splitting on whitespace, but AWS restricts a pool name to word characters, whitespace
+    /// and <c>+=,.@-</c>, so a pipe cannot occur inside one.
+    /// </para>
     /// </remarks>
     public static string GenerateDiscoveryScript()
     {
@@ -143,7 +150,7 @@ public static class CognitoSetup
             VERIFIED=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
                          --query 'UserPool.AutoVerifiedAttributes' --output text 2>/dev/null || true)
 
-            printf 'pool=%s\t%s\t%s\t%s\n' "$ID" "$NAME" \
+            printf 'pool=%s|%s|%s|%s\n' "$ID" "$NAME" \
               "$([ -z "$DOMAIN" ] || [ "$DOMAIN" = 'None' ] && printf -- '-' || printf '%s' "$DOMAIN")" \
               "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')"
           done
@@ -178,7 +185,11 @@ public static class CognitoSetup
             string line = raw.Trim();
             if (!line.StartsWith("pool=", StringComparison.Ordinal)) continue;
 
-            string[] parts = line[5..].Split('\t');
+            // Tab still accepted: a block copied before the emitter changed should not
+            // silently become "no pools found", which is the one answer this must never give
+            // wrongly.
+            string body = line[5..];
+            string[] parts = body.Contains('|') ? body.Split('|') : body.Split('\t');
             if (parts.Length < 4) continue;
 
             string id = parts[0].Trim();
