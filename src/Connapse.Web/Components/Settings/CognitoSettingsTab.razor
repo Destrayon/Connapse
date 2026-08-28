@@ -1,4 +1,6 @@
 @using Connapse.Core
+@using Connapse.Core.Utilities
+@inject NavigationManager Navigation
 
 @*
     The Cognito pool an administrator points Connapse at, so that a user can prove which AWS
@@ -9,6 +11,29 @@
     to anyone holding an admin token.
 *@
 
+@if (callbackUrl is null)
+{
+    @* Refused here rather than by AWS. Cognito will not accept this callback, so every field
+       below it is a form whose Save button leads to a pool nobody can connect through — and the
+       administrator would only find that out after creating one. *@
+    <div class="alert alert-warning">
+        <div class="d-flex align-items-start">
+            <span class="bi-exclamation-triangle-fill me-2 mt-1 flex-shrink-0"></span>
+            <div>
+                <strong>Connapse cannot use Cognito at this address.</strong>
+                <div class="small mt-1">
+                    You are reading this over <code>@Navigation.BaseUri</code>. Amazon Cognito only
+                    returns a signed-in user to an <code>https://</code> address, or to
+                    <code>localhost</code>, <code>127.0.0.1</code> or <code>[::1]</code> over plain
+                    HTTP. Serve Connapse over HTTPS, or reach it on the machine it runs on, and this
+                    form will appear.
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
 
@@ -17,9 +42,14 @@
             <div class="alert alert-info">
                 <span class="bi-info-circle me-2"></span>
                 Configure the Amazon Cognito user pool in your own AWS account. Once saved, users can
-                connect their AWS identity from their Profile page. In the pool's app client, set the
-                callback URL to <code>https://&lt;your-host&gt;/api/v1/auth/cloud/cognito/callback</code>
-                and enable the authorization code grant.
+                connect their AWS identity from their Profile page. In the pool's app client, enable
+                the authorization code grant and set the callback URL to:
+                <div class="font-monospace small mt-2 text-break">@callbackUrl</div>
+                <div class="small mt-2">
+                    That is the address you are reading this at. If people reach Connapse by another
+                    address, add that one's callback to the app client too — Cognito matches the
+                    whole URL exactly, and accepts more than one.
+                </div>
             </div>
         </div>
 
@@ -84,6 +114,7 @@
         </div>
     </div>
 </EditForm>
+}
 
 @code {
     [Parameter]
@@ -94,11 +125,18 @@
 
     private CognitoSettings localSettings = new();
 
+    /// <summary>The callback to register, or null when this address is one Cognito refuses.</summary>
+    private string? callbackUrl;
+
     /// <summary>Whether a secret was already saved, so the form can offer to keep it.</summary>
     private bool hasStoredSecret;
 
     protected override void OnParametersSet()
     {
+        // BaseUri, not a configured value: it is the address this administrator actually reached
+        // Connapse on, which is the one their browser will be redirected back to.
+        callbackUrl = CognitoRedirect.CallbackFor(Navigation.BaseUri);
+
         hasStoredSecret = !string.IsNullOrEmpty(Settings.ClientSecret);
 
         localSettings = new CognitoSettings

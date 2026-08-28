@@ -436,8 +436,17 @@ public static class CloudIdentityEndpoints
         http.Response.Cookies.Append(CognitoNonceCookieName, nonce, cookieOptions);
     }
 
+    /// <summary>
+    /// The <c>redirect_uri</c> sent to Cognito, which must equal the callback registered in the
+    /// pool's app client character for character or Cognito refuses the request.
+    /// </summary>
+    /// <remarks>
+    /// The path comes from <see cref="CognitoRedirect.CallbackPath"/>, which is also what the
+    /// settings form shows an administrator to paste into AWS. Two literals would have been one
+    /// edit away from disagreeing, and the resulting error names neither of them.
+    /// </remarks>
     private static string CognitoCallbackUri(HttpContext http) =>
-        $"{http.Request.Scheme}://{http.Request.Host}/api/v1/auth/cloud/cognito/callback";
+        $"{http.Request.Scheme}://{http.Request.Host}{CognitoRedirect.CallbackPath}";
 
     /// <summary>
     /// Splits the initiating user's id off the front of a stashed Cognito state value (format
