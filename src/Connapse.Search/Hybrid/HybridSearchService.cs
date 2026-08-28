@@ -110,9 +110,23 @@ public class HybridSearchService : IKnowledgeSearch
         // inside each leaf would mean two answers for one query, and hybrid would be the mode in
         // which they could disagree — half a result set from one set of permissions and half from
         // another, with no way to tell from the outside.
-        var scopes = await scope.ServiceProvider
-            .GetRequiredService<ISearchScopeResolver>()
-            .ResolveAsync(options.UserId, ct);
+        SearchScopes scopes;
+        try
+        {
+            scopes = await scope.ServiceProvider
+                .GetRequiredService<ISearchScopeResolver>()
+                .ResolveAsync(options.UserId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Fail closed. A resolver that cannot answer has not said "everything" — it has said
+            // nothing, and a search that proceeds unfiltered on an outage is the failure this whole
+            // feature exists to prevent.
+            _logger.LogError(ex, "Could not resolve search scopes; denying this search");
+            scopes = SearchScopes.Failed;
+        }
+
+        scopes = ScopeResolution.Guard(scopes, options.UserId);
 
         switch (mode)
         {

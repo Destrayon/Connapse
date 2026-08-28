@@ -26,11 +26,11 @@ public class SearchScopesTests
     [Fact]
     public void Of_WithPrefixes_RestrictsToThem()
     {
-        var scopes = SearchScopes.Of(["s3://acme/team/", "s3://acme/shared/"]);
+        var scopes = SearchScopes.OfPrefixes(["s3://acme/team/", "s3://acme/shared/"]);
 
         scopes.IsUnrestricted.Should().BeFalse();
         scopes.IsEmpty.Should().BeFalse();
-        scopes.UriPrefixes.Should().HaveCount(2);
+        scopes.Matches.Should().HaveCount(2);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ public class SearchScopesTests
     {
         // A resolver that returns an empty or blank-filled list means the user has no grants. The
         // dangerous reading is "no restrictions", and this is where that reading is refused.
-        SearchScopes.Of([]).Should().BeSameAs(SearchScopes.None);
-        SearchScopes.Of(["", "   "]).Should().BeSameAs(SearchScopes.None);
+        SearchScopes.OfPrefixes([]).Should().BeSameAs(SearchScopes.None);
+        SearchScopes.OfPrefixes(["", "   "]).Should().BeSameAs(SearchScopes.None);
     }
 
     [Fact]
@@ -47,15 +47,36 @@ public class SearchScopesTests
     {
         // A blank prefix would match every URI, so one stray empty string in a resolver's output
         // would silently grant everything to a user who should see one bucket.
-        SearchScopes.Of(["s3://acme/team/", "", "s3://acme/shared/"])
-            .UriPrefixes.Should().BeEquivalentTo(["s3://acme/team/", "s3://acme/shared/"]);
+        SearchScopes.OfPrefixes(["s3://acme/team/", "", "s3://acme/shared/"])
+            .Matches.Select(m => m.Value)
+            .Should().BeEquivalentTo(["s3://acme/team/", "s3://acme/shared/"]);
     }
 
     [Fact]
     public void Of_WithNull_Throws()
     {
-        FluentActions.Invoking(() => SearchScopes.Of(null!))
+        FluentActions.Invoking(() => SearchScopes.OfPrefixes(null!))
             .Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Of_WithMatches_KeepsExactAndPrefixApart()
+    {
+        // The two kinds cannot be collapsed: an exact match is one object, a prefix is a subtree.
+        var scopes = SearchScopes.Of([
+            new GrantMatch("s3://acme/team/", IsExact: false),
+            new GrantMatch("s3://acme/reports/q3.pdf", IsExact: true),
+        ]);
+
+        scopes.Matches.Should().HaveCount(2);
+        scopes.Matches.Should().ContainSingle(m => m.IsExact);
+    }
+
+    [Fact]
+    public void Of_WithStrings_TreatsEachAsAPrefix()
+    {
+        SearchScopes.OfPrefixes(["s3://acme/team/"]).Matches
+            .Should().BeEquivalentTo([new GrantMatch("s3://acme/team/", IsExact: false)]);
     }
 
     // -- LIKE escaping -------------------------------------------------------------
@@ -100,5 +121,27 @@ public class SearchScopesTests
     {
         FluentActions.Invoking(() => SearchScopes.ToLikePattern(null!))
             .Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Outcome_DistinguishesTheThreeWaysOfReachingNothing()
+    {
+        // All three deny, and they must not be one state. "You have no grants" is a configuration
+        // message, "we could not tell who you are" is a token problem, and "the resolver failed" is
+        // an outage. Collapsing them sends whoever debugs it to the wrong place every time.
+        SearchScopes.None.Outcome.Should().Be(ScopeOutcome.NoGrants);
+        SearchScopes.NoPrincipal.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+        SearchScopes.Failed.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+
+        SearchScopes.None.IsEmpty.Should().BeTrue();
+        SearchScopes.NoPrincipal.IsEmpty.Should().BeTrue();
+        SearchScopes.Failed.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Outcome_SeparatesNotFilteringFromReachingEverything()
+    {
+        SearchScopes.Unrestricted.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+        SearchScopes.OfPrefixes(["s3://acme/team/"]).Outcome.Should().Be(ScopeOutcome.Granted);
     }
 }

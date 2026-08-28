@@ -1,5 +1,30 @@
 ﻿namespace Connapse.Core;
 
+/// <summary>Why a search may reach what it may.</summary>
+/// <remarks>
+/// Three of these mean "nothing", and they are kept apart because they send whoever investigates to
+/// three different places. <see cref="NoGrants"/> is almost always configuration — a deployment
+/// with no S3 Access Grants instance returns an empty list for every user, which is
+/// indistinguishable from denial unless something says so.
+/// </remarks>
+public enum ScopeOutcome
+{
+    /// <summary>This deployment does not filter.</summary>
+    Unrestricted,
+
+    /// <summary>The user has grants, and they are in <c>Matches</c>.</summary>
+    Granted,
+
+    /// <summary>The user was resolved and has no grants.</summary>
+    NoGrants,
+
+    /// <summary>The caller could not be resolved to a person.</summary>
+    NoPrincipal,
+
+    /// <summary>Permissions could not be determined. Denies, deliberately.</summary>
+    ResolverFailed,
+}
+
 /// <summary>
 /// What a search is allowed to reach, as resource-URI prefixes.
 /// </summary>
@@ -9,7 +34,7 @@
 /// costs a predicate whose size is the number of grants and an id list costs one whose size is the
 /// corpus.
 /// <para>
-/// <see cref="Unrestricted"/> and an empty <see cref="UriPrefixes"/> are opposites and must never
+/// <see cref="Unrestricted"/> and an empty <see cref="Matches"/> are opposites and must never
 /// be confused: the first is "this deployment does not filter", the second is "this user reaches
 /// nothing". A type that represented both as an empty list would turn a misconfiguration into an
 /// open door, which is the failure this distinction exists to prevent.
@@ -17,10 +42,11 @@
 /// </remarks>
 public sealed record SearchScopes
 {
-    private SearchScopes(bool unrestricted, IReadOnlyList<string> uriPrefixes)
+    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches, ScopeOutcome outcome)
     {
         IsUnrestricted = unrestricted;
-        UriPrefixes = uriPrefixes;
+        Matches = matches;
+        Outcome = outcome;
     }
 
     /// <summary>
@@ -31,26 +57,66 @@ public sealed record SearchScopes
     /// deployment until a resolver exists. Filtering is opt-in because denying by default here
     /// would leave every existing installation unable to search anything after an upgrade.
     /// </remarks>
-    public static readonly SearchScopes Unrestricted = new(true, []);
+    public static readonly SearchScopes Unrestricted =
+        new(true, [], ScopeOutcome.Unrestricted);
 
     /// <summary>Nothing is reachable. A resolved user with no grants.</summary>
-    public static readonly SearchScopes None = new(false, []);
+    public static readonly SearchScopes None =
+        new(false, [], ScopeOutcome.NoGrants);
+
+    /// <summary>Nothing is reachable, because nobody could be named.</summary>
+    public static readonly SearchScopes NoPrincipal =
+        new(false, [], ScopeOutcome.NoPrincipal);
+
+    /// <summary>Nothing is reachable, because permissions could not be determined.</summary>
+    /// <remarks>
+    /// Failing closed. XACML 3.0 §7.2.2: a deny-biased enforcement point denies without an explicit
+    /// permit, and an indeterminate answer is not a permit. The caller is told this is an error
+    /// rather than an empty result, because they are not the same thing.
+    /// </remarks>
+    public static readonly SearchScopes Failed =
+        new(false, [], ScopeOutcome.ResolverFailed);
+
+    /// <summary>Only documents matching one of these rules.</summary>
+    public static SearchScopes Of(IReadOnlyList<GrantMatch> matches)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+
+        var usable = matches.Where(m => !string.IsNullOrWhiteSpace(m.Value)).ToList();
+        return usable.Count == 0
+            ? None
+            : new SearchScopes(false, usable, ScopeOutcome.Granted);
+    }
 
     /// <summary>Only documents whose resource URI starts with one of these.</summary>
-    public static SearchScopes Of(IReadOnlyList<string> uriPrefixes)
+    /// <remarks>
+    /// The caller owns normalisation: every string here is trusted as an already-normalised prefix
+    /// and used as-is. Anything that originated from an S3 access grant must be run through
+    /// <see cref="GrantScope.Parse"/> first, not handed to this method directly — AWS reports a
+    /// whole-bucket grant as <c>s3://acme*</c>, and without the confining trailing slash that
+    /// <see cref="GrantScope.Parse"/> adds, the same prefix also matches an unrelated bucket named
+    /// <c>s3://acme-secrets/...</c>.
+    /// </remarks>
+    public static SearchScopes OfPrefixes(IReadOnlyList<string> uriPrefixes)
     {
         ArgumentNullException.ThrowIfNull(uriPrefixes);
 
-        var usable = uriPrefixes.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
-        return usable.Count == 0 ? None : new SearchScopes(false, usable);
+        return Of(uriPrefixes
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => new GrantMatch(p, IsExact: false))
+            .ToList());
     }
 
     public bool IsUnrestricted { get; }
 
-    public IReadOnlyList<string> UriPrefixes { get; }
+    /// <summary>The rules a document's resource URI must satisfy one of.</summary>
+    public IReadOnlyList<GrantMatch> Matches { get; }
+
+    /// <summary>Why this scope set is what it is.</summary>
+    public ScopeOutcome Outcome { get; }
 
     /// <summary>True when this permits nothing, so a query need not run at all.</summary>
-    public bool IsEmpty => !IsUnrestricted && UriPrefixes.Count == 0;
+    public bool IsEmpty => !IsUnrestricted && Matches.Count == 0;
 
     /// <summary>The character that turns a wildcard back into a literal.</summary>
     /// <remarks>
@@ -103,4 +169,34 @@ public interface ISearchScopeResolver
     /// Who is searching, or null when the caller could not be resolved to a person.
     /// </param>
     Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// The rule applied to a resolver's answer before anything acts on it.
+/// </summary>
+/// <remarks>
+/// A pure function rather than a line inside the search pipeline, so the rule can be tested without
+/// a database, an HTTP context, or a resolver.
+/// </remarks>
+public static class ScopeResolution
+{
+    /// <summary>
+    /// Refuses grants handed back for a caller who is not a person.
+    /// </summary>
+    /// <remarks>
+    /// Unrestricted passes through untouched: a deployment that does not filter has made no
+    /// permission decision, and denying here would break every installation that has not opted in.
+    /// An existing denial passes through too, because its reason is more specific than this one.
+    /// </remarks>
+    public static SearchScopes Guard(SearchScopes resolved, Guid? userId)
+    {
+        ArgumentNullException.ThrowIfNull(resolved);
+
+        if (userId is not null)
+            return resolved;
+
+        return resolved is { IsUnrestricted: false, IsEmpty: false }
+            ? SearchScopes.NoPrincipal
+            : resolved;
+    }
 }

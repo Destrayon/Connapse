@@ -189,8 +189,8 @@ public class PgVectorStore : IVectorStore
     public async Task<IReadOnlyList<VectorSearchResult>> SearchAsync(
         float[] queryVector,
         int topK,
-        Dictionary<string, string>? filters = null,
-        SearchScopes? scopes = null,
+        Dictionary<string, string>? filters,
+        SearchScopes scopes,
         CancellationToken ct = default)
     {
         if (queryVector == null || queryVector.Length == 0)
@@ -239,30 +239,43 @@ public class PgVectorStore : IVectorStore
         // post-filter would take the top K and then remove most of them, so a user with narrow
         // access would get a handful of hits for a query that had plenty — worse answers for
         // being less privileged, with nothing on screen to say so.
-        if (scopes is { IsUnrestricted: false })
+        if (!scopes.IsUnrestricted)
         {
             if (scopes.IsEmpty)
             {
-                // Nothing is reachable. Say so in SQL rather than returning early, so this reads
-                // the same as any other empty result to everything downstream.
-                whereClauses.Add("1=0");
+                // No grants (no principal, no access, or the resolver failed) says nothing about
+                // documents the cloud has no opinion on. Only cloud-governed documents — those
+                // with a resource_uri — are excluded; everything else (uploads, SFTP, ...) still
+                // shows. This also means a resolver outage degrades to "you see the non-cloud
+                // documents", not "you see nothing".
+                whereClauses.Add("d.resource_uri IS NULL");
             }
             else
             {
-                // A document with no resource URI is denied, never allowed. It is one nothing can
-                // locate, so no permission rule can be checked against it — an upload, or a row
-                // not synced since the column existed.
+                // A document with no resource URI has no cloud coordinate to check permissions
+                // against — uploads and connectors that never report one (SFTP, filesystem,
+                // MinIO) are like this by design, not by accident. Such a document falls back to
+                // Connapse's own access control (container/source reachability) instead of cloud
+                // grants, so it is admitted unconditionally here. Cloud scope filtering only
+                // narrows the subset of documents that do carry a cloud address.
                 var ors = new List<string>();
-                for (int i = 0; i < scopes.UriPrefixes.Count; i++)
+                for (int i = 0; i < scopes.Matches.Count; i++)
                 {
-                    ors.Add($"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
+                    GrantMatch match = scopes.Matches[i];
+
+                    // An object-scoped grant is one object. As a prefix it would also admit
+                    // "report.pdf.bak", which is a different object nobody named.
+                    ors.Add(match.IsExact
+                        ? $"d.resource_uri = @scope{i}"
+                        : $"d.resource_uri LIKE @scope{i} ESCAPE '{SearchScopes.LikeEscape}'");
+
                     parameters.Add(new NpgsqlParameter($"@scope{i}", NpgsqlDbType.Text)
                     {
-                        Value = SearchScopes.ToLikePattern(scopes.UriPrefixes[i])
+                        Value = match.IsExact ? match.Value : SearchScopes.ToLikePattern(match.Value)
                     });
                 }
 
-                whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");
+                whereClauses.Add($"(d.resource_uri IS NULL OR ({string.Join(" OR ", ors)}))");
             }
         }
 

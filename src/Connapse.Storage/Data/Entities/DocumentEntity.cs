@@ -41,8 +41,11 @@ public class DocumentEntity
     /// confident wrong answer. For a permission filter, a document attributed to the wrong key is
     /// worse than one attributed to none.
     /// <para>
-    /// Null is denied once per-user filtering is switched on (#421) — never allowed. An upload has
-    /// no external address at all, so a URI scheme built for cloud RBAC cannot describe one.
+    /// Null falls outside cloud permission filtering entirely, rather than being denied by it
+    /// (#421). An upload — and any document from a connector that never reports a coordinate
+    /// (SFTP, filesystem, MinIO) — has no external address to check a cloud grant against, so
+    /// such a document is governed only by Connapse's own access control (container/source
+    /// reachability), the same as before cloud filtering existed.
     /// </para>
     /// </remarks>
     public string? ResourceUri { get; set; }

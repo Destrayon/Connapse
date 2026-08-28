@@ -13,6 +13,7 @@
 @inject IAuditLogger AuditLogger
 @inject AuthenticationStateProvider AuthStateProvider
 @inject SourceScopePreflight Preflight
+@inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -54,6 +55,18 @@
             </div>
         }
     </div>
+
+    @if (isAdmin && _unlocatedReportFailed && !loading)
+    {
+        @* Deliberately not an error: the source list below loaded fine. What is lost is the
+           check for sources whose documents have no recorded location, and saying nothing
+           would let that read as "nothing to report". *@
+        <div class="alert alert-secondary py-2 px-3 small" role="status">
+            <span class="bi-question-circle me-2"></span>
+            Could not check which sources hold documents with no recorded location. Any warnings
+            below may be incomplete — reload to try again.
+        </div>
+    }
 
     @if (isAdmin && connections.Count == 0 && !loading)
     {
@@ -176,6 +189,24 @@
                                     <div class="alert alert-danger py-2 mb-0 small">
                                         <span class="bi-exclamation-triangle me-1"></span>
                                         @source.LastSyncError
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+
+                        @if (isAdmin && _unlocated.TryGetValue(source.Id, out int unlocatedCount))
+                        {
+                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                                <td colspan="7" class="pt-0 border-top-0">
+                                    <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small" role="status">
+                                        <strong>@unlocatedCount</strong> document@(unlocatedCount == 1 ? "" : "s")
+                                        here @(unlocatedCount == 1 ? "has" : "have") no recorded location.
+                                        @(unlocatedCount == 1 ? "It" : "They") came from a cloud source but
+                                        @(unlocatedCount == 1 ? "has" : "have") no location Connapse can check
+                                        cloud permissions against, so @(unlocatedCount == 1 ? "it is" : "they are")
+                                        visible to everyone rather than filtered by per-user permissions.
+                                        Re-sync this source to record where @(unlocatedCount == 1 ? "it" : "they")
+                                        came from.
                                     </div>
                                 </td>
                             </tr>
@@ -433,6 +464,24 @@
     private bool loading = true;
     private bool isAdmin;
 
+    /// <summary>
+    /// Sources holding documents with no recorded <c>resource_uri</c>, keyed by source id, with the
+    /// count of affected documents. Populated from <see cref="DocumentCoordinateReport"/> so this
+    /// page never guesses at what filtering would hide.
+    /// </summary>
+    private IReadOnlyDictionary<Guid, int> _unlocated =
+        new Dictionary<Guid, int>();
+
+    /// <summary>
+    /// True when the coordinate report could not be read, as opposed to reading as empty.
+    /// </summary>
+    /// <remarks>
+    /// Without this the two are indistinguishable, and they mean opposite things: an empty report
+    /// says every cloud source is fully located, while a failed one says nobody knows — and a
+    /// source quietly going unfiltered is exactly what this page exists to surface.
+    /// </remarks>
+    private bool _unlocatedReportFailed;
+
     private Guid? syncing;
     private Source? pendingDelete;
     private string? message;
@@ -555,6 +604,44 @@
         finally
         {
             loading = false;
+        }
+
+        // Deliberately outside the try/catch above: this is a separate query against a separate
+        // report, and folding it into the source load's catch meant a report failure reset
+        // `sources` and `connections` to empty and showed "Could not load sources" even though
+        // both had already loaded successfully moments earlier. A cosmetic warning must not be
+        // able to take the whole page down with it.
+        //
+        // Admins only, because only they can see the result: the warning row and the failure
+        // notice below both sit inside `isAdmin` blocks, and only an admin can act on either by
+        // syncing. Running the aggregate for everyone else buys a document-wide GROUP BY per page
+        // load and shows nobody anything.
+        if (isAdmin)
+            await LoadUnlocatedAsync();
+    }
+
+    /// <summary>
+    /// Refreshes which sources hold documents with no recorded location, so the warning clears as
+    /// soon as a re-sync records one — this runs every time <see cref="LoadAsync"/> does, which
+    /// includes right after a sync completes, not only on first page load.
+    /// </summary>
+    private async Task LoadUnlocatedAsync()
+    {
+        try
+        {
+            var rows = await CoordinateReport.UnlocatedBySourceAsync();
+            _unlocated = rows.ToDictionary(r => r.SourceId, r => r.DocumentCount);
+            _unlocatedReportFailed = false;
+        }
+        catch (Exception)
+        {
+            // An empty result and a failed query must not look the same. "No source needs a
+            // re-sync" and "we could not find out" are different facts, and only the second one
+            // means cloud documents may be going unfiltered with nobody able to tell. Reported
+            // as a quiet notice rather than an error banner, because the source list itself
+            // loaded fine and this is a diagnostic, not the page's job.
+            _unlocated = new Dictionary<Guid, int>();
+            _unlocatedReportFailed = true;
         }
     }
 

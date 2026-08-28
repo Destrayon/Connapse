@@ -96,7 +96,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         var containerId = await SeedAsync(db);
 
         var hits = await Build(db).SearchAsync(
-            Term, For(containerId), SearchScopes.Of(["s3://acme/team/"]));
+            Term, For(containerId), SearchScopes.OfPrefixes(["s3://acme/team/"]));
 
         hits.Should().ContainSingle();
         hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("mine.md");
@@ -133,12 +133,19 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Search_ForADocumentWithNoResourceUri_ExcludesItWhenScoped()
+    public async Task Search_ForADocumentWithNoResourceUri_IsReturnedEvenWhenScoped()
     {
-        // Null is denied, never allowed. An upload has no external address, so no permission rule
-        // can be checked against it — and the tempting default, treating null as "not covered by
-        // any restriction", would make every upload visible to everyone the moment filtering is
-        // switched on.
+        // Real-deployment testing (issue #421 follow-up) found 127,898 documents of which 127,880
+        // were uploads and 12 were SFTP-backed — none of which have, or can ever have, a cloud
+        // address. Treating a null resource_uri as denied would have hidden 127,892 of those
+        // 127,898 documents the moment cloud filtering was switched on, because uploads have no
+        // external address by design and only the S3 and Azure connectors report one at all.
+        //
+        // The corrected rule: a document with no cloud coordinate is not governed by cloud
+        // permissions at all. It falls back to Connapse's own access control — reachable through
+        // this container the same as before cloud filtering existed — so a cloud scope narrows
+        // only the subset of documents that actually carry a cloud address, and never removes a
+        // document that doesn't have one.
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         await using var db = await NewContextAsync(scope.ServiceProvider);
 
@@ -174,8 +181,80 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         (await service.SearchAsync(Term, For(container.Id), SearchScopes.Unrestricted))
             .Should().ContainSingle("the document is findable when nothing is filtering");
 
-        (await service.SearchAsync(Term, For(container.Id), SearchScopes.Of(["s3://acme/"])))
-            .Should().BeEmpty("a document with no location cannot be inside any scope");
+        (await service.SearchAsync(Term, For(container.Id), SearchScopes.OfPrefixes(["s3://acme/"])))
+            .Should().ContainSingle(
+                "a document with no cloud coordinate is outside the cloud permission model entirely, " +
+                "so a cloud scope has no opinion on it and cannot exclude it");
+    }
+
+    [Fact]
+    public async Task Search_WithNoGrantsAtAll_StillReturnsTheDocumentWithNoResourceUri()
+    {
+        // The empty-scope case (no principal, no grants, or a failed resolver) has to agree with
+        // the scoped case above: it still admits a document the cloud has no opinion on, and it
+        // still excludes a document that does have a cloud address the user was never granted.
+        // A resolver outage should degrade to "you see the non-cloud documents", not "you see
+        // nothing" -- this is the test that pins that degradation.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await NewContextAsync(scope.ServiceProvider);
+
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        var unlocated = new DocumentEntity
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = container.Id,
+            FileName = "upload.md",
+            Path = "/no-scope-upload.md",
+            ResourceUri = null,
+            ContentHash = Guid.NewGuid().ToString("N"),
+            Status = "Ready",
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
+        };
+        db.Documents.Add(unlocated);
+        db.Chunks.Add(new ChunkEntity
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = unlocated.Id,
+            OwnerId = container.Id,
+            Content = $"the {Term} appears here",
+            ChunkIndex = 0,
+            Metadata = [],
+        });
+
+        var governed = new DocumentEntity
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = container.Id,
+            FileName = "theirs.md",
+            Path = "/no-scope-theirs.md",
+            ResourceUri = "s3://acme/other/theirs.md",
+            ContentHash = Guid.NewGuid().ToString("N"),
+            Status = "Ready",
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
+        };
+        db.Documents.Add(governed);
+        db.Chunks.Add(new ChunkEntity
+        {
+            Id = Guid.NewGuid(),
+            DocumentId = governed.Id,
+            OwnerId = container.Id,
+            Content = $"the {Term} appears here",
+            ChunkIndex = 0,
+            Metadata = [],
+        });
+
+        await db.SaveChangesAsync();
+
+        var hits = await Build(db).SearchAsync(Term, For(container.Id), SearchScopes.None);
+
+        hits.Should().ContainSingle(
+            "a document with no cloud coordinate is not governed by cloud permissions, so no " +
+            "grants at all still leaves it visible");
+        hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("upload.md");
     }
 
     [Fact]
@@ -223,9 +302,108 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
         await db.SaveChangesAsync();
 
         var hits = await Build(db).SearchAsync(
-            Term, For(container.Id), SearchScopes.Of(["s3://acme/team_docs/"]));
+            Term, For(container.Id), SearchScopes.OfPrefixes(["s3://acme/team_docs/"]));
 
         hits.Should().ContainSingle("only the granted prefix is reachable");
+        hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
+    }
+
+    [Fact]
+    public async Task Search_WithABucketScopedGrant_DoesNotReachASimilarlyNamedBucket()
+    {
+        // Against real SQL, because this is the shape AWS actually returns for a whole-bucket
+        // grant and the leak is invisible in a unit test of the pattern string.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await NewContextAsync(scope.ServiceProvider);
+
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new[]
+                 {
+                     ("granted.md", "s3://acme/report.md"),
+                     ("sneaky.md", "s3://acme-secrets/payroll.md"),
+                 })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                Status = "Ready",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var hits = await Build(db).SearchAsync(
+            Term, For(container.Id), SearchScopes.Of([GrantScope.Parse("s3://acme*")]));
+
+        hits.Should().ContainSingle("a grant for one bucket does not reach another whose name starts the same");
+        hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
+    }
+
+    [Fact]
+    public async Task Search_WithAnObjectScopedGrant_DoesNotReachASuffixedSibling()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        await using var db = await NewContextAsync(scope.ServiceProvider);
+
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"c-{Guid.NewGuid():N}" };
+        db.Containers.Add(container);
+
+        foreach (var (name, uri) in new[]
+                 {
+                     ("granted.md", "s3://acme/reports/q3.pdf"),
+                     ("sneaky.md", "s3://acme/reports/q3.pdf.bak"),
+                 })
+        {
+            var document = new DocumentEntity
+            {
+                Id = Guid.NewGuid(),
+                ContainerId = container.Id,
+                FileName = name,
+                Path = "/" + name,
+                ResourceUri = uri,
+                ContentHash = Guid.NewGuid().ToString("N"),
+                Status = "Ready",
+                CreatedAt = DateTime.UtcNow,
+                Metadata = [],
+            };
+            db.Documents.Add(document);
+            db.Chunks.Add(new ChunkEntity
+            {
+                Id = Guid.NewGuid(),
+                DocumentId = document.Id,
+                OwnerId = container.Id,
+                Content = $"the {Term} appears here",
+                ChunkIndex = 0,
+                Metadata = [],
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var hits = await Build(db).SearchAsync(
+            Term, For(container.Id),
+            SearchScopes.Of([GrantScope.Parse("s3://acme/reports/q3.pdf", isObjectScope: true)]));
+
+        hits.Should().ContainSingle("an object grant names one object");
         hits[0].Metadata.GetValueOrDefault("fileName").Should().Be("granted.md");
     }
 }

@@ -75,19 +75,39 @@ public class KeywordSearchService
         {
             if (scopes.IsEmpty)
             {
-                whereClauses.Add("1=0");
+                // No grants (no principal, no access, or the resolver failed) says nothing about
+                // documents the cloud has no opinion on. Only cloud-governed documents — those
+                // with a resource_uri — are excluded; everything else (uploads, SFTP, ...) still
+                // shows. This also means a resolver outage degrades to "you see the non-cloud
+                // documents", not "you see nothing".
+                whereClauses.Add("d.resource_uri IS NULL");
             }
             else
             {
+                // A document with no resource URI has no cloud coordinate to check permissions
+                // against — uploads and connectors that never report one (SFTP, filesystem,
+                // MinIO) are like this by design, not by accident. Such a document falls back to
+                // Connapse's own access control (container/source reachability) instead of cloud
+                // grants, so it is admitted unconditionally here. Cloud scope filtering only
+                // narrows the subset of documents that do carry a cloud address.
                 var ors = new List<string>();
-                foreach (string prefix in scopes.UriPrefixes)
+                foreach (GrantMatch match in scopes.Matches)
                 {
                     int scopeIdx = parameters.Count;
-                    ors.Add($"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
-                    parameters.Add(SearchScopes.ToLikePattern(prefix));
+
+                    // A grant scoped to one object is exact-matched rather than treated as a
+                    // prefix: as a prefix it would also let through a sibling like
+                    // "report.pdf.bak", a different object nobody granted.
+                    ors.Add(match.IsExact
+                        ? $"d.resource_uri = {{{scopeIdx}}}"
+                        : $"d.resource_uri LIKE {{{scopeIdx}}} ESCAPE '{SearchScopes.LikeEscape}'");
+
+                    parameters.Add(match.IsExact
+                        ? match.Value
+                        : SearchScopes.ToLikePattern(match.Value));
                 }
 
-                whereClauses.Add($"(d.resource_uri IS NOT NULL AND ({string.Join(" OR ", ors)}))");
+                whereClauses.Add($"(d.resource_uri IS NULL OR ({string.Join(" OR ", ors)}))");
             }
         }
 
