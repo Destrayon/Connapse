@@ -387,6 +387,11 @@ public class CognitoSetupTests
 
         script.Should().Contain("\"ActorPolicy\"");
         script.Should().NotContain("Iam={ActorPolicy=");
+
+        // Inline, not a temp file. file:// takes a literal path that nothing translates, so the
+        // heredoc version worked on Linux and failed everywhere else — and a setup script has no
+        // business caring which shell reads it.
+        script.Should().NotContain("file:///tmp/");
     }
 
     [Fact]

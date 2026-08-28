@@ -217,16 +217,20 @@ public static class CognitoSetup
 
         // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
         // express one: the call fails with "Shorthand syntax does not support document types"
-        // before it reaches AWS. Written to a file rather than inlined because the shell would
-        // otherwise have to survive nested quotes inside an argument that already contains them.
+        // before it ever reaches AWS.
+        //
+        // A printf format rather than a heredoc into a temp file. The file version worked on
+        // Linux and failed everywhere else, because file:// takes a literal path that nothing
+        // translates — and a setup script has no business caring which shell it is read in.
+        // printf's %s placeholders also keep the quoting flat: no nested double quotes inside an
+        // argument that is itself double-quoted.
         //
         // Built out here rather than inside the script literal because it ends in three closing
         // braces, which a raw interpolated string reads as the end of an interpolation hole.
-        // $ACTOR and $APP_ARN are shell variables, not C# ones.
-        const string authMethod =
+        const string authMethodFormat =
             "{\"Iam\":{\"ActorPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":"
-            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"$ACTOR\"},"
-            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"$APP_ARN\"}]}}}";
+            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
+            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
 
         return $$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
@@ -441,13 +445,11 @@ public static class CognitoSetup
         aws sso-admin put-application-access-scope --region "$REGION" \
           --application-arn "$APP_ARN" --scope s3:access_grants:read_write
 
-        cat > /tmp/$STACK-auth.json <<JSON
-        {{authMethod}}
-        JSON
+        AUTH_METHOD=$(printf '{{authMethodFormat}}' "$ACTOR" "$APP_ARN")
 
         aws sso-admin put-application-authentication-method --region "$REGION" \
           --application-arn "$APP_ARN" --authentication-method-type IAM \
-          --authentication-method "file:///tmp/$STACK-auth.json"
+          --authentication-method "$AUTH_METHOD"
 
         # Read back rather than trusted. This call and the one below are the last two steps, and
         # the whole chain fails at token exchange with a bare AccessDeniedException if either is
