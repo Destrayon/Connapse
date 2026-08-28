@@ -570,8 +570,38 @@
                     </div>
                 }
             }
+            else
+            {
+                @* Set up already. Without this the section was a heading and a bare form, so the
+                   requirement card's "Change" scrolled to something that was already on screen and
+                   looked like a dead link — and there was no route back to the setup scripts at
+                   all, because the button that reveals them sits inside the block above, which
+                   stops rendering the moment a pool is configured. *@
+                <div class="card mb-3">
+                    <div class="card-body py-3">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="bi-check-circle-fill text-success" aria-hidden="true"></span>
+                            <strong class="small">Connected to a Cognito pool</strong>
+                        </div>
+                        <div class="small text-body-secondary font-monospace text-break mb-2">
+                            @cognitoSettings.IssuerUrl
+                        </div>
+                        <p class="form-text mb-2">
+                            People can connect their AWS identity from their Profile page. It does
+                            not scope anyone's search results yet — see issue #421.
+                        </p>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => showCognitoManual = true">
+                            <span class="bi-arrow-repeat me-1"></span> Change or set up again
+                        </button>
+                    </div>
+                </div>
+            }
 
-            @if (CognitoPool is not null || showCognitoManual)
+            @* Only when the administrator has asked to edit. Rendering it whenever a pool exists
+               put five mostly-empty fields under the summary that describes them, and made
+               "Change" look like it had done nothing. *@
+            @if (showCognitoManual)
             {
                 <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
             }
