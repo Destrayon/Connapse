@@ -132,6 +132,12 @@ feature and the provider page says so rather than failing obscurely.
 
 **Purpose.** Make the connection permanent, so a user consents once and never again.
 
+**Split across two plans.** Storing the token — the entity, its encryption, connect and disconnect —
+is **5b-i**. Everything that keeps it alive unattended — minting a fresh ID token, persisting the
+rotated refresh token, the weekly touch job, and surfacing a link that has broken — is **5b-ii**.
+Both are described together below because they are one design, but 5b-i is complete without any of
+the second half, and "permanent" is a property the feature only acquires in 5b-ii.
+
 **Detail.** A new table holds one Cognito refresh token per user, encrypted with ASP.NET Core Data
 Protection.
 
@@ -151,8 +157,13 @@ stored token so provider idle-expiry clocks never fire; that is what turns "long
 
 The integrations page is where the whole thing lives: connect, see status, disconnect. Connecting is
 what grants `offline_access`, and that is what lets Connapse resolve a user's permissions while they
-are away — which is what a background agent run needs. Disconnecting revokes it and deletes the
-stored token.
+are away — which is what a background agent run needs.
+
+**Disconnecting revokes before it deletes.** Removing the local row alone leaves the refresh token
+valid at Cognito, so anything holding a copy keeps working while Connapse reports the link gone. The
+pool's `/oauth2/revoke` is called first; the row is deleted either way, because a user who asks to
+disconnect must end up disconnected locally whatever AWS says, but a failed revocation is reported
+rather than swallowed.
 
 **Depends on.** Component 2.
 

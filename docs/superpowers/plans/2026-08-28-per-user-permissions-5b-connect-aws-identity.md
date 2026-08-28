@@ -87,6 +87,31 @@ public class CognitoSettingsTests
     }
 
     [Theory]
+    [InlineData("http://cognito-idp.us-west-1.amazonaws.com/us-west-1_abc123")]
+    [InlineData("http://connapse.auth.us-west-1.amazoncognito.com")]
+    public void IsConfigured_WithAPlainHttpUrl_IsFalse(string insecure)
+    {
+        // Both URLs carry a credential — an authorization code on one, a token on the other — so
+        // a plain-HTTP hop puts it on the wire in cleartext. Cognito refuses these too, so the
+        // only thing accepting them buys is a rejection from AWS instead of an explanation here.
+        var settings = Complete();
+        settings.Domain = insecure;
+
+        settings.IsConfigured.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsConfigured_WithLoopbackHttp_IsTrue()
+    {
+        // The one exception, and Cognito makes it too: a single-machine deployment has no TLS to
+        // terminate and nothing on the wire to intercept.
+        var settings = Complete();
+        settings.Domain = "http://localhost:5001";
+
+        settings.IsConfigured.Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("IssuerUrl")]
     [InlineData("Domain")]
     [InlineData("ClientId")]
@@ -172,13 +197,26 @@ public class CognitoSettings
 
     public string Region { get; set; } = string.Empty;
 
-    /// <summary>True when every field needed to complete a connection is present.</summary>
+    /// <summary>True when every field needed to complete a connection is present and usable.</summary>
+    /// <remarks>
+    /// The URLs must be HTTPS, with <c>http://localhost</c> the only exception. Both carry an
+    /// authorization code or a token, so a plain-HTTP hop puts a credential on the wire in
+    /// cleartext — and a non-empty check alone would happily accept one. Cognito enforces the same
+    /// rule on its side for callback URLs, so anything else was never going to work anyway; failing
+    /// here says why, rather than leaving the operator with a rejection from AWS.
+    /// </remarks>
     public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(IssuerUrl)
-        && !string.IsNullOrWhiteSpace(Domain)
+        IsSecureUrl(IssuerUrl)
+        && IsSecureUrl(Domain)
         && !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)
         && !string.IsNullOrWhiteSpace(Region);
+
+    /// <summary>HTTPS, or loopback HTTP for a single-machine deployment.</summary>
+    internal static bool IsSecureUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttps
+            || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
 }
 ```
 
@@ -738,7 +776,12 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
 }
 ```
 
-Adjust the expected status codes to whatever the Azure pair actually does for the same conditions — the point is that these cases are refused, not that they produce one specific code. If the Azure endpoints require authentication before reaching these checks, follow whatever the neighbouring endpoint tests do to authenticate.
+**These tests as written are vacuous, and fixing that is part of this step.** The route uses `RequireAuthorization()`, so an unauthenticated client gets 401 — and `NotBe(Redirect)` and `NotBe(OK)` both accept 401 and 404, so all three would pass against a deployment where the endpoint does not exist at all. Before finishing:
+
+- **Authenticate the client** the way the neighbouring endpoint tests do, so the request reaches the handler rather than stopping at the auth middleware.
+- **Assert the specific contract**, not the absence of one code. Decide what each case returns — 409 for unconfigured, 400 for a bad or missing state — and assert that exact status. Match whatever the Azure pair does for the same conditions.
+- **Assert `NotBe(HttpStatusCode.NotFound)` explicitly** in each test, so a route that was never registered fails loudly instead of passing.
+- **The mismatched-state test must first start a real connection**, so a valid state exists to mismatch against. Comparing against a state nobody issued tests a different, easier branch.
 
 - [ ] **Step 3: Run to verify it fails**
 
@@ -788,15 +831,71 @@ In `src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs`, add beside the Azure 
 
 The callback exchanges the code at `{Domain}/oauth2/token` with `grant_type=authorization_code`, the client id and secret, the redirect URI and the stashed verifier; reads `id_token` and `refresh_token` from the response; validates that the ID token's `email_verified` claim is true and takes its `email`; then calls `AwsIdentityLinkStore.SaveAsync`. On success redirect to `/profile/integrations`; on failure redirect there with an error the page can render.
 
-Three rules for the implementation:
+Five rules for the implementation:
 
-1. **Validate `state` before anything else**, comparing against what was stashed, and clear it whether or not it matched. A callback whose state does not match is not a connection.
-2. **Refuse an unverified email.** `email_verified` false means the pool has not proven the address, and the address is the join key into Identity Center. Store nothing and tell the user.
-3. **Never log the code, the verifier, the client secret, or either token** — not on the error path, not in an exception message.
+1. **Validate `state` before anything else**, comparing against what was stashed, and clear it either way. A callback whose state does not match is not a connection.
+2. **Validate the ID token before reading any claim from it.** Signature against the pool's JWKS at `{IssuerUrl}/.well-known/jwks.json`, `iss` against `CognitoSettings.IssuerUrl`, `aud` against `ClientId`, and lifetime. Use `Microsoft.IdentityModel.Tokens` with a `ConfigurationManager<OpenIdConnectConfiguration>` so the signing keys are fetched and cached rather than pinned.
 
-- [ ] **Step 5: Register the settings category**
+   Worth knowing why this is belt-and-braces rather than the only line of defence: the token arrives on a direct server-to-server call to the token endpoint, over TLS, authenticated with the client secret, and OIDC Core §3.1.3.7 permits skipping signature validation in exactly that case. It is specified here anyway because the claim being read is the **join key into an authorization decision**, and a plan that says "read the email claim" without saying "validate first" will produce code that never validates at all.
+3. **Bind a nonce.** Generate one in the authorization request, stash it beside the state and verifier, and check the ID token's `nonce` matches. Cheap, and it is what stops a token minted for a different request being replayed into this one.
+4. **Refuse an unverified email.** `email_verified` false means the pool has not proven the address, and the address is the join key into Identity Center. Store nothing and tell the user.
+5. **Never log the code, the verifier, the nonce, the client secret, or either token** — not on the error path, not in an exception message.
 
-Cognito settings must be readable and writable like the other categories. In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"awssso"` does at lines 53 and 101 — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`.
+Add tests for a token that fails each of validation, nonce, and `email_verified`, asserting in each case that `AwsIdentityLinkStore.SaveAsync` was **not** called. A token can be forged locally with a throwaway signing key for these — the point is that a badly signed or wrongly addressed token stores nothing.
+
+- [ ] **Step 5: Register the settings category — in three places, not one**
+
+Settings reach `IOptionsMonitor<CognitoSettings>.CurrentValue` only if all three of these are done. Miss the second and the endpoint returns 409 forever no matter what an admin saves, with nothing to indicate why.
+
+**a. Bind the options.** In `src/Connapse.Identity/IdentityServiceExtensions.cs`, beside lines 73-74:
+
+```csharp
+        services.Configure<CognitoSettings>(configuration.GetSection(CognitoSettings.SectionName));
+```
+
+**b. Map the category to the section.** In `src/Connapse.Storage/Settings/DatabaseSettingsProvider.cs`, add to `CategoryPrefixMap` (line 20):
+
+```csharp
+        ["cognito"] = "Identity:Cognito",
+```
+
+This is load-bearing and easy to miss. That dictionary's own comment says categories not listed default to `Knowledge:{category}`, so without this line a saved `"cognito"` category lands at `Knowledge:cognito` while `CognitoSettings.SectionName` reads `Identity:Cognito`. The two never meet, `CurrentValue` stays empty, and every symptom points at the endpoint rather than at a missing dictionary entry.
+
+**c. Expose read and write.** In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"awssso"` does at lines 53 and 101 — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`.
+
+- [ ] **Step 5b: Prove the settings path end to end**
+
+Add to `tests/Connapse.Integration.Tests/CognitoConnectEndpointTests.cs` a test that saves settings through the same path an admin uses and then asserts they arrive:
+
+```csharp
+    [Fact]
+    public async Task SavedSettings_ReachTheOptionsMonitor()
+    {
+        // The three-place registration is invisible until it is wrong, and when it is wrong the
+        // failure looks like a broken endpoint rather than a missing dictionary entry. This is the
+        // only test that would catch the category prefix and the section name disagreeing.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+
+        await store.SaveAsync("cognito", JsonSerializer.Serialize(new
+        {
+            IssuerUrl = "https://cognito-idp.us-west-1.amazonaws.com/us-west-1_test",
+            Domain = "https://example.auth.us-west-1.amazoncognito.com",
+            ClientId = "client-id",
+            ClientSecret = "secret",
+            Region = "us-west-1",
+        }));
+
+        // Reload so the configuration provider picks the row up, the way the app does.
+        scope.ServiceProvider.GetRequiredService<IConfigurationRoot>().Reload();
+
+        var monitor = scope.ServiceProvider.GetRequiredService<IOptionsMonitor<CognitoSettings>>();
+        monitor.CurrentValue.IsConfigured.Should().BeTrue();
+        monitor.CurrentValue.ClientId.Should().Be("client-id");
+    }
+```
+
+Match how the neighbouring settings tests save and reload — if they use a different store interface or reload mechanism, use theirs.
 
 - [ ] **Step 6: Run to verify it passes and the solution builds**
 
@@ -895,6 +994,10 @@ In the Cloud Identities section of `src/Connapse.Web/Components/Pages/ProfileInt
 - **Not configured** — Cognito settings are absent. Say an administrator sets this up, and do not offer a button that cannot work.
 - **Not connected** — a Connect button that navigates to `/api/cloud-identity/cognito/connect`.
 - **Connected** — the email it is connected as, when, and a Disconnect button.
+
+**Disconnect must revoke, not just forget.** Deleting the local row leaves the refresh token valid at Cognito, so anything that already copied it keeps working — the link is gone from Connapse's point of view and alive from AWS's. Call the pool's `POST {Domain}/oauth2/revoke` with the token and the client credentials **before** deleting the row, and delete the row whether or not revocation succeeded: a user who clicks Disconnect must end up disconnected locally regardless of what AWS says.
+
+If revocation fails, say so plainly — "Disconnected here, but AWS could not be told; the token stays valid until it expires" — rather than reporting a clean success. And if you decide not to implement revocation at all, then the button and the spec must both say *local unlink only*. What is not acceptable is a UI that says "disconnected" while a live token sits in someone's logs.
 
 Copy guidance, and the reason this task has a test at all: say that connecting lets Connapse check the user's AWS permissions **when per-user filtering is switched on**, and do not imply it is filtering now. This page previously claimed linking an identity narrowed search results when nothing of the sort happened; #422 removed that claim and left a test pinning its absence. Do not reintroduce a softer version of it.
 
