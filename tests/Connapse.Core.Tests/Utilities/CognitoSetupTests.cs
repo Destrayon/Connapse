@@ -466,6 +466,34 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_PrintsTheSettingsBlockAsOneCommand()
+    {
+        // An interactive shell echoes each pasted command as it runs, so eight printfs put a
+        // "$ printf ..." line between every value and left the block impossible to select in one
+        // go. One command means one echo and a contiguous block.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        string[] outputLines = script.Split('\n')
+            .Where(l => l.TrimStart().StartsWith("printf", StringComparison.Ordinal))
+            .ToArray();
+
+        outputLines.Should().ContainSingle();
+        outputLines[0].Should().Contain("issuerUrl=%s").And.Contain("applicationArn=%s");
+    }
+
+    [Fact]
+    public void GenerateScript_RemovesItsOwnLeftoverIssuers()
+    {
+        // Not in the stack, so deleting the stack leaves it behind, and every recreate cycle adds
+        // another. Narrowed to our own name so it cannot delete an issuer belonging to a pool in
+        // another account, where the existence check fails for want of permission.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        script.Should().Contain("Removing a leftover trusted token issuer");
+        script.Should().Contain("[ \"$NAME\" = \"$PREFIX\" ]");
+    }
+
+    [Fact]
     public void GenerateScript_KeepsItsComments()
     {
         // Flattening joins commands, not commentary. The comments are why an administrator can

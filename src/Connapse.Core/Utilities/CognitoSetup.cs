@@ -463,11 +463,30 @@ public static class CognitoSetup
         for ARN in $(aws sso-admin list-trusted-token-issuers --region "$REGION" \
                        --instance-arn "$INSTANCE" \
                        --query 'TrustedTokenIssuers[].TrustedTokenIssuerArn' --output text); do
+          NAME=$(aws sso-admin describe-trusted-token-issuer --region "$REGION" \
+                   --trusted-token-issuer-arn "$ARN" --query 'Name' --output text 2>/dev/null || true)
           URL=$(aws sso-admin describe-trusted-token-issuer --region "$REGION" \
                   --trusted-token-issuer-arn "$ARN" \
                   --query 'TrustedTokenIssuerConfiguration.OidcJwtConfiguration.IssuerUrl' \
                   --output text 2>/dev/null || true)
           [ "$URL" = "$ISSUER" ] && TTI="$ARN" && break
+
+          # An issuer of ours whose pool has been deleted can never authenticate anybody, and
+          # nothing else will ever remove it: it is not in the stack, so deleting the stack leaves
+          # it behind. Without this, every delete-and-recreate cycle leaves one more.
+          #
+          # Narrowed to our own name deliberately. Matching on the URL alone would also match a
+          # pool in another account, where describe-user-pool fails for want of permission rather
+          # than because the pool is gone — and that would delete somebody else's working issuer.
+          if [ "$NAME" = "$PREFIX" ]; then
+            OLD_POOL=${URL##*/}
+            aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$OLD_POOL" \
+              >/dev/null 2>&1 || {
+              echo "Removing a leftover trusted token issuer for deleted pool $OLD_POOL."
+              aws sso-admin delete-trusted-token-issuer --region "$REGION" \
+                --trusted-token-issuer-arn "$ARN" >/dev/null 2>&1 || true
+            }
+          fi
         done
         if [ -z "$TTI" ] || [ "$TTI" = 'None' ]; then
           # email to emails.value: Identity Center allows the join key to be user name, email or
@@ -508,14 +527,10 @@ public static class CognitoSetup
         aws sso-admin put-application-assignment-configuration --region "$REGION" \
           --application-arn "$APP_ARN" --no-assignment-required
 
-        printf '\n%s\n' '{{BeginMarker}}'
-        printf 'issuerUrl=%s\n' "$ISSUER"
-        printf 'domain=%s\n' "$DOMAIN"
-        printf 'clientId=%s\n' "$CLIENT_ID"
-        printf 'clientSecret=%s\n' "$SECRET"
-        printf 'region=%s\n' "$REGION"
-        printf 'applicationArn=%s\n' "$APP_ARN"
-        printf '%s\n\n' '{{EndMarker}}'
+        # One printf, not eight. An interactive shell echoes each pasted command as it runs, so
+        # eight of them put a "$ printf ..." line between every value and left the block impossible
+        # to select in one go. Printed as a single command, the block comes out contiguous.
+        printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
         """);
