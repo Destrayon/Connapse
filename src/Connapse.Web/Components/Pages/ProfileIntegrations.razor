@@ -4,7 +4,11 @@
 @using Connapse.Core
 @using Connapse.Identity.Services
 @using Connapse.Web.Components.Layout
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.Extensions.Options
 @inject ICloudIdentityService CloudIdentityService
+@inject IAwsIdentityLinkService AwsIdentityLinkService
+@inject IOptionsMonitor<CognitoSettings> CognitoOptions
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
@@ -55,7 +59,7 @@
                             <span class="bi-cloud" style="font-size: 1.1rem; color: #f59e0b;"></span>
                         </div>
                         <div class="ms-3 flex-grow-1">
-                            <strong>Amazon Web Services</strong>
+                            <strong>Amazon Web Services (Sign-In)</strong>
                         </div>
                         @if (awsIdentity is not null)
                         {
@@ -280,6 +284,102 @@
                 </div>
             </div>
         </div>
+
+        <!-- AWS Permissions Identity Card (Cognito) -->
+        <div class="col-md-6">
+            <div class="card h-100 provider-card @(cognitoIdentity is not null ? "provider-connected" : "")"
+                 style="--provider-color: #f59e0b;">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                             style="width: 40px; height: 40px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25);">
+                            <span class="bi-shield-lock" style="font-size: 1.1rem; color: #f59e0b;"></span>
+                        </div>
+                        <div class="ms-3 flex-grow-1">
+                            <strong>Amazon Web Services (Permissions)</strong>
+                        </div>
+                        @if (cognitoIdentity is not null)
+                        {
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
+                                <span class="bi-check-circle-fill me-1"></span>Connected
+                            </span>
+                        }
+                    </div>
+
+                    @if (!cognitoConfigured)
+                    {
+                        <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <small class="d-flex align-items-start" style="color: #fbbf24;">
+                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+                                <span>Amazon Cognito is not configured. An administrator must set up the pool under Settings before anyone can connect.</span>
+                            </small>
+                        </div>
+                    }
+                    else if (cognitoIdentity is not null)
+                    {
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            <div>
+                                <small class="text-muted d-block">Connected as</small>
+                                <span class="small">@cognitoIdentity.Email</span>
+                            </div>
+                            <div class="d-flex gap-4">
+                                <div>
+                                    <small class="text-muted d-block">Connected</small>
+                                    <small>@cognitoIdentity.ConnectedAt.ToString("MMM dd, yyyy")</small>
+                                </div>
+                                @if (cognitoIdentity.LastUsedAt is not null)
+                                {
+                                    <div>
+                                        <small class="text-muted d-block">Last used</small>
+                                        <small>@cognitoIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mb-0">
+                            Separate from the AWS sign-in card above, which carries no permission
+                            information. Connecting here lets Connapse check your AWS permissions
+                            once per-user search filtering is switched on — it does not filter your
+                            search results today.
+                        </p>
+                    }
+                </div>
+                @if (cognitoConfigured)
+                {
+                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                        @if (cognitoIdentity is not null)
+                        {
+                            @if (confirmDisconnectCognito)
+                            {
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-danger" @onclick="DisconnectCognitoAsync" disabled="@isProcessing">
+                                        Confirm Disconnect
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectCognito = false">
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectCognito = true" disabled="@isProcessing">
+                                    <span class="bi-x-circle me-1"></span>Disconnect
+                                </button>
+                            }
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-primary" @onclick="ConnectCognitoAsync" disabled="@isProcessing">
+                                <span class="bi-link-45deg me-1"></span>Connect AWS Permissions
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
     </div>
 </div>
 
@@ -294,6 +394,11 @@
     private CloudIdentityDto? azureIdentity;
     private bool awsSsoConfigured;
     private bool azureAdConfigured;
+
+    // AWS permissions identity (Cognito) — a separate link from awsIdentity above.
+    private AwsIdentityLinkDto? cognitoIdentity;
+    private bool cognitoConfigured;
+    private bool confirmDisconnectCognito;
 
     // Device auth flow state
     private AwsDeviceAuthStartResult? awsDeviceAuth;
@@ -310,6 +415,9 @@
 
         awsSsoConfigured = CloudIdentityService.IsAwsSsoConfigured();
         azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
+        cognitoConfigured = CognitoOptions.CurrentValue.IsConfigured;
+
+        ApplyCognitoErrorFromQuery();
 
         await LoadIdentitiesAsync();
     }
@@ -319,11 +427,84 @@
         var identities = await CloudIdentityService.ListAsync(currentUserId);
         awsIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.AWS);
         azureIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.Azure);
+        cognitoIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
+    }
+
+    // The Cognito callback redirects here with ?error=cognito_<reason> when a connection attempt
+    // failed. A silent, unchanged page would leave the user guessing whether anything happened.
+    private void ApplyCognitoErrorFromQuery()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (!query.TryGetValue("error", out var errorValues))
+            return;
+
+        var error = errorValues.ToString();
+        if (!error.StartsWith("cognito_", StringComparison.Ordinal))
+            return;
+
+        var reason = error["cognito_".Length..];
+        statusMessage = reason switch
+        {
+            "exchange_failed" => "Could not connect your AWS identity: the token exchange with Cognito failed.",
+            "token_invalid" => "Could not connect your AWS identity: Cognito returned a token that could not be verified.",
+            "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
+            "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
+            _ => "Could not connect your AWS identity. Please try again.",
+        };
+        statusSuccess = false;
     }
 
     private void ConnectAzureAsync()
     {
         Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
+    }
+
+    private void ConnectCognitoAsync()
+    {
+        Navigation.NavigateTo("/api/cloud-identity/cognito/connect", forceLoad: true);
+    }
+
+    private async Task DisconnectCognitoAsync()
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmDisconnectCognito = false;
+        try
+        {
+            var result = await AwsIdentityLinkService.DisconnectAsync(currentUserId);
+            if (result.Deleted)
+            {
+                if (result.RevokedSuccessfully)
+                {
+                    statusMessage = "AWS identity disconnected.";
+                    statusSuccess = true;
+                }
+                else
+                {
+                    // Never claim a clean success here: the row is gone locally, but the refresh
+                    // token may still be valid at AWS until it expires on its own.
+                    statusMessage = "Disconnected here, but AWS could not be told; the token stays valid until it expires.";
+                    statusSuccess = false;
+                }
+                await LoadIdentitiesAsync();
+            }
+            else
+            {
+                statusMessage = "No AWS identity link found.";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to disconnect AWS identity link for user {UserId}", currentUserId);
+            statusMessage = "Failed to disconnect. Please try again.";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
     }
 
     private async Task StartAwsDeviceAuthAsync()

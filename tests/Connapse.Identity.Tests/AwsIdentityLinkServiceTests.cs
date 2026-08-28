@@ -1,0 +1,205 @@
+using System.Net;
+using Connapse.Core;
+using Connapse.Identity.Data;
+using Connapse.Identity.Services;
+using FluentAssertions;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NSubstitute;
+using Xunit;
+
+namespace Connapse.Identity.Tests;
+
+/// <summary>
+/// Disconnecting an AWS identity link must revoke the refresh token at Cognito before removing the
+/// local row, and must remove the row regardless of whether revocation succeeded — see
+/// <see cref="AwsIdentityLinkService"/>.
+/// </summary>
+[Trait("Category", "Unit")]
+public class AwsIdentityLinkServiceTests
+{
+    private static readonly CognitoSettings ConfiguredSettings = new()
+    {
+        IssuerUrl = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test",
+        Domain = "https://my-pool.auth.us-east-1.amazoncognito.com",
+        ClientId = "test-client-id",
+        ClientSecret = "test-client-secret",
+        Region = "us-east-1",
+    };
+
+    private AwsIdentityLinkStore CreateStore(string dbName) =>
+        new(CreateFactory(dbName), new EphemeralDataProtectionProvider(), TimeProvider.System);
+
+    private static IDbContextFactory<ConnapseIdentityDbContext> CreateFactory(string dbName)
+    {
+        var factory = Substitute.For<IDbContextFactory<ConnapseIdentityDbContext>>();
+        factory.CreateDbContextAsync(Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(new ConnapseIdentityDbContext(
+                new DbContextOptionsBuilder<ConnapseIdentityDbContext>()
+                    .UseInMemoryDatabase(dbName)
+                    .Options)));
+        return factory;
+    }
+
+    private static IOptionsMonitor<CognitoSettings> Options(CognitoSettings settings)
+    {
+        var options = Substitute.For<IOptionsMonitor<CognitoSettings>>();
+        options.CurrentValue.Returns(settings);
+        return options;
+    }
+
+    private static IHttpClientFactory HttpFactory(HttpMessageHandler handler)
+    {
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler));
+        return factory;
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_ExistingLink_RevokesAtCognitoWhileTheRowStillExists_ThenDeletesIt()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+
+        bool? linkPresentDuringRevoke = null;
+        var handler = new RecordingHandler(HttpStatusCode.OK,
+            onSend: async () => linkPresentDuringRevoke = await store.GetAsync(userId) is not null);
+
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(userId);
+
+        result.Deleted.Should().BeTrue();
+        result.RevokedSuccessfully.Should().BeTrue();
+        linkPresentDuringRevoke.Should().BeTrue("the token must be revoked before the local row disappears");
+        (await store.GetAsync(userId)).Should().BeNull("the row must be gone once Disconnect returns");
+
+        handler.LastRequest.Should().NotBeNull();
+        handler.LastRequest!.RequestUri!.ToString().Should().Be("https://my-pool.auth.us-east-1.amazoncognito.com/oauth2/revoke");
+        handler.LastRequestBody.Should().Contain("token=refresh-token-abc");
+        handler.LastRequestBody.Should().Contain("client_id=test-client-id");
+        handler.LastRequestBody.Should().Contain("client_secret=test-client-secret");
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_RevocationFails_StillDeletesTheRow_AndReportsRevocationFailed()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest);
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(userId);
+
+        // A user who clicks Disconnect must end up disconnected locally regardless of what AWS
+        // reports — but a failed revocation must not be reported as a clean success.
+        result.Deleted.Should().BeTrue();
+        result.RevokedSuccessfully.Should().BeFalse();
+        (await store.GetAsync(userId)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_UnreachablePool_StillDeletesTheRow_AndReportsRevocationFailed()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+
+        var handler = new ThrowingHandler(new HttpRequestException("connection refused"));
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(userId);
+
+        result.Deleted.Should().BeTrue();
+        result.RevokedSuccessfully.Should().BeFalse();
+        (await store.GetAsync(userId)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_NoLinkExists_ReturnsDeletedFalse_AndNeverCallsCognito()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+
+        var handler = new RecordingHandler(HttpStatusCode.OK);
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(Guid.NewGuid());
+
+        result.Deleted.Should().BeFalse();
+        handler.LastRequest.Should().BeNull("there is no token to revoke when nothing was connected");
+    }
+
+    [Fact]
+    public async Task GetAsync_ExistingLink_ReturnsEmailAndTimestamps()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+
+        var handler = new RecordingHandler(HttpStatusCode.OK);
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var dto = await sut.GetAsync(userId);
+
+        dto.Should().NotBeNull();
+        dto!.Email.Should().Be("user@example.com");
+        dto.LastUsedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetAsync_NoLink_ReturnsNull()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+
+        var handler = new RecordingHandler(HttpStatusCode.OK);
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var dto = await sut.GetAsync(Guid.NewGuid());
+
+        dto.Should().BeNull();
+    }
+
+    private sealed class RecordingHandler(HttpStatusCode statusCode, Func<Task>? onSend = null) : HttpMessageHandler
+    {
+        public HttpRequestMessage? LastRequest { get; private set; }
+        public string? LastRequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            LastRequestBody = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+
+            if (onSend is not null)
+                await onSend();
+
+            return new HttpResponseMessage(statusCode);
+        }
+    }
+
+    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw exception;
+    }
+}

@@ -73,6 +73,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddScoped<AwsIdentityLinkStore>();
+        services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
