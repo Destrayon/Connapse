@@ -404,6 +404,18 @@ public static class CognitoSetup
                   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
         POOL_ID=$(out PoolId); CLIENT_ID=$(out ClientId); APP_ARN=$(out ApplicationArn)
 
+        # The stack can be "up to date" and still describe a pool that no longer exists: deleting
+        # one in the console does not tell CloudFormation, and deploy reports no changes because
+        # the template has not changed. Without this the next call fails with
+        # ResourceNotFoundException naming a pool id that came from the stack itself, which reads
+        # like a bug in the script rather than drift in the account.
+        aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$POOL_ID"           >/dev/null 2>&1 || {
+          echo "Stack $STACK refers to pool $POOL_ID, which no longer exists."
+          echo "Something removed it outside CloudFormation. Delete the stack and run this again:"
+          echo "  aws cloudformation delete-stack --region $REGION --stack-name $STACK"
+          exit 1
+        }
+
         ISSUER="https://cognito-idp.$REGION.amazonaws.com/$POOL_ID"
         DOMAIN="https://$DOMAIN_PREFIX.auth.$REGION.amazoncognito.com"
 
@@ -477,6 +489,62 @@ public static class CognitoSetup
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
         """;
+    }
+
+    /// <summary>
+    /// How much base64 goes on one line of the bootstrap.
+    /// </summary>
+    /// <remarks>
+    /// Comfortably under the 1024 characters a terminal line editor is entitled to hold. The
+    /// figure is not the interesting part; the constraint is that every line be a complete command
+    /// so the shell never enters continuation mode.
+    /// </remarks>
+    private const int ChunkLength = 900;
+
+    /// <summary>
+    /// The setup script as a sequence of short, independent commands that rebuild and run it.
+    /// </summary>
+    /// <remarks>
+    /// What an administrator actually pastes. <see cref="GenerateScript"/> is what they read: it is
+    /// two hundred lines with a hundred-line heredoc in the middle, and pasting that into an
+    /// interactive shell does not work. The terminal echoes each line with a continuation prompt,
+    /// the line editor fills, and the session dies part-way through the template — observed twice
+    /// in AWS CloudShell, which disconnects with "[exited]".
+    /// <para>
+    /// So nothing multi-line is ever pasted. Each line here is a complete command that appends one
+    /// chunk of base64 to a file; the last decodes the file and runs it. The shell never enters
+    /// continuation mode, and no single line approaches any buffer limit.
+    /// </para>
+    /// <para>
+    /// The trade is that what is pasted is no longer what is read. That is why the page shows the
+    /// script in full above this, and why the last line leaves the decoded file in place rather
+    /// than piping it straight to bash — an administrator who wants to confirm the two match can
+    /// read the file before it runs, or diff it against what the page displayed.
+    /// </para>
+    /// </remarks>
+    public static string GenerateBootstrap(CognitoSetupRequest request)
+    {
+        string script = GenerateScript(request);
+        string encoded = Convert.ToBase64String(
+            System.Text.Encoding.UTF8.GetBytes(script.ReplaceLineEndings("\n")));
+
+        var lines = new List<string>
+        {
+            "# Rebuilds the script shown above, then runs it. Paste all of this at once.",
+            "rm -f /tmp/connapse-setup.b64 /tmp/connapse-setup.sh"
+        };
+
+        for (int i = 0; i < encoded.Length; i += ChunkLength)
+        {
+            string chunk = encoded.Substring(i, Math.Min(ChunkLength, encoded.Length - i));
+            lines.Add($"printf %s '{chunk}' >> /tmp/connapse-setup.b64");
+        }
+
+        lines.Add("base64 -d /tmp/connapse-setup.b64 > /tmp/connapse-setup.sh");
+        lines.Add("rm -f /tmp/connapse-setup.b64");
+        lines.Add("bash /tmp/connapse-setup.sh");
+
+        return string.Join("\n", lines);
     }
 
     /// <summary>

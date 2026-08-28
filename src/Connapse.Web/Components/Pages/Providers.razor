@@ -502,6 +502,13 @@
                     </span>
                 </div>
 
+                <div class="form-text mb-3">
+                    Copy gives you a short bootstrap that rebuilds the script above and runs it.
+                    Pasting the script itself would be two hundred lines and disconnects CloudShell
+                    part-way through. It decodes to exactly what is shown, and leaves the file at
+                    <code>/tmp/connapse-setup.sh</code> if you want to read it first.
+                </div>
+
                 <label class="form-label small mb-1">Paste what it printed</label>
                 <textarea class="form-control font-monospace" rows="4" @bind="pastedCognito"
                           @bind:event="oninput"
@@ -604,12 +611,13 @@
     /// Satisfied state that value is exactly the ARN, and this only renders in that state — which
     /// is also the only state where naming an identity means anything.
     /// </remarks>
-    private string CognitoScript =>
-        CognitoSetup.GenerateScript(new CognitoSetupRequest(
-            CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
+    private CognitoSetupRequest CognitoRequest =>
+        new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
             AccessRequirement?.Detail ?? string.Empty,
             ExistingPoolId: chosenPool?.PoolId,
-            ExistingDomainPrefix: chosenPool?.DomainPrefix));
+            ExistingDomainPrefix: chosenPool?.DomainPrefix);
+
+    private string CognitoScript => CognitoSetup.GenerateScript(CognitoRequest);
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -686,7 +694,12 @@
     {
         cognitoCopyMessage = null;
 
-        cognitoCopySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", CognitoScript);
+        // The bootstrap, not the script above it. What is displayed is 200 lines with a
+        // 100-line heredoc, and pasting that into an interactive shell kills the session part-way
+        // through — seen twice in CloudShell. The bootstrap rebuilds the same bytes from short,
+        // independent lines.
+        cognitoCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", CognitoSetup.GenerateBootstrap(CognitoRequest));
 
         cognitoCopyMessage = cognitoCopySucceeded
             ? "Copied."

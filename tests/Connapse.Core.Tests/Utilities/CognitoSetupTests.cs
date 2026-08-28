@@ -403,4 +403,69 @@ public class CognitoSetupTests
         CognitoSetup.GenerateScript(Request())
             .Should().Contain("list-application-authentication-methods");
     }
+
+    // ── What actually gets pasted ────────────────────────────────────
+
+    [Fact]
+    public void GenerateBootstrap_RebuildsTheScriptExactly()
+    {
+        // The whole point: what is pasted is not what is read, so the two must be provably the
+        // same bytes. Decoded here the way the shell decodes it.
+        var request = Request();
+        string bootstrap = CognitoSetup.GenerateBootstrap(request);
+
+        string encoded = string.Concat(bootstrap
+            .Split('\n')
+            .Where(l => l.StartsWith("printf %s '", StringComparison.Ordinal))
+            .Select(l => l["printf %s '".Length..l.LastIndexOf('\'')]));
+
+        System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded))
+            .Should().Be(CognitoSetup.GenerateScript(request).ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void GenerateBootstrap_HasNoLineLongEnoughToTruncate()
+    {
+        // A terminal line editor is entitled to hold 1024 characters. Anything longer risks being
+        // silently cut, which would corrupt the base64 and produce a script that is not the one
+        // anybody reviewed.
+        CognitoSetup.GenerateBootstrap(Request())
+            .Split('\n').Select(l => l.Length).Max()
+            .Should().BeLessThan(1024);
+    }
+
+    [Fact]
+    public void GenerateBootstrap_UsesNoMultiLineShellConstruct()
+    {
+        // The failure this exists for. Pasting the script directly put CloudShell into
+        // continuation mode for the hundred-line heredoc and killed the session part-way through,
+        // twice. Every line here is a complete command, so the shell never continues.
+        string bootstrap = CognitoSetup.GenerateBootstrap(Request());
+
+        bootstrap.Should().NotContain("<<");
+        bootstrap.Split('\n').Should().NotContain(l => l.EndsWith('\\'));
+    }
+
+    [Fact]
+    public void GenerateBootstrap_LeavesTheScriptOnDiskToBeRead()
+    {
+        // Decoded to a file and then run, rather than piped straight into bash. An administrator
+        // who wants to check that the bootstrap matches what the page showed needs something to
+        // look at.
+        string bootstrap = CognitoSetup.GenerateBootstrap(Request());
+
+        bootstrap.Should().Contain("> /tmp/connapse-setup.sh");
+        bootstrap.Should().Contain("bash /tmp/connapse-setup.sh");
+        bootstrap.Should().NotContain("| bash");
+    }
+
+    [Fact]
+    public void GenerateScript_ChecksTheStackStillOwnsItsPool()
+    {
+        // Deleting a pool in the console does not tell CloudFormation, so deploy reports no
+        // changes and hands back a pool id for something that is gone. Without this the next call
+        // fails with ResourceNotFoundException naming an id that came from the stack itself.
+        CognitoSetup.GenerateScript(Request())
+            .Should().Contain("no longer exists");
+    }
 }
