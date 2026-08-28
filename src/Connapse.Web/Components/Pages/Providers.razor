@@ -542,8 +542,12 @@
                     }
                     else
                     {
+                        @* No flex-grow on the label. It pushed the button to the far edge of a
+                           full-width container, which on a wide monitor is most of a metre from
+                           the text it belongs to — the button was on the page and could not be
+                           found. The confirming click belongs beside what it confirms. *@
                         <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-                            <span class="small flex-grow-1">
+                            <span class="small">
                                 Read pool <code>@parsedCognito.ClientId</code> in
                                 <code>@parsedCognito.Region</code>.
                             </span>
