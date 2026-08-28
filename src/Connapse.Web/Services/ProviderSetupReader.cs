@@ -134,11 +134,11 @@ public class ProviderSetupReader(
     /// (#421), so a requirement worded around results would be green while every user still sees
     /// everything.
     /// <para>
-    /// Warning rather than <see cref="RequirementStatus.NotConfigured"/> when it is unset, because
-    /// the status a provider shows is its weakest requirement. NotConfigured would summarise the
-    /// whole of AWS as unconfigured on an installation whose S3 syncing works perfectly, and an
-    /// installation that never wants per-user scoping has made a choice rather than left a job
-    /// half done. Warning says the accurate thing: AWS works, and nobody is scoped.
+    /// Plainly <see cref="RequirementStatus.NotConfigured"/> when unset, because that is what it
+    /// is — no part of a pool exists. Reporting it as a Warning to keep the provider's own summary
+    /// out of "Not set up" was solving the rollup's problem on the wrong object, and it put
+    /// "Partly set up" on a card for something that was not partly anything.
+    /// <see cref="ProviderSetup.Overall"/> draws that distinction now.
     /// </para>
     /// </remarks>
     private static ProviderRequirement PerUserPermissions(CognitoSettings settings)
@@ -150,8 +150,8 @@ public class ProviderSetupReader(
 
         if (!settings.IsConfigured)
             return new ProviderRequirement(name, description,
-                RequirementStatus.Warning,
-                "Not set up, so nobody can connect an AWS identity.",
+                RequirementStatus.NotConfigured,
+                "Nobody can connect an AWS identity until this is set up.",
                 "Set up", PermissionsSection);
 
         return new ProviderRequirement(name, description,

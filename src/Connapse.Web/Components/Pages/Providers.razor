@@ -75,7 +75,7 @@
                                 <div class="fw-semibold">@provider.DisplayName</div>
                                 <div class="small text-muted">@Summarise(provider)</div>
                             </div>
-                            <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <span class="badge @BadgeClass(provider.Overall)">@ProviderLabel(provider.Overall)</span>
                             <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
                         </a>
                     }
@@ -140,7 +140,7 @@
                             <div class="d-flex align-items-center gap-2 mb-1">
                                 <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
                                 <strong>@requirement.Name</strong>
-                                <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
+                                <span class="badge @BadgeClass(requirement.Status)">@RequirementLabel(requirement.Status)</span>
                             </div>
                             <div class="form-text mb-2">@requirement.Description</div>
 
@@ -564,14 +564,33 @@
         await RefreshSetups();
     }
 
+    @* Two labels, because Warning means two different things depending on what carries it, and one
+       switch serving both put "Partly set up" on a card for something that was not partly anything.
+       Every other status reads the same at either scale, so both switches fall through to Label. *@
+
+    /// <summary>The badge on a whole provider.</summary>
+    private static string ProviderLabel(RequirementStatus status) => status switch
+    {
+        // Some requirements met and some not. A complete label, unlike "Works, but", which left
+        // the reader holding an unfinished sentence in a chip four words wide.
+        RequirementStatus.Warning => "Partly set up",
+        _ => Label(status)
+    };
+
+    /// <summary>The badge on one requirement.</summary>
+    private static string RequirementLabel(RequirementStatus status) => status switch
+    {
+        // A single requirement has no parts to be partly through. Warning here means the one
+        // thing it has ever meant: this works, and Connapse cannot demonstrate that it does.
+        RequirementStatus.Warning => "Unconfirmed",
+        _ => Label(status)
+    };
+
     private static string Label(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "Ready",
         RequirementStatus.Provisioning => "Provisioning",
         RequirementStatus.Failed => "Failed",
-        // A complete label, like every other arm. "Works, but" left the reader holding an
-        // unfinished sentence in a chip four words wide, with the rest of it nowhere.
-        RequirementStatus.Warning => "Partly set up",
         RequirementStatus.NotConfigured => "Not set up",
         _ => "Unknown"
     };

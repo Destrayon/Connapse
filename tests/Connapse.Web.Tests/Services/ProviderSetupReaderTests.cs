@@ -346,13 +346,16 @@ public class ProviderSetupReaderTests
             .Requirements.Single(r => r.Name == "Per-user permissions");
 
     [Fact]
-    public async Task PerUserPermissions_WithNoPool_Warns()
+    public async Task PerUserPermissions_WithNoPool_IsNotConfigured()
     {
+        // Plainly NotConfigured, not a softened Warning. No part of a pool exists, and the card
+        // that renders this says so; keeping the provider's own summary out of "Not set up" is
+        // ProviderSetup.Overall's job, not this requirement's.
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"));
 
         var requirement = await PermissionsAsync(reader);
 
-        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Status.Should().Be(RequirementStatus.NotConfigured);
         requirement.ActionHref.Should().Be("#permissions");
     }
 
@@ -404,7 +407,46 @@ public class ProviderSetupReaderTests
 
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"), cognito: half);
 
-        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.Warning);
+        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public void Overall_UnconfiguredAlongsideSatisfied_IsPartlySetUpRatherThanUnconfigured()
+    {
+        var setup = new ProviderSetup("aws", "AWS",
+        [
+            new ProviderRequirement("Access", "", RequirementStatus.Satisfied),
+            new ProviderRequirement("Per-user permissions", "", RequirementStatus.NotConfigured)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public void Overall_UnconfiguredWithNothingSatisfied_StaysUnconfigured()
+    {
+        // The distinction only earns its keep in one direction. With nothing set up, "Not set up"
+        // is exactly right and softening it would invent progress.
+        var setup = new ProviderSetup("azure", "Azure",
+        [
+            new ProviderRequirement("Sign-in", "", RequirementStatus.NotConfigured),
+            new ProviderRequirement("Access", "", RequirementStatus.Unknown)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public void Overall_FailedStillOutranksAPartlyConfiguredProvider()
+    {
+        var setup = new ProviderSetup("aws", "AWS",
+        [
+            new ProviderRequirement("Access", "", RequirementStatus.Satisfied),
+            new ProviderRequirement("Sign-in", "", RequirementStatus.NotConfigured),
+            new ProviderRequirement("Other", "", RequirementStatus.Failed)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.Failed);
     }
 }
 
