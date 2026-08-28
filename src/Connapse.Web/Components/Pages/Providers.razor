@@ -12,6 +12,7 @@
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IOptionsMonitor<CognitoSettings> CognitoOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IJSRuntime JS
@@ -343,12 +344,22 @@
                     }
                 </div>
             </div>
+
+            <h2 class="h5" id="permissions">Per-user permissions</h2>
+            <p class="text-muted small">
+                The Cognito user pool a person signs into to prove which AWS identity they are. This
+                is what makes their search results theirs, rather than everyone's. Once it is saved,
+                the connect button appears on their Profile page.
+            </p>
+
+            <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
         }
 
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. AWS has no sign-in of its own any more —
-           the device-flow link never delivered per-user filtering and was removed (#435); its
-           per-user permissions land through the Cognito link on the Integrations page instead. *@
+           between once the page is about one cloud. AWS has no sign-in of its own — the
+           device-flow link never delivered per-user filtering and was removed (#435); what it has
+           instead is the Cognito pool above, which scopes a user's results without signing them
+           into Connapse. *@
         @if (Key == "azure")
         {
             <h2 class="h5" id="signin">Sign-in</h2>
@@ -371,6 +382,7 @@
     private bool saveSuccess;
 
     private AzureAdSettings azureAdSettings = new();
+    private CognitoSettings cognitoSettings = new();
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -383,6 +395,7 @@
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
         azureAdSettings = AzureAdOptions.CurrentValue;
+        cognitoSettings = CognitoOptions.CurrentValue;
     }
 
     /// <summary>
@@ -532,6 +545,20 @@
     {
         azureAdSettings = settings;
         await SaveSettings("azuread", settings);
+        await RefreshSetups();
+    }
+
+    private async Task SaveCognitoSettings(CognitoSettings settings)
+    {
+        await SaveSettings("cognito", settings);
+
+        // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
+        // not guaranteed to have landed by the time this line runs, and a stale read would hand the
+        // form back the *previous* secret — after which the next save that left the secret box
+        // blank would silently revert it. Guarded on success so a failed save leaves the form
+        // showing what is actually stored.
+        if (saveSuccess) cognitoSettings = settings;
+
         await RefreshSetups();
     }
 

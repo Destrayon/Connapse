@@ -404,11 +404,13 @@ These require real cloud credentials. Skip if unavailable, don't count against s
 
 ### 11.1 AWS Per-User Permissions (Amazon Cognito)
 
-Requires a Cognito user pool with a hosted domain and an app client. There is no admin UI for this
-yet — configure it over the API with `PUT /api/settings/cognito` (Issuer URL, Domain, Client ID,
-Client Secret, Region).
+Requires a Cognito user pool with a hosted domain and an app client. Configure it at
+**Admin → Providers → Amazon Web Services → Per-user permissions** (Issuer URL, Domain, Client ID,
+Client Secret, Region). This is the only way in — the settings API has no `cognito` category.
 
-- [ ] `PUT /api/settings/cognito` saves and `GET /api/settings/cognito` reads the values back
+- [ ] The form saves, and the values come back after a reload
+- [ ] Saving with the secret box left blank keeps the stored secret rather than clearing it
+- [ ] `GET` and `PUT /api/settings/cognito` both return 404
 - [ ] Before configuration, the Integrations page AWS (Permissions) card reads "not configured"
 - [ ] Connect redirects to the pool's `/oauth2/authorize` endpoint
 - [ ] Completing consent returns to Integrations with the identity linked and the email shown

@@ -1,0 +1,132 @@
+@using Connapse.Core
+
+@*
+    The Cognito pool an administrator points Connapse at, so that a user can prove which AWS
+    identity they are.
+
+    This is the only way to configure it. The settings API deliberately has no "cognito" arm:
+    the pool's client secret is a deployment-wide credential, and a read arm would hand it back
+    to anyone holding an admin token.
+*@
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <span class="bi-info-circle me-2"></span>
+                Configure the Amazon Cognito user pool in your own AWS account. Once saved, users can
+                connect their AWS identity from their Profile page. In the pool's app client, set the
+                callback URL to <code>https://&lt;your-host&gt;/api/v1/auth/cloud/cognito/callback</code>
+                and enable the authorization code grant.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="cognito-issuer">Issuer URL</label>
+            <InputText id="cognito-issuer" @bind-Value="localSettings.IssuerUrl" class="form-control"
+                       placeholder="https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123" />
+            <div class="form-text">
+                The pool's OIDC issuer. Must match what you registered as the trusted token issuer in
+                IAM Identity Center, character for character.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="cognito-domain">Domain</label>
+            <InputText id="cognito-domain" @bind-Value="localSettings.Domain" class="form-control"
+                       placeholder="https://your-pool.auth.us-east-1.amazoncognito.com" />
+            <div class="form-text">
+                The pool's hosted UI domain, where the sign-in page lives. Separate from the issuer,
+                and a pool has none until you add one.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="cognito-client-id">Client ID</label>
+            <InputText id="cognito-client-id" @bind-Value="localSettings.ClientId" class="form-control"
+                       placeholder="Enter the app client id" />
+            <div class="form-text">The app client in the pool.</div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="cognito-region">Region</label>
+            <InputText id="cognito-region" @bind-Value="localSettings.Region" class="form-control"
+                       placeholder="us-east-1" />
+            <div class="form-text">The region the pool lives in.</div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="cognito-client-secret">Client Secret</label>
+            <InputText id="cognito-client-secret" @bind-Value="localSettings.ClientSecret"
+                       class="form-control" type="password"
+                       placeholder="@(hasStoredSecret ? "Saved — leave blank to keep it" : "Enter the app client secret")" />
+            <div class="form-text">
+                @if (hasStoredSecret)
+                {
+                    <text>A secret is already saved. Leave this blank to keep it, or type a new one to replace it.</text>
+                }
+                else
+                {
+                    <text>From the app client. Shared by the whole deployment, not per user.</text>
+                }
+            </div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1"></span> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public CognitoSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<CognitoSettings> OnSave { get; set; }
+
+    private CognitoSettings localSettings = new();
+
+    /// <summary>Whether a secret was already saved, so the form can offer to keep it.</summary>
+    private bool hasStoredSecret;
+
+    protected override void OnParametersSet()
+    {
+        hasStoredSecret = !string.IsNullOrEmpty(Settings.ClientSecret);
+
+        localSettings = new CognitoSettings
+        {
+            IssuerUrl = Settings.IssuerUrl,
+            Domain = Settings.Domain,
+            ClientId = Settings.ClientId,
+            Region = Settings.Region,
+            // Deliberately not copied into the form. Rendering it would put the pool's secret in
+            // the page source on every visit, and a password input shows nothing anyway, so the
+            // only thing a round trip buys is exposure. Blank means "keep what is stored".
+            ClientSecret = string.Empty
+        };
+    }
+
+    private async Task HandleSubmit()
+    {
+        // A blank secret box means the administrator did not want to change it — the far more
+        // common edit is a typo'd region or a new domain. Without this, every such save would
+        // silently wipe the stored secret and break connecting for everyone.
+        if (string.IsNullOrEmpty(localSettings.ClientSecret))
+            localSettings.ClientSecret = Settings.ClientSecret;
+
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private void Reset()
+    {
+        OnParametersSet();
+    }
+}

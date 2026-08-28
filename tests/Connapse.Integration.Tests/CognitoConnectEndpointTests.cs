@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -275,12 +275,12 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task SavedSettings_ReachTheOptionsMonitor()
     {
-        // The three-place registration (options binding, category-to-section map, settings
-        // endpoint arms) is invisible until it is wrong, and when it is wrong the failure looks
-        // like a broken endpoint rather than a missing dictionary entry. This is the only test
-        // that would catch the category prefix and the section name disagreeing: reading back
-        // through GET /api/settings/cognito wouldn't, because that endpoint returns whatever is
-        // stored directly, regardless of whether IOptionsMonitor ever picked it up.
+        // The two-place registration (options binding, category-to-section map) is invisible
+        // until it is wrong, and when it is wrong the failure looks like a broken endpoint rather
+        // than a missing dictionary entry. This is the only test that would catch the category
+        // prefix and the section name disagreeing: reading the row back through the store wouldn't,
+        // because that returns whatever was stored directly, regardless of whether IOptionsMonitor
+        // ever picked it up.
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
 
@@ -297,5 +297,43 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             // fails as collateral, pointing at the wrong place.
             await store.SaveAsync("cognito", new CognitoSettings());
         }
+    }
+
+    // ── The settings API is not a way in ──────────────────────────────
+
+    [Fact]
+    public async Task GetSettings_Cognito_IsNotServed()
+    {
+        // Not merely unsupported: the pool's client secret is a deployment-wide credential, and a
+        // read arm would hand it to anyone holding an admin token. Configuration is the admin UI
+        // only, which writes through ISettingsStore rather than over HTTP.
+        var response = await fixture.AdminClient.GetAsync("/api/settings/cognito");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_Cognito_IsNotServed()
+    {
+        var response = await fixture.AdminClient.PutAsJsonAsync(
+            "/api/settings/cognito", ConfiguredSettings());
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateSettings_Cognito_LeavesTheStoredPoolAlone()
+    {
+        // A 404 that had already written would be worse than no endpoint at all. This asserts the
+        // refusal happens before the save, not after it.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+
+        await store.SaveAsync("cognito", new CognitoSettings());
+
+        await fixture.AdminClient.PutAsJsonAsync("/api/settings/cognito", ConfiguredSettings());
+
+        var stored = await store.GetAsync<CognitoSettings>("cognito");
+        stored?.ClientId.Should().BeNullOrEmpty();
     }
 }
