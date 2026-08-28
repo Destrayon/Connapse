@@ -433,39 +433,58 @@
                         }
                         else
                         {
-                            <div class="list-group mt-2">
-                                @foreach (var pool in found)
-                                {
-                                    <button type="button"
-                                            class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                                            disabled="@(!pool.IsUsable)"
-                                            @onclick="() => chosenPool = pool">
-                                        <div class="flex-grow-1 text-start">
-                                            <div class="fw-semibold">@pool.Name</div>
-                                            <div class="small text-muted font-monospace">@pool.PoolId</div>
-                                            @if (!pool.IsUsable)
-                                            {
-                                                @* The join to an Identity Center user is on the
-                                                   email claim, so a pool that does not verify email
-                                                   cannot be matched to anybody. *@
-                                                <div class="small text-warning">
-                                                    Does not verify email, so its users cannot be
-                                                    matched to Identity Center.
+                            @* A dropdown rather than a list. One choice is being made, and a list
+                               of full-width rows across a wide monitor reads as a page of content
+                               rather than as a control with options in it.
+
+                               Opened from component state, not Bootstrap's JavaScript: only its
+                               stylesheet is loaded here, so data-bs-toggle would render the menu
+                               and never open it. *@
+                            <div class="dropdown mt-2" style="max-width: 32rem;">
+                                <button type="button"
+                                        class="btn btn-outline-secondary dropdown-toggle w-100 text-start"
+                                        @onclick="() => poolMenuOpen = !poolMenuOpen">
+                                    @(found.Count == 1
+                                        ? $"1 pool in this account"
+                                        : $"{found.Count} pools in this account")
+                                </button>
+
+                                <ul class="dropdown-menu w-100 @(poolMenuOpen ? "show" : "")">
+                                    @foreach (var pool in found)
+                                    {
+                                        <li>
+                                            @* white-space:normal because a dropdown item is a
+                                               single line by default, and these carry a reason
+                                               underneath that must not be clipped. *@
+                                            <button type="button"
+                                                    class="dropdown-item @(pool.IsUsable ? "" : "disabled")"
+                                                    style="white-space: normal;"
+                                                    disabled="@(!pool.IsUsable)"
+                                                    @onclick="() => ChoosePool(pool)">
+                                                <div class="fw-semibold">@pool.Name</div>
+                                                <div class="small text-body-secondary font-monospace">
+                                                    @pool.PoolId
                                                 </div>
-                                            }
-                                            else if (pool.DomainPrefix is null)
-                                            {
-                                                <div class="small text-muted">
-                                                    No sign-in domain yet — setup will add one.
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (pool.IsUsable)
-                                        {
-                                            <span class="bi-chevron-right text-muted"></span>
-                                        }
-                                    </button>
-                                }
+                                                @if (!pool.IsUsable)
+                                                {
+                                                    @* The join to an Identity Center user is on the
+                                                       email claim, so a pool that does not verify
+                                                       email cannot be matched to anybody. *@
+                                                    <div class="small text-warning">
+                                                        Does not verify email, so its users cannot be
+                                                        matched to Identity Center.
+                                                    </div>
+                                                }
+                                                else if (pool.DomainPrefix is null)
+                                                {
+                                                    <div class="small text-body-secondary">
+                                                        No sign-in domain yet — setup will add one.
+                                                    </div>
+                                                }
+                                            </button>
+                                        </li>
+                                    }
+                                </ul>
                             </div>
                         }
                     }
@@ -481,7 +500,7 @@
                                 (<code>@chosenPool.PoolId</code>).
                             </span>
                             <button type="button" class="btn btn-link btn-sm p-0"
-                                    @onclick="() => chosenPool = null">Pick another</button>
+                                    @onclick="() => { chosenPool = null; poolMenuOpen = false; }">Pick another</button>
                         </div>
                     }
 
@@ -644,6 +663,9 @@
 
     /// <summary>The pool picked from the discovery list, or null while still choosing.</summary>
     private CognitoPoolSummary? chosenPool;
+
+    /// <summary>Whether the pool menu is open. Bootstrap's dropdown JavaScript is not loaded.</summary>
+    private bool poolMenuOpen;
     private string? cognitoCopyMessage;
     private bool cognitoCopySucceeded;
 
@@ -738,6 +760,13 @@
         cognitoCopyMessage = cognitoCopySucceeded
             ? "Downloaded connapse-cognito.yaml."
             : "Could not download — check whether the browser blocked it.";
+    }
+
+    /// <summary>Takes the pool and closes the menu, which nothing else would close.</summary>
+    private void ChoosePool(CognitoPoolSummary pool)
+    {
+        chosenPool = pool;
+        poolMenuOpen = false;
     }
 
     private async Task CopyDiscoveryScript()
