@@ -47,7 +47,6 @@ public static class CloudIdentityEndpoints
             return Results.Ok(new
             {
                 identities,
-                awsSsoConfigured = service.IsAwsSsoConfigured(),
                 azureAdConfigured = service.IsAzureAdConfigured()
             });
         }).RequireAuthorization();
@@ -354,57 +353,6 @@ public static class CloudIdentityEndpoints
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();
 
-        // --- AWS SSO (Device Authorization Flow) ---
-
-        // POST /api/v1/auth/cloud/aws/device-auth — start device authorization
-        group.MapPost("/aws/device-auth", async (
-            HttpContext httpContext,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            if (!service.IsAwsSsoConfigured())
-                return Results.BadRequest(new
-                {
-                    error = "aws_sso_not_configured",
-                    message = "AWS IAM Identity Center SSO is not configured. An admin must set the Issuer URL and Region in settings."
-                });
-
-            try
-            {
-                var result = await service.StartAwsDeviceAuthAsync(ct);
-                return Results.Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { error = "aws_device_auth_failed", message = ex.Message });
-            }
-        }).RequireAuthorization();
-
-        // POST /api/v1/auth/cloud/aws/device-auth/poll — poll for device authorization completion
-        group.MapPost("/aws/device-auth/poll", async (
-            HttpContext httpContext,
-            [FromBody] AwsDevicePollRequest request,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            try
-            {
-                var identity = await service.PollAwsDeviceAuthAsync(userId.Value, request.DeviceCode, ct);
-
-                if (identity is null)
-                    return Results.Ok(new { status = "pending" });
-
-                return Results.Ok(new { status = "complete", identity });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { error = "aws_poll_failed", message = ex.Message });
-            }
-        }).RequireAuthorization();
-
         // DELETE /api/v1/auth/cloud/{provider} — disconnect a cloud identity
         group.MapDelete("/{provider}", async (
             string provider,
@@ -519,5 +467,3 @@ public static class CloudIdentityEndpoints
             .Replace('+', '-')
             .Replace('/', '_');
 }
-
-public record AwsDevicePollRequest(string DeviceCode);

@@ -14,7 +14,6 @@ namespace Connapse.Web.Services;
 /// the property that stops the page it feeds turning into a place credentials live.
 /// </remarks>
 public class ProviderSetupReader(
-    IOptionsMonitor<AwsSsoSettings> awsSso,
     IOptionsMonitor<AzureAdSettings> azureAd,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
@@ -49,8 +48,8 @@ public class ProviderSetupReader(
         return
         [
             new ProviderSetup("aws", "AWS",
-                [SignIn(awsSso.CurrentValue), await Access(ct)],
-                InUse: IsConfigured(awsSso.CurrentValue) || providers.Contains(ConnectionProvider.S3)),
+                [await Access(ct)],
+                InUse: providers.Contains(ConnectionProvider.S3)),
 
             new ProviderSetup("azure", "Azure",
                 [SignIn(azureAd.CurrentValue), AzureAccess()],
@@ -105,29 +104,8 @@ public class ProviderSetupReader(
         }
     }
 
-    private static bool IsConfigured(AwsSsoSettings s) =>
-        !string.IsNullOrEmpty(s.IssuerUrl) && !string.IsNullOrEmpty(s.Region);
-
     private static bool IsConfigured(AzureAdSettings s) =>
         !string.IsNullOrEmpty(s.ClientId) && !string.IsNullOrEmpty(s.TenantId);
-
-    private static ProviderRequirement SignIn(AwsSsoSettings settings)
-    {
-        // Matches CloudIdentityService.IsAwsSsoConfigured: both halves, because a region without an
-        // issuer URL registers no client and an issuer URL without a region reaches no endpoint.
-        bool configured = IsConfigured(settings);
-
-        return new ProviderRequirement(
-            "Sign-in",
-            "Who can sign into Connapse with AWS, and which cloud identity their search is scoped against.",
-            configured ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
-            configured ? $"{settings.IssuerUrl} ({settings.Region})" : null,
-            configured ? "Change" : "Set up",
-            // The section on this page, not the list page. "aws-signin" was an anchor from when
-            // every provider shared one page; it survived the split as a link that left the page
-            // you were configuring and landed on a fragment that no longer exists anywhere.
-            SignInSection);
-    }
 
     private static ProviderRequirement SignIn(AzureAdSettings settings)
     {

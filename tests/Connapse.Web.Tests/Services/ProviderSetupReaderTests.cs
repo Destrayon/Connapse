@@ -53,7 +53,6 @@ public class ProviderSetupReaderTests
             .Returns([]);
 
         return new ProviderSetupReader(
-            Options.Create(new AwsSsoSettings()).AsMonitor(),
             Options.Create(new AzureAdSettings()).AsMonitor(),
             discovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
@@ -292,7 +291,6 @@ public class ProviderSetupReaderTests
             .Returns(call => call.ArgAt<int>(0) == 0 ? filler : secondPage);
 
         var reader = new ProviderSetupReader(
-            Options.Create(new AwsSsoSettings()).AsMonitor(),
             Options.Create(new AzureAdSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),

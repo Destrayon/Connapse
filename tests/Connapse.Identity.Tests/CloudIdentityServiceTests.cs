@@ -18,8 +18,6 @@ public class CloudIdentityServiceTests
     private readonly ICloudIdentityStore _store = Substitute.For<ICloudIdentityStore>();
     private readonly IDataProtectionProvider _dpProvider;
     private readonly IOptionsMonitor<AzureAdSettings> _azureAdOptions;
-    private readonly IOptionsMonitor<AwsSsoSettings> _awsSsoOptions;
-    private readonly IAwsSsoClientRegistrar _awsSsoRegistrar = Substitute.For<IAwsSsoClientRegistrar>();
     private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
 
     private readonly AzureAdSettings _azureAdSettings = new()
@@ -29,57 +27,17 @@ public class CloudIdentityServiceTests
         ClientSecret = "test-client-secret"
     };
 
-    private readonly AwsSsoSettings _awsSsoSettings = new()
-    {
-        IssuerUrl = "https://d-123456.awsapps.com/start",
-        Region = "us-east-1",
-        ClientId = "test-sso-client-id",
-        ClientSecret = "test-sso-client-secret",
-        ClientSecretExpiresAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds()
-    };
-
     public CloudIdentityServiceTests()
     {
         _dpProvider = new EphemeralDataProtectionProvider();
 
         _azureAdOptions = Substitute.For<IOptionsMonitor<AzureAdSettings>>();
         _azureAdOptions.CurrentValue.Returns(_azureAdSettings);
-
-        _awsSsoOptions = Substitute.For<IOptionsMonitor<AwsSsoSettings>>();
-        _awsSsoOptions.CurrentValue.Returns(_awsSsoSettings);
-
-        _awsSsoRegistrar.EnsureRegisteredAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => callInfo.Arg<AwsSsoSettings>());
     }
 
     private ICloudIdentityService CreateService() =>
-        new CloudIdentityService(_store, _dpProvider, _azureAdOptions, _awsSsoOptions,
-            _awsSsoRegistrar, _httpClientFactory, NullLogger<CloudIdentityService>.Instance);
-
-    // ── IsAwsSsoConfigured ────────────────────────────────────────────────
-
-    [Fact]
-    public void IsAwsSsoConfigured_WithIssuerUrlAndRegion_ReturnsTrue()
-    {
-        var sut = CreateService();
-        sut.IsAwsSsoConfigured().Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsAwsSsoConfigured_MissingIssuerUrl_ReturnsFalse()
-    {
-        _awsSsoSettings.IssuerUrl = "";
-        var sut = CreateService();
-        sut.IsAwsSsoConfigured().Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsAwsSsoConfigured_MissingRegion_ReturnsFalse()
-    {
-        _awsSsoSettings.Region = "";
-        var sut = CreateService();
-        sut.IsAwsSsoConfigured().Should().BeFalse();
-    }
+        new CloudIdentityService(_store, _dpProvider, _azureAdOptions,
+            _httpClientFactory, NullLogger<CloudIdentityService>.Instance);
 
     // ── IsAzureAdConfigured ───────────────────────────────────────────────
 
@@ -104,79 +62,6 @@ public class CloudIdentityServiceTests
         _azureAdSettings.TenantId = "";
         var sut = CreateService();
         sut.IsAzureAdConfigured().Should().BeFalse();
-    }
-
-    // ── StartAwsDeviceAuthAsync ───────────────────────────────────────────
-
-    [Fact]
-    public async Task StartAwsDeviceAuthAsync_CallsEnsureRegistered()
-    {
-        _awsSsoRegistrar.StartDeviceAuthorizationAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
-            .Returns(new AwsDeviceAuthorizationResult("device-code", "USER-CODE", "https://device.sso.us-east-1.amazonaws.com", "https://device.sso.us-east-1.amazonaws.com/?user_code=USER-CODE", 600, 5));
-
-        var sut = CreateService();
-        await sut.StartAwsDeviceAuthAsync();
-
-        await _awsSsoRegistrar.Received(1).EnsureRegisteredAsync(
-            Arg.Any<AwsSsoSettings>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task StartAwsDeviceAuthAsync_ReturnsDeviceAuthResult()
-    {
-        _awsSsoRegistrar.StartDeviceAuthorizationAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<CancellationToken>())
-            .Returns(new AwsDeviceAuthorizationResult("device-code", "ABCD-EFGH", "https://device.sso.us-east-1.amazonaws.com", "https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH", 600, 5));
-
-        var sut = CreateService();
-        var result = await sut.StartAwsDeviceAuthAsync();
-
-        result.UserCode.Should().Be("ABCD-EFGH");
-        result.DeviceCode.Should().Be("device-code");
-        result.VerificationUri.Should().Contain("device.sso");
-        result.ExpiresInSeconds.Should().Be(600);
-        result.IntervalSeconds.Should().Be(5);
-    }
-
-    [Fact]
-    public async Task PollAwsDeviceAuthAsync_Pending_ReturnsNull()
-    {
-        _awsSsoRegistrar.PollForTokenAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((string?)null);
-
-        var sut = CreateService();
-        var result = await sut.PollAwsDeviceAuthAsync(Guid.NewGuid(), "device-code");
-
-        result.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task PollAwsDeviceAuthAsync_Complete_StoresIdentityAndReturnsDto()
-    {
-        var userId = Guid.NewGuid();
-        _awsSsoRegistrar.PollForTokenAsync(Arg.Any<AwsSsoSettings>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns("access-token-123");
-        _awsSsoRegistrar.ListUserAccountsAsync(Arg.Any<AwsSsoSettings>(), "access-token-123", Arg.Any<CancellationToken>())
-            .Returns(new AwsSsoUserInfo("111222333444", "111222333444", "Test Account"));
-
-        _store.GetByUserAndProviderAsync(userId, CloudProvider.AWS, Arg.Any<CancellationToken>())
-            .Returns((UserCloudIdentityEntity?)null);
-        _store.CreateAsync(Arg.Any<UserCloudIdentityEntity>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                var e = callInfo.Arg<UserCloudIdentityEntity>();
-                e.Id = Guid.NewGuid();
-                e.CreatedAt = DateTime.UtcNow;
-                return e;
-            });
-
-        var sut = CreateService();
-        var result = await sut.PollAwsDeviceAuthAsync(userId, "device-code");
-
-        result.Should().NotBeNull();
-        result!.Provider.Should().Be(CloudProvider.AWS);
-        result.Data.AccountId.Should().Be("111222333444");
-        result.Data.DisplayName.Should().Be("Test Account");
     }
 
     // ── GetAzureConnectUrl ────────────────────────────────────────────────

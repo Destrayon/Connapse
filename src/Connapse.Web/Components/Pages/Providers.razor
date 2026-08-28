@@ -11,7 +11,6 @@
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
-@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
@@ -346,20 +345,18 @@
             </div>
         }
 
-        <h2 class="h5" id="signin">Sign-in</h2>
-        <p class="text-muted small">
-            Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
-            search results are scoped against.
-        </p>
-
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. *@
-        @if (Key == "aws")
+           between once the page is about one cloud. AWS has no sign-in of its own any more —
+           the device-flow link never delivered per-user filtering and was removed (#435); its
+           per-user permissions land through the Cognito link on the Integrations page instead. *@
+        @if (Key == "azure")
         {
-            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
-        }
-        else if (Key == "azure")
-        {
+            <h2 class="h5" id="signin">Sign-in</h2>
+            <p class="text-muted small">
+                Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
+                search results are scoped against.
+            </p>
+
             <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
     }
@@ -373,7 +370,6 @@
     private string? saveMessage;
     private bool saveSuccess;
 
-    private AwsSsoSettings awsSsoSettings = new();
     private AzureAdSettings azureAdSettings = new();
 
     /// <summary>Null while the providers are still being checked.</summary>
@@ -386,7 +382,6 @@
     {
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
-        awsSsoSettings = AwsSsoOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
     }
 
@@ -511,7 +506,7 @@
     /// </remarks>
     private static string Offer(ProviderSetup provider) => provider.Key switch
     {
-        "aws" => "Sign in with AWS, and read files from S3.",
+        "aws" => "Read files from S3.",
         "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
         _ => $"Set up {provider.DisplayName}."
     };
@@ -531,16 +526,6 @@
         return outstanding.Count == 0
             ? "Everything Connapse needs is set up."
             : $"Needs attention: {string.Join(", ", outstanding)}";
-    }
-
-    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
-    {
-        awsSsoSettings = settings;
-        await SaveSettings("awssso", settings);
-
-        // The cards above report this very setting, so leaving them alone would show the old
-        // answer beside the new form.
-        await RefreshSetups();
     }
 
     private async Task SaveAzureAdSettings(AzureAdSettings settings)

@@ -98,14 +98,6 @@ public record CloudIdentityData(
 
 public record AzureConnectResult(string AuthorizeUrl, string State, string CodeVerifier);
 
-public record AwsDeviceAuthStartResult(
-    string UserCode,
-    string VerificationUri,
-    string VerificationUriComplete,
-    string DeviceCode,
-    int ExpiresInSeconds,
-    int IntervalSeconds);
-
 /// <summary>
 /// A user's connected AWS (Cognito) identity link, as the integrations page needs to show it —
 /// never the refresh token itself.

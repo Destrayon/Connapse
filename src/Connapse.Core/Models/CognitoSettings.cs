@@ -5,7 +5,7 @@ namespace Connapse.Core;
 /// account so that Connapse can prove which AWS identity a user is.
 /// </summary>
 /// <remarks>
-/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AwsSsoSettings"/>
+/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AzureAdSettings"/>
 /// and every other settings category: they are bound by the options system and edited by an admin
 /// form, both of which want settable properties.
 /// <para>

@@ -7,7 +7,7 @@ using FluentAssertions;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// Integration tests for v0.3.0 settings categories: llm, awssso, azuread.
+/// Integration tests for v0.3.0 settings categories: llm, azuread.
 /// Verifies GET/PUT roundtrip and live reload for new categories.
 /// </summary>
 [Trait("Category", "Integration")]
@@ -52,43 +52,6 @@ public class NewSettingsCategoriesIntegrationTests(SharedWebAppFixture fixture)
 
         // Restore
         await fixture.AdminClient.PutAsJsonAsync("/api/settings/llm", original);
-    }
-
-    // ── AWS SSO Settings ─────────────────────────────────────────────
-
-    [Fact]
-    public async Task GetSettings_AwsSso_ReturnsDefaults()
-    {
-        var response = await fixture.AdminClient.GetAsync("/api/settings/awssso");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var settings = await response.Content.ReadFromJsonAsync<AwsSsoSettings>(JsonOptions);
-        settings.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task UpdateSettings_AwsSso_PersistsValues()
-    {
-        var getResponse = await fixture.AdminClient.GetAsync("/api/settings/awssso");
-        var original = await getResponse.Content.ReadFromJsonAsync<AwsSsoSettings>(JsonOptions);
-
-        var updated = new AwsSsoSettings
-        {
-            IssuerUrl = "https://test-issuer.awsapps.com/start",
-            Region = "us-west-2"
-        };
-        var putResponse = await fixture.AdminClient.PutAsJsonAsync("/api/settings/awssso", updated);
-        putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        await Task.Delay(500);
-
-        var verifyResponse = await fixture.AdminClient.GetAsync("/api/settings/awssso");
-        var verified = await verifyResponse.Content.ReadFromJsonAsync<AwsSsoSettings>(JsonOptions);
-        verified!.IssuerUrl.Should().Be("https://test-issuer.awsapps.com/start");
-        verified.Region.Should().Be("us-west-2");
-
-        // Restore
-        await fixture.AdminClient.PutAsJsonAsync("/api/settings/awssso", original);
     }
 
     // ── Azure AD Settings ────────────────────────────────────────────

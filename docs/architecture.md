@@ -136,7 +136,7 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
 | `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
 | `ICloudScopeService` | IAM-derived access control — **written but not wired to anything; see Scope Enforcement** | `CloudScopeService` |
-| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `AzureBlobConnectionTester`, `AwsSsoConnectionTester`, `AzureAdConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
+| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `AzureBlobConnectionTester`, `AzureAdConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
 
 **Identity (`Connapse.Identity`)**:
 
@@ -199,7 +199,6 @@ record SearchSettings(string Mode, int TopK, float FusionAlpha, string FusionMet
 record LlmSettings(string Provider, string BaseUrl, string Model, string? ApiKey, ...);
 record UploadSettings(long MaxFileSizeBytes, List<string> AllowedExtensions, ...);
 // Identity settings (separate config sections)
-class AwsSsoSettings { IssuerUrl, Region, ClientId?, ClientSecret?, ClientSecretExpiresAt? }
 class AzureAdSettings { ClientId, TenantId, ClientSecret }
 ```
 
@@ -296,7 +295,7 @@ folders (id, container_id, path, created_at)
 
 -- Settings (runtime-mutable, JSONB per category)
 settings (category, values, updated_at)
--- JSONB per category (embedding, chunking, search, llm, upload, awssso, azuread)
+-- JSONB per category (embedding, chunking, search, llm, upload, azuread)
 
 -- Cloud identities (user ↔ cloud provider linkage)
 user_cloud_identities (id, user_id, provider, encrypted_data, created_at, last_used_at)
@@ -782,8 +781,13 @@ Users link one cloud identity per provider via their Profile page:
 
 | Provider | Flow | Stored Data |
 |----------|------|-------------|
-| **AWS** | IAM Identity Center device authorization | Account IDs, primary account, display name |
 | **Azure** | OAuth2 authorization code + PKCE | Object ID, Tenant ID, display name |
+
+AWS previously linked the same way, via an IAM Identity Center device authorization flow. It was
+removed (#435): the device flow cannot carry a per-user identity through to a token
+(`sso-oidc:CreateToken` has no `awsAdditionalDetails` field, and `PutApplicationGrant` excludes
+`device_code`), so it stored data nothing could ever read. Per-user AWS permissions instead arrive
+through the Cognito link on the Integrations page.
 
 Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`).
 
@@ -803,17 +807,21 @@ What does exist:
 
 | Piece | State |
 |---|---|
-| `ICloudIdentityService` | Working. Links a user's AWS or Azure identity and stores identity metadata. |
+| `ICloudIdentityService` | Working. Links a user's Azure identity and stores identity metadata. |
 | `CloudScopeService` | Written, registered, uncalled. Shaped per source rather than per request. |
-| `AwsIdentityProvider` | Returns `FullAccess()` when Connapse's own AWS account appears in the user's SSO account list. Account membership, not RBAC — that is the ceiling of what the SSO device flow reports. |
 | `AzureIdentityProvider` | Probes with the *service's* credential, not the user's, and returns the source's configured prefix. |
 | `ConnectorScopeCache` | Working. Note the TTLs are inverted for a security boundary: allows cached 15 min, denies 5. |
+
+`AwsIdentityProvider`, the AWS half of `ICloudIdentityProvider`, was removed alongside the device
+flow (#435): it decided access from `CloudIdentityData.PrincipalArn`, which nothing can populate
+now that no route creates an AWS cloud identity. `AzureIdentityProvider` is unaffected — Azure's
+sign-in and scope discovery are unchanged.
 
 Planned work is tracked in [#421](https://github.com/Destrayon/Connapse/issues/421) and
 [docs/plans/search-permission-filtering.md](plans/search-permission-filtering.md). Until it lands,
 do not describe Connapse as filtering search by cloud permissions.
 
-See [aws-sso-setup.md](aws-sso-setup.md) and [azure-identity-setup.md](azure-identity-setup.md) for setup guides.
+See [azure-identity-setup.md](azure-identity-setup.md) for the Azure setup guide.
 
 ## Multi-Provider Support (v0.3.0)
 

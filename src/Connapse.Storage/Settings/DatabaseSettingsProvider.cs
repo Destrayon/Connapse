@@ -20,7 +20,6 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     private static readonly Dictionary<string, string> CategoryPrefixMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["security"] = "Identity:Jwt",
-        ["awssso"] = "Identity:AwsSso",
         ["azuread"] = "Identity:AzureAd",
         ["cognito"] = "Identity:Cognito",
     };

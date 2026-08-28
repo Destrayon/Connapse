@@ -211,7 +211,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
-        services.AddScoped<AwsSsoConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();
         services.AddScoped<OpenAiConnectionTester>();
         services.AddScoped<AzureOpenAiConnectionTester>();
@@ -225,12 +224,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<VoyageConnectionTester>();
 
         // Cloud scope discovery
-        services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();
         services.AddScoped<ICloudIdentityProvider, AzureIdentityProvider>();
         services.AddSingleton<IConnectorScopeCache, ConnectorScopeCache>();
-
-        // AWS SSO client registration and token exchange
-        services.AddScoped<IAwsSsoClientRegistrar, AwsSsoClientRegistrar>();
 
         return services;
     }
