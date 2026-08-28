@@ -569,7 +569,9 @@
         RequirementStatus.Satisfied => "Ready",
         RequirementStatus.Provisioning => "Provisioning",
         RequirementStatus.Failed => "Failed",
-        RequirementStatus.Warning => "Works, but",
+        // A complete label, like every other arm. "Works, but" left the reader holding an
+        // unfinished sentence in a chip four words wide, with the rest of it nowhere.
+        RequirementStatus.Warning => "Partly set up",
         RequirementStatus.NotConfigured => "Not set up",
         _ => "Unknown"
     };
