@@ -80,12 +80,28 @@ public sealed class AwsIdentityLinkStore(
     /// happens for one real reason — the key ring was lost or rotated beyond its retention — and a
     /// caller cannot do anything about it except treat the link as absent and ask the user to
     /// reconnect, which is exactly what null already means here.
+    /// <para>
+    /// Collapsing "no link" and "link present but unreadable" into the same null is fine for a
+    /// caller that only wants a usable token. A caller that must tell those two apart — a revoke
+    /// path needs to know whether it is skipping a real live token — should call <see cref="GetAsync"/>
+    /// once and pass the result to <see cref="TryUnprotectToken"/> instead, so the distinction is not
+    /// lost and no second round trip is needed to make it.
+    /// </para>
     /// </remarks>
     public async Task<string?> GetRefreshTokenAsync(Guid userId, CancellationToken ct = default)
     {
         var link = await GetAsync(userId, ct);
-        if (link is null)
-            return null;
+        return link is null ? null : TryUnprotectToken(link);
+    }
+
+    /// <summary>
+    /// Unprotects the token on an already-fetched link (from <see cref="GetAsync"/>), with no DB
+    /// access of its own. Null means the row exists but its token could not be decrypted — the
+    /// key-ring-lost-or-rotated case described on <see cref="GetRefreshTokenAsync"/>.
+    /// </summary>
+    public string? TryUnprotectToken(UserAwsIdentityLinkEntity link)
+    {
+        ArgumentNullException.ThrowIfNull(link);
 
         try
         {

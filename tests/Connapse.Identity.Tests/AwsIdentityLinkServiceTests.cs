@@ -1,6 +1,7 @@
 using System.Net;
 using Connapse.Core;
 using Connapse.Identity.Data;
+using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.AspNetCore.DataProtection;
@@ -41,6 +42,25 @@ public class AwsIdentityLinkServiceTests
                     .UseInMemoryDatabase(dbName)
                     .Options)));
         return factory;
+    }
+
+    // Bypasses AwsIdentityLinkStore.SaveAsync (which always writes a properly protected token) to
+    // put a row in place whose ProtectedRefreshToken is not valid Data Protection payload at all —
+    // the shape a corrupted column or a rotated-beyond-retention key ring would leave behind.
+    private static async Task SeedUnreadableLinkAsync(string dbName, Guid userId, string email)
+    {
+        await using var db = new ConnapseIdentityDbContext(
+            new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(dbName).Options);
+
+        db.UserAwsIdentityLinks.Add(new UserAwsIdentityLinkEntity
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            Email = email,
+            ProtectedRefreshToken = "not-valid-protected-data",
+            ConnectedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
     }
 
     private static IOptionsMonitor<CognitoSettings> Options(CognitoSettings settings)
@@ -140,6 +160,30 @@ public class AwsIdentityLinkServiceTests
 
         result.Deleted.Should().BeFalse();
         handler.LastRequest.Should().BeNull("there is no token to revoke when nothing was connected");
+    }
+
+    [Fact]
+    public async Task DisconnectAsync_UnreadableToken_ReportsRevocationFailed_NeverCallsCognito_ButStillDeletesTheRow()
+    {
+        // A row exists — unlike DisconnectAsync_NoLinkExists — but its token cannot be decrypted.
+        // This must not be treated as "nothing to revoke": the row being present means the token
+        // may still be live at Cognito, and Connapse has simply lost the ability to speak for it.
+        var dbName = Guid.NewGuid().ToString();
+        var userId = Guid.NewGuid();
+        await SeedUnreadableLinkAsync(dbName, userId, "user@example.com");
+        var store = CreateStore(dbName);
+
+        var handler = new RecordingHandler(HttpStatusCode.OK);
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(userId);
+
+        result.RevokedSuccessfully.Should().BeFalse(
+            "an unreadable token means Connapse never told Cognito, not that there was nothing to tell it");
+        handler.LastRequest.Should().BeNull("there is no plaintext token to send in a revoke request");
+        result.Deleted.Should().BeTrue("the local row must still go regardless of the revoke outcome");
+        (await store.GetAsync(userId)).Should().BeNull();
     }
 
     [Fact]

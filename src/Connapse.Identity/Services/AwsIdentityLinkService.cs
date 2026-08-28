@@ -29,11 +29,25 @@ public sealed class AwsIdentityLinkService(
 
     public async Task<AwsIdentityLinkDisconnectResult> DisconnectAsync(Guid userId, CancellationToken ct = default)
     {
-        var refreshToken = await linkStore.GetRefreshTokenAsync(userId, ct);
+        // One fetch serves both questions this needs answered — whether a row exists at all, and
+        // whether its token can be read — so a caller that must tell those two apart (this one)
+        // does not pay for a second round trip to do it. GetRefreshTokenAsync collapses both into
+        // a single null and is right to for its own simpler callers, but "no link" and "link
+        // present, token unreadable" are not the same case here: only the first has nothing to
+        // revoke. The second is a real link Connapse simply lost the ability to speak for, and
+        // that is a revocation failure, not a no-op.
+        var link = await linkStore.GetAsync(userId, ct);
 
-        // Nothing to revoke either because there was never a link, or because the stored token
-        // could no longer be decrypted — either way there is no live token this call can affect.
-        var revoked = refreshToken is null || await TryRevokeAsync(refreshToken, ct);
+        bool revoked;
+        if (link is null)
+        {
+            revoked = true; // Nothing to revoke — there was never a link.
+        }
+        else
+        {
+            var refreshToken = linkStore.TryUnprotectToken(link);
+            revoked = refreshToken is not null && await TryRevokeAsync(refreshToken, ct);
+        }
 
         // Delete unconditionally: a user who clicks Disconnect must end up disconnected locally
         // regardless of what AWS reports.
