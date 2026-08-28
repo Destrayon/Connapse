@@ -231,8 +231,10 @@ deployment can enable filtering, and the provider page refuses to enable it unti
   falls back to Connapse's own access control rather than being denied). No cloud dependency; ships
   alone; is what prevents the corpus-vanishing bug the original design would have shipped.
 - **5b — Sign-in and token store.** Components 2 and 3.
-- **5c — Provider setup and detection.** Component 4, opening with a spike that stands up a Cognito
-  pool and proves the jwt-bearer exchange returns an identity context before the UI is built.
+- **5c — Provider setup and detection.** Component 4. Its opening spike is **done** — see "What the
+  Cognito spike settled" — so this starts directly on the setup artifacts and the detection page.
+  The detection page must check application assignment explicitly, since its absence is the one
+  failure in the chain that reports nothing useful.
 - **5d — The resolver.** Component 5.
 - **6 — Enable.** Register the resolver, integration tests across all four surfaces.
 
@@ -248,15 +250,61 @@ The AWS chain cannot be integration-tested without a live account. It sits behin
 with contract tests against recorded response shapes, and real verification is a manual run of the
 5c spike.
 
+## What the Cognito spike settled
+
+Driven against a live AWS account (organization instance, `us-west-1`) on 2026-08-27. Everything it
+created was deleted afterwards and the account verified clean.
+
+**The architecture works.** A Cognito user pool registered as a trusted token issuer for a
+**customer-managed** application does yield an identity context, and that context does assume an
+identity-enhanced session:
+
+```
+Cognito ID token  (aud = the pool's app client id, email = the Identity Center user's)
+  → CreateTokenWithIAM, grant urn:ietf:params:oauth:grant-type:jwt-bearer
+  → awsAdditionalDetails.identityContext, scopes: sts:identity_context, s3:access_grants:read_write, openid, aws
+  → sts:AssumeRole with ProvidedContexts, ProviderArn arn:aws:iam::aws:contextProvider/IdentityCenter
+  → an assumed-role session
+```
+
+This was the one claim in this design that rested on reasoning rather than evidence, and the reason
+was sound: AWS documents Cognito-as-issuer only for Amazon Q Business, an AWS-managed application.
+It holds for a custom application too.
+
+**Four things the spike found that the documentation does not lead with:**
+
+**Application assignment is required by default, and its absence is unreadable.** A newly created
+customer-managed application has `AssignmentRequired: true` and no assignees, and the exchange then
+fails with a bare `AccessDeniedException` / `access_denied` that names nothing — not the missing
+assignment, not the application, not the user. Everything else in the chain reports a specific
+error, so this one will cost an operator an afternoon. Setup must either create an application
+assignment per user or group, or set `AssignmentRequired: false`, and the detection page should
+check it explicitly and say so in words.
+
+**No Cognito domain is needed for the exchange.** The pool's OIDC discovery endpoint lives at
+`https://cognito-idp.<region>.amazonaws.com/<poolId>/.well-known/openid-configuration` and exists
+without one, so the trusted token issuer can be registered against a bare pool. A domain is still
+needed for the hosted sign-in UI that the SAML federation flow uses — but the token exchange itself
+does not depend on it, which makes the failure surfaces easier to separate during setup.
+
+**The jwt-bearer grant returns no refresh token.** The response carried `refreshToken: None`. This
+confirms the decision in component 3 rather than contradicting it: durability has to come from the
+identity provider's refresh token, not an AWS one, and the AWS session is rebuilt per resolution.
+
+**`SourceIdentity` on the assumed session was empty.** The user identity travels in the context
+assertion rather than in `SourceIdentity`, so anything that expects to read the acting user from
+that field — audit tooling, a trust policy condition — will find nothing there.
+
+**Still untested, and deliberately so:** `ListCallerAccessGrants` at the end of the chain, because
+this account has no S3 Access Grants instance; and Cognito federating back to Identity Center over
+SAML, which needs a browser and is thoroughly documented. Neither was the unknown. The unknown was
+whether a custom application could consume a Cognito token at all, and it can.
+
 ## Risks
 
-**Nobody has driven this exact chain end to end.** AWS documents Cognito as a trusted token issuer
-for Amazon Q Business, not for a custom application. The identity context is the same artifact
-regardless of which issuer produced it, which is the entire point of the trusted-token-issuer
-abstraction, but that is reasoning rather than evidence. The 5c spike exists to close this before
-any UI is built. This session has twice shown that the gap between an AWS document and AWS behaviour
-is real: `PutApplicationGrant` lists `authorization_code` as valid and rejects it, and
-`RegisterClient` documents an `authorizationEndpoint` it does not return.
+**~~Nobody has driven this exact chain end to end.~~ Closed — the chain was driven end to end on
+2026-08-27** against a live AWS account. See "What the Cognito spike settled" below. The remaining
+risks are the setup burden and the region constraints that follow.
 
 **The setup burden is substantial** — Identity Center with provisioned users, a Cognito pool, SAML
 federation, a trusted token issuer, a customer-managed application, an Access Grants instance and
