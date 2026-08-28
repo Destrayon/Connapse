@@ -38,14 +38,51 @@ public record CognitoSetupRequest(
 /// Whether the pool verifies email. A pool that does not cannot be matched to an Identity Center
 /// user, because the trusted token issuer joins on the email claim.
 /// </param>
+/// <param name="ClientId">Connapse's own app client on this pool, or null when it has none yet.</param>
+/// <param name="ClientSecret">That client's secret, or null.</param>
+/// <param name="ApplicationArn">The Identity Center application, or null when setup has not run.</param>
 public record CognitoPoolSummary(
     string PoolId,
     string Name,
     string? DomainPrefix,
-    bool VerifiesEmail)
+    bool VerifiesEmail,
+    string? ClientId = null,
+    string? ClientSecret = null,
+    string? ApplicationArn = null)
 {
     /// <summary>Whether Connapse can be added to this pool at all.</summary>
     public bool IsUsable => VerifiesEmail;
+
+    /// <summary>The region, taken from the pool id.</summary>
+    /// <remarks>
+    /// A Cognito pool id is <c>{region}_{suffix}</c>, so the region is already in hand and does not
+    /// need carrying as another field that could disagree with it.
+    /// </remarks>
+    public string Region => PoolId.Split('_')[0];
+
+    /// <summary>
+    /// Whether this pool is already set up, so that choosing it is the whole job.
+    /// </summary>
+    /// <remarks>
+    /// True only when every value Connapse stores is present. A pool with a domain but no Identity
+    /// Center application has had its Cognito half built and not its AWS half, and saving that
+    /// would produce settings that pass validation and then fail at the token exchange.
+    /// </remarks>
+    public bool IsComplete =>
+        IsUsable
+        && !string.IsNullOrWhiteSpace(DomainPrefix)
+        && !string.IsNullOrWhiteSpace(ClientId)
+        && !string.IsNullOrWhiteSpace(ClientSecret)
+        && !string.IsNullOrWhiteSpace(ApplicationArn);
+
+    /// <summary>The settings to store, for a pool that <see cref="IsComplete"/>.</summary>
+    public CognitoSetupResult ToSettings() => new(
+        $"https://cognito-idp.{Region}.amazonaws.com/{PoolId}",
+        $"https://{DomainPrefix}.auth.{Region}.amazoncognito.com",
+        ClientId!,
+        ClientSecret!,
+        Region,
+        ApplicationArn!);
 }
 
 /// <summary>The settings the script printed.</summary>
@@ -123,15 +160,35 @@ public static class CognitoSetup
     /// and <c>+=,.@-</c>, so a pipe cannot occur inside one.
     /// </para>
     /// </remarks>
-    public static string GenerateDiscoveryScript()
+    public static string GenerateDiscoveryScript(string? namePrefix = null)
     {
+        string prefix = SanitisePrefix(namePrefix);
+
         return $$"""
-        # Lists the Amazon Cognito user pools in this account and region. Reads only; creates
-        # and changes nothing.
+        # Lists the Amazon Cognito user pools in this account and region, and reports which of
+        # them Connapse is already set up on. Reads only; creates and changes nothing.
+        #
+        # For a pool that is already set up this prints that one app client's secret, so Connapse
+        # can store it without you copying it by hand. Only the client this setup creates is looked
+        # at: no other client's secret is read, and a pool Connapse has never touched prints
+        # nothing beyond its name.
 
         set -e
+        PREFIX='{{prefix}}'
         REGION="${AWS_REGION:-$(aws configure get region)}"
         [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
+
+        # One lookup for the whole account. The Identity Center application is not per pool, so
+        # asking once is both cheaper and the only way to notice that it is missing.
+        INSTANCE=$(aws sso-admin list-instances --region "$REGION" \
+                     --query 'Instances[0].InstanceArn' --output text 2>/dev/null || true)
+        APP_ARN=''
+        if [ -n "$INSTANCE" ] && [ "$INSTANCE" != 'None' ]; then
+          APP_ARN=$(aws sso-admin list-applications --region "$REGION" --instance-arn "$INSTANCE" \
+                      --query "Applications[?Name=='$PREFIX-search'].ApplicationArn | [0]" \
+                      --output text 2>/dev/null || true)
+          [ "$APP_ARN" = 'None' ] && APP_ARN=''
+        fi
 
         # Built up and printed at the end, not as it goes. An interactive shell echoes a pasted
         # multi-line command, and printing the markers inline puts that echo between them.
@@ -150,9 +207,25 @@ public static class CognitoSetup
             VERIFIED=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
                          --query 'UserPool.AutoVerifiedAttributes' --output text 2>/dev/null || true)
 
-            printf 'pool=%s|%s|%s|%s\n' "$ID" "$NAME" \
+            # Connapse's own client on this pool, if setup has run against it. Matched by the
+            # name setup gives it, so no other client on the pool is described.
+            CLIENT_ID=$(aws cognito-idp list-user-pool-clients --region "$REGION" \
+                          --user-pool-id "$ID" \
+                          --query "UserPoolClients[?ClientName=='$PREFIX-client'].ClientId | [0]" \
+                          --output text 2>/dev/null || true)
+            [ "$CLIENT_ID" = 'None' ] && CLIENT_ID=''
+            SECRET=''
+            if [ -n "$CLIENT_ID" ]; then
+              SECRET=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
+                         --user-pool-id "$ID" --client-id "$CLIENT_ID" \
+                         --query 'UserPoolClient.ClientSecret' --output text 2>/dev/null || true)
+              [ "$SECRET" = 'None' ] && SECRET=''
+            fi
+
+            printf 'pool=%s|%s|%s|%s|%s|%s|%s\n' "$ID" "$NAME" \
               "$([ -z "$DOMAIN" ] || [ "$DOMAIN" = 'None' ] && printf -- '-' || printf '%s' "$DOMAIN")" \
-              "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')"
+              "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')" \
+              "$CLIENT_ID" "$SECRET" "$APP_ARN"
           done
           printf '%s\n' '{{PoolsEndMarker}}'
         )
@@ -197,11 +270,20 @@ public static class CognitoSetup
 
             string domain = parts[2].Trim();
 
+            // Four fields is the older row, from before this reported what setup had left behind.
+            // It still names a pool, so it is still worth offering — it simply cannot complete on
+            // its own.
+            string? Optional(int index) =>
+                parts.Length > index && parts[index].Trim() is { Length: > 0 } value ? value : null;
+
             pools.Add(new CognitoPoolSummary(
                 id,
                 parts[1].Trim(),
                 domain is "-" or "" ? null : domain,
-                parts[3].Trim() == "email"));
+                parts[3].Trim() == "email",
+                Optional(4),
+                Optional(5),
+                Optional(6)));
         }
 
         return pools;

@@ -298,6 +298,83 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateDiscoveryScript_ReportsWhatSetupLeftBehind()
+    {
+        // So that choosing a pool that is already set up is the whole job. Without the client, its
+        // secret and the application, a selection can only ever unlock a second script.
+        string script = CognitoSetup.GenerateDiscoveryScript();
+
+        script.Should().Contain("list-user-pool-clients");
+        script.Should().Contain("describe-user-pool-client");
+        script.Should().Contain("list-applications");
+        script.Should().Contain("pool=%s|%s|%s|%s|%s|%s|%s");
+    }
+
+    [Fact]
+    public void GenerateDiscoveryScript_ReadsOnlyConnapsesOwnClient()
+    {
+        // It prints a client secret, so what it is allowed to look at matters. Matched on the name
+        // setup gives its own client, which keeps every other client on the pool out of reach.
+        CognitoSetup.GenerateDiscoveryScript()
+            .Should().Contain("ClientName=='$PREFIX-client'");
+    }
+
+    [Fact]
+    public void GenerateDiscoveryScript_StillOnlyReads()
+    {
+        string script = CognitoSetup.GenerateDiscoveryScript();
+
+        script.Should().NotContain("create-");
+        script.Should().NotContain("put-");
+        script.Should().NotContain("delete-");
+    }
+
+    private static string PoolRow(string fields) =>
+        CognitoSetup.PoolsBeginMarker + "\n" + "pool=" + fields + "\n" + CognitoSetup.PoolsEndMarker;
+
+    [Fact]
+    public void ParsePools_APoolThatSetupHasFinishedWith_IsComplete()
+    {
+        var pool = CognitoSetup.ParsePools(PoolRow(
+            "us-west-1_abc|connapse-pool|connapse-1-us-west-1|email|client-id|client-secret|"
+            + "arn:aws:sso::1:application/ssoins-1/apl-1")).Single();
+
+        pool.IsComplete.Should().BeTrue();
+        pool.Region.Should().Be("us-west-1");
+
+        var settings = pool.ToSettings();
+        settings.IssuerUrl.Should().Be("https://cognito-idp.us-west-1.amazonaws.com/us-west-1_abc");
+        settings.Domain.Should().Be("https://connapse-1-us-west-1.auth.us-west-1.amazoncognito.com");
+        settings.ClientSecret.Should().Be("client-secret");
+        settings.ApplicationArn.Should().Be("arn:aws:sso::1:application/ssoins-1/apl-1");
+    }
+
+    [Fact]
+    public void ParsePools_WithNoIdentityCentreApplication_IsNotComplete()
+    {
+        // Half a setup. Saving it would pass IsConfigured and then fail at the token exchange,
+        // which is the failure this whole design keeps trying to move earlier.
+        var pool = CognitoSetup.ParsePools(PoolRow(
+            "us-west-1_abc|connapse-pool|connapse-1-us-west-1|email|client-id|client-secret|"))
+            .Single();
+
+        pool.IsUsable.Should().BeTrue();
+        pool.IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ParsePools_AnOlderFourFieldRow_IsOfferedButNotComplete()
+    {
+        // Printed before discovery reported any of this. It still names a pool worth offering; it
+        // simply cannot finish on its own.
+        var pool = CognitoSetup.ParsePools(
+            PoolRow("us-west-1_abc|connapse-pool|connapse-1-us-west-1|email")).Single();
+
+        pool.IsUsable.Should().BeTrue();
+        pool.IsComplete.Should().BeFalse();
+    }
+
+    [Fact]
     public void ParsePools_TakesTheLastBlock()
     {
         string pasted = PoolBlock("pool=us-east-1_old\tEchoed\t-\temail")

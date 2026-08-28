@@ -466,7 +466,7 @@
                                 @foreach (var pool in found)
                                 {
                                     <option value="@pool.PoolId" disabled="@(!pool.IsUsable)">
-                                        @pool.Name — @pool.PoolId@(pool.IsUsable ? "" : "  (does not verify email)")
+                                        @pool.Name — @pool.PoolId@(PoolNote(pool))
                                     </option>
                                 }
                             </select>
@@ -494,7 +494,7 @@
                    administrator chose to create one. The banner is gone — the select above already
                    says which pool this is for, and repeating it was the page telling somebody
                    something they were looking at. *@
-                @if (!adoptPool || chosenPool is not null)
+                @if (!adoptPool || chosenPool is { IsComplete: false })
                 {
                     @if (adoptPool)
                     {
@@ -757,19 +757,38 @@
             : "Could not download — check whether the browser blocked it.";
     }
 
+    /// <summary>What to say about a pool after its name, or nothing.</summary>
+    /// <remarks>
+    /// Whether choosing it finishes the job or starts one. Without this the two outcomes look
+    /// identical until after the click, and one of them saves settings.
+    /// </remarks>
+    private static string PoolNote(CognitoPoolSummary pool) => pool switch
+    {
+        { IsUsable: false } => "  (does not verify email)",
+        { IsComplete: true } => "  (already set up)",
+        _ => "  (needs setup)"
+    };
+
     /// <summary>Resolves the selected pool id back to the pool it names.</summary>
     /// <remarks>
     /// Re-parsed from the pasted text rather than held in a field. The list is only ever as fresh
     /// as that text, and keeping a second copy is a way for the two to disagree about which pools
     /// exist.
     /// </remarks>
-    private void ChoosePool(ChangeEventArgs e)
+    private async Task ChoosePool(ChangeEventArgs e)
     {
         string? id = e.Value?.ToString();
 
         chosenPool = string.IsNullOrEmpty(id)
             ? null
             : CognitoSetup.ParsePools(pastedPools).FirstOrDefault(p => p.PoolId == id);
+
+        // A pool the setup script has already finished with needs nothing further: discovery
+        // reported its client, that client's secret and the Identity Center application, which is
+        // everything stored. Showing a setup script for it would ask somebody to provision what
+        // they had just been shown already exists.
+        if (chosenPool is { IsComplete: true })
+            await SaveCognitoSetup(chosenPool.ToSettings());
     }
 
     private async Task CopyDiscoveryScript()
