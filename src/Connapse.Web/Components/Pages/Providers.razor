@@ -938,13 +938,25 @@
         {
             await SettingsStore.SaveAsync(category, settings);
             ReloadService.Reload();
-            saveMessage = $"{category} settings saved successfully!";
+            saveMessage = $"{SettingsName(category)} settings saved successfully!";
             saveSuccess = true;
         }
         catch (Exception ex)
         {
-            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
             saveSuccess = false;
         }
     }
+
+    /// <summary>What to call a settings category in a sentence.</summary>
+    /// <remarks>
+    /// The category is a storage key — lower-case, no spaces — and reading it back to somebody as
+    /// "cognito settings saved successfully" shows them the key rather than the product's name.
+    /// Unlisted categories fall through unchanged, which is what they did before this existed.
+    /// </remarks>
+    private static string SettingsName(string category) => category switch
+    {
+        "cognito" => "Amazon Cognito",
+        _ => category
+    };
 }
