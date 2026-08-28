@@ -48,15 +48,26 @@ monthly active users free per account, then $0.015 each.
 
 ## Architecture
 
-```
-Connapse ──redirect──▶ Cognito ──SAML──▶ IAM Identity Center
-   ▲                      │                      │
-   └──── ID token ────────┘              (user authenticates)
+Once, when a signed-in user connects their AWS identity from the integrations page:
 
-Connapse ──jwt-bearer──▶ CreateTokenWithIAM ──▶ identity context
+```
+Connapse ──authorization code + PKCE──▶ Cognito ──SAML──▶ IAM Identity Center
+   ▲                                       │                      │
+   └──── ID token + refresh token ─────────┘            (user authenticates)
+                    │
+                    └──▶ refresh token stored, encrypted, against the Connapse user
+```
+
+Then on every search, with the user absent or present:
+
+```
+stored refresh token ──▶ a fresh Cognito ID token
+   └──▶ CreateTokenWithIAM, jwt-bearer ──▶ identity context
    └──▶ AssumeRole(ProvidedContexts) ──▶ ListCallerAccessGrants ──▶ URI prefixes
    └──▶ prefix predicate pushed into the SQL query
 ```
+
+Connapse sign-in is not part of either diagram. People log in as they do today.
 
 Enforcement is unchanged from phase 4. `ISearchScopeResolver` already exists, both search stores
 already push a prefix predicate, and `documents.resource_uri` already records each document's
@@ -85,16 +96,31 @@ compare against, and whether the comparison is equality or prefix.
 
 **Depends on.** Nothing.
 
-### 2. Cognito OIDC sign-in — `Connapse.Identity`
+### 2. Connecting an AWS identity — `Connapse.Identity`
 
-**Purpose.** Authenticate the user against the customer's Cognito pool and obtain an ID token whose
-`email` claim maps to their Identity Center user.
+**Purpose.** Let an already-signed-in Connapse user prove which AWS identity they are, and leave
+Connapse holding what it needs to prove it again later without them.
 
-**Detail.** Standard `Microsoft.AspNetCore.Authentication.OpenIdConnect`, scopes
-`openid email offline_access`. The trusted token issuer maps `ClaimAttributePath=email` to
-`IdentityStoreAttributePath=emails.value`; AWS permits only user name, email, or external ID, so the
-opaque OIDC `sub` cannot be the join key. Connapse must therefore treat the email claim as
-security-relevant: only verified emails are accepted, and a changed email invalidates the link.
+**Connapse sign-in is untouched.** This is an integration, not an authentication method. People log
+in exactly as they do today; Cognito is what a logged-in user *connects*, from the integrations page,
+the same shape as the existing AWS device-flow link. That rules out a fourth authentication scheme,
+any change to the scheme router, and the whole class of questions about what happens when a
+federated identity has no Connapse account — the account is already there and already signed in.
+Tying Connapse sign-in itself to Cognito is a separate, later decision.
+
+**Detail.** A plain OAuth 2.0 authorization-code flow with PKCE that Connapse drives: a redirect to
+the pool's `/oauth2/authorize`, a callback endpoint, and a token exchange at `/oauth2/token`. Not
+`AddOpenIdConnect` — that is a sign-in handler, and sign-in is not what this does. Scopes are
+`openid email offline_access`; `offline_access` is what makes the connection outlive the visit.
+
+**This requires a Cognito user pool domain.** The hosted `/oauth2/authorize` endpoint only exists on
+a pool with one. The token *exchange* against Identity Center does not need a domain — the spike
+confirmed that — but this flow does, so the domain belongs in the setup artifacts.
+
+The trusted token issuer maps `ClaimAttributePath=email` to `IdentityStoreAttributePath=emails.value`;
+AWS permits only user name, email, or external ID, so the opaque OIDC `sub` cannot be the join key.
+Connapse must therefore treat the email claim as security-relevant: only verified emails are
+accepted, and a changed email invalidates the link.
 
 Callback URLs registered are the deployment's HTTPS base URL and `http://localhost:<port>`. Cognito
 requires HTTPS for anything else, so plain-HTTP multi-user deployments are unsupported for this
@@ -107,8 +133,15 @@ feature and the provider page says so rather than failing obscurely.
 **Purpose.** Make the connection permanent, so a user consents once and never again.
 
 **Detail.** A new table holds one Cognito refresh token per user, encrypted with ASP.NET Core Data
-Protection. The key ring is persisted via `PersistKeysToDbContext` against the existing identity
-context — without persistence, every stored token becomes undecryptable on container restart.
+Protection.
+
+**The key ring is already persisted correctly** — `Program.cs` writes it to
+`appdata/DataProtection-Keys`, which maps to the named `appdata` Docker volume, so keys survive
+container restarts and no change is needed. (An earlier draft of this spec called for
+`PersistKeysToDbContext`; that would have been churn.) One thing to weigh before storing per-user
+secrets under it: the key ring is not itself encrypted at rest, so anyone with access to that volume
+can decrypt every stored refresh token. `ProtectKeysWithCertificate` is the lever if that is not
+acceptable, and it is a deployment decision rather than a code one.
 
 Every resolution mints a **fresh** ID token, because Identity Center rejects any token it has
 already exchanged. The rotated refresh token is persisted before the exchange is attempted, so a
@@ -116,10 +149,10 @@ crash between the two loses a resolution rather than the link. A weekly backgrou
 stored token so provider idle-expiry clocks never fire; that is what turns "long-lived" into
 "permanent in practice".
 
-Consent for `offline_access` is captured on the integrations page, which exists to show connection
-status and offer revocation — not as a separate connection wizard. Sign-in establishes identity;
-the page only governs whether Connapse may act while the user is away, which is what background
-agent runs need.
+The integrations page is where the whole thing lives: connect, see status, disconnect. Connecting is
+what grants `offline_access`, and that is what lets Connapse resolve a user's permissions while they
+are away — which is what a background agent run needs. Disconnecting revokes it and deletes the
+stored token.
 
 **Depends on.** Component 2.
 
@@ -230,7 +263,8 @@ deployment can enable filtering, and the provider page refuses to enable it unti
   null-principal rule, and the corrected no-cloud-coordinate rule (a document with no cloud address
   falls back to Connapse's own access control rather than being denied). No cloud dependency; ships
   alone; is what prevents the corpus-vanishing bug the original design would have shipped.
-- **5b — Sign-in and token store.** Components 2 and 3.
+- **5b — Connecting an AWS identity, and the token store.** Components 2 and 3. Connapse sign-in is
+  untouched; this adds an integration a signed-in user connects.
 - **5c — Provider setup and detection.** Component 4. Its opening spike is **done** — see "What the
   Cognito spike settled" — so this starts directly on the setup artifacts and the detection page.
   The detection page must check application assignment explicitly, since its absence is the one
