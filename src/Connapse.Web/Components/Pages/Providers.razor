@@ -393,7 +393,12 @@
                     </button>
                 </div>
 
-                @if (adoptPool && chosenPool is null)
+                @* Additive, not either-or. Choosing a pool used to flip this whole region to the
+                   setup block in one render — the script, the paste box and the select the
+                   administrator had just used all vanished together and were replaced by different
+                   content of a different height. Nothing had moved for a reason they could see.
+                   Now the choosing stays put and the setup appears underneath it. *@
+                @if (adoptPool)
                 {
                     <p class="small mb-2">
                         Run this first. It only reads — it lists the pools in your account so you can
@@ -477,19 +482,15 @@
                         }
                     }
                 }
-                else
+                @* Shown once there is something to set up: either a pool was picked, or the
+                   administrator chose to create one. The banner is gone — the select above already
+                   says which pool this is for, and repeating it was the page telling somebody
+                   something they were looking at. *@
+                @if (!adoptPool || chosenPool is not null)
                 {
-                    @if (chosenPool is not null)
+                    @if (adoptPool)
                     {
-                        <div class="alert alert-secondary py-2 small d-flex align-items-center gap-2">
-                            <span class="bi-check-circle me-1"></span>
-                            <span class="flex-grow-1">
-                                Adding Connapse to <strong>@chosenPool.Name</strong>
-                                (<code>@chosenPool.PoolId</code>).
-                            </span>
-                            <button type="button" class="btn btn-link btn-sm p-0"
-                                    @onclick="() => chosenPool = null">Pick another</button>
-                        </div>
+                        <hr class="my-3" />
                     }
 
                 <ol class="small mb-2">
