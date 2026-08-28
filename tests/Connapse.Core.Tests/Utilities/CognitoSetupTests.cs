@@ -453,6 +453,28 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_PutsTheShellIntoNoContinuation()
+    {
+        // What the echo interleaving came down to. A trailing backslash makes an interactive shell
+        // print a secondary prompt and buffer, and a long run of those is what disconnected
+        // CloudShell in the heredoc version and still echoed out of order at 148 lines. The source
+        // keeps its continuations for readability; they are flattened on the way out, so the text
+        // shown and the text pasted are the same either way.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        script.Split('\n').Should().NotContain(l => l.EndsWith('\\'));
+    }
+
+    [Fact]
+    public void GenerateScript_KeepsItsComments()
+    {
+        // Flattening joins commands, not commentary. The comments are why an administrator can
+        // read this before running it, which is the whole basis for asking them to.
+        CognitoSetup.GenerateScript(Request())
+            .Should().Contain("# It creates NO access grants.");
+    }
+
+    [Fact]
     public void GenerateScript_EncodesNothing()
     {
         // Deliberate, and worth a test because the alternative was shipped briefly. Piping base64

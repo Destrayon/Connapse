@@ -368,7 +368,7 @@ public static class CognitoSetup
             + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
             + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
 
-        return $$"""
+        return FlattenContinuations($$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
         #   a Cognito user pool, its domain and one app client
         #   an IAM Identity Center application, plus its trusted token issuer, grant,
@@ -518,7 +518,44 @@ public static class CognitoSetup
         printf '%s\n\n' '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
-        """;
+        """);
+    }
+
+    /// <summary>
+    /// Joins every backslash-continued line into one, so the shell never continues.
+    /// </summary>
+    /// <remarks>
+    /// The source below keeps its continuations because a wrapped <c>aws</c> call is far easier to
+    /// read and to diff. What an administrator pastes should not have them: a continuation puts an
+    /// interactive shell into a secondary prompt, and buffering a long run of those is what
+    /// disconnected AWS CloudShell part-way through the old heredoc, and what still echoed out of
+    /// order at 148 lines afterwards. Flattening is done on the way out so the readable form and
+    /// the pasted form stay the same text — the page displays the result of this, not the source.
+    /// <para>
+    /// Comments are left alone. They never end in a backslash, and they are the part worth reading.
+    /// </para>
+    /// </remarks>
+    private static string FlattenContinuations(string script)
+    {
+        var flattened = new List<string>();
+
+        foreach (string line in script.ReplaceLineEndings("\n").Split('\n'))
+        {
+            bool continuing = flattened.Count > 0
+                              && flattened[^1].EndsWith('\\');
+
+            if (continuing)
+            {
+                // Trim the backslash and the continuation's own indentation; one space is what the
+                // shell would have seen anyway.
+                flattened[^1] = flattened[^1][..^1].TrimEnd() + " " + line.TrimStart();
+                continue;
+            }
+
+            flattened.Add(line);
+        }
+
+        return string.Join("\n", flattened);
     }
 
     /// <summary>
