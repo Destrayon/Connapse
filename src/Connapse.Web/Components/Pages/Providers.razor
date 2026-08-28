@@ -433,59 +433,47 @@
                         }
                         else
                         {
-                            @* A dropdown rather than a list. One choice is being made, and a list
-                               of full-width rows across a wide monitor reads as a page of content
-                               rather than as a control with options in it.
+                            @* A select, not a custom menu. This sits between a textarea above and a
+                               form below, and the button-plus-panel version read as a statistic in
+                               a box rather than as something to choose from. A native control also
+                               brings keyboard and screen-reader behaviour that a div does not.
 
-                               Opened from component state, not Bootstrap's JavaScript: only its
-                               stylesheet is loaded here, so data-bs-toggle would render the menu
-                               and never open it. *@
-                            <div class="dropdown mt-2" style="max-width: 32rem;">
-                                <button type="button"
-                                        class="btn btn-outline-secondary dropdown-toggle w-100 text-start"
-                                        @onclick="() => poolMenuOpen = !poolMenuOpen">
-                                    @(found.Count == 1
-                                        ? $"1 pool in this account"
-                                        : $"{found.Count} pools in this account")
-                                </button>
+                               A pool that cannot be used is listed and disabled rather than hidden:
+                               "my pool is missing" is a worse thing to leave somebody with than
+                               "my pool is here and greyed out, and it says why". *@
+                            <label class="form-label small mb-1" for="cognito-pool">
+                                Pool to add Connapse to
+                            </label>
+                            <select id="cognito-pool" class="form-select" style="max-width: 28rem;"
+                                    value="@(chosenPool?.PoolId ?? string.Empty)"
+                                    @onchange="ChoosePool">
+                                <option value="">
+                                    @(found.Count == 1 ? "Choose the pool…" : $"Choose one of {found.Count} pools…")
+                                </option>
+                                @foreach (var pool in found)
+                                {
+                                    <option value="@pool.PoolId" disabled="@(!pool.IsUsable)">
+                                        @pool.Name — @pool.PoolId@(pool.IsUsable ? "" : "  (does not verify email)")
+                                    </option>
+                                }
+                            </select>
 
-                                <ul class="dropdown-menu w-100 @(poolMenuOpen ? "show" : "")">
-                                    @foreach (var pool in found)
-                                    {
-                                        <li>
-                                            @* white-space:normal because a dropdown item is a
-                                               single line by default, and these carry a reason
-                                               underneath that must not be clipped. *@
-                                            <button type="button"
-                                                    class="dropdown-item @(pool.IsUsable ? "" : "disabled")"
-                                                    style="white-space: normal;"
-                                                    disabled="@(!pool.IsUsable)"
-                                                    @onclick="() => ChoosePool(pool)">
-                                                <div class="fw-semibold">@pool.Name</div>
-                                                <div class="small text-body-secondary font-monospace">
-                                                    @pool.PoolId
-                                                </div>
-                                                @if (!pool.IsUsable)
-                                                {
-                                                    @* The join to an Identity Center user is on the
-                                                       email claim, so a pool that does not verify
-                                                       email cannot be matched to anybody. *@
-                                                    <div class="small text-warning">
-                                                        Does not verify email, so its users cannot be
-                                                        matched to Identity Center.
-                                                    </div>
-                                                }
-                                                else if (pool.DomainPrefix is null)
-                                                {
-                                                    <div class="small text-body-secondary">
-                                                        No sign-in domain yet — setup will add one.
-                                                    </div>
-                                                }
-                                            </button>
-                                        </li>
-                                    }
-                                </ul>
-                            </div>
+                            @if (chosenPool is { DomainPrefix: null })
+                            {
+                                <div class="form-text">
+                                    No sign-in domain on this pool yet — setup will add one.
+                                </div>
+                            }
+
+                            @if (found.Any(p => !p.IsUsable))
+                            {
+                                @* The join to an Identity Center user is on the email claim, so a
+                                   pool that does not verify email cannot be matched to anybody. *@
+                                <div class="form-text">
+                                    Greyed-out pools do not verify email, so their users cannot be
+                                    matched to Identity Center.
+                                </div>
+                            }
                         }
                     }
                 }
@@ -500,7 +488,7 @@
                                 (<code>@chosenPool.PoolId</code>).
                             </span>
                             <button type="button" class="btn btn-link btn-sm p-0"
-                                    @onclick="() => { chosenPool = null; poolMenuOpen = false; }">Pick another</button>
+                                    @onclick="() => chosenPool = null">Pick another</button>
                         </div>
                     }
 
@@ -664,8 +652,6 @@
     /// <summary>The pool picked from the discovery list, or null while still choosing.</summary>
     private CognitoPoolSummary? chosenPool;
 
-    /// <summary>Whether the pool menu is open. Bootstrap's dropdown JavaScript is not loaded.</summary>
-    private bool poolMenuOpen;
     private string? cognitoCopyMessage;
     private bool cognitoCopySucceeded;
 
@@ -762,11 +748,19 @@
             : "Could not download — check whether the browser blocked it.";
     }
 
-    /// <summary>Takes the pool and closes the menu, which nothing else would close.</summary>
-    private void ChoosePool(CognitoPoolSummary pool)
+    /// <summary>Resolves the selected pool id back to the pool it names.</summary>
+    /// <remarks>
+    /// Re-parsed from the pasted text rather than held in a field. The list is only ever as fresh
+    /// as that text, and keeping a second copy is a way for the two to disagree about which pools
+    /// exist.
+    /// </remarks>
+    private void ChoosePool(ChangeEventArgs e)
     {
-        chosenPool = pool;
-        poolMenuOpen = false;
+        string? id = e.Value?.ToString();
+
+        chosenPool = string.IsNullOrEmpty(id)
+            ? null
+            : CognitoSetup.ParsePools(pastedPools).FirstOrDefault(p => p.PoolId == id);
     }
 
     private async Task CopyDiscoveryScript()
