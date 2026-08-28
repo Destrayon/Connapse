@@ -79,8 +79,9 @@ This sits beside `SearchScopes.ToLikePattern` in Core for the same reason `Resou
 format is decided in one place and consumed in another, and this repository has been bitten three
 times by that drift.
 
-**Interface.** `GrantScope.ToUriPrefix(string grantScope, bool isObject) -> string` plus a
-matching-mode flag so the predicate knows whether to compare by prefix or equality.
+**Interface.** `GrantScope.Parse(string grantScope, bool isObjectScope = false) -> GrantMatch`,
+where `GrantMatch` is `readonly record struct GrantMatch(string Value, bool IsExact)` — the value to
+compare against, and whether the comparison is equality or prefix.
 
 **Depends on.** Nothing.
 

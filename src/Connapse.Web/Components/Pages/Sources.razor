@@ -56,6 +56,18 @@
         }
     </div>
 
+    @if (isAdmin && _unlocatedReportFailed && !loading)
+    {
+        @* Deliberately not an error: the source list below loaded fine. What is lost is the
+           check for sources whose documents have no recorded location, and saying nothing
+           would let that read as "nothing to report". *@
+        <div class="alert alert-secondary py-2 px-3 small" role="status">
+            <span class="bi-question-circle me-2"></span>
+            Could not check which sources hold documents with no recorded location. Any warnings
+            below may be incomplete — reload to try again.
+        </div>
+    }
+
     @if (isAdmin && connections.Count == 0 && !loading)
     {
         @* A source only exists inside a connection, so offering the button with nothing to
@@ -460,6 +472,16 @@
     private IReadOnlyDictionary<Guid, int> _unlocated =
         new Dictionary<Guid, int>();
 
+    /// <summary>
+    /// True when the coordinate report could not be read, as opposed to reading as empty.
+    /// </summary>
+    /// <remarks>
+    /// Without this the two are indistinguishable, and they mean opposite things: an empty report
+    /// says every cloud source is fully located, while a failed one says nobody knows — and a
+    /// source quietly going unfiltered is exactly what this page exists to surface.
+    /// </remarks>
+    private bool _unlocatedReportFailed;
+
     private Guid? syncing;
     private Source? pendingDelete;
     private string? message;
@@ -589,7 +611,13 @@
         // `sources` and `connections` to empty and showed "Could not load sources" even though
         // both had already loaded successfully moments earlier. A cosmetic warning must not be
         // able to take the whole page down with it.
-        await LoadUnlocatedAsync();
+        //
+        // Admins only, because only they can see the result: the warning row and the failure
+        // notice below both sit inside `isAdmin` blocks, and only an admin can act on either by
+        // syncing. Running the aggregate for everyone else buys a document-wide GROUP BY per page
+        // load and shows nobody anything.
+        if (isAdmin)
+            await LoadUnlocatedAsync();
     }
 
     /// <summary>
@@ -603,15 +631,17 @@
         {
             var rows = await CoordinateReport.UnlocatedBySourceAsync();
             _unlocated = rows.ToDictionary(r => r.SourceId, r => r.DocumentCount);
+            _unlocatedReportFailed = false;
         }
         catch (Exception)
         {
-            // No operator-visible signal on purpose. The warning's absence is already this
-            // page's safe default when nothing is known to be unlocated, so a failed report
-            // query and "nothing to warn about" look the same to the reader — which is
-            // correct here, because an error banner about a diagnostic report would alarm the
-            // operator over something that isn't the source load itself failing.
+            // An empty result and a failed query must not look the same. "No source needs a
+            // re-sync" and "we could not find out" are different facts, and only the second one
+            // means cloud documents may be going unfiltered with nobody able to tell. Reported
+            // as a quiet notice rather than an error banner, because the source list itself
+            // loaded fine and this is a diagnostic, not the page's job.
             _unlocated = new Dictionary<Guid, int>();
+            _unlocatedReportFailed = true;
         }
     }
 

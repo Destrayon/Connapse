@@ -1,5 +1,24 @@
 # Per-user AWS search permissions — 5a, enforcement correctness
 
+> ## ⚠️ Executed and superseded — do not implement from this document
+>
+> This plan was carried out on 2026-08-27 and is kept as a record of what was done and why. **Two
+> of its instructions are now wrong, and following them would reintroduce a defect this work
+> removed:**
+>
+> - It specifies the search predicate as `resource_uri IS NOT NULL AND (…)`, treating a document
+>   with no cloud coordinate as **denied**. Manual testing found that would have hidden 127,892 of
+>   127,898 documents on a real deployment, because uploads have no external address by design and
+>   only the S3 and Azure connectors ever record one. The shipped rule is the opposite: a document
+>   with no coordinate is **not governed by cloud permissions** and falls back to Connapse's own
+>   access control.
+> - It specifies the coordinate report as covering **every** source. The shipped report covers only
+>   sources whose connector can record a coordinate (S3 and Azure). For SFTP, filesystem and MinIO
+>   the advice it gave — re-sync — could never work.
+>
+> `docs/superpowers/specs/2026-08-27-per-user-aws-search-permissions-design.md` is the current
+> description of the design. Read that instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the already-merged permission filter correct and honest before any cloud resolver is wired to it — close a wildcard leak in grant scopes, distinguish the four ways a search can come back empty, refuse to answer for a caller with no user, and stop the feature from silently hiding every document indexed before coordinates existed.
