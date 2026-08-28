@@ -79,6 +79,7 @@ public static class IdentityServiceExtensions
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
         services.Configure<AwsSsoSettings>(configuration.GetSection(AwsSsoSettings.SectionName));
+        services.Configure<CognitoSettings>(configuration.GetSection(CognitoSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);

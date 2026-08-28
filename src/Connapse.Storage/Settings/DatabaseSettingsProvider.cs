@@ -22,6 +22,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["security"] = "Identity:Jwt",
         ["awssso"] = "Identity:AwsSso",
         ["azuread"] = "Identity:AzureAd",
+        ["cognito"] = "Identity:Cognito",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)
