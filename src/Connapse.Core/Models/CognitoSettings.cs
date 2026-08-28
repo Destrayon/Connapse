@@ -46,11 +46,15 @@ public class CognitoSettings
 
     /// <summary>True when every field needed to complete a connection is present and usable.</summary>
     /// <remarks>
-    /// The URLs must be HTTPS, with <c>http://localhost</c> the only exception. Both carry an
-    /// authorization code or a token, so a plain-HTTP hop puts a credential on the wire in
-    /// cleartext — and a non-empty check alone would happily accept one. Cognito enforces the same
-    /// rule on its side for callback URLs, so anything else was never going to work anyway; failing
-    /// here says why, rather than leaving the operator with a rejection from AWS.
+    /// The URLs must be HTTPS, with no loopback exception. Both carry an authorization code or a
+    /// token, so a plain-HTTP hop puts a credential on the wire in cleartext — and a non-empty
+    /// check alone would happily accept one. Unlike the OAuth redirect URI (Connapse's own
+    /// address, computed from the incoming request rather than stored here), <see cref="IssuerUrl"/>
+    /// and <see cref="Domain"/> are always AWS-hosted: there is no such thing as a localhost
+    /// Cognito pool, so a loopback exception on these two would only widen what is accepted
+    /// without buying anything. Cognito enforces HTTPS on its side too, so anything else was never
+    /// going to work anyway; failing here says why, rather than leaving the operator with a
+    /// rejection from AWS.
     /// </remarks>
     public bool IsConfigured =>
         IsSecureUrl(IssuerUrl)
@@ -59,9 +63,16 @@ public class CognitoSettings
         && !string.IsNullOrWhiteSpace(ClientSecret)
         && !string.IsNullOrWhiteSpace(Region);
 
-    /// <summary>HTTPS, or loopback HTTP for a single-machine deployment.</summary>
+    /// <summary>HTTPS only — these are the provider's own endpoints, not Connapse's.</summary>
+    /// <remarks>
+    /// No loopback exception. That exception belongs to the OAuth redirect URI, which is
+    /// Connapse's own address and is not part of this settings type at all — it is computed from
+    /// the incoming request when the flow starts. <see cref="IssuerUrl"/> and <see cref="Domain"/>
+    /// are always AWS-hosted (<c>https://cognito-idp.{region}.amazonaws.com/{poolId}</c> and
+    /// <c>https://{prefix}.auth.{region}.amazoncognito.com</c>), so there is no equivalent
+    /// single-machine case to allow for.
+    /// </remarks>
     internal static bool IsSecureUrl(string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var uri)
-        && (uri.Scheme == Uri.UriSchemeHttps
-            || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
+        && uri.Scheme == Uri.UriSchemeHttps;
 }

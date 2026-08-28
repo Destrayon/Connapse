@@ -458,6 +458,8 @@
             "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
             "user_mismatch" => "Could not connect your AWS identity: you were signed in as a different user by the time AWS responded. Please try again.",
             "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
+            "user_cancelled" => "AWS sign-in was cancelled.",
+            "provider_error" => "Could not connect your AWS identity: Cognito reported a problem with the request.",
             _ => "Could not connect your AWS identity. Please try again.",
         };
         statusSuccess = false;
@@ -481,7 +483,16 @@
         try
         {
             var result = await AwsIdentityLinkService.DisconnectAsync(currentUserId);
-            if (result.Deleted)
+            if (result.LinkChangedDuringDisconnect)
+            {
+                // A reconnect raced this disconnect: the token was revoked, but the row was left
+                // in place because it had already been replaced by the time the delete ran.
+                // Reload so the card reflects whatever is actually connected now.
+                statusMessage = "Your AWS identity changed while disconnecting. Please try again.";
+                statusSuccess = false;
+                await LoadIdentitiesAsync();
+            }
+            else if (result.Deleted)
             {
                 if (result.RevokedSuccessfully)
                 {

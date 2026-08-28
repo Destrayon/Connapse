@@ -11,9 +11,11 @@ namespace Connapse.Identity.Services;
 /// <remarks>
 /// Deleting the local row without revoking would leave the refresh token valid at Cognito — anything
 /// that already holds a copy keeps working while Connapse reports the link gone. So the order here is
-/// fixed: try to revoke first, then delete the row unconditionally. A revocation failure is reported
-/// back to the caller rather than swallowed, so the UI can say the token may still be live instead of
-/// claiming a clean disconnect.
+/// fixed: try to revoke first, then delete only the row just revoked (discriminated by its protected
+/// token value, not its Id — see <see cref="AwsIdentityLinkStore.DeleteAsync(Guid, string, CancellationToken)"/>),
+/// so a reconnect racing the disconnect can never lose a link it never revoked. A revocation failure
+/// is reported back to the caller rather than swallowed, so the UI can say the token may still be live
+/// instead of claiming a clean disconnect.
 /// </remarks>
 public sealed class AwsIdentityLinkService(
     AwsIdentityLinkStore linkStore,
@@ -38,22 +40,29 @@ public sealed class AwsIdentityLinkService(
         // that is a revocation failure, not a no-op.
         var link = await linkStore.GetAsync(userId, ct);
 
-        bool revoked;
         if (link is null)
+            return new AwsIdentityLinkDisconnectResult(Deleted: false, RevokedSuccessfully: true);
+
+        var refreshToken = linkStore.TryUnprotectToken(link);
+        var revoked = refreshToken is not null && await TryRevokeAsync(refreshToken, ct);
+
+        // Delete only the row just revoked, not "whatever is there for this user now": a
+        // reconnect that raced this call runs SaveAsync between the fetch above and this delete,
+        // which updates the existing row in place and keeps its Id — so an Id-based delete would
+        // remove the new link while its refresh token stays live at Cognito, precisely what
+        // disconnect exists to prevent. The protected token value is the discriminator, since it
+        // changes on every SaveAsync; a mismatch means the row changed underneath this call, and
+        // the row is left alone for the caller to report and the user to retry.
+        var deleted = await linkStore.DeleteAsync(userId, link.ProtectedRefreshToken, ct);
+        var linkChanged = !deleted;
+
+        if (linkChanged)
         {
-            revoked = true; // Nothing to revoke — there was never a link.
-        }
-        else
-        {
-            var refreshToken = linkStore.TryUnprotectToken(link);
-            revoked = refreshToken is not null && await TryRevokeAsync(refreshToken, ct);
+            logger.LogWarning(
+                "AWS identity link changed for a user during disconnect; the row was left in place");
         }
 
-        // Delete unconditionally: a user who clicks Disconnect must end up disconnected locally
-        // regardless of what AWS reports.
-        var deleted = await linkStore.DeleteAsync(userId, ct);
-
-        return new AwsIdentityLinkDisconnectResult(deleted, revoked);
+        return new AwsIdentityLinkDisconnectResult(deleted, revoked, linkChanged);
     }
 
     private async Task<bool> TryRevokeAsync(string refreshToken, CancellationToken ct)

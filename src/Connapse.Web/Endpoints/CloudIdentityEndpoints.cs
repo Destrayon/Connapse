@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -179,8 +180,9 @@ public static class CloudIdentityEndpoints
         // GET /api/v1/auth/cloud/cognito/callback — Cognito OAuth2 callback.
         group.MapGet("/cognito/callback", async (
             HttpContext http,
-            [FromQuery] string code,
-            [FromQuery] string state,
+            [FromQuery] string? code,
+            [FromQuery] string? state,
+            [FromQuery] string? error,
             [FromServices] IOptionsMonitor<CognitoSettings> settings,
             [FromServices] AwsIdentityLinkStore linkStore,
             [FromServices] IHttpClientFactory httpClientFactory,
@@ -200,13 +202,39 @@ public static class CloudIdentityEndpoints
             http.Response.Cookies.Delete(CognitoPkceCookieName, deleteCookieOptions);
             http.Response.Cookies.Delete(CognitoNonceCookieName, deleteCookieOptions);
 
+            // Rule: a provider-side error (the user declined consent, or Cognito rejected the
+            // request before ever issuing a code) arrives with `error` set and no `code` at all.
+            // code/state used to be non-nullable [FromQuery] parameters, so minimal API's model
+            // binding rejected this shape before the handler ever ran, leaving the user with a
+            // raw 400 and the three cookies just cleared above stuck in the browser until they
+            // expired on their own. Handle it the same way every other failure path here does:
+            // cookies are already gone, so just redirect with a fixed reason. The provider's raw
+            // error string is never echoed into the redirect — only ever one of our own values.
+            if (!string.IsNullOrEmpty(error))
+            {
+                logger.LogWarning(
+                    "Cognito callback reported a provider-side error: {Error}", LogSanitizer.Sanitize(error));
+                var reason = error == "access_denied" ? "cognito_user_cancelled" : "cognito_provider_error";
+                return Results.Redirect($"/profile/integrations?error={reason}");
+            }
+
             // Rule: validate state before anything else. A callback whose state does not match is
             // not a connection.
-            if (string.IsNullOrEmpty(expectedState) || expectedState != state)
+            if (string.IsNullOrEmpty(expectedState) || string.IsNullOrEmpty(state) || expectedState != state)
                 return Results.BadRequest(new { error = "invalid_state", message = "Invalid or expired state parameter." });
 
             if (string.IsNullOrEmpty(codeVerifier))
                 return Results.BadRequest(new { error = "invalid_pkce", message = "Missing PKCE code verifier." });
+
+            if (string.IsNullOrEmpty(code))
+            {
+                // No provider error was reported, yet there is still no code to exchange. Not a
+                // shape Cognito is documented to produce, but code below assumes a non-empty code,
+                // so this is handled the same way as the explicit-error branch above rather than
+                // let a null reach the token exchange.
+                logger.LogWarning("Cognito callback carried no error but was also missing an authorization code");
+                return Results.Redirect("/profile/integrations?error=cognito_provider_error");
+            }
 
             var userId = GetUserId(http);
             if (userId is null) return Results.Unauthorized();

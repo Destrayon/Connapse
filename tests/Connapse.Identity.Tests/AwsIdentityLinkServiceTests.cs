@@ -187,6 +187,36 @@ public class AwsIdentityLinkServiceTests
     }
 
     [Fact]
+    public async Task DisconnectAsync_LinkReplacedDuringRevoke_LeavesTheNewRowInPlace_AndReportsLinkChanged()
+    {
+        // A reconnect races this disconnect: SaveAsync updates the existing row in place, keeping
+        // its Id, while the HTTP revoke call for the *old* token is still in flight. An Id-based
+        // delete would not be able to tell the new row apart from the old one and would remove the
+        // reconnect's link along with it — the row must survive, and the caller must be told the
+        // link changed so it can try again, rather than being told it cleanly disconnected.
+        var dbName = Guid.NewGuid().ToString();
+        var store = CreateStore(dbName);
+        var userId = Guid.NewGuid();
+        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+
+        var handler = new RecordingHandler(HttpStatusCode.OK,
+            onSend: () => store.SaveAsync(userId, "reconnected@example.com", "refresh-token-xyz"));
+
+        var sut = new AwsIdentityLinkService(
+            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+
+        var result = await sut.DisconnectAsync(userId);
+
+        result.RevokedSuccessfully.Should().BeTrue("the original token was successfully revoked at Cognito");
+        result.Deleted.Should().BeFalse("the row that exists now is not the one this call revoked");
+        result.LinkChangedDuringDisconnect.Should().BeTrue();
+
+        var survivingLink = await store.GetAsync(userId);
+        survivingLink.Should().NotBeNull("the reconnect's link must survive an unrelated disconnect");
+        survivingLink!.Email.Should().Be("reconnected@example.com");
+    }
+
+    [Fact]
     public async Task GetAsync_ExistingLink_ReturnsEmailAndTimestamps()
     {
         var dbName = Guid.NewGuid().ToString();

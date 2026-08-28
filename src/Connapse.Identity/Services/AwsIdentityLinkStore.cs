@@ -2,6 +2,7 @@ using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Connapse.Identity.Services;
 
@@ -30,6 +31,14 @@ public sealed class AwsIdentityLinkStore(
     private IDataProtector Protector => protectionProvider.CreateProtector(Purpose);
 
     /// <summary>Stores a user's link, replacing any existing one.</summary>
+    /// <remarks>
+    /// The read-then-write below is not itself atomic — two concurrent connects for the same user
+    /// can both read "no row" and both try to insert. Without the catch below, the unique index on
+    /// <c>user_id</c> would reject whichever insert loses that race with an unhandled
+    /// <see cref="DbUpdateException"/> instead of one link simply winning. Catching the violation
+    /// and falling back to an update keeps this correct without a raw-SQL <c>ON CONFLICT</c>
+    /// upsert, which the EF Core InMemory provider (used by this store's unit tests) cannot run.
+    /// </remarks>
     public async Task SaveAsync(
         Guid userId, string email, string refreshToken, CancellationToken ct = default)
     {
@@ -45,25 +54,43 @@ public sealed class AwsIdentityLinkStore(
         // upsert keeps ConnectedAt meaning "when this link was established".
         if (existing is null)
         {
-            db.UserAwsIdentityLinks.Add(new UserAwsIdentityLinkEntity
+            var candidate = new UserAwsIdentityLinkEntity
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 Email = email,
                 ProtectedRefreshToken = Protector.Protect(refreshToken),
                 ConnectedAt = timeProvider.GetUtcNow().UtcDateTime,
-            });
+            };
+            db.UserAwsIdentityLinks.Add(candidate);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return;
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                // Lost a race with a concurrent connect for the same user: the row now exists
+                // because someone else's insert landed first between our read above and this
+                // write. Detach the insert the unique index rejected — otherwise the next
+                // SaveChangesAsync below would try to re-insert it alongside the update — and
+                // fall through to update the row that won instead of surfacing the violation.
+                db.Entry(candidate).State = EntityState.Detached;
+                existing = await db.UserAwsIdentityLinks.SingleAsync(x => x.UserId == userId, ct);
+            }
         }
-        else
-        {
-            existing.Email = email;
-            existing.ProtectedRefreshToken = Protector.Protect(refreshToken);
-            existing.ConnectedAt = timeProvider.GetUtcNow().UtcDateTime;
-            existing.LastUsedAt = null;
-        }
+
+        existing.Email = email;
+        existing.ProtectedRefreshToken = Protector.Protect(refreshToken);
+        existing.ConnectedAt = timeProvider.GetUtcNow().UtcDateTime;
+        existing.LastUsedAt = null;
 
         await db.SaveChangesAsync(ct);
     }
+
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
     /// <summary>The link's metadata, or null when the user has not connected one.</summary>
     public async Task<UserAwsIdentityLinkEntity?> GetAsync(Guid userId, CancellationToken ct = default)
@@ -121,6 +148,36 @@ public sealed class AwsIdentityLinkStore(
         var existing = await db.UserAwsIdentityLinks
             .SingleOrDefaultAsync(x => x.UserId == userId, ct);
         if (existing is null)
+            return false;
+
+        db.UserAwsIdentityLinks.Remove(existing);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Removes a user's link only if its <see cref="UserAwsIdentityLinkEntity.ProtectedRefreshToken"/>
+    /// still matches <paramref name="expectedProtectedRefreshToken"/>. False, and the row left
+    /// untouched, when there is no row or when the token no longer matches.
+    /// </summary>
+    /// <remarks>
+    /// For a caller (a disconnect) that read the link, revoked its token elsewhere, and must now
+    /// delete exactly that row and no other. An <c>Id</c> comparison would not be enough: a
+    /// reconnect that raced the disconnect runs <see cref="SaveAsync"/>, which updates the
+    /// existing row in place and keeps its <c>Id</c> — so a plain <c>DeleteAsync(userId)</c>
+    /// between the read and this call would remove the new link while its refresh token stays live
+    /// at the provider, which is exactly the outcome a disconnect exists to prevent. The protected
+    /// token value changes on every <see cref="SaveAsync"/>, so a match here proves the row is
+    /// still the one the caller revoked.
+    /// </remarks>
+    public async Task<bool> DeleteAsync(
+        Guid userId, string expectedProtectedRefreshToken, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var existing = await db.UserAwsIdentityLinks
+            .SingleOrDefaultAsync(x => x.UserId == userId, ct);
+        if (existing is null || existing.ProtectedRefreshToken != expectedProtectedRefreshToken)
             return false;
 
         db.UserAwsIdentityLinks.Remove(existing);

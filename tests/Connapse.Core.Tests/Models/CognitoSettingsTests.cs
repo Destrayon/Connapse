@@ -40,14 +40,17 @@ public class CognitoSettingsTests
     }
 
     [Fact]
-    public void IsConfigured_WithLoopbackHttp_IsTrue()
+    public void IsConfigured_WithLoopbackHttp_IsFalse()
     {
-        // The one exception, and Cognito makes it too: a single-machine deployment has no TLS to
-        // terminate and nothing on the wire to intercept.
+        // No loopback exception here: IssuerUrl and Domain are always AWS-hosted endpoints
+        // (there is no such thing as a localhost Cognito pool), unlike the OAuth redirect URI,
+        // which is Connapse's own address and is computed from the incoming request rather than
+        // read from these settings. A loopback allowance on these two would only widen what is
+        // accepted without buying anything.
         var settings = Complete();
         settings.Domain = "http://localhost:5001";
 
-        settings.IsConfigured.Should().BeTrue();
+        settings.IsConfigured.Should().BeFalse();
     }
 
     [Theory]

@@ -88,6 +88,39 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task SaveAsync_ManyConcurrentCallsForOneUser_LeaveExactlyOneRow_AndNoneThrow()
+    {
+        // Every call reads "no row for this user" before deciding whether to insert or update, so
+        // without an atomic upsert, two calls landing close enough together both take the insert
+        // path and the unique index on user_id rejects whichever commits second with an unhandled
+        // exception instead of one link simply winning. A shared gate releases every call at (as
+        // close to) the same instant, and enough callers race at once, so that overlap is all but
+        // guaranteed rather than left to incidental timing between two calls.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid userId = await SeedUserAsync(scope.ServiceProvider);
+        var store = Build(scope.ServiceProvider);
+
+        const int concurrency = 16;
+        using var gate = new ManualResetEventSlim(initialState: false);
+
+        var tasks = Enumerable.Range(0, concurrency)
+            .Select(i => Task.Run(async () =>
+            {
+                gate.Wait();
+                await store.SaveAsync(userId, $"user{i}@example.com", $"token-{i}");
+            }))
+            .ToArray();
+
+        gate.Set();
+        await Task.WhenAll(tasks); // Throws if any SaveAsync call threw.
+
+        var factory = scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>();
+        await using var db = await factory.CreateDbContextAsync();
+        (await db.UserAwsIdentityLinks.CountAsync(x => x.UserId == userId)).Should().Be(1);
+    }
+
+    [Fact]
     public async Task GetRefreshTokenAsync_ForAnUnconnectedUser_IsNull()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
