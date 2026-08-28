@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>What the setup script needs to know before it can be written.</summary>
 /// <param name="CallbackUrl">
@@ -14,11 +14,39 @@ namespace Connapse.Core.Utilities;
 /// pool that holds its own users — the only arrangement that needs no prerequisites.
 /// </param>
 /// <param name="NamePrefix">Prefix for every created resource, so they are obvious and findable.</param>
+/// <param name="ExistingPoolId">
+/// A Cognito user pool the customer already runs, to add Connapse to rather than duplicate. Null
+/// creates a new pool.
+/// </param>
+/// <param name="ExistingDomainPrefix">
+/// The hosted domain that pool already has, when adopting one that has a domain. Null lets the
+/// script create one, which is additive to the pool and safe.
+/// </param>
 public record CognitoSetupRequest(
     string CallbackUrl,
     string ActorArn,
     string? IdpMetadataUrl = null,
-    string? NamePrefix = null);
+    string? NamePrefix = null,
+    string? ExistingPoolId = null,
+    string? ExistingDomainPrefix = null);
+
+/// <summary>One Cognito user pool the discovery script found.</summary>
+/// <param name="PoolId">The pool's id, which is also what its issuer URL is built from.</param>
+/// <param name="Name">What it is called, for a human choosing between them.</param>
+/// <param name="DomainPrefix">Its hosted domain prefix, or null when it has none yet.</param>
+/// <param name="VerifiesEmail">
+/// Whether the pool verifies email. A pool that does not cannot be matched to an Identity Center
+/// user, because the trusted token issuer joins on the email claim.
+/// </param>
+public record CognitoPoolSummary(
+    string PoolId,
+    string Name,
+    string? DomainPrefix,
+    bool VerifiesEmail)
+{
+    /// <summary>Whether Connapse can be added to this pool at all.</summary>
+    public bool IsUsable => VerifiesEmail;
+}
 
 /// <summary>The settings the script printed.</summary>
 public record CognitoSetupResult(
@@ -73,6 +101,92 @@ public static class CognitoSetup
         "iam:CreateRole", "iam:PutRolePolicy", "iam:PassRole"
     ];
 
+    public const string PoolsBeginMarker = "----- BEGIN CONNAPSE COGNITO POOLS -----";
+
+    public const string PoolsEndMarker = "----- END CONNAPSE COGNITO POOLS -----";
+
+    /// <summary>
+    /// The command that lists the Cognito pools already in this account, so an administrator can
+    /// add Connapse to one rather than be given a second.
+    /// </summary>
+    /// <remarks>
+    /// Reports the two facts that decide whether a pool can be used, rather than every fact about
+    /// it. A pool needs a hosted domain for the browser sign-in — absent is fine, the setup script
+    /// adds one — and it must verify email, because the trusted token issuer joins to an Identity
+    /// Center user on the email claim and nothing else this deployment controls.
+    /// </remarks>
+    public static string GenerateDiscoveryScript()
+    {
+        return $$"""
+        # Lists the Amazon Cognito user pools in this account and region. Reads only; creates
+        # and changes nothing.
+
+        set -e
+        REGION="${AWS_REGION:-$(aws configure get region)}"
+        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
+
+        printf '\n%s\n' '{{PoolsBeginMarker}}'
+        aws cognito-idp list-user-pools --region "$REGION" --max-results 60 \
+          --query 'UserPools[].[Id,Name]' --output text | while IFS=$(printf '\t') read -r ID NAME; do
+          [ -z "$ID" ] && continue
+
+          # Two calls per pool, because neither fact is in the list response. Pools are few and
+          # this runs once.
+          DESC=$(aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$ID" \
+                   --query 'UserPool.[Domain,AutoVerifiedAttributes]' --output text 2>/dev/null || true)
+          DOMAIN=$(printf '%s' "$DESC" | awk '{print $1}')
+          VERIFIED=$(printf '%s' "$DESC" | awk '{print $2}')
+
+          printf 'pool=%s\t%s\t%s\t%s\n' "$ID" "$NAME" \
+            "$([ "$DOMAIN" = 'None' ] && printf -- '-' || printf '%s' "$DOMAIN")" \
+            "$(printf '%s' "$VERIFIED" | grep -q email && printf 'email' || printf -- '-')"
+        done
+        printf '%s\n\n' '{{PoolsEndMarker}}'
+        echo 'Copy the block above into Connapse.'
+        """;
+    }
+
+    /// <summary>
+    /// Reads the pool list the discovery script printed. Empty when the text has no usable block —
+    /// which is not the same as an account with no pools, and the caller should say so.
+    /// </summary>
+    public static IReadOnlyList<CognitoPoolSummary> ParsePools(string? pasted)
+    {
+        if (string.IsNullOrWhiteSpace(pasted))
+            return [];
+
+        int end = pasted.LastIndexOf(PoolsEndMarker, StringComparison.Ordinal);
+        int start = end < 0 ? -1 : pasted.LastIndexOf(PoolsBeginMarker, end, StringComparison.Ordinal);
+
+        if (start < 0 || end <= start)
+            return [];
+
+        var pools = new List<CognitoPoolSummary>();
+
+        foreach (string raw in pasted[(start + PoolsBeginMarker.Length)..end]
+                     .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string line = raw.Trim();
+            if (!line.StartsWith("pool=", StringComparison.Ordinal)) continue;
+
+            string[] parts = line[5..].Split('\t');
+            if (parts.Length < 4) continue;
+
+            string id = parts[0].Trim();
+            if (id.Length == 0) continue;
+
+            string domain = parts[2].Trim();
+
+            pools.Add(new CognitoPoolSummary(
+                id,
+                parts[1].Trim(),
+                domain is "-" or "" ? null : domain,
+                parts[3].Trim() == "email"));
+        }
+
+        return pools;
+    }
+
     /// <summary>
     /// The command to paste into AWS CloudShell.
     /// </summary>
@@ -90,6 +204,8 @@ public static class CognitoSetup
 
         string prefix = SanitisePrefix(request.NamePrefix);
         string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
+        string existingPool = request.ExistingPoolId?.Trim() ?? string.Empty;
+        string existingDomain = request.ExistingDomainPrefix?.Trim() ?? string.Empty;
 
         // Built out here rather than inline below. The CLI's shorthand for this one argument ends
         // in two closing braces, and a raw interpolated string reads those as the end of an
@@ -113,6 +229,8 @@ public static class CognitoSetup
         CALLBACK='{{request.CallbackUrl}}'
         ACTOR='{{request.ActorArn}}'
         IDP_METADATA='{{idp}}'
+        EXISTING_POOL='{{existingPool}}'
+        EXISTING_DOMAIN='{{existingDomain}}'
         STACK="$PREFIX-cognito"
 
         REGION="${AWS_REGION:-$(aws configure get region)}"
@@ -132,7 +250,14 @@ public static class CognitoSetup
                            --query 'Instances[0].IdentityStoreId' --output text)
 
         # Globally unique, and stable for a given account and region so re-running is idempotent.
-        DOMAIN_PREFIX="$PREFIX-$ACCOUNT-$REGION"
+        # An adopted pool that already has a domain keeps it: the sign-in page belongs to the pool,
+        # not to Connapse, and a second domain on it would change where its other clients send
+        # people.
+        if [ -n "$EXISTING_DOMAIN" ]; then
+          DOMAIN_PREFIX="$EXISTING_DOMAIN"
+        else
+          DOMAIN_PREFIX="$PREFIX-$ACCOUNT-$REGION"
+        fi
 
         cat > /tmp/$STACK.yaml <<'TEMPLATE'
         AWSTemplateFormatVersion: '2010-09-09'
@@ -142,11 +267,16 @@ public static class CognitoSetup
           CallbackUrl: { Type: String }
           InstanceArn: { Type: String }
           IdpMetadataUrl: { Type: String, Default: '' }
+          ExistingPoolId: { Type: String, Default: '' }
+          ExistingDomainPrefix: { Type: String, Default: '' }
         Conditions:
           Federated: !Not [ !Equals [ !Ref IdpMetadataUrl, '' ] ]
+          CreatePool: !Equals [ !Ref ExistingPoolId, '' ]
+          CreateDomain: !Equals [ !Ref ExistingDomainPrefix, '' ]
         Resources:
           Pool:
             Type: AWS::Cognito::UserPool
+            Condition: CreatePool
             Properties:
               UserPoolName: !Sub '${Prefix}-pool'
               # Admin-created only, and email verified. The trusted token issuer matches this pool's
@@ -161,24 +291,27 @@ public static class CognitoSetup
                   Mutable: true
           Domain:
             Type: AWS::Cognito::UserPoolDomain
+            Condition: CreateDomain
             Properties:
               Domain: !Ref DomainPrefix
-              UserPoolId: !Ref Pool
+              UserPoolId: !If [ CreatePool, !Ref Pool, !Ref ExistingPoolId ]
           Idp:
             Type: AWS::Cognito::UserPoolIdentityProvider
             Condition: Federated
             Properties:
-              UserPoolId: !Ref Pool
+              UserPoolId: !If [ CreatePool, !Ref Pool, !Ref ExistingPoolId ]
               ProviderName: Workforce
               ProviderType: SAML
               ProviderDetails: { MetadataURL: !Ref IdpMetadataUrl }
               AttributeMapping: { email: email }
+          # Added to the pool, never editing one that is there. A pool holds many clients, so this
+          # is invisible to whatever already uses an adopted pool; changing an existing client's
+          # callbacks would not be.
           Client:
             Type: AWS::Cognito::UserPoolClient
-            DependsOn: Domain
             Properties:
               ClientName: !Sub '${Prefix}-client'
-              UserPoolId: !Ref Pool
+              UserPoolId: !If [ CreatePool, !Ref Pool, !Ref ExistingPoolId ]
               GenerateSecret: true
               AllowedOAuthFlows: [ code ]
               AllowedOAuthScopes: [ openid, email, profile ]
@@ -236,7 +369,8 @@ public static class CognitoSetup
               LocationScope: 's3://'
               IamRoleArn: !GetAtt LocationRole.Arn
         Outputs:
-          PoolId: { Value: !Ref Pool }
+          PoolId:
+            Value: !If [ CreatePool, !Ref Pool, !Ref ExistingPoolId ]
           ClientId: { Value: !Ref Client }
           ApplicationArn: { Value: !GetAtt Application.ApplicationArn }
         TEMPLATE
@@ -245,7 +379,8 @@ public static class CognitoSetup
           --stack-name "$STACK" --template-file /tmp/$STACK.yaml \
           --capabilities CAPABILITY_NAMED_IAM \
           --parameter-overrides Prefix="$PREFIX" DomainPrefix="$DOMAIN_PREFIX" \
-            CallbackUrl="$CALLBACK" InstanceArn="$INSTANCE" IdpMetadataUrl="$IDP_METADATA"
+            CallbackUrl="$CALLBACK" InstanceArn="$INSTANCE" IdpMetadataUrl="$IDP_METADATA" \
+            ExistingPoolId="$EXISTING_POOL" ExistingDomainPrefix="$EXISTING_DOMAIN"
 
         out() { aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
                   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
@@ -261,9 +396,19 @@ public static class CognitoSetup
 
         # ---- The four calls with no CloudFormation resource type ----
 
-        TTI=$(aws sso-admin list-trusted-token-issuers --region "$REGION" \
-                --instance-arn "$INSTANCE" \
-                --query "TrustedTokenIssuers[?Name=='$PREFIX'].TrustedTokenIssuerArn" --output text)
+        # Matched on the issuer URL rather than on the name. Identity Center will not hold two
+        # issuers for one URL, and an administrator who registered this pool earlier under another
+        # name would otherwise hit a duplicate they cannot see from here.
+        TTI=''
+        for ARN in $(aws sso-admin list-trusted-token-issuers --region "$REGION" \
+                       --instance-arn "$INSTANCE" \
+                       --query 'TrustedTokenIssuers[].TrustedTokenIssuerArn' --output text); do
+          URL=$(aws sso-admin describe-trusted-token-issuer --region "$REGION" \
+                  --trusted-token-issuer-arn "$ARN" \
+                  --query 'TrustedTokenIssuerConfiguration.OidcJwtConfiguration.IssuerUrl' \
+                  --output text 2>/dev/null || true)
+          [ "$URL" = "$ISSUER" ] && TTI="$ARN" && break
+        done
         if [ -z "$TTI" ] || [ "$TTI" = 'None' ]; then
           # email to emails.value: Identity Center allows the join key to be user name, email or
           # external id only, so the OIDC subject cannot be used however natural it would be.

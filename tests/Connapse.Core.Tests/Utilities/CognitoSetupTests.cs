@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Utilities;
@@ -147,7 +147,10 @@ public class CognitoSetupTests
     {
         // All six or nothing. A partial block saves settings that pass IsConfigured but cannot
         // complete a connection, which then fails later and somewhere else.
-        string partial = Block().Replace("clientSecret=client-secret\n", "");
+        // Filtered rather than string-replaced: the block is a raw literal, so its line
+        // endings are the source file's, and an exact "\n" match silently removes nothing.
+        string partial = string.Join("\n",
+            Block().Split('\n').Where(l => !l.Contains("clientSecret")));
 
         CognitoSetup.ParseResult(partial).Should().BeNull();
     }
@@ -187,4 +190,129 @@ public class CognitoSetupTests
     public void SanitisePrefix_TruncatesWithoutLeavingATrailingHyphen() =>
         CognitoSetup.SanitisePrefix("abcdefghijklmnopqrs-tuvwxyz")
             .Should().Be("abcdefghijklmnopqrs");
+
+    // ── Finding pools that already exist ─────────────────────────────
+
+    [Fact]
+    public void GenerateDiscoveryScript_OnlyReads()
+    {
+        // An administrator is being asked to run this before they have decided anything, so it
+        // must not be able to change their account.
+        string script = CognitoSetup.GenerateDiscoveryScript();
+
+        script.Should().Contain("list-user-pools");
+        script.Should().Contain("describe-user-pool");
+        script.Should().NotContain("create-");
+        script.Should().NotContain("put-");
+        script.Should().NotContain("delete-");
+    }
+
+    private static string PoolBlock(params string[] rows) =>
+        CognitoSetup.PoolsBeginMarker + "\n"
+        + string.Join("\n", rows) + "\n"
+        + CognitoSetup.PoolsEndMarker;
+
+    [Fact]
+    public void ParsePools_ReadsEachPool()
+    {
+        var pools = CognitoSetup.ParsePools(PoolBlock(
+            "pool=us-east-1_aaa\tWorkforce\tacme-login\temail",
+            "pool=us-east-1_bbb\tCustomers\t-\t-"));
+
+        pools.Should().HaveCount(2);
+
+        pools[0].PoolId.Should().Be("us-east-1_aaa");
+        pools[0].Name.Should().Be("Workforce");
+        pools[0].DomainPrefix.Should().Be("acme-login");
+        pools[0].VerifiesEmail.Should().BeTrue();
+        pools[0].IsUsable.Should().BeTrue();
+
+        pools[1].DomainPrefix.Should().BeNull();
+        pools[1].VerifiesEmail.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ParsePools_WithoutAVerifiedEmail_IsNotUsable()
+    {
+        // The trusted token issuer joins to an Identity Center user on the email claim. A pool that
+        // does not verify email cannot make that join, and saying so here beats finding out after
+        // the whole chain is wired up.
+        var pools = CognitoSetup.ParsePools(PoolBlock("pool=us-east-1_bbb\tCustomers\t-\t-"));
+
+        pools.Single().IsUsable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ParsePools_TakesTheLastBlock()
+    {
+        string pasted = PoolBlock("pool=us-east-1_old\tEchoed\t-\temail")
+                        + "\n" + PoolBlock("pool=us-east-1_new\tReal\t-\temail");
+
+        CognitoSetup.ParsePools(pasted).Single().Name.Should().Be("Real");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("no block here")]
+    public void ParsePools_WithNoBlock_IsEmpty(string? pasted) =>
+        CognitoSetup.ParsePools(pasted).Should().BeEmpty();
+
+    [Fact]
+    public void ParsePools_SkipsMalformedRows() =>
+        CognitoSetup.ParsePools(PoolBlock(
+            "pool=us-east-1_aaa\tGood\t-\temail",
+            "pool=",
+            "pool=us-east-1_ccc\ttoo few columns",
+            "not a pool line"))
+            .Should().ContainSingle().Which.PoolId.Should().Be("us-east-1_aaa");
+
+    // ── Adopting one ─────────────────────────────────────────────────
+
+    [Fact]
+    public void GenerateScript_AdoptingAPool_DoesNotCreateOne()
+    {
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest(Callback, Actor, ExistingPoolId: "us-east-1_aaa"));
+
+        script.Should().Contain("EXISTING_POOL='us-east-1_aaa'");
+        // The pool resource is conditional, and the condition is false when a pool is named.
+        script.Should().Contain("Condition: CreatePool");
+        script.Should().Contain("CreatePool: !Equals [ !Ref ExistingPoolId, '' ]");
+    }
+
+    [Fact]
+    public void GenerateScript_AdoptingAPool_AddsAClientRatherThanEditingOne()
+    {
+        // A pool holds many app clients. Changing an existing client's callback URLs would break
+        // whatever already signs in through it, which is the one thing adoption must not do.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest(Callback, Actor, ExistingPoolId: "us-east-1_aaa"));
+
+        script.Should().Contain("AWS::Cognito::UserPoolClient");
+        script.Should().NotContain("update-user-pool-client");
+    }
+
+    [Fact]
+    public void GenerateScript_AdoptingAPoolWithADomain_KeepsIt()
+    {
+        // The sign-in page belongs to the pool, not to Connapse. A second domain would change
+        // where that pool's other clients send people.
+        string script = CognitoSetup.GenerateScript(new CognitoSetupRequest(
+            Callback, Actor, ExistingPoolId: "us-east-1_aaa", ExistingDomainPrefix: "acme-login"));
+
+        script.Should().Contain("EXISTING_DOMAIN='acme-login'");
+        script.Should().Contain("CreateDomain: !Equals [ !Ref ExistingDomainPrefix, '' ]");
+    }
+
+    [Fact]
+    public void GenerateScript_FindsTheTrustedTokenIssuerByUrlNotName()
+    {
+        // Identity Center will not hold two issuers for one URL, so a pool registered earlier under
+        // a different name has to be found, or setup fails on a duplicate nobody can see from here.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        script.Should().Contain("describe-trusted-token-issuer");
+        script.Should().NotContain("TrustedTokenIssuers[?Name==");
+    }
 }
