@@ -374,4 +374,28 @@ public class CognitoSetupTests
 
         CognitoSetup.ParsePools(pasted).Should().BeEmpty();
     }
+
+    [Fact]
+    public void GenerateScript_SendsTheAuthenticationMethodAsJsonNotShorthand()
+    {
+        // Regression, found by running it. ActorPolicy is a document type, and the CLI rejects
+        // shorthand for those with "Shorthand syntax does not support document types" before the
+        // request reaches AWS. The script ran with set -e, so it stopped there — leaving an
+        // application with a grant and a scope but no authentication method, and the assignment
+        // configuration never applied.
+        string script = CognitoSetup.GenerateScript(Request());
+
+        script.Should().Contain("\"ActorPolicy\"");
+        script.Should().NotContain("Iam={ActorPolicy=");
+    }
+
+    [Fact]
+    public void GenerateScript_ChecksTheAuthenticationMethodTookEffect()
+    {
+        // Both remaining steps fail the whole chain at token exchange with a bare
+        // AccessDeniedException naming neither the call nor the reason, so the script confirms
+        // rather than assumes.
+        CognitoSetup.GenerateScript(Request())
+            .Should().Contain("list-application-authentication-methods");
+    }
 }

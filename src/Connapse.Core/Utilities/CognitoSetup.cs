@@ -215,12 +215,18 @@ public static class CognitoSetup
         string existingPool = request.ExistingPoolId?.Trim() ?? string.Empty;
         string existingDomain = request.ExistingDomainPrefix?.Trim() ?? string.Empty;
 
-        // Built out here rather than inline below. The CLI's shorthand for this one argument ends
-        // in two closing braces, and a raw interpolated string reads those as the end of an
-        // interpolation hole. $ACTOR and $APP_ARN are shell variables, not C# ones.
+        // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
+        // express one: the call fails with "Shorthand syntax does not support document types"
+        // before it reaches AWS. Written to a file rather than inlined because the shell would
+        // otherwise have to survive nested quotes inside an argument that already contains them.
+        //
+        // Built out here rather than inside the script literal because it ends in three closing
+        // braces, which a raw interpolated string reads as the end of an interpolation hole.
+        // $ACTOR and $APP_ARN are shell variables, not C# ones.
         const string authMethod =
-            "Iam={ActorPolicy={Version=2012-10-17,Statement=[{Effect=Allow,"
-            + "Principal={AWS=$ACTOR},Action=sso-oauth:CreateTokenWithIAM,Resource=$APP_ARN}]}}";
+            "{\"Iam\":{\"ActorPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":"
+            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"$ACTOR\"},"
+            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"$APP_ARN\"}]}}}";
 
         return $$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
@@ -435,9 +441,21 @@ public static class CognitoSetup
         aws sso-admin put-application-access-scope --region "$REGION" \
           --application-arn "$APP_ARN" --scope s3:access_grants:read_write
 
+        cat > /tmp/$STACK-auth.json <<JSON
+        {{authMethod}}
+        JSON
+
         aws sso-admin put-application-authentication-method --region "$REGION" \
           --application-arn "$APP_ARN" --authentication-method-type IAM \
-          --authentication-method '{{authMethod}}'
+          --authentication-method "file:///tmp/$STACK-auth.json"
+
+        # Read back rather than trusted. This call and the one below are the last two steps, and
+        # the whole chain fails at token exchange with a bare AccessDeniedException if either is
+        # missing — an error that names neither the call nor the reason.
+        aws sso-admin list-application-authentication-methods --region "$REGION" \
+          --application-arn "$APP_ARN" \
+          --query 'AuthenticationMethods[0].AuthenticationMethodType' --output text \
+          | grep -q IAM || { echo 'The authentication method did not take. Setup is incomplete.'; exit 1; }
 
         # Assignment is required by default with nobody assigned, and the token exchange then fails
         # with a bare AccessDeniedException naming neither the user nor the application. It is the
