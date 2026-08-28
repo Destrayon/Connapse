@@ -347,9 +347,11 @@
 
             <h2 class="h5" id="permissions">Per-user permissions</h2>
             <p class="text-muted small">
-                The Cognito user pool a person signs into to prove which AWS identity they are. This
-                is what makes their search results theirs, rather than everyone's. Once it is saved,
-                the connect button appears on their Profile page.
+                The Cognito user pool a person signs into to prove which AWS identity they are. Once
+                it is saved, the connect button appears on their Profile page.
+                <br />
+                Connecting does not scope anyone's results yet — search is not filtered by cloud
+                permissions (see issue #421). This is the half that has to exist first.
             </p>
 
             <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />

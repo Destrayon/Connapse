@@ -36,7 +36,8 @@ public class ProviderSetupReaderTests
         AwsProbe<IReadOnlyList<string>> buckets,
         ProviderCredentialInfo? stored = null,
         TimeSpan? sinceCreated = null,
-        IProviderCredentialStore? credentials = null)
+        IProviderCredentialStore? credentials = null,
+        CognitoSettings? cognito = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
@@ -54,6 +55,7 @@ public class ProviderSetupReaderTests
 
         return new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
+            Options.Create(cognito ?? new CognitoSettings()).AsMonitor(),
             discovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -292,6 +294,7 @@ public class ProviderSetupReaderTests
 
         var reader = new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
+            Options.Create(new CognitoSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
@@ -325,6 +328,83 @@ public class ProviderSetupReaderTests
         ]);
 
         setup.Overall.Should().Be(RequirementStatus.Provisioning);
+    }
+
+    // ── Per-user permissions ──────────────────────────────────────────
+
+    private static CognitoSettings ConfiguredPool() => new()
+    {
+        IssuerUrl = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123",
+        Domain = "https://pool.auth.us-east-1.amazoncognito.com",
+        ClientId = "client-id",
+        ClientSecret = "client-secret",
+        Region = "us-east-1"
+    };
+
+    private static async Task<ProviderRequirement> PermissionsAsync(ProviderSetupReader reader) =>
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Requirements.Single(r => r.Name == "Per-user permissions");
+
+    [Fact]
+    public async Task PerUserPermissions_WithNoPool_Warns()
+    {
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"));
+
+        var requirement = await PermissionsAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.ActionHref.Should().Be("#permissions");
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAPool_IsSatisfiedAndNamesIt()
+    {
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            cognito: ConfiguredPool());
+
+        var requirement = await PermissionsAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Satisfied);
+        requirement.Detail.Should().Be(ConfiguredPool().IssuerUrl);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithNoPool_StopsAwsClaimingItIsFullySetUp()
+    {
+        // The point of the requirement. Without it the provider list showed AWS as Ready while the
+        // page below it plainly had an unconfigured section on it.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"));
+
+        var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
+
+        aws.Requirements.Single(r => r.Name == "Access").Status
+            .Should().Be(RequirementStatus.Satisfied);
+        aws.Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAPool_LetsAwsBeReady()
+    {
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            cognito: ConfiguredPool());
+
+        var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
+
+        aws.Overall.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAHalfFilledPool_Warns()
+    {
+        // IsConfigured is the gate, not "somebody typed something". A pool missing its domain
+        // cannot complete a connection, and reporting it green would send the administrator to
+        // debug the Profile page instead of the field they left blank.
+        var half = ConfiguredPool();
+        half.Domain = string.Empty;
+
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"), cognito: half);
+
+        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.Warning);
     }
 }
 

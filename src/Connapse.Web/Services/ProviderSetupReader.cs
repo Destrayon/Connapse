@@ -15,6 +15,7 @@ namespace Connapse.Web.Services;
 /// </remarks>
 public class ProviderSetupReader(
     IOptionsMonitor<AzureAdSettings> azureAd,
+    IOptionsMonitor<CognitoSettings> cognito,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
@@ -41,6 +42,10 @@ public class ProviderSetupReader(
     /// </remarks>
     private const string SignInSection = "#signin";
 
+    /// <summary>The Cognito form's section on the AWS provider page.</summary>
+    /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
+    private const string PermissionsSection = "#permissions";
+
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
@@ -48,7 +53,7 @@ public class ProviderSetupReader(
         return
         [
             new ProviderSetup("aws", "AWS",
-                [await Access(ct)],
+                [await Access(ct), PerUserPermissions(cognito.CurrentValue)],
                 InUse: providers.Contains(ConnectionProvider.S3)),
 
             new ProviderSetup("azure", "Azure",
@@ -118,6 +123,39 @@ public class ProviderSetupReader(
             configured ? $"Tenant {settings.TenantId}" : null,
             configured ? "Change" : "Set up",
             SignInSection);
+    }
+
+    /// <summary>
+    /// Whether people can connect an AWS identity of their own.
+    /// </summary>
+    /// <remarks>
+    /// Reports on the pool being configured, not on filtering working. Those are different claims,
+    /// and only the first is this page's to make: search is not scoped by cloud permissions yet
+    /// (#421), so a requirement worded around results would be green while every user still sees
+    /// everything.
+    /// <para>
+    /// Warning rather than <see cref="RequirementStatus.NotConfigured"/> when it is unset, because
+    /// the status a provider shows is its weakest requirement. NotConfigured would summarise the
+    /// whole of AWS as unconfigured on an installation whose S3 syncing works perfectly, and an
+    /// installation that never wants per-user scoping has made a choice rather than left a job
+    /// half done. Warning says the accurate thing: AWS works, and nobody is scoped.
+    /// </para>
+    /// </remarks>
+    private static ProviderRequirement PerUserPermissions(CognitoSettings settings)
+    {
+        const string name = "Per-user permissions";
+        const string description =
+            "The Cognito user pool people connect their AWS identity through, so their results "
+            + "can be scoped to what that identity may read.";
+
+        if (!settings.IsConfigured)
+            return new ProviderRequirement(name, description,
+                RequirementStatus.Warning,
+                "Not set up, so nobody can connect an AWS identity.",
+                "Set up", PermissionsSection);
+
+        return new ProviderRequirement(name, description,
+            RequirementStatus.Satisfied, settings.IssuerUrl, "Change", PermissionsSection);
     }
 
     /// <summary>
