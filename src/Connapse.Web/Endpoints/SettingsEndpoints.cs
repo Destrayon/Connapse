@@ -52,6 +52,7 @@ public static class SettingsEndpoints
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "awssso" => Results.Ok(await GetSettingsAsync<AwsSsoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "azuread" => Results.Ok(await GetSettingsAsync<AzureAdSettings>(categoryLower, settingsStore, serviceProvider, ct)),
+                "cognito" => Results.Ok(await GetSettingsAsync<CognitoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 _ => Results.NotFound(new { error = $"Unknown settings category: {category}" })
             };
         })
@@ -104,6 +105,10 @@ public static class SettingsEndpoints
                     case "azuread":
                         var azureAd = JsonSerializer.Deserialize<AzureAdSettings>(rawJson, JsonOptions);
                         if (azureAd != null) await settingsStore.SaveAsync(categoryLower, azureAd, ct);
+                        break;
+                    case "cognito":
+                        var cognito = JsonSerializer.Deserialize<CognitoSettings>(rawJson, JsonOptions);
+                        if (cognito != null) await settingsStore.SaveAsync(categoryLower, cognito, ct);
                         break;
                     default:
                         return Results.NotFound(new { error = $"Unknown settings category: {category}" });

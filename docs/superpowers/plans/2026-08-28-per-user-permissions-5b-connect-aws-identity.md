@@ -699,7 +699,7 @@ Two endpoints mirroring the `/azure/connect` and `/azure/callback` pair that alr
 
 **Interfaces:**
 - Consumes: `CognitoSettings` (Task 1), `AwsIdentityLinkStore` (Task 3).
-- Produces: `GET /api/cloud-identity/cognito/connect` → 302 to the pool's authorize endpoint; `GET /api/cloud-identity/cognito/callback` → exchanges the code and stores the token.
+- Produces: `GET /api/v1/auth/cloud/cognito/connect` → 302 to the pool's authorize endpoint; `GET /api/v1/auth/cloud/cognito/callback` → exchanges the code and stores the token.
 
 - [ ] **Step 1: Read the Azure pair**
 
@@ -739,7 +739,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             AllowAutoRedirect = false,
         });
 
-        var response = await client.GetAsync("/api/cloud-identity/cognito/connect");
+        var response = await client.GetAsync("/api/v1/auth/cloud/cognito/connect");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.Redirect,
             "there is nowhere valid to redirect to");
@@ -755,7 +755,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             AllowAutoRedirect = false,
         });
 
-        var response = await client.GetAsync("/api/cloud-identity/cognito/callback?code=abc");
+        var response = await client.GetAsync("/api/v1/auth/cloud/cognito/callback?code=abc");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.OK);
     }
@@ -769,7 +769,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
         });
 
         var response = await client.GetAsync(
-            "/api/cloud-identity/cognito/callback?code=abc&state=not-a-state-we-issued");
+            "/api/v1/auth/cloud/cognito/callback?code=abc&state=not-a-state-we-issued");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.OK);
     }
@@ -992,7 +992,7 @@ Expected: FAIL — the markup contains none of it.
 In the Cloud Identities section of `src/Connapse.Web/Components/Pages/ProfileIntegrations.razor`, add a card beside the existing AWS and Azure ones. It shows one of three states:
 
 - **Not configured** — Cognito settings are absent. Say an administrator sets this up, and do not offer a button that cannot work.
-- **Not connected** — a Connect button that navigates to `/api/cloud-identity/cognito/connect`.
+- **Not connected** — a Connect button that navigates to `/api/v1/auth/cloud/cognito/connect`.
 - **Connected** — the email it is connected as, when, and a Disconnect button.
 
 **Disconnect must revoke, not just forget.** Deleting the local row leaves the refresh token valid at Cognito, so anything that already copied it keeps working — the link is gone from Connapse's point of view and alive from AWS's. Call the pool's `POST {Domain}/oauth2/revoke` with the token and the client credentials **before** deleting the row, and delete the row whether or not revocation succeeded: a user who clicks Disconnect must end up disconnected locally regardless of what AWS says.

@@ -38,6 +38,12 @@ public static class IdentityServiceExtensions
             options.UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Identity")));
 
+        // Factory for short-lived per-operation contexts (required for Blazor Server and background
+        // services to avoid concurrent DbContext access on the same scoped instance).
+        services.AddDbContextFactory<ConnapseIdentityDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Identity")), ServiceLifetime.Scoped);
+
         // Register ASP.NET Core Identity with API endpoint support
         services.AddIdentity<ConnapseUser, ConnapseRole>(options =>
             {
@@ -66,12 +72,15 @@ public static class IdentityServiceExtensions
         services.AddHttpClient<OAuthClientService>();
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
+        services.AddScoped<AwsIdentityLinkStore>();
+        services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
         services.Configure<AwsSsoSettings>(configuration.GetSection(AwsSsoSettings.SectionName));
+        services.Configure<CognitoSettings>(configuration.GetSection(CognitoSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);
