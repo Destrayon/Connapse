@@ -1,5 +1,7 @@
 # Per-user AWS search permissions — 5b-i, connecting an AWS identity
 
+> **Status: complete.** Delivered by [#434](https://github.com/Destrayon/Connapse/pull/434) and kept as the execution record for 5b-i. Do not run it again — the unchecked boxes below are how it was written, not work outstanding. The follow-on (5b-ii, keeping the link alive) gets its own plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A signed-in Connapse user can connect their AWS identity from the integrations page, and Connapse ends up holding an encrypted Cognito refresh token against that user — the durable thing every later permission resolution is built on.
@@ -44,7 +46,7 @@ Refreshing the stored token, the weekly touch job that stops idle expiry, and su
 
 ### Task 1: The pool's coordinates
 
-Connapse needs to know which Cognito pool to talk to before anything else can happen. This mirrors `AwsSsoSettings`, which is the closest existing shape.
+Connapse needs to know which Cognito pool to talk to before anything else can happen. This mirrors `AzureAdSettings`, which is the closest existing shape.
 
 **Files:**
 - Create: `src/Connapse.Core/Models/CognitoSettings.cs`
@@ -158,7 +160,7 @@ namespace Connapse.Core;
 /// account so that Connapse can prove which AWS identity a user is.
 /// </summary>
 /// <remarks>
-/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AwsSsoSettings"/>
+/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AzureAdSettings"/>
 /// and every other settings category: they are bound by the options system and edited by an admin
 /// form, both of which want settable properties.
 /// <para>
@@ -861,7 +863,7 @@ Settings reach `IOptionsMonitor<CognitoSettings>.CurrentValue` only if all three
 
 This is load-bearing and easy to miss. That dictionary's own comment says categories not listed default to `Knowledge:{category}`, so without this line a saved `"cognito"` category lands at `Knowledge:cognito` while `CognitoSettings.SectionName` reads `Identity:Cognito`. The two never meet, `CurrentValue` stays empty, and every symptom points at the endpoint rather than at a missing dictionary entry.
 
-**c. Expose read and write.** In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"awssso"` does at lines 53 and 101 — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`.
+**c. Expose read and write.** In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"azuread"` does — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`. (As written this said to copy the `"awssso"` arms; those were removed with the AWS device flow in [#435](https://github.com/Destrayon/Connapse/issues/435), and the `"cognito"` arms this step created are now the live example.)
 
 - [ ] **Step 5b: Prove the settings path end to end**
 
