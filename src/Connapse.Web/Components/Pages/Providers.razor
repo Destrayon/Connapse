@@ -377,130 +377,6 @@
                     grants</strong> — who may read what stays yours to decide, in AWS.
                 </p>
 
-                @* Adopting is offered first. An organisation that already runs a pool — with its
-                   users, its federation, its password policy — should not be handed a second one
-                   whose only distinction is that Connapse made it. *@
-                <div class="btn-group btn-group-sm mb-3" role="group">
-                    <button type="button"
-                            class="btn @(adoptPool ? "btn-primary" : "btn-outline-secondary")"
-                            @onclick="() => adoptPool = true">
-                        Use a pool I already have
-                    </button>
-                    <button type="button"
-                            class="btn @(adoptPool ? "btn-outline-secondary" : "btn-primary")"
-                            @onclick="() => adoptPool = false">
-                        Create a new one
-                    </button>
-                </div>
-
-                @* Additive, not either-or. Choosing a pool used to flip this whole region to the
-                   setup block in one render — the script, the paste box and the select the
-                   administrator had just used all vanished together and were replaced by different
-                   content of a different height. Nothing had moved for a reason they could see.
-                   Now the choosing stays put and the setup appears underneath it. *@
-                @if (adoptPool)
-                {
-                    @* Folded away once a pool is chosen, because from then on the page carries two
-                       scripts and only the second one is still to be run. A details element rather
-                       than a condition: the step collapses in place, visibly, and can be opened
-                       again — where removing it outright is the disappearing act that made
-                       selecting a pool feel like the page had jumped. *@
-                    <details class="mb-2" open="@(chosenPool is null)">
-                        <summary class="small">
-                            @(chosenPool is null
-                                ? "Run this first. It only reads — it lists the pools in your account so you can pick one."
-                                : "Command that listed your pools")
-                        </summary>
-
-                        <pre class="bg-body-tertiary border rounded p-2 small mb-2 mt-2" style="max-height:12rem;overflow:auto"><code>@CognitoSetup.GenerateDiscoveryScript()</code></pre>
-
-                        <div class="d-flex flex-wrap gap-2 mb-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    @onclick="CopyDiscoveryScript">
-                                <span class="bi-clipboard me-1"></span> Copy command
-                            </button>
-                            <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                               href="https://console.aws.amazon.com/cloudshell/home">
-                                <span class="bi-terminal me-1"></span> Open CloudShell
-                                <span class="bi-box-arrow-up-right ms-1 small"></span>
-                            </a>
-                        </div>
-
-                        <label class="form-label small mb-1">Paste the list it printed</label>
-                        <textarea class="form-control font-monospace" rows="4" @bind="pastedPools"
-                                  @bind:event="oninput"
-                                  placeholder="@CognitoSetup.PoolsBeginMarker&#10;pool=…&#10;@CognitoSetup.PoolsEndMarker"></textarea>
-                    </details>
-
-                    @if (!string.IsNullOrWhiteSpace(pastedPools))
-                    {
-                        var found = CognitoSetup.ParsePools(pastedPools);
-                        @if (found.Count == 0)
-                        {
-                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                                <span class="bi-exclamation-triangle me-1"></span>
-                                No pool list found yet. Copy everything the command printed, including
-                                both <code>-----</code> marker lines. If your account has no pools,
-                                choose <strong>Create a new one</strong> instead.
-                            </div>
-                        }
-                        else
-                        {
-                            @* A select, not a custom menu. This sits between a textarea above and a
-                               form below, and the button-plus-panel version read as a statistic in
-                               a box rather than as something to choose from. A native control also
-                               brings keyboard and screen-reader behaviour that a div does not.
-
-                               A pool that cannot be used is listed and disabled rather than hidden:
-                               "my pool is missing" is a worse thing to leave somebody with than
-                               "my pool is here and greyed out, and it says why". *@
-                            <label class="form-label small mb-1" for="cognito-pool">
-                                Pool to add Connapse to
-                            </label>
-                            <select id="cognito-pool" class="form-select" style="max-width: 28rem;"
-                                    value="@(chosenPool?.PoolId ?? string.Empty)"
-                                    @onchange="ChoosePool">
-                                <option value="">
-                                    @(found.Count == 1 ? "Choose the pool…" : $"Choose one of {found.Count} pools…")
-                                </option>
-                                @foreach (var pool in found)
-                                {
-                                    <option value="@pool.PoolId" disabled="@(!pool.IsUsable)">
-                                        @pool.Name — @pool.PoolId@(PoolNote(pool))
-                                    </option>
-                                }
-                            </select>
-
-                            @if (chosenPool is { DomainPrefix: null })
-                            {
-                                <div class="form-text">
-                                    No sign-in domain on this pool yet — setup will add one.
-                                </div>
-                            }
-
-                            @if (found.Any(p => !p.IsUsable))
-                            {
-                                @* The join to an Identity Center user is on the email claim, so a
-                                   pool that does not verify email cannot be matched to anybody. *@
-                                <div class="form-text">
-                                    Greyed-out pools do not verify email, so their users cannot be
-                                    matched to Identity Center.
-                                </div>
-                            }
-                        }
-                    }
-                }
-                @* Shown once there is something to set up: either a pool was picked, or the
-                   administrator chose to create one. The banner is gone — the select above already
-                   says which pool this is for, and repeating it was the page telling somebody
-                   something they were looking at. *@
-                @if (!adoptPool || chosenPool is { IsComplete: false })
-                {
-                    @if (adoptPool)
-                    {
-                        <hr class="my-3" />
-                    }
-
                 <ol class="small mb-2">
                     <li>
                         Download the template and read it. Nothing runs at this point.
@@ -578,13 +454,12 @@
                     }
                 }
 
-                    <div class="mt-3">
-                        <button type="button" class="btn btn-link btn-sm p-0"
-                                @onclick="() => showCognitoManual = !showCognitoManual">
-                            @(showCognitoManual ? "Hide the fields" : "Or fill the fields in by hand")
-                        </button>
-                    </div>
-                }
+                <div class="mt-3">
+                    <button type="button" class="btn btn-link btn-sm p-0"
+                            @onclick="() => showCognitoManual = !showCognitoManual">
+                        @(showCognitoManual ? "Hide the fields" : "Or fill the fields in by hand")
+                    </button>
+                </div>
             }
             else
             {
@@ -652,14 +527,7 @@
     private AzureAdSettings azureAdSettings = new();
     private CognitoSettings cognitoSettings = new();
     private string? pastedCognito;
-    private string? pastedPools;
     private bool showCognitoManual;
-
-    /// <summary>Whether to add Connapse to a pool that exists rather than create one.</summary>
-    private bool adoptPool = true;
-
-    /// <summary>The pool picked from the discovery list, or null while still choosing.</summary>
-    private CognitoPoolSummary? chosenPool;
 
     private string? cognitoCopyMessage;
     private bool cognitoCopySucceeded;
@@ -679,9 +547,7 @@
     /// </remarks>
     private CognitoSetupRequest CognitoRequest =>
         new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
-            AccessRequirement?.Detail ?? string.Empty,
-            ExistingPoolId: chosenPool?.PoolId,
-            ExistingDomainPrefix: chosenPool?.DomainPrefix);
+            AccessRequirement?.Detail ?? string.Empty);
 
     private string CognitoScript => CognitoSetup.GenerateScript(CognitoRequest);
 
@@ -757,52 +623,6 @@
             : "Could not download — check whether the browser blocked it.";
     }
 
-    /// <summary>What to say about a pool after its name, or nothing.</summary>
-    /// <remarks>
-    /// Whether choosing it finishes the job or starts one. Without this the two outcomes look
-    /// identical until after the click, and one of them saves settings.
-    /// </remarks>
-    private static string PoolNote(CognitoPoolSummary pool) => pool switch
-    {
-        { IsUsable: false } => "  (does not verify email)",
-        { IsComplete: true } => "  (already set up)",
-        _ => "  (needs setup)"
-    };
-
-    /// <summary>Resolves the selected pool id back to the pool it names.</summary>
-    /// <remarks>
-    /// Re-parsed from the pasted text rather than held in a field. The list is only ever as fresh
-    /// as that text, and keeping a second copy is a way for the two to disagree about which pools
-    /// exist.
-    /// </remarks>
-    private async Task ChoosePool(ChangeEventArgs e)
-    {
-        string? id = e.Value?.ToString();
-
-        chosenPool = string.IsNullOrEmpty(id)
-            ? null
-            : CognitoSetup.ParsePools(pastedPools).FirstOrDefault(p => p.PoolId == id);
-
-        // A pool the setup script has already finished with needs nothing further: discovery
-        // reported its client, that client's secret and the Identity Center application, which is
-        // everything stored. Showing a setup script for it would ask somebody to provision what
-        // they had just been shown already exists.
-        if (chosenPool is { IsComplete: true })
-            await SaveCognitoSetup(chosenPool.ToSettings());
-    }
-
-    private async Task CopyDiscoveryScript()
-    {
-        cognitoCopyMessage = null;
-
-        cognitoCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.copyToClipboard", CognitoSetup.GenerateDiscoveryScript());
-
-        cognitoCopyMessage = cognitoCopySucceeded
-            ? "Copied."
-            : "Could not copy — select the command above and copy it manually.";
-    }
-
     private async Task CopyCognitoScript()
     {
         cognitoCopyMessage = null;
@@ -833,8 +653,6 @@
         if (saveSuccess)
         {
             pastedCognito = null;
-            pastedPools = null;
-            chosenPool = null;
             showCognitoManual = false;
         }
     }
