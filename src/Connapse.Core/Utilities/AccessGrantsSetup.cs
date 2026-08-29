@@ -1,18 +1,4 @@
-namespace Connapse.Core.Utilities;
-
-/// <summary>What the setup script needs to know before it can be written.</summary>
-/// <param name="NamePrefix">Prefix for every created resource, so they are obvious and findable.</param>
-/// <param name="Region">
-/// Where the Identity Center instance was found, which is where everything else must be created.
-/// Null falls back to the CloudShell session's own region.
-/// <para>
-/// Worth passing whenever it is known. Identity Center lives in exactly one region per
-/// organisation, and CloudShell opens in whichever region the console was last on — so the default
-/// is right by coincidence rather than by construction, and being wrong reads as having no instance
-/// at all rather than as looking in the wrong place.
-/// </para>
-/// </param>
-public record AccessGrantsSetupRequest(string? NamePrefix = null, string? Region = null);
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>
 /// Builds the command that creates the S3 Access Grants side of per-user permissions.
@@ -41,20 +27,12 @@ public record AccessGrantsSetupRequest(string? NamePrefix = null, string? Region
 /// </remarks>
 public static class AccessGrantsSetup
 {
-    /// <summary>Default prefix for created resources.</summary>
-    public const string DefaultNamePrefix = "connapse";
-
-    /// <summary>The permissions the script itself needs, for the page to state up front.</summary>
+    /// <summary>Prefix for every created resource, so they are obvious and findable.</summary>
     /// <remarks>
-    /// These are the administrator's own permissions, used once. Connapse never holds any of them —
-    /// its own policy stays read-only.
+    /// A constant rather than a parameter. It was configurable, and nothing ever configured it —
+    /// the page had no field for it, so the only value it ever held was this one.
     /// </remarks>
-    public static readonly IReadOnlyList<string> RequiredPermissions =
-    [
-        "cloudformation:*", "sso:ListInstances",
-        "s3:CreateAccessGrantsInstance", "s3:CreateAccessGrantsLocation",
-        "iam:CreateRole", "iam:PutRolePolicy", "iam:PassRole"
-    ];
+    public const string NamePrefix = "connapse";
 
     /// <summary>The CloudFormation template, for the administrator to read and upload.</summary>
     /// <remarks>
@@ -112,18 +90,19 @@ public static class AccessGrantsSetup
         """;
 
     /// <summary>The command to paste into AWS CloudShell.</summary>
+    /// <param name="region">
+    /// Where the Identity Center instance was found, which is where everything else must be
+    /// created.
+    /// </param>
     /// <remarks>
     /// Ordered so that nothing is created before the account has been checked. With an organization
     /// instance the Identity Center read only works from the management or delegated-admin account,
     /// and a script that discovers that at the last step has already left an Access Grants location
     /// behind that nobody asked for.
     /// </remarks>
-    public static string GenerateScript(AccessGrantsSetupRequest request)
+    public static string GenerateScript(string? region)
     {
-        ArgumentNullException.ThrowIfNull(request);
-
-        string prefix = SanitisePrefix(request.NamePrefix);
-        string region = request.Region?.Trim() ?? string.Empty;
+        string pinnedRegion = region?.Trim() ?? string.Empty;
 
         return FlattenContinuations($$"""
         # Sets up the S3 Access Grants side of per-user permissions for Connapse. Creates, in your
@@ -136,14 +115,15 @@ public static class AccessGrantsSetup
         # Set by any check below that fails, so a half-finished run says so rather than looking
         # like a clean one.
         FAILED=""
-        PREFIX='{{prefix}}'
+        PREFIX='{{NamePrefix}}'
         STACK="$PREFIX-permissions"
 
-        # Pinned to where Connapse found the Identity Center instance, when it has. Falling back
-        # to the session's region is a guess: CloudShell opens wherever the console last was.
-        REGION="{{region}}"
-        [ -n "$REGION" ] || REGION="${AWS_REGION:-$(aws configure get region)}"
-        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; FAILED=1; }
+        # Pinned to where Connapse found the Identity Center instance. There is deliberately no
+        # fallback to the session's region: CloudShell opens wherever the console was last used, and
+        # deploying there rather than failing is the exact mistake the discovery step exists to
+        # prevent — Identity Center lives in one region, and the wrong one reads as no instance.
+        REGION="{{pinnedRegion}}"
+        [ -n "$REGION" ] || { echo 'No region. Locate your Identity Center instance first.'; FAILED=1; }
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
         # Checked before anything is created. A missing instance, or the right instance seen from
@@ -198,17 +178,4 @@ public static class AccessGrantsSetup
     /// </remarks>
     private static string FlattenContinuations(string script) =>
         script.Replace(" \\\n", " ").Replace(" \\\r\n", " ");
-
-    /// <summary>Keeps a prefix to what AWS resource names allow.</summary>
-    public static string SanitisePrefix(string? prefix)
-    {
-        if (string.IsNullOrWhiteSpace(prefix))
-            return DefaultNamePrefix;
-
-        string cleaned = new(prefix.Trim().ToLowerInvariant()
-            .Where(c => char.IsAsciiLetterOrDigit(c) || c == '-').ToArray());
-
-        cleaned = cleaned.Trim('-');
-        return cleaned.Length == 0 ? DefaultNamePrefix : cleaned[..Math.Min(cleaned.Length, 32)];
-    }
 }

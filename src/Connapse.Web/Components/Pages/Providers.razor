@@ -775,16 +775,9 @@
     private SamlSignInSettings? SamlSignIn =>
         samlSettings.IsConfigured ? samlSettings : null;
 
-    /// <summary>
-    /// The script, pinned to the region the Identity Center instance was found in.
-    /// </summary>
-    /// <remarks>
-    /// It creates only Access Grants resources and reads nothing back. There is no settings block
-    /// to paste in return: the values that travel back are copied out of the SAML application in
-    /// the console, which no script can create.
-    /// </remarks>
-    private AccessGrantsSetupRequest AccessGrantsRequest =>
-        new(Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
+    /// <summary>The region the Identity Center instance was found in, which pins the script.</summary>
+    private string? SetupRegion =>
+        IdentityCentre is { IsConfigured: true } idc ? idc.Region : null;
 
 
     private string? pastedIdentityCenter;
@@ -893,7 +886,7 @@
     /// <summary>The audience the application must claim. Null for the same reason.</summary>
     private string? SamlAudience => SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
 
-    private string AccessGrantsScript => AccessGrantsSetup.GenerateScript(AccessGrantsRequest);
+    private string AccessGrantsScript => AccessGrantsSetup.GenerateScript(SetupRegion);
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
