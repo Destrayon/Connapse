@@ -607,11 +607,12 @@
                     }
                 }
 
-                @* Only once a pool exists. This cannot be done on a first run — the Identity
-                   Center application needs the pool's domain and id, and neither exists yet — so
-                   before then the field could say nothing but "leave this empty", which is a
-                   question with one answer taking up room next to a step somebody is mid-way
-                   through. It appears on the second pass, when it is answerable. *@
+                @* Only once a pool exists, and it genuinely cannot come earlier. The SAML
+                   application needs an audience of urn:amazon:cognito:sp:{poolId}, and Cognito
+                   generates that id when it creates the pool — so unlike the ACS URL, whose domain
+                   this script derives from the account and region, it cannot be known in advance by
+                   anybody. Before the first run this field could say nothing but "leave this
+                   empty". It appears on the second pass, when it is answerable. *@
                 @if (SamlAcsUrl is not null)
                 {
                 <div class="border rounded p-2 mb-2 bg-body-tertiary">
@@ -624,6 +625,10 @@
                         their pool account is created for them the first time. That directory is
                         also what their permissions are read from, so this is what makes a sign-in
                         mean anything.
+                        <br />
+                        It could not be done in one pass: the application below needs an audience
+                        built from this pool's id, and Cognito only generates that id once the pool
+                        exists.
                     </p>
 
                     <ol class="form-text mt-0 mb-2 ps-3">
@@ -643,9 +648,18 @@
                             sign-in to one person; without it people sign in and match nobody.
                         </li>
                         <li>Assign yourself, and anyone else who should have access, to it.</li>
+                        <li>Copy its <strong>metadata URL</strong> into the box below.</li>
                         <li>
-                            Copy its <strong>metadata URL</strong> into the box below, then run the
-                            command again — it is safe to re-run.
+                            Copy the setup command again with the button under that box, and run it
+                            in CloudShell. It has to be copied again rather than re-run from your
+                            terminal history: the command carries the metadata URL, so the one you
+                            ran the first time still has an empty one and would change nothing.
+                            Re-running is safe — CloudFormation updates the stack it already made.
+                        </li>
+                        <li>
+                            Paste what it prints into <strong>Paste what it printed</strong> above,
+                            as before. That is what records the connection here; without it the
+                            pool federates in AWS and Connapse still shows this step unfinished.
                         </li>
                     </ol>
 
@@ -659,6 +673,21 @@
                     <input id="idp-metadata" class="form-control form-control-sm" type="url"
                            placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
                            @bind="idpMetadataUrl" @bind:event="oninput" />
+
+                    <div class="d-flex flex-wrap gap-2 mt-2 mb-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="CopyCognitoScript">
+                            <span class="bi-clipboard me-1"></span> Copy command with this URL
+                        </button>
+                        <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                           href="https://console.aws.amazon.com/cloudshell/home">
+                            <span class="bi-terminal me-1"></span> Open CloudShell
+                            <span class="bi-box-arrow-up-right ms-1 small"></span>
+                        </a>
+                        <span class="align-self-center small @(cognitoCopySucceeded ? "text-success" : "text-danger")">
+                            @cognitoCopyMessage
+                        </span>
+                    </div>
                     <div class="form-text">
                         Until this is set, connecting is not offered on anyone's profile: a pool that
                         federates nowhere holds only accounts made by hand, and each of those needs a
