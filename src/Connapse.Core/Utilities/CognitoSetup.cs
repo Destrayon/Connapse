@@ -108,6 +108,13 @@ public static class CognitoSetup
             Type: AWS::Cognito::UserPool
             Properties:
               UserPoolName: !Sub '${Prefix}-pool'
+              # Managed login — the modern sign-in page set below — is only served on the
+              # Essentials and Plus plans; the Lite plan can serve the classic hosted UI and
+              # nothing else. Essentials is already the default for a new pool, so naming it here
+              # costs nothing extra. It is written down so the branding version below cannot end up
+              # silently ignored, which is how this fails: the pool still works and just serves the
+              # old page.
+              UserPoolTier: ESSENTIALS
               # Admin-created only, and email verified. The trusted token issuer matches this pool's
               # email claim against an Identity Center user, so an unverified address that happened
               # to match would be an identity confusion rather than a sign-in problem.
@@ -123,6 +130,9 @@ public static class CognitoSetup
             Properties:
               Domain: !Ref DomainPrefix
               UserPoolId: !Ref Pool
+              # Version 1 is the classic hosted UI, version 2 is managed login. This is set on the
+              # domain rather than the client, so it applies to every app client served here.
+              ManagedLoginVersion: 2
           Idp:
             Type: AWS::Cognito::UserPoolIdentityProvider
             Condition: Federated
@@ -146,6 +156,22 @@ public static class CognitoSetup
                 - Federated
                 - [ Workforce ]
                 - [ COGNITO ]
+          # Despite the resource name, this applies no branding of ours. UseCognitoProvidedValues
+          # means "use Cognito's own default style" and the property requires that Settings and
+          # Assets be omitted entirely, so there is nowhere for a Connapse logo or colour to be put
+          # even by accident. The sign-in page stays plain AWS.
+          #
+          # It cannot simply be left out. Creating an app client in the console attaches a style to
+          # it automatically; creating one any other way — CloudFormation included — does not, and
+          # AWS will not serve managed login to a client with no style record. Omit this and the
+          # two settings above are still accepted, the stack still reaches CREATE_COMPLETE, and
+          # sign-in still serves the old classic page with nothing anywhere reporting a problem.
+          LoginStyle:
+            Type: AWS::Cognito::ManagedLoginBranding
+            Properties:
+              UserPoolId: !Ref Pool
+              ClientId: !Ref Client
+              UseCognitoProvidedValues: true
           Application:
             Type: AWS::SSO::Application
             Properties:

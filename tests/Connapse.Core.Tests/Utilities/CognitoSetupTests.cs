@@ -250,6 +250,39 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
+    {
+        // All three are needed together and none of them reports its own absence. The tier gates
+        // whether managed login can be served at all, the domain version selects it, and without a
+        // style record AWS refuses it to this client specifically — see the test below.
+        string template = CognitoSetup.GenerateTemplate();
+
+        template.Should().Contain("UserPoolTier: ESSENTIALS",
+            "the Lite plan can only serve the classic hosted UI");
+        template.Should().Contain("ManagedLoginVersion: 2",
+            "version 1 is the classic hosted UI");
+        template.Should().Contain("AWS::Cognito::ManagedLoginBranding");
+    }
+
+    [Fact]
+    public void GenerateTemplate_TakesAwsDefaultStylingAndAppliesNoBrandingOfOurs()
+    {
+        // The style record exists only because AWS attaches one automatically to a console-created
+        // app client and to nothing else, so a CloudFormation-created client without it silently
+        // falls back to the old page. It must stay AWS's own default look: this is an AWS
+        // integration, and the sign-in page is AWS's, not Connapse's.
+        //
+        // UseCognitoProvidedValues also requires Settings and Assets to be absent, so a later edit
+        // that adds a logo or a colour would break the stack rather than quietly restyle the page.
+        // Assert their absence anyway, because that is the intent rather than a side effect.
+        string template = CognitoSetup.GenerateTemplate();
+
+        template.Should().Contain("UseCognitoProvidedValues: true");
+        template.Should().NotContain("Assets:", "supplying assets would mean branding of our own");
+        template.Should().NotContain("Settings:", "supplying settings would mean styling of our own");
+    }
+
+    [Fact]
     public void GenerateTemplate_CreatesNoAccessGrant()
     {
         // The constraint moved here with the resources. Instance, location and role are
