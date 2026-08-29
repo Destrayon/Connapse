@@ -1,35 +1,22 @@
-﻿using Connapse.Identity.Data;
+using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Connapse.Identity.Services;
 
 /// <summary>
-/// Reads and writes a user's connected AWS identity, and is the only code that sees the refresh
-/// token in plaintext.
+/// Reads and writes which IAM Identity Center user a Connapse user signed in as.
 /// </summary>
 /// <remarks>
-/// Encryption uses the Data Protection key ring already configured in <c>Program.cs</c>, which is
-/// persisted to the <c>appdata</c> volume — so a stored token survives a container restart. It is
-/// worth knowing what that does and does not buy: the ring is not itself encrypted at rest, so this
-/// protects a token against someone reading the database, not against someone with the volume.
-/// <para>
-/// The purpose string is deliberately specific. Data Protection derives a distinct key from it, so
-/// a payload protected here cannot be unprotected by any other part of the application even though
-/// they share a key ring.
-/// </para>
+/// Holds no secret, which is why there is no Data Protection here any more. The row records an
+/// identity IAM Identity Center attested, and permissions are read later with Connapse's own IAM
+/// identity — so there is nothing to encrypt, nothing to rotate, and nothing that expires.
 /// </remarks>
 public sealed class AwsIdentityLinkStore(
     IDbContextFactory<ConnapseIdentityDbContext> factory,
-    IDataProtectionProvider protectionProvider,
     TimeProvider timeProvider)
 {
-    private const string Purpose = "Connapse.AwsIdentityLink.RefreshToken.v1";
-
-    private IDataProtector Protector => protectionProvider.CreateProtector(Purpose);
-
     /// <summary>Stores a user's link, replacing any existing one.</summary>
     /// <remarks>
     /// The read-then-write below is not itself atomic — two concurrent connects for the same user
@@ -41,15 +28,16 @@ public sealed class AwsIdentityLinkStore(
     /// </remarks>
     public async Task SaveAsync(
         Guid userId,
+        string directoryUserId,
         string directoryUserName,
         string? email,
-        string refreshToken,
         CancellationToken ct = default)
     {
-        // The user name is the join key, so a blank one is a link that cannot resolve. The email is
-        // display data and legitimately absent, which is why only one of the two is guarded.
+        // The identity store id is the join key and the user name is what an administrator
+        // recognises, so both are required. The email is display data and legitimately absent,
+        // which is why it is the only one not guarded.
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryUserId);
         ArgumentException.ThrowIfNullOrWhiteSpace(directoryUserName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
 
         await using var db = await factory.CreateDbContextAsync(ct);
 
@@ -64,9 +52,9 @@ public sealed class AwsIdentityLinkStore(
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
+                DirectoryUserId = directoryUserId,
                 DirectoryUserName = directoryUserName,
                 Email = email ?? string.Empty,
-                ProtectedRefreshToken = Protector.Protect(refreshToken),
                 ConnectedAt = timeProvider.GetUtcNow().UtcDateTime,
             };
             db.UserAwsIdentityLinks.Add(candidate);
@@ -88,9 +76,9 @@ public sealed class AwsIdentityLinkStore(
             }
         }
 
+        existing.DirectoryUserId = directoryUserId;
         existing.DirectoryUserName = directoryUserName;
         existing.Email = email ?? string.Empty;
-        existing.ProtectedRefreshToken = Protector.Protect(refreshToken);
         existing.ConnectedAt = timeProvider.GetUtcNow().UtcDateTime;
         existing.LastUsedAt = null;
 
@@ -100,52 +88,13 @@ public sealed class AwsIdentityLinkStore(
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
 
-    /// <summary>The link's metadata, or null when the user has not connected one.</summary>
+    /// <summary>The link, or null when the user has not connected one.</summary>
     public async Task<UserAwsIdentityLinkEntity?> GetAsync(Guid userId, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await db.UserAwsIdentityLinks
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.UserId == userId, ct);
-    }
-
-    /// <summary>The plaintext refresh token, or null when there is no usable link.</summary>
-    /// <remarks>
-    /// Returns null rather than throwing when the stored payload cannot be unprotected. That
-    /// happens for one real reason — the key ring was lost or rotated beyond its retention — and a
-    /// caller cannot do anything about it except treat the link as absent and ask the user to
-    /// reconnect, which is exactly what null already means here.
-    /// <para>
-    /// Collapsing "no link" and "link present but unreadable" into the same null is fine for a
-    /// caller that only wants a usable token. A caller that must tell those two apart — a revoke
-    /// path needs to know whether it is skipping a real live token — should call <see cref="GetAsync"/>
-    /// once and pass the result to <see cref="TryUnprotectToken"/> instead, so the distinction is not
-    /// lost and no second round trip is needed to make it.
-    /// </para>
-    /// </remarks>
-    public async Task<string?> GetRefreshTokenAsync(Guid userId, CancellationToken ct = default)
-    {
-        var link = await GetAsync(userId, ct);
-        return link is null ? null : TryUnprotectToken(link);
-    }
-
-    /// <summary>
-    /// Unprotects the token on an already-fetched link (from <see cref="GetAsync"/>), with no DB
-    /// access of its own. Null means the row exists but its token could not be decrypted — the
-    /// key-ring-lost-or-rotated case described on <see cref="GetRefreshTokenAsync"/>.
-    /// </summary>
-    public string? TryUnprotectToken(UserAwsIdentityLinkEntity link)
-    {
-        ArgumentNullException.ThrowIfNull(link);
-
-        try
-        {
-            return Protector.Unprotect(link.ProtectedRefreshToken);
-        }
-        catch (System.Security.Cryptography.CryptographicException)
-        {
-            return null;
-        }
     }
 
     /// <summary>Removes a user's link. False when there was nothing to remove.</summary>
@@ -164,28 +113,26 @@ public sealed class AwsIdentityLinkStore(
     }
 
     /// <summary>
-    /// Removes a user's link only if its <see cref="UserAwsIdentityLinkEntity.ProtectedRefreshToken"/>
-    /// still matches <paramref name="expectedProtectedRefreshToken"/>. False, and the row left
-    /// untouched, when there is no row or when the token no longer matches.
+    /// Removes a user's link only if it is still the one the caller read, identified by
+    /// <paramref name="expectedConnectedAt"/>. False, and the row left untouched, otherwise.
     /// </summary>
     /// <remarks>
-    /// For a caller (a disconnect) that read the link, revoked its token elsewhere, and must now
-    /// delete exactly that row and no other. An <c>Id</c> comparison would not be enough: a
-    /// reconnect that raced the disconnect runs <see cref="SaveAsync"/>, which updates the
-    /// existing row in place and keeps its <c>Id</c> — so a plain <c>DeleteAsync(userId)</c>
-    /// between the read and this call would remove the new link while its refresh token stays live
-    /// at the provider, which is exactly the outcome a disconnect exists to prevent. The protected
-    /// token value changes on every <see cref="SaveAsync"/>, so a match here proves the row is
-    /// still the one the caller revoked.
+    /// For a disconnect that read the link, did some work, and must now delete exactly that row and
+    /// no other. An <c>Id</c> comparison would not be enough: a reconnect that raced the disconnect
+    /// runs <see cref="SaveAsync"/>, which updates the existing row in place and keeps its
+    /// <c>Id</c> — so a plain <see cref="DeleteAsync(Guid, CancellationToken)"/> between the read
+    /// and this call would silently throw away the link the user had just re-established.
+    /// <c>ConnectedAt</c> is rewritten by every save, so a match here proves the row is still the
+    /// one that was read.
     /// </remarks>
     public async Task<bool> DeleteAsync(
-        Guid userId, string expectedProtectedRefreshToken, CancellationToken ct = default)
+        Guid userId, DateTime expectedConnectedAt, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
 
         var existing = await db.UserAwsIdentityLinks
             .SingleOrDefaultAsync(x => x.UserId == userId, ct);
-        if (existing is null || existing.ProtectedRefreshToken != expectedProtectedRefreshToken)
+        if (existing is null || existing.ConnectedAt != expectedConnectedAt)
             return false;
 
         db.UserAwsIdentityLinks.Remove(existing);

@@ -367,8 +367,8 @@
             var result = await AwsIdentityLinkService.DisconnectAsync(currentUserId);
             if (result.LinkChangedDuringDisconnect)
             {
-                // A reconnect raced this disconnect: the token was revoked, but the row was left
-                // in place because it had already been replaced by the time the delete ran.
+                // A reconnect raced this disconnect: the row was left in place because it had
+                // already been replaced by the time the delete ran.
                 // Reload so the card reflects whatever is actually connected now.
                 statusMessage = "Your AWS identity changed while disconnecting. Please try again.";
                 statusSuccess = false;
@@ -376,18 +376,11 @@
             }
             else if (result.Deleted)
             {
-                if (result.RevokedSuccessfully)
-                {
-                    statusMessage = "AWS identity disconnected.";
-                    statusSuccess = true;
-                }
-                else
-                {
-                    // Never claim a clean success here: the row is gone locally, but the refresh
-                    // token may still be valid at AWS until it expires on its own.
-                    statusMessage = "Disconnected here, but AWS could not be told; the token stays valid until it expires.";
-                    statusSuccess = false;
-                }
+                // Nothing to qualify. The link held an attested identity rather than a credential,
+                // so removing the row is the whole of disconnecting — there is nothing left live
+                // at AWS to warn about.
+                statusMessage = "AWS identity disconnected.";
+                statusSuccess = true;
                 await LoadIdentitiesAsync();
             }
             else

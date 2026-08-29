@@ -51,12 +51,16 @@ public record CognitoSetupResult(
 /// credentials already are so none are ever pasted into Connapse, and answered with a delimited
 /// block rather than a dozen fields copied by eye.
 /// <para>
-/// Two artifacts, because the AWS surface is split and because only one of them is reviewable by
-/// reading it. A CloudFormation template covers the
-/// Cognito pool, the Identity Center application and the Access Grants instance; four
-/// <c>sso-admin</c> calls follow it because the trusted token issuer, the application's grant, its
-/// access scope and its authentication method have no CloudFormation resource type and never have.
-/// See <c>docs/research/cognito-setup-automation-2026-08-28.md</c>.
+/// A CloudFormation template rather than a shell script, because only the first is reviewable by
+/// reading it: a template declares what will exist, and CloudFormation lists it and asks for
+/// acknowledgement before creating IAM resources. It covers the Cognito pool and the Access Grants
+/// instance.
+/// <para>
+/// The <c>sso-admin</c> calls that used to follow it are gone with the token exchange. They created
+/// a trusted token issuer, an application, its grant, its access scope and its authentication
+/// method — all of which existed so Connapse could exchange a Cognito token for an identity
+/// context, which it no longer does. See
+/// <c>docs/research/aws-scoped-delegated-access-2026-08-29.md</c>.
 /// </para>
 /// <para>
 /// <b>It creates no grant.</b> The Access Grants instance, its location and that location's role are
@@ -222,14 +226,6 @@ public static class CognitoSetup
               UserPoolId: !Ref Pool
               ClientId: !Ref Client
               UseCognitoProvidedValues: true
-          Application:
-            Type: AWS::SSO::Application
-            Properties:
-              Name: !Sub '${Prefix}-search'
-              Description: Per-user search permissions for Connapse
-              InstanceArn: !Ref InstanceArn
-              ApplicationProviderArn: arn:aws:sso::aws:applicationProvider/custom
-              Status: ENABLED
           # Registers s3:// so grants may be written anywhere. Registering a location is not
           # granting access to it; it is declaring which data Access Grants may govern.
           LocationRole:
@@ -272,7 +268,6 @@ public static class CognitoSetup
         Outputs:
           PoolId: { Value: !Ref Pool }
           ClientId: { Value: !Ref Client }
-          ApplicationArn: { Value: !GetAtt Application.ApplicationArn }
         """;
 
     /// <summary>
@@ -294,28 +289,9 @@ public static class CognitoSetup
         string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
         string region = request.Region?.Trim() ?? string.Empty;
 
-        // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
-        // express one: the call fails with "Shorthand syntax does not support document types"
-        // before it ever reaches AWS.
-        //
-        // A printf format rather than a heredoc into a temp file. The file version worked on
-        // Linux and failed everywhere else, because file:// takes a literal path that nothing
-        // translates — and a setup script has no business caring which shell it is read in.
-        // printf's %s placeholders also keep the quoting flat: no nested double quotes inside an
-        // argument that is itself double-quoted.
-        //
-        // Built out here rather than inside the script literal because it ends in three closing
-        // braces, which a raw interpolated string reads as the end of an interpolation hole.
-        const string authMethodFormat =
-            "{\"Iam\":{\"ActorPolicy\":{\"Version\":\"2012-10-17\",\"Statement\":"
-            + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
-            + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
-
         return FlattenContinuations($$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
         #   a Cognito user pool, its domain and one app client
-        #   an IAM Identity Center application, plus its trusted token issuer, grant,
-        #     access scope and authentication method
         #   an S3 Access Grants instance, one location covering s3://, and that location's role
         #
         # It creates NO access grants. Who may read what stays yours to decide, in AWS.
@@ -326,7 +302,6 @@ public static class CognitoSetup
         FAILED=""
         PREFIX='{{prefix}}'
         CALLBACK='{{request.CallbackUrl}}'
-        ACTOR='{{request.ActorArn}}'
         IDP_METADATA='{{idp}}'
         STACK="$PREFIX-cognito"
 
@@ -377,7 +352,7 @@ public static class CognitoSetup
 
         out() { aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
                   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
-        POOL_ID=$(out PoolId); CLIENT_ID=$(out ClientId); APP_ARN=$(out ApplicationArn)
+        POOL_ID=$(out PoolId); CLIENT_ID=$(out ClientId)
 
         # The stack can be "up to date" and still describe a pool that no longer exists: deleting
         # one in the console does not tell CloudFormation, and deploy reports no changes because
@@ -391,17 +366,6 @@ public static class CognitoSetup
           FAILED=1
         }
 
-        # The same drift, on the other resource the stack reports. Deleting an Identity Center
-        # application does not tell CloudFormation, so the stack goes on naming one that is gone and
-        # every sso-admin call below fails with ResourceNotFoundException quoting an ARN the stack
-        # itself supplied.
-        aws sso-admin describe-application --region "$REGION" --application-arn "$APP_ARN" >/dev/null 2>&1 || {
-          echo "Stack $STACK refers to application $APP_ARN, which no longer exists."
-          echo "Something removed it outside CloudFormation. Delete the stack and run this again:"
-          echo "  aws cloudformation delete-stack --region $REGION --stack-name $STACK"
-          FAILED=1
-        }
-
         ISSUER="https://cognito-idp.$REGION.amazonaws.com/$POOL_ID"
         DOMAIN="https://$DOMAIN_PREFIX.auth.$REGION.amazoncognito.com"
 
@@ -409,79 +373,6 @@ public static class CognitoSetup
         SECRET=$(aws cognito-idp describe-user-pool-client --region "$REGION" \
                    --user-pool-id "$POOL_ID" --client-id "$CLIENT_ID" \
                    --query 'UserPoolClient.ClientSecret' --output text)
-
-        # ---- The four calls with no CloudFormation resource type ----
-
-        # Matched on the issuer URL rather than on the name. Identity Center will not hold two
-        # issuers for one URL, and an administrator who registered this pool earlier under another
-        # name would otherwise hit a duplicate they cannot see from here.
-        TTI=''
-        for ARN in $(aws sso-admin list-trusted-token-issuers --region "$REGION" \
-                       --instance-arn "$INSTANCE" \
-                       --query 'TrustedTokenIssuers[].TrustedTokenIssuerArn' --output text); do
-          NAME=$(aws sso-admin describe-trusted-token-issuer --region "$REGION" \
-                   --trusted-token-issuer-arn "$ARN" --query 'Name' --output text 2>/dev/null || true)
-          URL=$(aws sso-admin describe-trusted-token-issuer --region "$REGION" \
-                  --trusted-token-issuer-arn "$ARN" \
-                  --query 'TrustedTokenIssuerConfiguration.OidcJwtConfiguration.IssuerUrl' \
-                  --output text 2>/dev/null || true)
-          [ "$URL" = "$ISSUER" ] && TTI="$ARN" && break
-
-          # An issuer of ours whose pool has been deleted can never authenticate anybody, and
-          # nothing else will ever remove it: it is not in the stack, so deleting the stack leaves
-          # it behind. Without this, every delete-and-recreate cycle leaves one more.
-          #
-          # Narrowed to our own name deliberately. Matching on the URL alone would also match a
-          # pool in another account, where describe-user-pool fails for want of permission rather
-          # than because the pool is gone — and that would delete somebody else's working issuer.
-          if [ "$NAME" = "$PREFIX" ]; then
-            OLD_POOL=${URL##*/}
-            aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$OLD_POOL" \
-              >/dev/null 2>&1 || {
-              echo "Removing a leftover trusted token issuer for deleted pool $OLD_POOL."
-              aws sso-admin delete-trusted-token-issuer --region "$REGION" \
-                --trusted-token-issuer-arn "$ARN" >/dev/null 2>&1 || true
-            }
-          fi
-        done
-        if [ -z "$TTI" ] || [ "$TTI" = 'None' ]; then
-          # email to emails.value: Identity Center allows the join key to be user name, email or
-          # external id only, so the OIDC subject cannot be used however natural it would be.
-          TTI=$(aws sso-admin create-trusted-token-issuer --region "$REGION" \
-                  --instance-arn "$INSTANCE" --name "$PREFIX" \
-                  --trusted-token-issuer-type OIDC_JWT \
-                  --trusted-token-issuer-configuration \
-                    "OidcJwtConfiguration={IssuerUrl=$ISSUER,ClaimAttributePath=preferred_username,IdentityStoreAttributePath=userName,JwksRetrievalOption=OPEN_ID_DISCOVERY}" \
-                  --query TrustedTokenIssuerArn --output text)
-        fi
-
-        aws sso-admin put-application-grant --region "$REGION" \
-          --application-arn "$APP_ARN" --grant-type urn:ietf:params:oauth:grant-type:jwt-bearer \
-          --grant "JwtBearer={AuthorizedTokenIssuers=[{TrustedTokenIssuerArn=$TTI,AuthorizedAudiences=[$CLIENT_ID]}]}" || FAILED=1
-
-        aws sso-admin put-application-access-scope --region "$REGION" \
-          --application-arn "$APP_ARN" --scope s3:access_grants:read_write || FAILED=1
-
-        AUTH_METHOD=$(printf '{{authMethodFormat}}' "$ACTOR" "$APP_ARN")
-
-        aws sso-admin put-application-authentication-method --region "$REGION" \
-          --application-arn "$APP_ARN" --authentication-method-type IAM \
-          --authentication-method "$AUTH_METHOD" || FAILED=1
-
-        # Read back rather than trusted. This call and the one below are the last two steps, and
-        # the whole chain fails at token exchange with a bare AccessDeniedException if either is
-        # missing — an error that names neither the call nor the reason.
-        aws sso-admin list-application-authentication-methods --region "$REGION" \
-          --application-arn "$APP_ARN" \
-          --query 'AuthenticationMethods[0].AuthenticationMethodType' --output text \
-          | grep -q IAM || { echo 'The authentication method did not take. Setup is incomplete.'; FAILED=1; }
-
-        # Assignment is required by default with nobody assigned, and the token exchange then fails
-        # with a bare AccessDeniedException naming neither the user nor the application. It is the
-        # one failure in this chain that reports nothing useful. Turning it off does not widen who
-        # can read data: Access Grants still decides that, per person.
-        aws sso-admin put-application-assignment-configuration --region "$REGION" \
-          --application-arn "$APP_ARN" --no-assignment-required || FAILED=1
 
         # The provider Connapse sends people straight to. Matches the template's ProviderName.
         if [ -n "$IDP_METADATA" ]; then IDP_NAME='Workforce'; else IDP_NAME=''; fi
@@ -491,7 +382,7 @@ public static class CognitoSetup
         if [ -n "$FAILED" ]; then
           echo 'Setup did not finish. Fix the error above and run this again.'
         else
-        printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\nidentityProvider=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" "$IDP_NAME" '{{EndMarker}}'
+        printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\nidentityProvider=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$IDP_NAME" '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
         fi

@@ -209,6 +209,7 @@ public static class ServiceCollectionExtensions
         // rather than holding the store.
         services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
+        services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();

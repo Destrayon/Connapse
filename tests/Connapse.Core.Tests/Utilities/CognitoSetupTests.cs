@@ -21,7 +21,6 @@ public class CognitoSetupTests
         string script = CognitoSetup.GenerateScript(Request());
 
         script.Should().Contain(Callback);
-        script.Should().Contain(Actor);
     }
 
     [Fact]
@@ -50,25 +49,6 @@ public class CognitoSetupTests
 
         check.Should().BeGreaterThan(0);
         check.Should().BeLessThan(create);
-    }
-
-    [Fact]
-    public void GenerateScript_MakesTheFourCallsCloudFormationCannot()
-    {
-        string script = CognitoSetup.GenerateScript(Request());
-
-        script.Should().Contain("create-trusted-token-issuer");
-        script.Should().Contain("put-application-grant");
-        script.Should().Contain("put-application-access-scope");
-        script.Should().Contain("put-application-authentication-method");
-    }
-
-    [Fact]
-    public void GenerateScript_TurnsOffTheAssignmentRequirement()
-    {
-        // Its absence is the only failure in the chain that reports nothing an operator can act on.
-        CognitoSetup.GenerateScript(Request())
-            .Should().Contain("put-application-assignment-configuration");
     }
 
     [Fact]
@@ -198,55 +178,12 @@ public class CognitoSetupTests
     // ── Adopting one ─────────────────────────────────────────────────
 
     [Fact]
-    public void GenerateScript_FindsTheTrustedTokenIssuerByUrlNotName()
-    {
-        // Identity Center will not hold two issuers for one URL, so a pool registered earlier under
-        // a different name has to be found, or setup fails on a duplicate nobody can see from here.
-        string script = CognitoSetup.GenerateScript(Request());
-
-        script.Should().Contain("describe-trusted-token-issuer");
-        script.Should().NotContain("TrustedTokenIssuers[?Name==");
-    }
-
-    [Fact]
-    public void GenerateScript_SendsTheAuthenticationMethodAsJsonNotShorthand()
-    {
-        // Regression, found by running it. ActorPolicy is a document type, and the CLI rejects
-        // shorthand for those with "Shorthand syntax does not support document types" before the
-        // request reaches AWS. The script ran with set -e, so it stopped there — leaving an
-        // application with a grant and a scope but no authentication method, and the assignment
-        // configuration never applied.
-        string script = CognitoSetup.GenerateScript(Request());
-
-        script.Should().Contain("\"ActorPolicy\"");
-        script.Should().NotContain("Iam={ActorPolicy=");
-
-        // Inline, not a temp file. file:// takes a literal path that nothing translates, so the
-        // heredoc version worked on Linux and failed everywhere else — and a setup script has no
-        // business caring which shell reads it.
-        script.Should().NotContain("file:///tmp/");
-    }
-
-    [Fact]
-    public void GenerateScript_ChecksTheAuthenticationMethodTookEffect()
-    {
-        // Both remaining steps fail the whole chain at token exchange with a bare
-        // AccessDeniedException naming neither the call nor the reason, so the script confirms
-        // rather than assumes.
-        CognitoSetup.GenerateScript(Request())
-            .Should().Contain("list-application-authentication-methods");
-    }
-
-    // ── The template is its own artifact ─────────────────────────────
-
-    [Fact]
     public void GenerateTemplate_IsTheCloudFormationTemplate()
     {
         string template = CognitoSetup.GenerateTemplate();
 
         template.Should().StartWith("AWSTemplateFormatVersion");
         template.Should().Contain("AWS::Cognito::UserPool");
-        template.Should().Contain("AWS::SSO::Application");
         template.Should().Contain("AWS::S3::AccessGrantsInstance");
     }
 
@@ -314,21 +251,6 @@ public class CognitoSetupTests
     }
 
     [Fact]
-    public void GenerateScript_MatchesTheDirectoryOnUserNameRatherThanEmail()
-    {
-        // A trusted token issuer resolves one claim against one of exactly three identity-store
-        // attributes. Email was the original choice and is the one that cannot work for a federated
-        // pool: Cognito marks a mapped address unverified and cannot verify it with a one-time
-        // code, so the address proves nothing about who signed in.
-        string script = CognitoSetup.GenerateScript(
-            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
-
-        script.Should().Contain("ClaimAttributePath=preferred_username");
-        script.Should().Contain("IdentityStoreAttributePath=userName");
-        script.Should().NotContain("IdentityStoreAttributePath=emails.value");
-    }
-
-    [Fact]
     public void GenerateTemplate_CarriesTheDirectoryUserNameIntoTheToken()
     {
         // The two halves have to agree: the pool must put the directory user name in the claim that
@@ -379,22 +301,6 @@ public class CognitoSetupTests
         // against what the SAML application posts to.
         CognitoSetup.SamlAcsUrl("https://pool.auth.us-west-1.amazoncognito.com/").Should()
             .Be("https://pool.auth.us-west-1.amazoncognito.com/saml2/idpresponse");
-    }
-
-    [Fact]
-    public void GenerateScript_DoesNotTryToConfigureAssignmentOnASamlApplication()
-    {
-        // AWS refuses it: "The application with arn '...' is not supported for this action."
-        // put-application-assignment-configuration works on the custom application this script
-        // creates and not on the SAML one an administrator makes in the console, so people are
-        // assigned to that one by hand.
-        string script = CognitoSetup.GenerateScript(
-            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
-
-        script.Should().NotContain("SAML_APP");
-        script.Split('\n')
-            .Count(l => l.Contains("put-application-assignment-configuration"))
-            .Should().Be(1, "only the application this script created");
     }
 
     [Fact]
@@ -459,16 +365,15 @@ public class CognitoSetupTests
     }
 
     [Fact]
-    public void GenerateScript_ChecksTheApplicationStillExists()
+    public void GenerateScript_ChecksThePoolStillExists()
     {
-        // Deleting an Identity Center application does not tell CloudFormation, so the stack goes
-        // on reporting one that is gone and every sso-admin call fails with a
-        // ResourceNotFoundException quoting an ARN the stack itself supplied. The pool has been
-        // checked for this since it happened there; the application had not.
+        // Deleting a pool in the console does not tell CloudFormation, so the stack goes on
+        // reporting one that is gone and the next call fails with a ResourceNotFoundException
+        // quoting an id the stack itself supplied.
         string script = CognitoSetup.GenerateScript(
             new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
 
-        script.Should().Contain("sso-admin describe-application");
+        script.Should().Contain("cognito-idp describe-user-pool");
         script.Should().Contain("which no longer exists");
     }
 
@@ -484,7 +389,7 @@ public class CognitoSetupTests
         script.Should().Contain("The stack did not deploy.");
         script.Split('\n')
             .Count(l => l.Contains("FAILED=1"))
-            .Should().BeGreaterThan(5, "the deploy and each call that changes something");
+            .Should().BeGreaterThan(2, "the deploy, and each check that must stop the run");
     }
 
     [Fact]
@@ -583,19 +488,7 @@ public class CognitoSetupTests
             .ToArray();
 
         outputLines.Should().ContainSingle();
-        outputLines[0].Should().Contain("issuerUrl=%s").And.Contain("applicationArn=%s");
-    }
-
-    [Fact]
-    public void GenerateScript_RemovesItsOwnLeftoverIssuers()
-    {
-        // Not in the stack, so deleting the stack leaves it behind, and every recreate cycle adds
-        // another. Narrowed to our own name so it cannot delete an issuer belonging to a pool in
-        // another account, where the existence check fails for want of permission.
-        string script = CognitoSetup.GenerateScript(Request());
-
-        script.Should().Contain("Removing a leftover trusted token issuer");
-        script.Should().Contain("[ \"$NAME\" = \"$PREFIX\" ]");
+        outputLines[0].Should().Contain("issuerUrl=%s").And.Contain("clientSecret=%s");
     }
 
     [Fact]

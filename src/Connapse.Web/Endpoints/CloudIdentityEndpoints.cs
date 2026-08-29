@@ -202,6 +202,7 @@ public static class CloudIdentityEndpoints
             [FromQuery(Name = "error_description")] string? errorDescription,
             [FromServices] IOptionsMonitor<CognitoSettings> settings,
             [FromServices] AwsIdentityLinkStore linkStore,
+            [FromServices] IDirectoryUserLookup directoryUsers,
             [FromServices] IHttpClientFactory httpClientFactory,
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
@@ -364,12 +365,25 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect($"/profile/integrations?error=cognito_{result.FailureReason}");
             }
 
+            // The asserted name is only half an identity. Access grants are held against the
+            // identity store's own id, so it is resolved once here rather than on every search —
+            // and because it is the stable identifier, a later rename in the directory does not
+            // force this person to connect again.
+            string? directoryUserId =
+                await directoryUsers.FindUserIdAsync(result.DirectoryUserName!, ct);
+            if (string.IsNullOrWhiteSpace(directoryUserId))
+            {
+                logger.LogWarning(
+                    "The directory has no user matching the name a sign-in asserted");
+                return Results.Redirect("/profile/integrations?error=cognito_no_directory_user");
+            }
+
             // Stored with its case intact. The email this replaced was lower-cased, which is right
             // for an address and wrong for a user name: this identifier belongs to a directory
             // Connapse does not own, and folding its case would record one that may never have
             // existed. The email rides along for display and authorizes nothing.
             await linkStore.SaveAsync(
-                userId.Value, result.DirectoryUserName!, result.Email, refreshToken, ct);
+                userId.Value, directoryUserId, result.DirectoryUserName!, result.Email, ct);
 
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();

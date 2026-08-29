@@ -99,9 +99,12 @@ public record CloudIdentityData(
 public record AzureConnectResult(string AuthorizeUrl, string State, string CodeVerifier);
 
 /// <summary>
-/// A user's connected AWS (Cognito) identity link, as the integrations page needs to show it —
-/// never the refresh token itself.
+/// A user's connected IAM Identity Center identity, as the integrations page needs to show it.
 /// </summary>
+/// <remarks>
+/// The directory user id is deliberately absent. It is the join key Connapse resolves permissions
+/// with, and it means nothing to the person reading the page — who recognises their user name.
+/// </remarks>
 public record AwsIdentityLinkDto(
     string DirectoryUserName, string Email, DateTime ConnectedAt, DateTime? LastUsedAt);
 
@@ -109,16 +112,13 @@ public record AwsIdentityLinkDto(
 /// The outcome of disconnecting an AWS identity link.
 /// </summary>
 /// <remarks>
-/// <see cref="Deleted"/> and <see cref="RevokedSuccessfully"/> are independent: the local row is
-/// removed regardless of whether Cognito could be told, so a caller can report "disconnected here,
-/// but AWS could not be told" instead of a uniformly clean success.
-/// <para>
-/// <see cref="LinkChangedDuringDisconnect"/> is a third, distinct outcome from a plain "nothing to
-/// delete": it means a link existed, its token was revoked, but a reconnect replaced the row
-/// before the delete could run — so the row was deliberately left in place rather than removing a
-/// link that was never revoked. <see cref="Deleted"/> is false in this case too, but the caller
-/// must tell the two apart to say "try again" instead of "nothing was connected".
-/// </para>
+/// There is nothing to revoke at AWS: the link holds an identity rather than a credential, so
+/// disconnecting is local and complete by definition. What remains worth reporting is
+/// <see cref="LinkChangedDuringDisconnect"/>, which is a distinct outcome from a plain "nothing to
+/// delete": a link existed but a reconnect replaced the row before the delete could run, so the row
+/// was left in place rather than throwing away the link the user had just re-established.
+/// <see cref="Deleted"/> is false in that case too, and the caller must tell the two apart to say
+/// "try again" instead of "nothing was connected".
 /// </remarks>
 public record AwsIdentityLinkDisconnectResult(
-    bool Deleted, bool RevokedSuccessfully, bool LinkChangedDuringDisconnect = false);
+    bool Deleted, bool LinkChangedDuringDisconnect = false);
