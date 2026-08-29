@@ -382,6 +382,35 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_GivenASamlApplication_TurnsOffItsAssignmentRequirement()
+    {
+        // Assignment defaults to required with nobody assigned, and the SAML wizard has no setting
+        // for it — so without this people sign in and are refused by the one step in the chain that
+        // reports nothing useful. The script already does this for Connapse's own application; this
+        // is the same call for the one the administrator made by hand.
+        string script = CognitoSetup.GenerateScript(new CognitoSetupRequest(
+            "https://x/cb",
+            "arn:aws:iam::1:user/connapse",
+            SamlApplicationArn: "arn:aws:sso::1:application/ssoins-1/apl-saml"));
+
+        script.Should().Contain("SAML_APP='arn:aws:sso::1:application/ssoins-1/apl-saml'");
+        script.Should().Contain("--application-arn \"$SAML_APP\" --no-assignment-required");
+    }
+
+    [Fact]
+    public void GenerateScript_WithNoSamlApplication_SkipsThatCallRatherThanRunningItEmpty()
+    {
+        // A blank ARN must not reach the CLI: put-application-assignment-configuration with an
+        // empty --application-arn fails the whole script under set -e, on a first run where there
+        // is legitimately no SAML application yet.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("SAML_APP=''");
+        script.Should().Contain("if [ -n \"$SAML_APP\" ]; then");
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates

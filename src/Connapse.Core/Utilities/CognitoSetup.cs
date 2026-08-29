@@ -24,12 +24,23 @@
 /// at all rather than as looking in the wrong place.
 /// </para>
 /// </param>
+/// <param name="SamlApplicationArn">
+/// The SAML application an administrator created in the Identity Center console, so the script can
+/// stop it requiring per-person assignment. Null leaves it alone.
+/// <para>
+/// Done here rather than by Connapse, which has an AWS identity of its own and could make the call.
+/// That identity is for reading data; letting it reconfigure Identity Center applications would
+/// hand a long-lived credential a power the setup needs once, and this script already runs under
+/// the administrator's own console session, where the power belongs.
+/// </para>
+/// </param>
 public record CognitoSetupRequest(
     string CallbackUrl,
     string ActorArn,
     string? IdpMetadataUrl = null,
     string? NamePrefix = null,
-    string? Region = null);
+    string? Region = null,
+    string? SamlApplicationArn = null);
 
 /// <summary>The settings the script printed.</summary>
 public record CognitoSetupResult(
@@ -288,6 +299,7 @@ public static class CognitoSetup
         string prefix = SanitisePrefix(request.NamePrefix);
         string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
         string region = request.Region?.Trim() ?? string.Empty;
+        string samlApp = request.SamlApplicationArn?.Trim() ?? string.Empty;
 
         // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
         // express one: the call fails with "Shorthand syntax does not support document types"
@@ -457,6 +469,17 @@ public static class CognitoSetup
         # can read data: Access Grants still decides that, per person.
         aws sso-admin put-application-assignment-configuration --region "$REGION" \
           --application-arn "$APP_ARN" --no-assignment-required
+
+        # The SAML application the administrator made in the console, when they gave us its ARN.
+        # Same call, same reason: assignment defaults to required with nobody assigned, so people
+        # sign in and are refused by the one step in this chain that explains nothing. The SAML
+        # wizard has no setting for it, which is why it is not simply part of creating the thing.
+        SAML_APP='{{samlApp}}'
+        if [ -n "$SAML_APP" ]; then
+          aws sso-admin put-application-assignment-configuration --region "$REGION" \
+            --application-arn "$SAML_APP" --no-assignment-required
+          echo "Assignment turned off for $SAML_APP."
+        fi
 
         # One printf, not eight. An interactive shell echoes each pasted command as it runs, so
         # eight of them put a "$ printf ..." line between every value and left the block impossible

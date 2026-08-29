@@ -679,17 +679,12 @@
                             </span>
                         </li>
                         <li>
-                            Let everyone in the directory use it, rather than naming people one at a
-                            time. The SAML wizard has no setting for this, so it is done afterwards
-                            — find the application's ARN, then turn assignment off. Connapse's own
-                            Identity Center application is created the same way.
-                            <code class="user-select-all d-block mt-1">aws sso-admin list-applications --region @(IdentityCentre?.Region is { Length: > 0 } r1 ? r1 : "&lt;region&gt;")</code>
-                            <code class="user-select-all d-block mt-1">aws sso-admin put-application-assignment-configuration --region @(IdentityCentre?.Region is { Length: > 0 } r2 ? r2 : "&lt;region&gt;") --application-arn &lt;the-arn-from-above&gt; --no-assignment-required</code>
-                            <span class="d-block mt-1">
-                                Without this, only people assigned to the application can sign in,
-                                and the assignment list is a second place access can disagree with
-                                the grants that actually govern the data.
-                            </span>
+                            Copy the application's <strong>ARN</strong> from its page into the second
+                            box below. The command turns off per-person assignment for it, so
+                            everyone in the directory can sign in — the SAML wizard has no setting
+                            for that, and without it people are refused by the one step in this
+                            chain that explains nothing. Connapse's own Identity Center application
+                            is configured the same way.
                         </li>
                         <li>Copy its <strong>metadata URL</strong> into the box below.</li>
                         <li>
@@ -713,9 +708,17 @@
                         <dd class="col-sm-9"><code class="user-select-all">@SamlAudience</code></dd>
                     </dl>
 
-                    <input id="idp-metadata" class="form-control form-control-sm" type="url"
+                    <label class="form-label small mb-1 mt-1" for="idp-metadata">Metadata URL</label>
+                    <input id="idp-metadata" class="form-control form-control-sm font-monospace" type="url"
                            placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
                            @bind="idpMetadataUrl" @bind:event="oninput" />
+
+                    <label class="form-label small mb-1 mt-2" for="saml-app-arn">
+                        Application ARN
+                    </label>
+                    <input id="saml-app-arn" class="form-control form-control-sm font-monospace" type="text"
+                           placeholder="arn:aws:sso::123456789012:application/ssoins-…/apl-…"
+                           @bind="samlApplicationArn" @bind:event="oninput" />
 
                     <div class="d-flex flex-wrap gap-2 mt-2 mb-1">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -843,10 +846,23 @@
         new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
             AccessRequirement?.Detail ?? string.Empty,
             IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim(),
-            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
+            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null,
+            SamlApplicationArn: string.IsNullOrWhiteSpace(samlApplicationArn)
+                ? null
+                : samlApplicationArn.Trim());
 
     /// <summary>The Identity Center SAML metadata URL, or empty for a pool with local users.</summary>
     private string? idpMetadataUrl;
+
+    /// <summary>
+    /// The SAML application's ARN, so the script can stop it requiring per-person assignment.
+    /// </summary>
+    /// <remarks>
+    /// Asked for rather than found. Connapse could list applications and match one, but the
+    /// administrator names it, and guessing at which of several is theirs would turn a paste into a
+    /// wrong guess nobody could see. Optional: leaving it blank simply skips that call.
+    /// </remarks>
+    private string? samlApplicationArn;
 
     private string? pastedIdentityCenter;
     private string? identityCenterCopyMessage;
