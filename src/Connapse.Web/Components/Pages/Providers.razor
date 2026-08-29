@@ -368,14 +368,24 @@
                         <dt class="col-sm-3 fw-normal text-muted">Identity store</dt>
                         <dd class="col-sm-9"><code class="user-select-all">@IdentityCentre.IdentityStoreId</code></dd>
                     </dl>
-                    <button type="button" class="btn btn-link btn-sm p-0"
-                            @onclick="() => showIdentityCenterScan = true">
-                        Scan again
-                    </button>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => showIdentityCenterScan = true">
+                            <span class="bi-arrow-repeat me-1"></span> Change or scan again
+                        </button>
+                    </div>
                 </div>
             }
             else
             {
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-2"
+                        @onclick="() => showIdentityCenterGuided = !showIdentityCenterGuided">
+                    <span class="@(showIdentityCenterGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided scan
+                </button>
+
+                @if (showIdentityCenterGuided)
+                {
                 <p class="small mb-2">
                     <span class="bi-search me-1 text-muted"></span>
                     Read-only. It calls <code>@string.Join("</code>, <code>", IdentityCenterSetup.RequiredPermissions)</code>
@@ -472,6 +482,23 @@
                         </div>
                     }
                 }
+                }
+
+                <div class="mt-2">
+                    <button type="button" class="btn btn-link btn-sm p-0"
+                            @onclick="() => showIdentityCenterManual = !showIdentityCenterManual">
+                        @(showIdentityCenterManual ? "Hide the fields" : "Or fill the fields in by hand")
+                    </button>
+                </div>
+            }
+
+            @* Outside the branch above, so it survives the summary card replacing the scan. Nothing
+               here is a secret — every value is one the account owner can read off their console —
+               so unlike the Cognito form there is no reason to hide it once something is saved. *@
+            @if (showIdentityCenterManual)
+            {
+                <IdentityCenterSettingsTab Settings="identityCenterSettings"
+                                           OnSave="SaveIdentityCenterSettings" />
             }
 
             <h2 class="h5 mt-4" id="permissions">Per-user permissions</h2>
@@ -498,6 +525,14 @@
             }
             else if (CognitoPool is null || showCognitoManual)
             {
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-2"
+                        @onclick="() => showCognitoGuided = !showCognitoGuided">
+                    <span class="@(showCognitoGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided setup
+                </button>
+
+                @if (showCognitoGuided)
+                {
                 <p class="small mb-2">
                     <span class="bi-shield-check me-1 text-muted"></span>
                     Creates a Cognito pool, an Identity Center application and an S3 Access Grants
@@ -630,6 +665,8 @@
                     }
                 }
 
+                }
+
                 <div class="mt-3">
                     <button type="button" class="btn btn-link btn-sm p-0"
                             @onclick="() => showCognitoManual = !showCognitoManual">
@@ -737,6 +774,33 @@
     /// <summary>Whether the scan is open over an instance that is already recorded.</summary>
     private bool showIdentityCenterScan;
 
+    /// <summary>Whether the guided scan's script is expanded. Collapsing it leaves the manual
+    /// fields, which is the shorter path for somebody who already knows the three values.</summary>
+    private bool showIdentityCenterGuided = true;
+
+    private bool showIdentityCenterManual;
+
+    /// <summary>Whether the guided pair — template and script — is expanded.</summary>
+    private bool showCognitoGuided = true;
+
+    /// <summary>Backs the manual Identity Center form.</summary>
+    private IdentityCenterSettings identityCenterSettings = new();
+
+    private async Task SaveIdentityCenterSettings(IdentityCenterSettings settings)
+    {
+        await SaveSettings("identitycenter", settings);
+
+        // What was posted, not a re-read: the options reload behind SaveSettings is not guaranteed
+        // to have landed, and a stale read would hand the form back the previous values.
+        if (saveSuccess)
+        {
+            identityCenterSettings = settings;
+            showIdentityCenterScan = false;
+        }
+
+        await RefreshSetups();
+    }
+
     /// <summary>What is recorded about the customer's Identity Center instance, if anything.</summary>
     private IdentityCenterSettings? IdentityCentre => IdentityCenterOptions.CurrentValue;
 
@@ -767,6 +831,12 @@
         {
             pastedIdentityCenter = null;
             showIdentityCenterScan = false;
+            identityCenterSettings = new IdentityCenterSettings
+            {
+                Region = found.Region,
+                InstanceArn = found.InstanceArn,
+                IdentityStoreId = found.IdentityStoreId,
+            };
         }
 
         await RefreshSetups();
@@ -804,6 +874,7 @@
         // table, which overrides appsettings.json, and reloads without a restart.
         azureAdSettings = AzureAdOptions.CurrentValue;
         cognitoSettings = CognitoOptions.CurrentValue;
+        identityCenterSettings = IdentityCenterOptions.CurrentValue;
     }
 
     /// <summary>
