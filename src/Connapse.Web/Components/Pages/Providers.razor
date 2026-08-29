@@ -533,159 +533,160 @@
             else
             {
                 <button type="button" class="btn btn-sm btn-link px-0 mb-1"
-                        @onclick="() => showGrantsGuided = !showGrantsGuided">
-                    <span class="@(showGrantsGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
-                    Guided setup — S3 Access Grants
+                        @onclick="() => showGuided = !showGuided">
+                    <span class="@(showGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided setup
                 </button>
 
-                @if (showGrantsGuided)
+                @* One walkthrough rather than two. The halves look separable — a script and a
+                   console visit — but they are one errand: neither is any use alone, and reading
+                   them as separate offers invited doing the second without the first, which fails
+                   at the first sign-in with an error naming neither. Each link sits at the step
+                   that needs it instead of in a row underneath, so nothing has to be scrolled back
+                   to. *@
+                @if (showGuided)
                 {
                     <p class="small mb-2">
                         <span class="bi-shield-check me-1 text-muted"></span>
-                        Creates an S3 Access Grants instance, one location covering
-                        <code>s3://</code>, and that location's role, using your own AWS
-                        permissions. <strong>It writes no access grants</strong> — who may read what
-                        stays yours to decide, in AWS.
+                        Creates an S3 Access Grants instance and the application people sign in
+                        through, using your own AWS permissions. <strong>It writes no access
+                        grants</strong> — who may read what stays yours to decide, in AWS.
                     </p>
 
-                    <ol class="small mb-2">
-                        <li>Download the template and read it. Nothing runs at this point.</li>
-                        <li>
+                    <ol class="small mb-0">
+                        <li class="mb-2">
+                            Download the template and read it. Nothing runs at this point.
+                            <div class="mt-1">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="DownloadTemplate">
+                                    <span class="bi-download me-1"></span> Download template
+                                </button>
+                            </div>
+                        </li>
+
+                        <li class="mb-2">
                             In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and
                             upload <code>connapse-permissions.yaml</code>.
+                            <div class="mt-1">
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                   href="https://console.aws.amazon.com/cloudshell/home">
+                                    <span class="bi-terminal me-1"></span> Open CloudShell
+                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                </a>
+                            </div>
                         </li>
-                        <li>Paste the script below. It deploys that template and stops.</li>
-                    </ol>
 
-                    <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AccessGrantsScript</code></pre>
+                        <li class="mb-2">
+                            Paste this. It deploys the template and stops.
+                            <pre class="bg-body-tertiary border rounded p-2 small mt-1 mb-1" style="max-height:18rem;overflow:auto"><code>@AccessGrantsScript</code></pre>
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="CopyAccessGrantsScript">
+                                <span class="bi-clipboard me-1"></span> Copy command
+                            </button>
+                            <span class="ms-2 small @(grantsCopySucceeded ? "text-success" : "text-danger")">
+                                @grantsCopyMessage
+                            </span>
+                        </li>
 
-                    <div class="d-flex flex-wrap gap-2 mb-3">
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="DownloadTemplate">
-                            <span class="bi-download me-1"></span> Download template
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="CopyAccessGrantsScript">
-                            <span class="bi-clipboard me-1"></span> Copy command
-                        </button>
-                        <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                           href="https://console.aws.amazon.com/cloudshell/home">
-                            <span class="bi-terminal me-1"></span> Open CloudShell
-                            <span class="bi-box-arrow-up-right ms-1 small"></span>
-                        </a>
-                        <span class="align-self-center small @(grantsCopySucceeded ? "text-success" : "text-danger")">
-                            @grantsCopyMessage
-                        </span>
-                    </div>
-                }
-
-                @* The application itself, which cannot be scripted at all. CreateApplication
-                   refuses SAML customer-managed applications outright — "You can create a SAML 2.0
-                   customer managed application in the AWS Management Console only" — and
-                   DeleteApplication refuses them too, so this stays a hand-guided step in both
-                   directions. *@
-                <button type="button" class="btn btn-sm btn-link px-0 mb-1"
-                        @onclick="() => showSamlGuided = !showSamlGuided">
-                    <span class="@(showSamlGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
-                    Guided setup — the sign-in application
-                </button>
-
-                @if (showSamlGuided)
-                {
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <h3 class="h6">Create the sign-in application</h3>
-                        <p class="small text-muted">
-                            In the Identity Center console: <strong>Applications &rarr; Customer
-                            managed &rarr; Add application &rarr; I have an application I want to
-                            set up &rarr; SAML 2.0</strong>. AWS offers no API for this.
-                        </p>
+                        @* The application itself, which cannot be scripted at all.
+                           CreateApplication refuses SAML customer-managed applications outright —
+                           "You can create a SAML 2.0 customer managed application in the AWS
+                           Management Console only" — and DeleteApplication refuses them too, so
+                           this stays hand-guided in both directions. *@
+                        <li class="mb-2">
+                            In the Identity Center console, choose <strong>Applications &rarr;
+                            Customer managed &rarr; Add application &rarr; I have an application I
+                            want to set up &rarr; SAML 2.0</strong>. AWS offers no API for this one.
+                            <div class="mt-1">
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                   href="@IdentityCenterConsoleUrl">
+                                    <span class="bi-box-arrow-up-right me-1"></span>
+                                    Open Identity Center console
+                                </a>
+                            </div>
+                        </li>
 
                         @if (SamlAcsUrl is null)
                         {
-                            <div class="alert alert-warning small mb-0">
-                                You are reading this over <code>@Navigation.BaseUri</code>. A SAML
-                                assertion is a bearer credential, so it may only be posted to an
-                                <code>https://</code> address, or to <code>localhost</code>,
-                                <code>127.0.0.1</code> or <code>[::1]</code> over plain HTTP. Serve
-                                Connapse over HTTPS, or reach it on the machine it runs on, and the
-                                values to paste will appear here.
-                            </div>
+                            <li class="mb-2">
+                                <div class="alert alert-warning small mb-0">
+                                    The two values to paste cannot be shown, because you are reading
+                                    this over <code>@Navigation.BaseUri</code>. A SAML assertion is a
+                                    bearer credential, so it may only be posted to an
+                                    <code>https://</code> address, or to <code>localhost</code>,
+                                    <code>127.0.0.1</code> or <code>[::1]</code> over plain HTTP.
+                                    Serve Connapse over HTTPS, or reach it on the machine it runs
+                                    on, and they will appear here.
+                                </div>
+                            </li>
                         }
                         else
                         {
-                            <ol class="small mb-0">
-                                <li>
-                                    On the application metadata page, paste these two:
-                                    <div class="table-responsive mt-1 mb-2">
-                                        <table class="table table-sm small mb-0">
-                                            <tbody>
-                                                <tr>
-                                                    <td class="text-muted" style="width:14rem">Application ACS URL</td>
-                                                    <td><code class="user-select-all">@SamlAcsUrl</code></td>
-                                                </tr>
-                                                <tr>
-                                                    <td class="text-muted">Application SAML audience</td>
-                                                    <td><code class="user-select-all">@SamlAudience</code></td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </li>
-                                <li>
-                                    Then <strong>Actions &rarr; Edit attribute mappings</strong>.
-                                    <code>Subject</code> is required and is the one that matters:
-                                    <div class="table-responsive mt-1 mb-2">
-                                        <table class="table table-sm small mb-0">
-                                            <thead>
-                                                <tr>
-                                                    <th>Attribute</th><th>Maps to</th><th>Format</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td><code>Subject</code></td>
-                                                    <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
-                                                    <td><code>unspecified</code></td>
-                                                </tr>
-                                                <tr>
-                                                    <td><code>email</code></td>
-                                                    <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
-                                                    <td><code>unspecified</code></td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <span class="d-block mb-2">
-                                        <code>&#36;&#123;user:subject&#125;</code> carries the
-                                        directory user name — <code>diviel</code>, not
-                                        <code>Patrick Summers</code>. Connapse resolves it into the
-                                        identity store id that access grants are held against, so
-                                        <code>&#36;&#123;user:preferredUsername&#125;</code> is
-                                        wrong here: it gives the display name, which matches nobody.
-                                    </span>
-                                </li>
-                                <li>
-                                    Assign whoever should be able to sign in. Anyone unassigned is
-                                    refused. Assign a <strong>group</strong> rather than people one
-                                    at a time and membership becomes the only thing to maintain —
-                                    there is no setting that admits everyone, because AWS refuses to
-                                    turn the assignment requirement off for a SAML application.
-                                </li>
-                                <li>
-                                    Finally, open the application's metadata and copy its issuer,
-                                    sign-in URL and signing certificate into the form below.
-                                </li>
-                            </ol>
-                        }
-                    </div>
-                </div>
-                }
+                            <li class="mb-2">
+                                On the application metadata page, paste these two:
+                                <div class="table-responsive mt-1 mb-0">
+                                    <table class="table table-sm small mb-0">
+                                        <tbody>
+                                            <tr>
+                                                <td class="text-muted" style="width:14rem">Application ACS URL</td>
+                                                <td><code class="user-select-all">@SamlAcsUrl</code></td>
+                                            </tr>
+                                            <tr>
+                                                <td class="text-muted">Application SAML audience</td>
+                                                <td><code class="user-select-all">@SamlAudience</code></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </li>
 
-                <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank" rel="noopener"
-                   href="@IdentityCenterConsoleUrl">
-                    <span class="bi-box-arrow-up-right me-1"></span> Open Identity Center console
-                </a>
+                            <li class="mb-2">
+                                Then <strong>Actions &rarr; Edit attribute mappings</strong>.
+                                <code>Subject</code> is required and is the one that matters:
+                                <div class="table-responsive mt-1 mb-1">
+                                    <table class="table table-sm small mb-0">
+                                        <thead>
+                                            <tr><th>Attribute</th><th>Maps to</th><th>Format</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><code>Subject</code></td>
+                                                <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
+                                                <td><code>unspecified</code></td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>email</code></td>
+                                                <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
+                                                <td><code>unspecified</code></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <span class="d-block text-muted">
+                                    <code>&#36;&#123;user:subject&#125;</code> carries the directory
+                                    user name — <code>diviel</code>, not
+                                    <code>Patrick Summers</code>. Connapse resolves it into the
+                                    identity store id that access grants are held against, so
+                                    <code>&#36;&#123;user:preferredUsername&#125;</code> is wrong
+                                    here: it gives the display name, which matches nobody.
+                                </span>
+                            </li>
+
+                            <li class="mb-2">
+                                Assign whoever should be able to sign in. Anyone unassigned is
+                                refused. Assign a <strong>group</strong> rather than people one at a
+                                time and membership becomes the only thing to maintain — there is no
+                                setting that admits everyone, because AWS refuses to turn the
+                                assignment requirement off for a SAML application.
+                            </li>
+
+                            <li>
+                                Finally, open the application's metadata and copy its issuer,
+                                sign-in URL and signing certificate into the form below.
+                            </li>
+                        }
+                    </ol>
+                }
 
                 @if (SamlSignIn is not null && !showSamlManual)
                 {
@@ -800,16 +801,12 @@
     /// </summary>
     private bool showIdentityCenterGuided;
 
-    /// <summary>Whether the guided pair — template and script — is expanded. Closed to begin with,
-    /// for the same reason, and it is the longer of the two.</summary>
-    private bool showGrantsGuided;
-
     /// <summary>
-    /// Whether the sign-in application's instructions are expanded. Closed to begin with, like the
-    /// pair above it: it is the longest block on the page, and somebody returning to change one
-    /// stored value should not have to scroll past a walkthrough they have already followed.
+    /// Whether the per-user permissions walkthrough is expanded. Closed to begin with: the fields
+    /// below it are what this step is, and somebody returning to change one stored value should not
+    /// have to scroll past instructions they have already followed.
     /// </summary>
-    private bool showSamlGuided;
+    private bool showGuided;
 
     /// <summary>Backs the manual Identity Center form.</summary>
     private IdentityCenterSettings identityCenterSettings = new();
