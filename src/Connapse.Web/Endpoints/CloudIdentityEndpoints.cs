@@ -177,7 +177,14 @@ public static class CloudIdentityEndpoints
                 $"&state={Uri.EscapeDataString(state)}" +
                 $"&nonce={Uri.EscapeDataString(nonce)}" +
                 $"&code_challenge={Uri.EscapeDataString(challenge)}" +
-                $"&code_challenge_method=S256";
+                $"&code_challenge_method=S256" +
+                // What actually keeps Cognito out of sight on a federated pool. Given a provider
+                // name, Cognito redirects straight to that provider's sign-in instead of rendering
+                // a page whose only content is one button to press. Omitted for a pool with local
+                // users, where that page is the sign-in rather than a detour on the way to it.
+                (string.IsNullOrWhiteSpace(cognito.IdentityProvider)
+                    ? string.Empty
+                    : $"&identity_provider={Uri.EscapeDataString(cognito.IdentityProvider)}");
 
             return Results.Redirect(authorize);
         }).RequireAuthorization();

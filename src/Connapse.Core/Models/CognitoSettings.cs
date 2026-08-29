@@ -57,6 +57,22 @@ public class CognitoSettings
     /// </remarks>
     public string ApplicationArn { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The Cognito identity provider to send people straight to, or empty for the pool's own users.
+    /// </summary>
+    /// <remarks>
+    /// Handed to <c>/oauth2/authorize</c> as <c>identity_provider</c>. With it, Cognito redirects
+    /// to that provider's sign-in page instead of rendering its own; without it, a federated pool
+    /// shows a Cognito page whose only content is one button to press. That page is the only point
+    /// at which Cognito is visible to anybody but the administrator who set it up, and it exists
+    /// solely to ask a question with one answer.
+    /// <para>
+    /// Not part of <see cref="IsConfigured"/>: a pool-local setup legitimately has none, and a
+    /// federated pool configured before this field existed still connects without it.
+    /// </para>
+    /// </remarks>
+    public string IdentityProvider { get; set; } = string.Empty;
+
     /// <summary>True when every field needed to complete a connection is present and usable.</summary>
     /// <remarks>
     /// The URLs must be HTTPS, with no loopback exception. Both carry an authorization code or a

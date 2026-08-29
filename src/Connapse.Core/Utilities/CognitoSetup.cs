@@ -27,7 +27,8 @@ public record CognitoSetupResult(
     string ClientId,
     string ClientSecret,
     string Region,
-    string ApplicationArn);
+    string ApplicationArn,
+    string IdentityProvider = "");
 
 /// <summary>
 /// Builds the command that provisions the AWS side of per-user permissions, and reads back what it
@@ -412,7 +413,11 @@ public static class CognitoSetup
         # One printf, not eight. An interactive shell echoes each pasted command as it runs, so
         # eight of them put a "$ printf ..." line between every value and left the block impossible
         # to select in one go. Printed as a single command, the block comes out contiguous.
-        printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" '{{EndMarker}}'
+        # Matches the template's ProviderName. Empty for a pool with local users, which is what
+        # tells Connapse to let Cognito render its own sign-in page rather than redirect past it.
+        if [ -n "$IDP_METADATA" ]; then IDP_NAME='Workforce'; else IDP_NAME=''; fi
+
+        printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\nidentityProvider=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" "$IDP_NAME" '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
         """);
@@ -475,7 +480,7 @@ public static class CognitoSetup
             return null;
 
         string? issuer = null, domain = null, clientId = null;
-        string? secret = null, region = null, appArn = null;
+        string? secret = null, region = null, appArn = null, idpName = null;
 
         foreach (string raw in pasted[(start + BeginMarker.Length)..end]
                      .Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -495,6 +500,10 @@ public static class CognitoSetup
                 case "clientSecret": secret = value; break;
                 case "region": region = value; break;
                 case "applicationArn": appArn = value; break;
+                // Optional by design. A pool with local users prints an empty value here, and the
+                // loop skips empty values, so this stays null for them rather than failing the
+                // all-or-nothing check below — which would reject a perfectly good paste.
+                case "identityProvider": idpName = value; break;
             }
         }
 
@@ -503,7 +512,8 @@ public static class CognitoSetup
         return issuer is null || domain is null || clientId is null
                || secret is null || region is null || appArn is null
             ? null
-            : new CognitoSetupResult(issuer, domain, clientId, secret, region, appArn);
+            : new CognitoSetupResult(issuer, domain, clientId, secret, region, appArn,
+                idpName ?? string.Empty);
     }
 
     /// <summary>

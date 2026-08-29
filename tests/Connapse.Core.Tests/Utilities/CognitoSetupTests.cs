@@ -250,6 +250,69 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_ReportsTheProviderItFederatedTo()
+    {
+        // The name has to match the template's ProviderName exactly, because Connapse passes it
+        // through to /oauth2/authorize as identity_provider and Cognito rejects one it does not
+        // know. Two literals in two files that must agree, so both are asserted here.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("IDP_NAME='Workforce'");
+        script.Should().Contain("identityProvider=%s");
+        CognitoSetup.GenerateTemplate().Should().Contain("ProviderName: Workforce");
+    }
+
+    [Fact]
+    public void ParseResult_WithAFederatedPool_CarriesTheProviderThrough()
+    {
+        string block = CognitoSetup.BeginMarker + "\n"
+            + "issuerUrl=https://cognito-idp.us-west-1.amazonaws.com/us-west-1_abc\n"
+            + "domain=https://d.auth.us-west-1.amazoncognito.com\n"
+            + "clientId=cid\nclientSecret=secret\nregion=us-west-1\n"
+            + "applicationArn=arn:aws:sso::1:application/ssoins-1/apl-1\n"
+            + "identityProvider=Workforce\n"
+            + CognitoSetup.EndMarker;
+
+        CognitoSetup.ParseResult(block)!.IdentityProvider.Should().Be("Workforce");
+    }
+
+    [Fact]
+    public void ParseResult_WithAPoolLocalSetup_StillParsesAndNamesNoProvider()
+    {
+        // The script prints the key with an empty value for a pool that has its own users. Treating
+        // that as a missing required field would reject a paste that is completely valid, so the
+        // provider is the one optional member of the block.
+        string block = CognitoSetup.BeginMarker + "\n"
+            + "issuerUrl=https://cognito-idp.us-west-1.amazonaws.com/us-west-1_abc\n"
+            + "domain=https://d.auth.us-west-1.amazoncognito.com\n"
+            + "clientId=cid\nclientSecret=secret\nregion=us-west-1\n"
+            + "applicationArn=arn:aws:sso::1:application/ssoins-1/apl-1\n"
+            + "identityProvider=\n"
+            + CognitoSetup.EndMarker;
+
+        var result = CognitoSetup.ParseResult(block);
+
+        result.Should().NotBeNull();
+        result!.IdentityProvider.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseResult_WithABlockPredatingTheProviderField_StillParses()
+    {
+        // Pasted from a script generated before federation existed. It names a working pool and
+        // must keep working; the only thing it cannot do is skip Cognito's own page.
+        string block = CognitoSetup.BeginMarker + "\n"
+            + "issuerUrl=https://cognito-idp.us-west-1.amazonaws.com/us-west-1_abc\n"
+            + "domain=https://d.auth.us-west-1.amazoncognito.com\n"
+            + "clientId=cid\nclientSecret=secret\nregion=us-west-1\n"
+            + "applicationArn=arn:aws:sso::1:application/ssoins-1/apl-1\n"
+            + CognitoSetup.EndMarker;
+
+        CognitoSetup.ParseResult(block).Should().NotBeNull();
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates
