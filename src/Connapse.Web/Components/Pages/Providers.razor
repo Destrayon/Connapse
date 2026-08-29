@@ -668,7 +668,7 @@
                                     </tr>
                                     <tr>
                                         <td><code>userName</code></td>
-                                        <td><code class="user-select-all">&#36;&#123;user:preferredUsername&#125;</code></td>
+                                        <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
                                         <td><code>unspecified</code></td>
                                     </tr>
                                     <tr>
@@ -686,7 +686,11 @@
                             </span>
                             <span class="d-block mt-1">
                                 <code>userName</code> is what ties a sign-in to one Identity Center
-                                user. Without it people sign in and match nobody.
+                                user, and it has to carry their user name — <code>diviel</code>, not
+                                <code>Patrick Summers</code>. Both rows send
+                                <code>&#36;&#123;user:subject&#125;</code> for that reason;
+                                <code>&#36;&#123;user:preferredUsername&#125;</code> resolves to the
+                                display name, which matches nobody in the directory.
                             </span>
                             <span class="d-block mt-1">
                                 <code>email</code> is required by the pool, so a sign-in without it

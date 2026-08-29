@@ -167,13 +167,17 @@ public static class CloudIdentityEndpoints
                 $"?response_type=code" +
                 $"&client_id={Uri.EscapeDataString(cognito.ClientId)}" +
                 $"&redirect_uri={Uri.EscapeDataString(CognitoCallbackUri(http))}" +
-                // Cognito is not a standard OIDC provider here: it has no `offline_access`
-                // scope, and asking for one fails the whole authorize request with
+                // `profile` carries preferred_username, which is the join key: without it Cognito
+                // holds the attribute on the user and leaves the claim out of the token, and the
+                // connection fails naming nobody while the pool looks correctly configured.
+                //
+                // Cognito is not a standard OIDC provider here: it has no `offline_access` scope,
+                // and asking for one fails the whole authorize request with
                 // error=invalid_request / error_description=invalid_scope before any login page is
                 // shown. The refresh token this flow stores arrives with the code grant regardless
                 // — it is governed by the client's RefreshTokenValidity, not by a requested scope.
-                // These two must also stay a subset of the app client's AllowedOAuthScopes.
-                $"&scope={Uri.EscapeDataString("openid email")}" +
+                // These three must also stay a subset of the app client's AllowedOAuthScopes.
+                $"&scope={Uri.EscapeDataString("openid email profile")}" +
                 $"&state={Uri.EscapeDataString(state)}" +
                 $"&nonce={Uri.EscapeDataString(nonce)}" +
                 $"&code_challenge={Uri.EscapeDataString(challenge)}" +

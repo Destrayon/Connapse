@@ -190,8 +190,9 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             scopes.Should().BeSubsetOf(["openid", "email", "profile"],
                 "the app client the setup script creates allows only these three");
             scopes.Should().Contain("openid", "the flow needs an ID token");
-            scopes.Should().Contain("email",
-                "the trusted token issuer matches the email claim to an Identity Center user");
+            scopes.Should().Contain("profile",
+                "preferred_username is a profile claim, and it is the join key");
+            scopes.Should().Contain("email", "the pool requires an address to create a user");
         }
         finally
         {
