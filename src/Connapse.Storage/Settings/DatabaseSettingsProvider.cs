@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -22,6 +22,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["security"] = "Identity:Jwt",
         ["azuread"] = "Identity:AzureAd",
         ["cognito"] = "Identity:Cognito",
+        ["identitycenter"] = "Identity:IdentityCenter",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)

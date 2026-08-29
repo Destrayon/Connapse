@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -80,6 +80,8 @@ public static class IdentityServiceExtensions
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
         services.Configure<CognitoSettings>(configuration.GetSection(CognitoSettings.SectionName));
+        services.Configure<IdentityCenterSettings>(
+            configuration.GetSection(IdentityCenterSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);

@@ -13,6 +13,7 @@
 @inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IOptionsMonitor<CognitoSettings> CognitoOptions
+@inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IJSRuntime JS
@@ -346,7 +347,134 @@
                 </div>
             </div>
 
-            <h2 class="h5" id="permissions">Per-user permissions</h2>
+            <h2 class="h5" id="identity-center">IAM Identity Center</h2>
+            <p class="text-muted small">
+                The directory a person is resolved into when Connapse checks what they may read.
+                This step only finds it — nothing here creates or changes anything in AWS.
+                <br />
+                Worth doing first because of one field: Identity Center lives in exactly one region
+                per organisation, nothing else you have tells you which, and the setup below looks
+                in whichever region CloudShell happened to open in.
+            </p>
+
+            @if (IdentityCentre is { IsConfigured: true } && !showIdentityCenterScan)
+            {
+                <div class="border rounded p-3 mb-3">
+                    <dl class="row small mb-2">
+                        <dt class="col-sm-3 fw-normal text-muted">Region</dt>
+                        <dd class="col-sm-9"><code>@IdentityCentre.Region</code></dd>
+                        <dt class="col-sm-3 fw-normal text-muted">Instance</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@IdentityCentre.InstanceArn</code></dd>
+                        <dt class="col-sm-3 fw-normal text-muted">Identity store</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@IdentityCentre.IdentityStoreId</code></dd>
+                    </dl>
+                    <button type="button" class="btn btn-link btn-sm p-0"
+                            @onclick="() => showIdentityCenterScan = true">
+                        Scan again
+                    </button>
+                </div>
+            }
+            else
+            {
+                <p class="small mb-2">
+                    <span class="bi-search me-1 text-muted"></span>
+                    Read-only. It calls <code>@string.Join("</code>, <code>", IdentityCenterSetup.RequiredPermissions)</code>
+                    and prints what it found.
+                </p>
+
+                <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@IdentityCenterScript</code></pre>
+
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="CopyIdentityCenterScript">
+                        <span class="bi-clipboard me-1"></span> Copy command
+                    </button>
+                    <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                       href="https://console.aws.amazon.com/cloudshell/home">
+                        <span class="bi-terminal me-1"></span> Open CloudShell
+                        <span class="bi-box-arrow-up-right ms-1 small"></span>
+                    </a>
+                    <span class="align-self-center small @(identityCenterCopySucceeded ? "text-success" : "text-danger")">
+                        @identityCenterCopyMessage
+                    </span>
+                </div>
+
+                <label class="form-label small mb-1">Paste what it printed</label>
+                <textarea class="form-control font-monospace" rows="4" @bind="pastedIdentityCenter"
+                          @bind:event="oninput"
+                          placeholder="@IdentityCenterSetup.BeginMarker&#10;region=…&#10;@IdentityCenterSetup.EndMarker"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(pastedIdentityCenter))
+                {
+                    var scan = IdentityCenterSetup.ParseResult(pastedIdentityCenter);
+                    @if (scan is null)
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            No block found yet. Copy everything the command printed, including both
+                            <code>-----</code> marker lines.
+                        </div>
+                    }
+                    else if (scan.Instances.Count > 0)
+                    {
+                        @foreach (var found in scan.Instances)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                <span class="small">
+                                    Found <code>@found.IdentityStoreId</code> in
+                                    <code>@found.Region</code>.
+                                </span>
+                                <button type="button" class="btn btn-sm btn-primary"
+                                        @onclick="() => SaveIdentityCenter(found)">
+                                    <span class="bi-check-lg me-1"></span> Use this instance
+                                </button>
+                            </div>
+                        }
+                    }
+                    else if (scan.MissingPermissions.Count > 0)
+                    {
+                        @* A refusal, not an absence. Offering to enable an instance here would send
+                           somebody to create a second one they cannot see the first of. *@
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-shield-exclamation me-1"></span>
+                            The scan was refused, so it cannot say whether an instance exists. Add
+                            <code>@string.Join("</code>, <code>", scan.MissingPermissions)</code>
+                            to whoever ran it, then scan again.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info py-2 mt-2 mb-0 small">
+                            <span class="bi-info-circle me-1"></span>
+                            @if (scan.CanEnableItself)
+                            {
+                                <span>
+                                    No instance in any region scanned. This account can enable one
+                                    itself, from the IAM Identity Center console.
+                                </span>
+                            }
+                            else if (scan.Posture == AwsAccountPosture.Member)
+                            {
+                                <span>
+                                    No instance in any region scanned, and this is a member account
+                                    of an organisation — enabling one is an organisation-wide act,
+                                    so it has to be done from the management account.
+                                </span>
+                            }
+                            else
+                            {
+                                <span>
+                                    No instance in any region scanned, and the scan could not tell
+                                    whether this account belongs to an organisation. If it does, the
+                                    management account enables the instance.
+                                </span>
+                            }
+                        </div>
+                    }
+                }
+            }
+
+            <h2 class="h5 mt-4" id="permissions">Per-user permissions</h2>
             <p class="text-muted small">
                 The Cognito user pool a person signs into to prove which AWS identity they are. Once
                 it is saved, the connect button appears on their Profile page.
@@ -596,10 +724,53 @@
     private CognitoSetupRequest CognitoRequest =>
         new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
             AccessRequirement?.Detail ?? string.Empty,
-            IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim());
+            IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim(),
+            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
 
     /// <summary>The Identity Center SAML metadata URL, or empty for a pool with local users.</summary>
     private string? idpMetadataUrl;
+
+    private string? pastedIdentityCenter;
+    private string? identityCenterCopyMessage;
+    private bool identityCenterCopySucceeded;
+
+    /// <summary>Whether the scan is open over an instance that is already recorded.</summary>
+    private bool showIdentityCenterScan;
+
+    /// <summary>What is recorded about the customer's Identity Center instance, if anything.</summary>
+    private IdentityCenterSettings? IdentityCentre => IdentityCenterOptions.CurrentValue;
+
+    private static string IdentityCenterScript => IdentityCenterSetup.GenerateScript();
+
+    private async Task CopyIdentityCenterScript()
+    {
+        identityCenterCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", IdentityCenterScript);
+        identityCenterCopyMessage = identityCenterCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it.";
+    }
+
+    /// <summary>Records the instance the scan found.</summary>
+    private async Task SaveIdentityCenter(IdentityCenterInstance found)
+    {
+        await SaveSettings("identitycenter", new IdentityCenterSettings
+        {
+            Region = found.Region,
+            InstanceArn = found.InstanceArn,
+            IdentityStoreId = found.IdentityStoreId,
+        });
+
+        // Cleared on success only. Leaving the block in place after a failure means the
+        // administrator can retry without going back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+        {
+            pastedIdentityCenter = null;
+            showIdentityCenterScan = false;
+        }
+
+        await RefreshSetups();
+    }
 
     /// <summary>
     /// Where Identity Center posts its SAML assertion. Fixed by Cognito's contract — the pool

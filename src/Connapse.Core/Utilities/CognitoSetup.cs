@@ -14,11 +14,22 @@
 /// pool that holds its own users — the only arrangement that needs no prerequisites.
 /// </param>
 /// <param name="NamePrefix">Prefix for every created resource, so they are obvious and findable.</param>
+/// <param name="Region">
+/// Where the Identity Center instance was found, which is where everything else must be created.
+/// Null falls back to the CloudShell session's own region.
+/// <para>
+/// Worth passing whenever it is known. Identity Center lives in exactly one region per
+/// organisation, and CloudShell opens in whichever region the console was last on — so the default
+/// is right by coincidence rather than by construction, and being wrong reads as having no instance
+/// at all rather than as looking in the wrong place.
+/// </para>
+/// </param>
 public record CognitoSetupRequest(
     string CallbackUrl,
     string ActorArn,
     string? IdpMetadataUrl = null,
-    string? NamePrefix = null);
+    string? NamePrefix = null,
+    string? Region = null);
 
 /// <summary>The settings the script printed.</summary>
 public record CognitoSetupResult(
@@ -252,6 +263,7 @@ public static class CognitoSetup
 
         string prefix = SanitisePrefix(request.NamePrefix);
         string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
+        string region = request.Region?.Trim() ?? string.Empty;
 
         // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
         // express one: the call fails with "Shorthand syntax does not support document types"
@@ -287,7 +299,10 @@ public static class CognitoSetup
         IDP_METADATA='{{idp}}'
         STACK="$PREFIX-cognito"
 
-        REGION="${AWS_REGION:-$(aws configure get region)}"
+        # Pinned to where Connapse found the Identity Center instance, when it has. Falling back
+        # to the session's region is a guess: CloudShell opens wherever the console last was.
+        REGION="{{region}}"
+        [ -n "$REGION" ] || REGION="${AWS_REGION:-$(aws configure get region)}"
         [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
