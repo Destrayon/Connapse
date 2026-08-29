@@ -318,7 +318,7 @@ public static class CognitoSetup
             + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
             + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
 
-        return RunAsScript(FlattenContinuations($$"""
+        return FlattenContinuations($$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
         #   a Cognito user pool, its domain and one app client
         #   an IAM Identity Center application, plus its trusted token issuer, grant,
@@ -328,7 +328,16 @@ public static class CognitoSetup
         # It creates NO access grants. Who may read what stays yours to decide, in AWS.
         # Nothing existing is modified.
 
-        set -e
+        # Nothing here sets -e, and nothing here exits. Both are right in a file and ruinous
+        # in a shell somebody is using: the first ends their session on any command that
+        # returns non-zero, the second ends it outright, and CloudShell reports either as a
+        # disconnected terminal with the error already scrolled away.
+        #
+        # The guards below record a failure instead of stopping. Whatever follows a failed
+        # guard fails too, in the AWS CLI's own words, and the block at the end refuses to
+        # print settings from a run that did not finish — which is the outcome worth
+        # protecting against: a half-finished setup that looks finished.
+        FAILED=""
         PREFIX='{{prefix}}'
         CALLBACK='{{request.CallbackUrl}}'
         ACTOR='{{request.ActorArn}}'
@@ -339,7 +348,7 @@ public static class CognitoSetup
         # to the session's region is a guess: CloudShell opens wherever the console last was.
         REGION="{{region}}"
         [ -n "$REGION" ] || REGION="${AWS_REGION:-$(aws configure get region)}"
-        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; exit 1; }
+        [ -n "$REGION" ] || { echo 'No region set. Run: export AWS_REGION=us-east-1'; FAILED=1; }
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
         # Checked before anything is created. A missing instance, or the right instance seen from
@@ -349,7 +358,7 @@ public static class CognitoSetup
         if [ -z "$INSTANCE" ] || [ "$INSTANCE" = 'None' ]; then
           echo "No IAM Identity Center instance is visible in $REGION from account $ACCOUNT."
           echo 'With an organization instance, run this in the management or delegated-admin account.'
-          exit 1
+          FAILED=1
         fi
         IDENTITY_STORE=$(aws sso-admin list-instances --region "$REGION" \
                            --query 'Instances[0].IdentityStoreId' --output text)
@@ -363,7 +372,7 @@ public static class CognitoSetup
         [ -f "$TEMPLATE_FILE" ] || {
           echo "Cannot find $TEMPLATE_FILE in $(pwd)."
           echo 'Download it from Connapse, then upload it here: Actions -> Upload file.'
-          exit 1
+          FAILED=1
         }
 
 
@@ -386,7 +395,7 @@ public static class CognitoSetup
           echo "Stack $STACK refers to pool $POOL_ID, which no longer exists."
           echo "Something removed it outside CloudFormation. Delete the stack and run this again:"
           echo "  aws cloudformation delete-stack --region $REGION --stack-name $STACK"
-          exit 1
+          FAILED=1
         }
 
         ISSUER="https://cognito-idp.$REGION.amazonaws.com/$POOL_ID"
@@ -461,7 +470,7 @@ public static class CognitoSetup
         aws sso-admin list-application-authentication-methods --region "$REGION" \
           --application-arn "$APP_ARN" \
           --query 'AuthenticationMethods[0].AuthenticationMethodType' --output text \
-          | grep -q IAM || { echo 'The authentication method did not take. Setup is incomplete.'; exit 1; }
+          | grep -q IAM || { echo 'The authentication method did not take. Setup is incomplete.'; FAILED=1; }
 
         # Assignment is required by default with nobody assigned, and the token exchange then fails
         # with a bare AccessDeniedException naming neither the user nor the application. It is the
@@ -488,43 +497,15 @@ public static class CognitoSetup
         # tells Connapse to let Cognito render its own sign-in page rather than redirect past it.
         if [ -n "$IDP_METADATA" ]; then IDP_NAME='Workforce'; else IDP_NAME=''; fi
 
+        if [ -n "$FAILED" ]; then
+          echo 'Setup did not finish. Fix the error above and run this again.'
+        else
         printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\nidentityProvider=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" "$IDP_NAME" '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
-        """));
+        fi
+        """);
     }
-
-    /// <summary>
-    /// Hands the script to a fresh <c>bash</c> on standard input, rather than leaving it to be
-    /// typed into the administrator's own shell.
-    /// </summary>
-    /// <remarks>
-    /// The script begins <c>set -e</c> and guards several steps with <c>exit 1</c>. Both are right
-    /// for a script and ruinous for a session: pasted line by line, <c>set -e</c> makes the
-    /// administrator's own shell exit on the first command that returns non-zero, and <c>exit</c>
-    /// exits it outright. CloudShell answers either with "click inside the terminal window to
-    /// reconnect" — so a step failing for an ordinary reason, a wrong ARN or a missing file,
-    /// arrives as a dead terminal with its error already gone.
-    /// <para>
-    /// This is what the earlier continuation work was reaching for and missed. Flattening the
-    /// backslashes was worth doing, but the script went on killing the session at 140 lines with no
-    /// continuations left in it, because the cause was never the continuations.
-    /// </para>
-    /// <para>
-    /// Reading it is unaffected: the page shows this same text, and everything between the two
-    /// delimiter lines is what runs. Nothing executes that the reader cannot see, which is the
-    /// property the whole copy-and-paste design rests on.
-    /// </para>
-    /// </remarks>
-    private static string RunAsScript(string body) =>
-        $"bash -s <<'{ScriptDelimiter}'\n{body}\n{ScriptDelimiter}";
-
-    /// <summary>
-    /// Ends the script on standard input. Long and specific because the body is arbitrary shell: a
-    /// terminator it happened to contain would end the script early, and that failure would be a
-    /// half-finished setup rather than an error.
-    /// </summary>
-    private const string ScriptDelimiter = "CONNAPSE_SETUP_SCRIPT";
 
     /// <summary>
     /// Joins every backslash-continued line into one, so the shell never continues.

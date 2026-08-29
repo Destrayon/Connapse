@@ -411,58 +411,55 @@ public class CognitoSetupTests
     }
 
     [Fact]
-    public void GenerateScript_RunsAsAScriptRatherThanInTheAdministratorsShell()
+    public void GenerateScript_IsNothingAShellPasteBlockerShouldStop()
     {
-        // The failure this exists to stop: pasted line by line, `set -e` exits the administrator's
-        // own shell on the first command that returns non-zero, and the guards' `exit 1` exits it
-        // outright. CloudShell reports both as a disconnected session, so an ordinary failure — a
-        // wrong ARN, a missing template — arrives as a dead terminal with its error already gone.
+        // uBlock Origin stopped the copy as a ClickFix attempt, and it was right about the shape: a
+        // page had put "pipe this into bash" on the clipboard and asked for it to be pasted into a
+        // terminal, which is the pattern the technique is named for. What runs must read as a
+        // sequence of ordinary commands, inspectable line by line.
         string script = CognitoSetup.GenerateScript(
             new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
 
-        var lines = script.Split('\n');
-
-        lines[0].Should().Be("bash -s <<'CONNAPSE_SETUP_SCRIPT'",
-            "the body has to reach a new shell, not this one");
-        lines[^1].Should().Be("CONNAPSE_SETUP_SCRIPT");
-
-        // Both are still wanted inside the script; they are only dangerous outside one.
-        script.Should().Contain("set -e");
-        script.Should().Contain("exit 1");
-    }
-
-    [Fact]
-    public void GenerateScript_BodyNeverContainsTheDelimiter()
-    {
-        // A terminator appearing in the body would end the script early, and the result would be a
-        // half-finished setup rather than an error — the pool created and the Identity Center calls
-        // never made.
-        string script = CognitoSetup.GenerateScript(new CognitoSetupRequest(
-            "https://x/cb",
-            "arn:aws:iam::1:user/connapse",
-            IdpMetadataUrl: "https://portal.sso.us-west-1.amazonaws.com/saml/metadata/x",
-            SamlApplicationArn: "arn:aws:sso::1:application/ssoins-1/apl-1",
-            NamePrefix: "connapse"));
-
-        var lines = script.Split('\n');
-
-        lines.Count(l => l == "CONNAPSE_SETUP_SCRIPT").Should().Be(1,
-            "exactly the closing line, and nothing in the body");
-    }
-
-    [Fact]
-    public void GenerateScript_IsStillReadableInFull()
-    {
-        // The wrapper must not hide anything. Everything between the two delimiter lines is what
-        // runs, and it is the same text the page displays — nothing is fetched, decoded or
-        // expanded at run time, which is what makes reading it before running it worth anything.
-        string script = CognitoSetup.GenerateScript(
-            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
-
+        script.Should().NotContain("bash -s");
+        script.Should().NotContain("| bash");
+        script.Should().NotContain("| sh");
         script.Should().NotContain("base64");
         script.Should().NotContain("curl ");
         script.Should().NotContain("wget ");
         script.Should().NotContain("eval ");
+    }
+
+    [Fact]
+    public void GenerateScript_CannotEndTheShellItIsPastedInto()
+    {
+        // What made the wrapper look necessary. `set -e` ends the administrator's own session on
+        // the first command that returns non-zero and `exit` ends it outright — CloudShell reports
+        // either as a disconnected terminal with the error already scrolled away, so an ordinary
+        // failure is indistinguishable from a crash.
+        var lines = CognitoSetup.GenerateScript(
+                new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"))
+            .Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => !l.StartsWith('#'))
+            .ToList();
+
+        lines.Should().NotContain("set -e");
+        lines.Should().NotContain(l => l.Contains("exit 1"));
+        lines.Should().NotContain(l => l == "exit");
+    }
+
+    [Fact]
+    public void GenerateScript_AfterAFailedGuard_PrintsNoSettingsBlock()
+    {
+        // The cost of not stopping: a run that failed half way carries on to the end. So the block
+        // an administrator pastes back is withheld, because a half-finished setup that reports
+        // settings is worse than one that reports nothing.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("FAILED=1");
+        script.Should().Contain("if [ -n \"$FAILED\" ]; then");
+        script.Should().Contain("Setup did not finish.");
     }
 
     [Fact]
