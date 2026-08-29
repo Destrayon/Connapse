@@ -390,6 +390,47 @@
 
                 <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
 
+                @* Federation is what lets people sign in with credentials they already have. It
+                   cannot be set up in one pass: the Identity Center application needs this pool's
+                   domain and id, and neither exists until the script has run once. So this is
+                   offered as a second pass rather than a field to fill in before starting. *@
+                <div class="border rounded p-2 mb-2 bg-body-tertiary">
+                    <label class="form-label small fw-semibold mb-1" for="idp-metadata">
+                        Sign in with IAM Identity Center (optional)
+                    </label>
+                    @if (SamlAcsUrl is null)
+                    {
+                        <p class="form-text mt-0 mb-0">
+                            Leave this empty for now. Run the script once, then come back — setting
+                            this up in Identity Center needs the pool this run creates.
+                        </p>
+                    }
+                    else
+                    {
+                        <p class="form-text mt-0 mb-1">
+                            In Identity Center choose <strong>Applications &rarr; Add application
+                            &rarr; I have an application I want to set up &rarr; SAML 2.0</strong>,
+                            then give it these two values and paste its metadata URL back here.
+                            Map the <code>email</code> attribute. Re-run the script afterwards.
+                        </p>
+                        <dl class="row small mb-1">
+                            <dt class="col-sm-3 fw-normal text-muted">ACS URL</dt>
+                            <dd class="col-sm-9"><code class="user-select-all">@SamlAcsUrl</code></dd>
+                            <dt class="col-sm-3 fw-normal text-muted">SAML audience</dt>
+                            <dd class="col-sm-9"><code class="user-select-all">@SamlAudience</code></dd>
+                        </dl>
+                    }
+                    <input id="idp-metadata" class="form-control form-control-sm" type="url"
+                           placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
+                           @bind="idpMetadataUrl" @bind:event="oninput" />
+                    <div class="form-text">
+                        With this set, the script federates the pool to Identity Center and people
+                        sign in there instead of with a separate password. Their Cognito user is
+                        created on first successful sign-in. Leave it empty to keep pool-local
+                        users, who an administrator must create by hand.
+                    </div>
+                </div>
+
                 <div class="d-flex flex-wrap gap-2 mb-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             @onclick="DownloadTemplate">
@@ -547,7 +588,29 @@
     /// </remarks>
     private CognitoSetupRequest CognitoRequest =>
         new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
-            AccessRequirement?.Detail ?? string.Empty);
+            AccessRequirement?.Detail ?? string.Empty,
+            IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim());
+
+    /// <summary>The Identity Center SAML metadata URL, or empty for a pool with local users.</summary>
+    private string? idpMetadataUrl;
+
+    /// <summary>
+    /// Where Identity Center posts its SAML assertion. Fixed by Cognito's contract — the pool
+    /// domain plus /saml2/idpresponse — but it is derived here rather than left to be assembled by
+    /// hand, because getting it wrong produces a failure at sign-in rather than at setup.
+    /// Null until a pool exists, which is what makes federation a second pass.
+    /// </summary>
+    private string? SamlAcsUrl =>
+        CognitoPool?.Domain is { Length: > 0 } domain ? $"{domain.TrimEnd('/')}/saml2/idpresponse" : null;
+
+    /// <summary>
+    /// The audience Identity Center must claim, which Cognito derives from the pool id. The id is
+    /// the last segment of the issuer URL, so it is read from there rather than stored twice.
+    /// </summary>
+    private string? SamlAudience =>
+        CognitoPool?.IssuerUrl is { Length: > 0 } issuer
+            ? $"urn:amazon:cognito:sp:{issuer.TrimEnd('/').Split('/')[^1]}"
+            : null;
 
     private string CognitoScript => CognitoSetup.GenerateScript(CognitoRequest);
 
