@@ -12,7 +12,7 @@
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
-@inject IOptionsMonitor<CognitoSettings> CognitoOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
@@ -493,356 +493,225 @@
 
             <h2 class="h5 mt-4" id="permissions">Per-user permissions</h2>
             <p class="text-muted small">
-                The Cognito user pool a person signs into to prove which AWS identity they are. Once
-                it is saved, the connect button appears on their Profile page.
+                The IAM Identity Center application a person signs into to prove which directory
+                user they are. Once it is saved, the connect button appears on their Profile page.
                 <br />
                 Connecting does not scope anyone's results yet — search is not filtered by cloud
                 permissions (see issue #421). This is the half that has to exist first.
             </p>
 
-            @if (!AccessConfirmed)
+            @if (IdentityCentre is null)
             {
-                @* Sequencing, not pedantry. The script names Connapse's own AWS identity as the
-                   principal allowed to exchange a token, so there has to be one that works before
-                   there is anything to name. *@
+                @* Ordered, because the step below needs the instance ARN and the region, and the
+                   console link is region-qualified. Offering it first would ask an administrator to
+                   run a script that cannot find what it is looking for. *@
                 <div class="alert alert-secondary small">
-                    <span class="bi-info-circle me-1"></span>
-                    Set up <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
-                                   @onclick="@(() => ScrollTo("access"))">Access</button>
-                    first. This step names the identity Connapse reads AWS as, and there is not a
-                    working one yet.
+                    Find your IAM Identity Center instance first — the step above. Everything here
+                    is created inside it.
                 </div>
             }
-            else if (CognitoPool is null || showCognitoManual)
+            else
             {
-                <button type="button" class="btn btn-sm btn-outline-secondary mb-2"
-                        @onclick="() => showCognitoGuided = !showCognitoGuided">
-                    <span class="@(showCognitoGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
-                    Guided setup
+                <button type="button" class="btn btn-sm btn-link px-0 mb-1"
+                        @onclick="() => showGrantsGuided = !showGrantsGuided">
+                    <span class="@(showGrantsGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided setup — S3 Access Grants
                 </button>
 
-                @if (showCognitoGuided)
+                @if (showGrantsGuided)
                 {
-                <p class="small mb-2">
-                    <span class="bi-shield-check me-1 text-muted"></span>
-                    Creates a Cognito pool and an S3 Access Grants instance, using your own AWS
-                    permissions. <strong>It writes no access grants</strong> — who may read what
-                    stays yours to decide, in AWS.
-                </p>
-
-                <ol class="small mb-2">
-                    <li>
-                        Download the template and read it. Nothing runs at this point.
-                    </li>
-                    <li>
-                        In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and upload
-                        <code>connapse-permissions.yaml</code>.
-                    </li>
-                    <li>
-                        Paste the script below. It deploys that template and prints the settings to
-                        paste back here.
-                    </li>
-                </ol>
-
-                <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
-
-                <div class="d-flex flex-wrap gap-2 mb-2">
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                            @onclick="DownloadTemplate">
-                        <span class="bi-download me-1"></span> Download template
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary"
-                            @onclick="CopyCognitoScript">
-                        <span class="bi-clipboard me-1"></span> Copy command
-                    </button>
-                    <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                       href="https://console.aws.amazon.com/cloudshell/home">
-                        <span class="bi-terminal me-1"></span> Open CloudShell
-                        <span class="bi-box-arrow-up-right ms-1 small"></span>
-                    </a>
-                    <span class="align-self-center small @(cognitoCopySucceeded ? "text-success" : "text-danger")">
-                        @cognitoCopyMessage
-                    </span>
-                </div>
-
-                <div class="form-text mb-3">
-                    Two files, and you can read both before anything runs. The template declares
-                    what will exist; CloudFormation lists it back to you and asks before creating
-                    IAM resources. The script only makes the four Identity Center calls that have no
-                    CloudFormation resource type, then prints the settings above.
-                </div>
-
-                <label class="form-label small mb-1">Paste what it printed</label>
-                <textarea class="form-control font-monospace" rows="4" @bind="pastedCognito"
-                          @bind:event="oninput"
-                          placeholder="@CognitoSetup.BeginMarker&#10;issuerUrl=…&#10;@CognitoSetup.EndMarker"></textarea>
-
-                @if (!string.IsNullOrWhiteSpace(pastedCognito))
-                {
-                    var parsedCognito = CognitoSetup.ParseResult(pastedCognito);
-                    @if (parsedCognito is null)
-                    {
-                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                            <span class="bi-exclamation-triangle me-1"></span>
-                            No settings block found yet. Copy everything the command printed,
-                            including both <code>-----</code> marker lines.
-                        </div>
-                    }
-                    else
-                    {
-                        @* No flex-grow on the label. It pushed the button to the far edge of a
-                           full-width container, which on a wide monitor is most of a metre from
-                           the text it belongs to — the button was on the page and could not be
-                           found. The confirming click belongs beside what it confirms. *@
-                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-                            <span class="small">
-                                Read pool <code>@parsedCognito.ClientId</code> in
-                                <code>@parsedCognito.Region</code>.
-                            </span>
-                            <button type="button" class="btn btn-sm btn-primary"
-                                    @onclick="() => SaveCognitoSetup(parsedCognito)">
-                                <span class="bi-check-lg me-1"></span> Use this pool
-                            </button>
-                        </div>
-                        <div class="form-text">
-                            The client secret is stored the same way every other provider secret is.
-                        </div>
-                    }
-                }
-
-                @* Only once a pool exists, and it genuinely cannot come earlier. The SAML
-                   application needs an audience of urn:amazon:cognito:sp:{poolId}, and Cognito
-                   generates that id when it creates the pool — so unlike the ACS URL, whose domain
-                   this script derives from the account and region, it cannot be known in advance by
-                   anybody. Before the first run this field could say nothing but "leave this
-                   empty". It appears on the second pass, when it is answerable. *@
-                @if (SamlAcsUrl is not null)
-                {
-                <div class="border rounded p-2 mb-2 bg-body-tertiary">
-                    <label class="form-label small fw-semibold mb-1" for="idp-metadata">
-                        Finish: point the pool at Identity Center
-                    </label>
-                    <p class="form-text mt-0 mb-2">
-                        The pool exists but nobody can use it yet. Connect it to Identity Center and
-                        people sign in there with the credentials and MFA they already have, and
-                        their pool account is created for them the first time. That directory is
-                        also what their permissions are read from, so this is what makes a sign-in
-                        mean anything.
-                        <br />
-                        It could not be done in one pass: the application below needs an audience
-                        built from this pool's id, and Cognito only generates that id once the pool
-                        exists.
+                    <p class="small mb-2">
+                        <span class="bi-shield-check me-1 text-muted"></span>
+                        Creates an S3 Access Grants instance, one location covering
+                        <code>s3://</code>, and that location's role, using your own AWS
+                        permissions. <strong>It writes no access grants</strong> — who may read what
+                        stays yours to decide, in AWS.
                     </p>
 
-                    <ol class="form-text mt-0 mb-2 ps-3">
+                    <ol class="small mb-2">
+                        <li>Download the template and read it. Nothing runs at this point.</li>
                         <li>
-                            Open the
-                            <a href="@IdentityCenterConsoleUrl" target="_blank" rel="noopener">
-                                Identity Center console<span class="bi-box-arrow-up-right ms-1 small"></span>
-                            </a>, go to <strong>Applications</strong>, then
-                            <strong>Add application &rarr; I have an application I want to set up
-                            &rarr; SAML 2.0</strong>.
+                            In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and
+                            upload <code>connapse-permissions.yaml</code>.
                         </li>
-                        <li>
-                            That page asks for two values and offers a third. Give it the
-                            <strong>ACS URL</strong> and <strong>SAML audience</strong> shown below,
-                            and copy its <strong>IAM Identity Center SAML metadata file</strong> URL
-                            into the Metadata URL box below — it is on the same page, under
-                            <strong>IAM Identity Center metadata</strong>. Take the
-                            <strong>Default (IPv4 only)</strong> one. Then create the application.
-                        </li>
-                        <li>
-                            You land on the application's own page. Choose
-                            <strong>Actions &rarr; Edit attribute mappings</strong>. There are three
-                            rows to end up with, and it will not save until the first is set:
-                            <table class="table table-sm small mt-2 mb-1">
-                                <thead>
-                                    <tr>
-                                        <th class="fw-normal text-muted">Attribute</th>
-                                        <th class="fw-normal text-muted">Maps to</th>
-                                        <th class="fw-normal text-muted">Format</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td><code>Subject</code></td>
-                                        <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
-                                        <td><code>persistent</code></td>
-                                    </tr>
-                                    <tr>
-                                        <td><code>userName</code></td>
-                                        <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
-                                        <td><code>unspecified</code></td>
-                                    </tr>
-                                    <tr>
-                                        <td><code>email</code></td>
-                                        <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
-                                        <td><code>unspecified</code></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                            <span class="d-block">
-                                <code>Subject</code> is there already and is required. It has to be a
-                                value that never changes: Cognito recognises a returning person by
-                                it, so mapping it to an email address means anyone who changes their
-                                address becomes a new person who cannot get back in.
-                            </span>
-                            <span class="d-block mt-1">
-                                <code>userName</code> is what ties a sign-in to one Identity Center
-                                user, and it has to carry their user name — <code>diviel</code>, not
-                                <code>Patrick Summers</code>. Both rows send
-                                <code>&#36;&#123;user:subject&#125;</code> for that reason;
-                                <code>&#36;&#123;user:preferredUsername&#125;</code> resolves to the
-                                display name, which matches nobody in the directory.
-                            </span>
-                            <span class="d-block mt-1">
-                                <code>email</code> is required by the pool, so a sign-in without it
-                                is refused before anyone is created — <em>the attribute emails is
-                                required</em>. It is not the join key; the pool simply will not make
-                                a user without an address.
-                            </span>
-                        </li>
-                        <li>
-                            On that same page, assign whoever should be able to sign in. Anyone
-                            unassigned is refused before they reach Cognito. The picker lists nobody
-                            until you type a name.
-                            <span class="d-block mt-1">
-                                Assign a <strong>group</strong> rather than people one at a time and
-                                membership becomes the only thing to maintain: whoever joins it can
-                                sign in, and this application is never touched again. There is no
-                                setting that admits everyone — AWS refuses to turn the assignment
-                                requirement off for a SAML application.
-                            </span>
-                        </li>
-                        <li>
-                            Press <strong>Copy command with this URL</strong> below, and run what
-                            it copies in CloudShell. It has to be copied again rather than re-run
-                            from your terminal history: the command carries the metadata URL, so the
-                            one you ran the first time still has an empty one and would change
-                            nothing. Re-running is safe — CloudFormation updates the stack it
-                            already made.
-                        </li>
-                        <li>
-                            Paste what it prints into <strong>Paste what it printed</strong> above,
-                            as before. That is what records the connection here; without it the pool
-                            federates in AWS and Connapse still shows this step unfinished.
-                        </li>
+                        <li>Paste the script below. It deploys that template and stops.</li>
                     </ol>
 
-                    <dl class="row small mb-2">
-                        <dt class="col-sm-3 fw-normal text-muted">ACS URL</dt>
-                        <dd class="col-sm-9"><code class="user-select-all">@SamlAcsUrl</code></dd>
-                        <dt class="col-sm-3 fw-normal text-muted">SAML audience</dt>
-                        <dd class="col-sm-9"><code class="user-select-all">@SamlAudience</code></dd>
-                    </dl>
+                    <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AccessGrantsScript</code></pre>
 
-                    <label class="form-label small mb-1 mt-1" for="idp-metadata">Metadata URL</label>
-                    <input id="idp-metadata" class="form-control form-control-sm font-monospace" type="url"
-                           placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
-                           @bind="idpMetadataUrl" @bind:event="oninput" />
-
-                    <div class="d-flex flex-wrap gap-2 mt-2 mb-1">
+                    <div class="d-flex flex-wrap gap-2 mb-3">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="CopyCognitoScript">
-                            <span class="bi-clipboard me-1"></span> Copy command with this URL
+                                @onclick="DownloadTemplate">
+                            <span class="bi-download me-1"></span> Download template
                         </button>
-                        <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="CopyAccessGrantsScript">
+                            <span class="bi-clipboard me-1"></span> Copy command
+                        </button>
+                        <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
                            href="https://console.aws.amazon.com/cloudshell/home">
                             <span class="bi-terminal me-1"></span> Open CloudShell
                             <span class="bi-box-arrow-up-right ms-1 small"></span>
                         </a>
-                        <span class="align-self-center small @(cognitoCopySucceeded ? "text-success" : "text-danger")">
-                            @cognitoCopyMessage
+                        <span class="align-self-center small @(grantsCopySucceeded ? "text-success" : "text-danger")">
+                            @grantsCopyMessage
                         </span>
                     </div>
-                    <div class="form-text">
-                        Until this is set, connecting is not offered on anyone's profile: a pool that
-                        federates nowhere holds only accounts made by hand, and each of those needs a
-                        matching Identity Center user to resolve against anyway.
-                    </div>
-                </div>
                 }
 
-                @* Deleting the stack in AWS cannot tell Connapse, so the values here go on
-                   describing a pool that is gone — including the audience above, which would send
-                   somebody to configure their Identity Center application against a pool id that no
-                   longer exists. *@
-                @if (PoolExists)
-                {
-                    <div class="mt-2">
-                        @if (confirmForgetPool)
+                @* The application itself, which cannot be scripted at all. CreateApplication
+                   refuses SAML customer-managed applications outright — "You can create a SAML 2.0
+                   customer managed application in the AWS Management Console only" — and
+                   DeleteApplication refuses them too, so this stays a hand-guided step in both
+                   directions. *@
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h3 class="h6">Create the sign-in application</h3>
+                        <p class="small text-muted">
+                            In the Identity Center console: <strong>Applications &rarr; Customer
+                            managed &rarr; Add application &rarr; I have an application I want to
+                            set up &rarr; SAML 2.0</strong>. AWS offers no API for this.
+                        </p>
+
+                        @if (SamlAcsUrl is null)
                         {
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                <span class="small">Forget this pool and start again?</span>
-                                <button type="button" class="btn btn-sm btn-danger"
-                                        @onclick="ForgetCognitoPool">
-                                    Forget it
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        @onclick="() => confirmForgetPool = false">
-                                    Cancel
-                                </button>
-                            </div>
-                            <div class="form-text">
-                                Clears what Connapse stored. Nothing in AWS is touched — delete the
-                                stack there separately if that is what you meant.
+                            <div class="alert alert-warning small mb-0">
+                                You are reading this over <code>@Navigation.BaseUri</code>. A SAML
+                                assertion is a bearer credential, so it may only be posted to an
+                                <code>https://</code> address, or to <code>localhost</code>,
+                                <code>127.0.0.1</code> or <code>[::1]</code> over plain HTTP. Serve
+                                Connapse over HTTPS, or reach it on the machine it runs on, and the
+                                values to paste will appear here.
                             </div>
                         }
                         else
                         {
-                            <button type="button" class="btn btn-link btn-sm p-0 text-danger"
-                                    @onclick="() => confirmForgetPool = true">
-                                Deleted the stack in AWS? Forget this pool
-                            </button>
+                            <ol class="small mb-0">
+                                <li>
+                                    On the application metadata page, paste these two:
+                                    <div class="table-responsive mt-1 mb-2">
+                                        <table class="table table-sm small mb-0">
+                                            <tbody>
+                                                <tr>
+                                                    <td class="text-muted" style="width:14rem">Application ACS URL</td>
+                                                    <td><code class="user-select-all">@SamlAcsUrl</code></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="text-muted">Application SAML audience</td>
+                                                    <td><code class="user-select-all">@SamlAudience</code></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </li>
+                                <li>
+                                    Then <strong>Actions &rarr; Edit attribute mappings</strong>.
+                                    <code>Subject</code> is required and is the one that matters:
+                                    <div class="table-responsive mt-1 mb-2">
+                                        <table class="table table-sm small mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Attribute</th><th>Maps to</th><th>Format</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>Subject</code></td>
+                                                    <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
+                                                    <td><code>unspecified</code></td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>email</code></td>
+                                                    <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
+                                                    <td><code>unspecified</code></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <span class="d-block mb-2">
+                                        <code>&#36;&#123;user:subject&#125;</code> carries the
+                                        directory user name — <code>diviel</code>, not
+                                        <code>Patrick Summers</code>. Connapse resolves it into the
+                                        identity store id that access grants are held against, so
+                                        <code>&#36;&#123;user:preferredUsername&#125;</code> is
+                                        wrong here: it gives the display name, which matches nobody.
+                                    </span>
+                                </li>
+                                <li>
+                                    Assign whoever should be able to sign in. Anyone unassigned is
+                                    refused. Assign a <strong>group</strong> rather than people one
+                                    at a time and membership becomes the only thing to maintain —
+                                    there is no setting that admits everyone, because AWS refuses to
+                                    turn the assignment requirement off for a SAML application.
+                                </li>
+                                <li>
+                                    Finally, open the application's metadata and copy its issuer,
+                                    sign-in URL and signing certificate into the form below.
+                                </li>
+                            </ol>
                         }
                     </div>
-                }
-
-                }
-            }
-            else
-            {
-                @* Set up already. Without this the section was a heading and a bare form, so the
-                   requirement card's "Change" scrolled to something that was already on screen and
-                   looked like a dead link — and there was no route back to the setup scripts at
-                   all, because the button that reveals them sits inside the block above, which
-                   stops rendering the moment a pool is configured. *@
-                <div class="card mb-3">
-                    <div class="card-body py-3">
-                        <div class="d-flex align-items-center gap-2 mb-1">
-                            <span class="bi-check-circle-fill text-success" aria-hidden="true"></span>
-                            <strong class="small">Connected to a Cognito pool</strong>
-                        </div>
-                        <div class="small text-body-secondary font-monospace text-break mb-2">
-                            @cognitoSettings.IssuerUrl
-                        </div>
-                        <p class="form-text mb-2">
-                            People can connect their AWS identity from their Profile page. It does
-                            not scope anyone's search results yet — see issue #421.
-                        </p>
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="() => showCognitoManual = true">
-                            <span class="bi-arrow-repeat me-1"></span> Change or set up again
-                        </button>
-                    </div>
                 </div>
-            }
 
-            @* Shown while the step is unfilled, and once a pool exists only if the administrator
-               asked to edit. Rendering it under the summary as well put five mostly-empty fields
-               beneath the description of the values they hold, and made "Change" look like it had
-               done nothing. *@
-            @if (CognitoPool is null || showCognitoManual)
-            {
-                <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
+                <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank" rel="noopener"
+                   href="@IdentityCenterConsoleUrl">
+                    <span class="bi-box-arrow-up-right me-1"></span> Open Identity Center console
+                </a>
+
+                @if (SamlSignIn is not null && !showSamlManual)
+                {
+                    <div class="card border-success-subtle mb-3">
+                        <div class="card-body py-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="bi-check-circle-fill text-success"></span>
+                                <strong class="small">AWS sign-in is set up</strong>
+                            </div>
+                            <div class="small text-muted font-monospace text-break mt-1">
+                                @samlSettings.EntityId
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => showSamlManual = true">
+                                    Change
+                                </button>
+                                @if (confirmForgetSignIn)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger"
+                                            @onclick="ForgetSamlSignIn">
+                                        Confirm — forget it
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => confirmForgetSignIn = false">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => confirmForgetSignIn = true">
+                                        Forget
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @* Shown while the step is unfilled, and once it is set up only if the administrator
+                   asked to edit. Rendering it under the summary as well put five mostly-empty
+                   fields beneath the description of the values they hold, and made "Change" look
+                   like it had done nothing. *@
+                @if (SamlSignIn is null || showSamlManual)
+                {
+                    <SamlSignInSettingsTab Settings="samlSettings" OnSave="SaveSamlSettings" />
+                }
             }
         }
 
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. AWS has no sign-in of its own — the
-           device-flow link never delivered per-user filtering and was removed (#435); what it has
-           instead is the Cognito pool above, which scopes a user's results without signing them
-           into Connapse. *@
+           between once the page is about one cloud. AWS has no sign-in *into Connapse* — what it
+           has instead is the Identity Center application above, which establishes which directory
+           user somebody is so their results can be scoped, without being a way to log in here. *@
         @if (Key == "azure")
         {
             <h2 class="h5" id="signin">Sign-in</h2>
@@ -865,48 +734,27 @@
     private bool saveSuccess;
 
     private AzureAdSettings azureAdSettings = new();
-    private CognitoSettings cognitoSettings = new();
-    private string? pastedCognito;
-    private bool showCognitoManual;
-    private bool confirmForgetPool;
+    private SamlSignInSettings samlSettings = new();
+    private bool showSamlManual;
+    private bool confirmForgetSignIn;
 
-    private string? cognitoCopyMessage;
-    private bool cognitoCopySucceeded;
+    private string? grantsCopyMessage;
+    private bool grantsCopySucceeded;
 
-    /// <summary>The finished pool, or null while any part of the setup is outstanding.</summary>
-    private CognitoSettings? CognitoPool =>
-        cognitoSettings.IsConfigured ? cognitoSettings : null;
-
-    /// <summary>
-    /// Whether the script has created a pool, whether or not the setup around it is finished.
-    /// </summary>
-    /// <remarks>
-    /// Distinct from <see cref="CognitoPool"/>, and the distinction is load-bearing. Federation is
-    /// part of being configured, and the field that configures it needs this pool's domain and id —
-    /// so gating that field on <see cref="CognitoPool"/> made the last step of the setup wait for
-    /// the setup to be complete, and there was no way to finish at all.
-    /// </remarks>
-    private bool PoolExists =>
-        !string.IsNullOrWhiteSpace(cognitoSettings.IssuerUrl)
-        && !string.IsNullOrWhiteSpace(cognitoSettings.Domain);
+    /// <summary>The finished sign-in, or null while any part of it is outstanding.</summary>
+    private SamlSignInSettings? SamlSignIn =>
+        samlSettings.IsConfigured ? samlSettings : null;
 
     /// <summary>
-    /// The script, built from the address this administrator reached Connapse on and the AWS
-    /// identity Connapse reads as.
+    /// The script, pinned to the region the Identity Center instance was found in.
     /// </summary>
     /// <remarks>
-    /// The ARN comes from the Access requirement's detail rather than a second call to STS. In the
-    /// Satisfied state that value is exactly the ARN, and this only renders in that state — which
-    /// is also the only state where naming an identity means anything.
+    /// It creates only Access Grants resources and reads nothing back. There is no settings block
+    /// to paste in return: the values that travel back are copied out of the SAML application in
+    /// the console, which no script can create.
     /// </remarks>
-    private CognitoSetupRequest CognitoRequest =>
-        new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
-            AccessRequirement?.Detail ?? string.Empty,
-            IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim(),
-            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
-
-    /// <summary>The Identity Center SAML metadata URL, or empty for a pool with local users.</summary>
-    private string? idpMetadataUrl;
+    private AccessGrantsSetupRequest AccessGrantsRequest =>
+        new(Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
 
 
     private string? pastedIdentityCenter;
@@ -925,7 +773,7 @@
 
     /// <summary>Whether the guided pair — template and script — is expanded. Closed to begin with,
     /// for the same reason, and it is the longer of the two.</summary>
-    private bool showCognitoGuided;
+    private bool showGrantsGuided;
 
     /// <summary>Backs the manual Identity Center form.</summary>
     private IdentityCenterSettings identityCenterSettings = new();
@@ -998,15 +846,21 @@
             ? $"https://{located.Region}.console.aws.amazon.com/singlesignon/home?region={located.Region}"
             : "https://console.aws.amazon.com/singlesignon/home";
 
-    /// <summary>Where Identity Center posts its SAML assertion. Null until a pool exists.</summary>
-    private string? SamlAcsUrl =>
-        PoolExists ? CognitoSetup.SamlAcsUrl(cognitoSettings.Domain) : null;
+    /// <summary>
+    /// Where Identity Center posts the assertion, or null when this address could not receive one
+    /// safely.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the address this administrator reached Connapse on, not from anything stored,
+    /// so it can be shown before anything in AWS exists — it is one half of what creates the
+    /// application rather than something read back from it.
+    /// </remarks>
+    private string? SamlAcsUrl => SamlServiceProvider.AcsFor(Navigation.BaseUri);
 
-    /// <summary>The audience Identity Center must claim. Null until a pool exists.</summary>
-    private string? SamlAudience =>
-        PoolExists ? CognitoSetup.SamlAudience(cognitoSettings.IssuerUrl) : null;
+    /// <summary>The audience the application must claim. Null for the same reason.</summary>
+    private string? SamlAudience => SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
 
-    private string CognitoScript => CognitoSetup.GenerateScript(CognitoRequest);
+    private string AccessGrantsScript => AccessGrantsSetup.GenerateScript(AccessGrantsRequest);
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -1019,7 +873,7 @@
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
         azureAdSettings = AzureAdOptions.CurrentValue;
-        cognitoSettings = CognitoOptions.CurrentValue;
+        samlSettings = SamlOptions.CurrentValue;
         identityCenterSettings = IdentityCenterOptions.CurrentValue;
     }
 
@@ -1071,24 +925,24 @@
     /// <summary>Hands over the CloudFormation template to read and upload.</summary>
     private async Task DownloadTemplate()
     {
-        cognitoCopyMessage = null;
+        grantsCopyMessage = null;
 
-        cognitoCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.downloadText", "connapse-permissions.yaml", CognitoSetup.GenerateTemplate());
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.downloadText", "connapse-permissions.yaml", AccessGrantsSetup.GenerateTemplate());
 
-        cognitoCopyMessage = cognitoCopySucceeded
+        grantsCopyMessage = grantsCopySucceeded
             ? "Downloaded connapse-permissions.yaml."
             : "Could not download — check whether the browser blocked it.";
     }
 
-    private async Task CopyCognitoScript()
+    private async Task CopyAccessGrantsScript()
     {
-        cognitoCopyMessage = null;
+        grantsCopyMessage = null;
 
-        cognitoCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.copyToClipboard", CognitoScript);
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", AccessGrantsScript);
 
-        cognitoCopyMessage = cognitoCopySucceeded
+        grantsCopyMessage = grantsCopySucceeded
             ? "Copied."
             : "Could not copy — select the command above and copy it manually.";
     }
@@ -1102,39 +956,14 @@
     /// worst of them is the SAML audience — it is built from the pool id, so a stale one reads as
     /// perfectly valid while naming a pool that no longer exists.
     /// </remarks>
-    private async Task ForgetCognitoPool()
+    private async Task ForgetSamlSignIn()
     {
-        await SaveCognitoSettings(new CognitoSettings());
+        await SaveSamlSettings(new SamlSignInSettings());
 
         if (saveSuccess)
         {
-            confirmForgetPool = false;
-            pastedCognito = null;
-            idpMetadataUrl = null;
-            showCognitoManual = false;
-        }
-    }
-
-    /// <summary>Stores what the script printed, as one save.</summary>
-    private async Task SaveCognitoSetup(CognitoSetupResult read)
-    {
-        await SaveCognitoSettings(new CognitoSettings
-        {
-            IssuerUrl = read.IssuerUrl,
-            Domain = read.Domain,
-            ClientId = read.ClientId,
-            ClientSecret = read.ClientSecret,
-            Region = read.Region,
-            ApplicationArn = read.ApplicationArn,
-            IdentityProvider = read.IdentityProvider
-        });
-
-        // Cleared on success only. Leaving the block in place after a failure means the
-        // administrator can retry without going back to a terminal whose scrollback may be gone.
-        if (saveSuccess)
-        {
-            pastedCognito = null;
-            showCognitoManual = false;
+            confirmForgetSignIn = false;
+            showSamlManual = false;
         }
     }
 
@@ -1203,7 +1032,7 @@
             showSetup = true;
 
         if (elementId == "permissions")
-            showCognitoManual = true;
+            showSamlManual = true;
 
         if (elementId == "identity-center")
             showIdentityCenterScan = true;
@@ -1255,16 +1084,15 @@
         await RefreshSetups();
     }
 
-    private async Task SaveCognitoSettings(CognitoSettings settings)
+    private async Task SaveSamlSettings(SamlSignInSettings settings)
     {
-        await SaveSettings("cognito", settings);
+        await SaveSettings("samlsignin", settings);
 
         // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
-        // not guaranteed to have landed by the time this line runs, and a stale read would hand the
-        // form back the *previous* secret — after which the next save that left the secret box
-        // blank would silently revert it. Guarded on success so a failed save leaves the form
-        // showing what is actually stored.
-        if (saveSuccess) cognitoSettings = settings;
+        // not guaranteed to have landed by the time this line runs, so a stale read would hand the
+        // form back the previous values and make a save look as though it had not taken. Guarded on
+        // success so a failed save leaves the form showing what is actually stored.
+        if (saveSuccess) samlSettings = settings;
 
         await RefreshSetups();
     }
@@ -1343,12 +1171,12 @@
     /// <summary>What to call a settings category in a sentence.</summary>
     /// <remarks>
     /// The category is a storage key — lower-case, no spaces — and reading it back to somebody as
-    /// "cognito settings saved successfully" shows them the key rather than the product's name.
+    /// "samlsignin settings saved successfully" shows them the key rather than a readable name.
     /// Unlisted categories fall through unchanged, which is what they did before this existed.
     /// </remarks>
     private static string SettingsName(string category) => category switch
     {
-        "cognito" => "Amazon Cognito",
+        "samlsignin" => "AWS sign-in",
         _ => category
     };
 }

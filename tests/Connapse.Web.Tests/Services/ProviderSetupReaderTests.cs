@@ -37,7 +37,7 @@ public class ProviderSetupReaderTests
         ProviderCredentialInfo? stored = null,
         TimeSpan? sinceCreated = null,
         IProviderCredentialStore? credentials = null,
-        CognitoSettings? cognito = null,
+        SamlSignInSettings? samlSignIn = null,
         IdentityCenterSettings? identityCenter = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
@@ -56,7 +56,7 @@ public class ProviderSetupReaderTests
 
         return new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
-            Options.Create(cognito ?? new CognitoSettings()).AsMonitor(),
+            Options.Create(samlSignIn ?? new SamlSignInSettings()).AsMonitor(),
             // Defaults to located, so a test that varies one thing is not also silently varying
             // this one. The tests that care pass an empty instance explicitly.
             Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
@@ -298,7 +298,7 @@ public class ProviderSetupReaderTests
 
         var reader = new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
-            Options.Create(new CognitoSettings()).AsMonitor(),
+            Options.Create(new SamlSignInSettings()).AsMonitor(),
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
@@ -337,15 +337,13 @@ public class ProviderSetupReaderTests
 
     // ── Per-user permissions ──────────────────────────────────────────
 
-    private static CognitoSettings ConfiguredPool() => new()
+    private static SamlSignInSettings ConfiguredSignIn() => new()
     {
-        IssuerUrl = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123",
-        Domain = "https://pool.auth.us-east-1.amazoncognito.com",
-        ClientId = "client-id",
-        ClientSecret = "client-secret",
-        Region = "us-east-1",
-        ApplicationArn = "arn:aws:sso::1:application/ssoins-1/apl-1",
-        IdentityProvider = "Workforce"
+        EntityId = "https://connapse.example.com/saml/connapse",
+        AcsUrl = "https://connapse.example.com/api/v1/auth/cloud/aws/acs",
+        IdpEntityId = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSingleSignOnUrl = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
     };
 
     private static IdentityCenterSettings LocatedInstance() => new()
@@ -381,16 +379,16 @@ public class ProviderSetupReaderTests
     public async Task PerUserPermissions_WithAPool_IsSatisfiedAndNamesIt()
     {
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            cognito: ConfiguredPool());
+            samlSignIn: ConfiguredSignIn());
 
         var requirement = await PermissionsAsync(reader);
 
         requirement.Status.Should().Be(RequirementStatus.Satisfied);
-        requirement.Detail.Should().Be(ConfiguredPool().IssuerUrl);
+        requirement.Detail.Should().Be(ConfiguredSignIn().EntityId);
     }
 
     [Fact]
-    public async Task PerUserPermissions_WithNoPool_StopsAwsClaimingItIsFullySetUp()
+    public async Task PerUserPermissions_WithNoSignIn_StopsAwsClaimingItIsFullySetUp()
     {
         // The point of the requirement. Without it the provider list showed AWS as Ready while the
         // page below it plainly had an unconfigured section on it.
@@ -407,7 +405,7 @@ public class ProviderSetupReaderTests
     public async Task PerUserPermissions_WithAPool_LetsAwsBeReady()
     {
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            cognito: ConfiguredPool());
+            samlSignIn: ConfiguredSignIn());
 
         var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
 
@@ -417,14 +415,14 @@ public class ProviderSetupReaderTests
     [Fact]
     public async Task PerUserPermissions_WithoutTheApplicationArn_IsNotConfigured()
     {
-        // Every other field can be present and the pool still cannot answer what anyone may read:
-        // with no Identity Center application there is nothing to exchange a token with. It is a
-        // sign-in that resolves to nobody, so it is not a configured pool.
-        var unresolvable = ConfiguredPool();
-        unresolvable.ApplicationArn = string.Empty;
+        // Every other field can be present and the sign-in still cannot be trusted: with no
+        // signing certificate there is nothing to validate an assertion against, so it would have
+        // to be either refused late or believed unverified.
+        var unresolvable = ConfiguredSignIn();
+        unresolvable.IdpSigningCertificate = string.Empty;
 
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            cognito: unresolvable);
+            samlSignIn: unresolvable);
 
         (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
@@ -434,11 +432,11 @@ public class ProviderSetupReaderTests
     [Fact]
     public async Task IdentityCentre_WhenNotLocated_IsNotConfiguredAndAwsIsNotReady()
     {
-        // Its own requirement because it is answered first and separately, and because the Cognito
+        // Its own requirement because it is answered first and separately, and because the sign-in
         // script needs its region: Identity Center lives in exactly one region per organisation and
         // looking in the wrong one reads as there being no instance at all.
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            cognito: ConfiguredPool(), identityCenter: new IdentityCenterSettings());
+            samlSignIn: ConfiguredSignIn(), identityCenter: new IdentityCenterSettings());
 
         (await IdentityCentreAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
@@ -450,7 +448,7 @@ public class ProviderSetupReaderTests
     {
         // The region is the field people get wrong, so it is the one worth showing back.
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
-            cognito: ConfiguredPool());
+            samlSignIn: ConfiguredSignIn());
 
         var requirement = await IdentityCentreAsync(reader);
 
@@ -459,15 +457,15 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
-    public async Task PerUserPermissions_WithAHalfFilledPool_Warns()
+    public async Task PerUserPermissions_WithAHalfFilledSignIn_Warns()
     {
-        // IsConfigured is the gate, not "somebody typed something". A pool missing its domain
-        // cannot complete a connection, and reporting it green would send the administrator to
-        // debug the Profile page instead of the field they left blank.
-        var half = ConfiguredPool();
-        half.Domain = string.Empty;
+        // IsConfigured is the gate, not "somebody typed something". A sign-in with no consumer
+        // URL cannot complete, and reporting it green would send the administrator to debug the
+        // Profile page instead of the field they left blank.
+        var half = ConfiguredSignIn();
+        half.AcsUrl = string.Empty;
 
-        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"), cognito: half);
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"), samlSignIn: half);
 
         (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
     }

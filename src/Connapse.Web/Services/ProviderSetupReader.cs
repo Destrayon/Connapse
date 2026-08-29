@@ -15,7 +15,7 @@ namespace Connapse.Web.Services;
 /// </remarks>
 public class ProviderSetupReader(
     IOptionsMonitor<AzureAdSettings> azureAd,
-    IOptionsMonitor<CognitoSettings> cognito,
+    IOptionsMonitor<SamlSignInSettings> samlSignIn,
     IOptionsMonitor<IdentityCenterSettings> identityCenter,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
@@ -43,7 +43,7 @@ public class ProviderSetupReader(
     /// </remarks>
     private const string SignInSection = "#signin";
 
-    /// <summary>The Cognito form's section on the AWS provider page.</summary>
+    /// <summary>The AWS sign-in form's section on the AWS provider page.</summary>
     /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
     private const string PermissionsSection = "#permissions";
 
@@ -61,7 +61,7 @@ public class ProviderSetupReader(
                 [
                     await Access(ct),
                     IdentityCentre(identityCenter.CurrentValue),
-                    PerUserPermissions(cognito.CurrentValue)
+                    PerUserPermissions(samlSignIn.CurrentValue)
                 ],
                 InUse: providers.Contains(ConnectionProvider.S3)),
 
@@ -150,12 +150,12 @@ public class ProviderSetupReader(
     /// <see cref="ProviderSetup.Overall"/> draws that distinction now.
     /// </para>
     /// </remarks>
-    private static ProviderRequirement PerUserPermissions(CognitoSettings settings)
+    private static ProviderRequirement PerUserPermissions(SamlSignInSettings settings)
     {
         const string name = "Per-user permissions";
         const string description =
-            "The Cognito user pool people connect their AWS identity through, so their results "
-            + "can be scoped to what that identity may read.";
+            "The IAM Identity Center application people sign in through, so their results can be "
+            + "scoped to what that identity may read.";
 
         if (!settings.IsConfigured)
             return new ProviderRequirement(name, description,
@@ -165,7 +165,7 @@ public class ProviderSetupReader(
 
 
         return new ProviderRequirement(name, description,
-            RequirementStatus.Satisfied, settings.IssuerUrl, "Change", PermissionsSection);
+            RequirementStatus.Satisfied, settings.EntityId, "Change", PermissionsSection);
     }
 
     /// <summary>

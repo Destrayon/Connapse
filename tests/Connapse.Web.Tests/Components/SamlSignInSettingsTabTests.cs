@@ -6,11 +6,11 @@ using Xunit;
 namespace Connapse.Web.Tests.Components;
 
 /// <summary>
-/// The manual route to a configured Cognito pool must actually reach one.
+/// The manual route to a configured AWS sign-in must actually reach one.
 /// </summary>
 /// <remarks>
 /// This has been wrong twice. <c>ApplicationArn</c> and then <c>IdentityProvider</c> were each added
-/// to <see cref="CognitoSettings.IsConfigured"/> without a field to enter them, so filling the form
+/// to <see cref="SamlSignInSettings.IsConfigured"/> without a field to enter them, so filling the form
 /// in produced a pool that stayed unconfigured with nowhere to fix it — and the guided script was
 /// the only way through. Both times an administrator found it rather than a test.
 /// <para>
@@ -21,7 +21,7 @@ namespace Connapse.Web.Tests.Components;
 /// </para>
 /// </remarks>
 [Trait("Category", "Unit")]
-public class CognitoSettingsTabTests
+public class SamlSignInSettingsTabTests
 {
     /// <summary>
     /// Settings that are deliberately not on the form, and why.
@@ -42,7 +42,7 @@ public class CognitoSettingsTabTests
         dir.Should().NotBeNull("the test walks up to the solution file to find the component");
 
         var path = Path.Combine(
-            dir!.FullName, "src", "Connapse.Web", "Components", "Settings", "CognitoSettingsTab.razor");
+            dir!.FullName, "src", "Connapse.Web", "Components", "Settings", "SamlSignInSettingsTab.razor");
 
         File.Exists(path).Should().BeTrue($"expected the form at {path}");
         return File.ReadAllText(path);
@@ -53,7 +53,7 @@ public class CognitoSettingsTabTests
     {
         // Reflected rather than listed, so a field added to the model tomorrow is covered without
         // anybody remembering this test exists — which is the failure mode it is here to close.
-        var settings = typeof(CognitoSettings)
+        var settings = typeof(SamlSignInSettings)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.PropertyType == typeof(string) && p.CanWrite)
             .Select(p => p.Name)
@@ -74,9 +74,9 @@ public class CognitoSettingsTabTests
     {
         // The other half of the same guarantee: the fields being present is worth nothing if the
         // values they carry still do not add up to a usable pool.
-        var byHand = new CognitoSettings();
+        var byHand = new SamlSignInSettings();
 
-        foreach (var property in typeof(CognitoSettings)
+        foreach (var property in typeof(SamlSignInSettings)
                      .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                      .Where(p => p.PropertyType == typeof(string) && p.CanWrite))
         {

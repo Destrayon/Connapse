@@ -14,9 +14,9 @@ namespace Connapse.Core;
 /// console, which is why this is a plain settings category rather than anything protected.
 /// </para>
 /// <para>
-/// Separate from <see cref="CognitoSettings"/> because it is found first and independently: the
-/// pool does not exist yet when this is answered, and the Cognito setup script needs the region
-/// from here to look in the right place.
+/// Separate from <see cref="SamlSignInSettings"/> because it is found first and independently: the
+/// application does not exist yet when this is answered, and the setup script needs the region from
+/// here to look in the right place.
 /// </para>
 /// </remarks>
 public class IdentityCenterSettings

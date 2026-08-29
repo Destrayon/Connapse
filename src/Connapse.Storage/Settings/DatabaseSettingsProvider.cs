@@ -21,7 +21,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     {
         ["security"] = "Identity:Jwt",
         ["azuread"] = "Identity:AzureAd",
-        ["cognito"] = "Identity:Cognito",
+        ["samlsignin"] = "Identity:SamlSignIn",
         ["identitycenter"] = "Identity:IdentityCenter",
     };
 

@@ -1,0 +1,188 @@
+@using Connapse.Core
+@using Connapse.Core.Utilities
+@inject NavigationManager Navigation
+
+@*
+    The IAM Identity Center application an administrator points Connapse at, so a person can prove
+    which directory user they are.
+
+    Two halves travelling in opposite directions. The first two fields are Connapse's own and get
+    typed into the AWS console; the last three come back out of that application's metadata. The
+    form says which is which, because getting them the wrong way round is otherwise only discovered
+    at the first sign-in.
+
+    Nothing here is withheld from the settings API: a signing certificate is a public key, and the
+    two Connapse values are printed for an administrator to copy. This form held a client secret
+    when it configured a Cognito pool, and that is the whole reason it needed guarding.
+*@
+
+@if (suggestedAcs is null)
+{
+    @* Refused here rather than after setup. An assertion is a bearer credential until it expires,
+       so posting one to a plain-HTTP address off the loopback interface puts an impersonation
+       token on the wire — and the administrator would only find that out having already
+       registered the application. *@
+    <div class="alert alert-warning">
+        <div class="d-flex align-items-start">
+            <span class="bi-exclamation-triangle-fill me-2 mt-1 flex-shrink-0"></span>
+            <div>
+                <strong>Connapse cannot receive a sign-in at this address.</strong>
+                <div class="small mt-1">
+                    You are reading this over <code>@Navigation.BaseUri</code>. A SAML assertion is
+                    a bearer credential, so it may only be posted to an <code>https://</code>
+                    address, or to <code>localhost</code>, <code>127.0.0.1</code> or
+                    <code>[::1]</code> over plain HTTP. Serve Connapse over HTTPS, or reach it on
+                    the machine it runs on, and this form will appear.
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <h3 class="h6 text-uppercase text-muted mt-1">Give these to AWS</h3>
+    <p class="small text-muted">
+        Type these two into the application in the IAM Identity Center console. Connapse checks
+        every assertion against them character for character, so they must match exactly.
+    </p>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" for="saml-entity-id">Audience (entity ID)</label>
+            <InputText id="saml-entity-id" @bind-Value="localSettings.EntityId" class="form-control" />
+            <div class="form-text">
+                Identifies Connapse. It is an identifier, not an address — nothing fetches it.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="saml-acs">Assertion consumer service URL</label>
+            <InputText id="saml-acs" @bind-Value="localSettings.AcsUrl" class="form-control" />
+            <div class="form-text">
+                Where the browser posts the assertion. Change Connapse's address and this has to be
+                edited in AWS too, or sign-in stops with a destination mismatch.
+            </div>
+        </div>
+    </div>
+
+    @if (originDiffers)
+    {
+        <div class="alert alert-warning small mt-3 mb-0">
+            These do not match the address you are reading this on
+            (<code>@Navigation.BaseUri</code>). That is right if Connapse sits behind a proxy under
+            a different public name, and wrong if the deployment has moved — in which case the
+            application in AWS needs the new values too.
+        </div>
+    }
+
+    <h3 class="h6 text-uppercase text-muted mt-4">Take these from AWS</h3>
+    <p class="small text-muted">
+        From the application's metadata. Connapse stores them rather than fetching the metadata at
+        sign-in, so a self-hosted deployment needs no outbound access to AWS and an AWS outage is
+        not a sign-in outage.
+    </p>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" for="saml-idp-entity">Identity Center issuer</label>
+            <InputText id="saml-idp-entity" @bind-Value="localSettings.IdpEntityId" class="form-control"
+                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE" />
+            <div class="form-text">
+                The <code>Issuer</code> every assertion carries. Checked so that a validly signed
+                assertion from somewhere else is still refused.
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label" for="saml-idp-sso">Sign-in URL</label>
+            <InputText id="saml-idp-sso" @bind-Value="localSettings.IdpSingleSignOnUrl" class="form-control"
+                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE" />
+            <div class="form-text">Where Connapse sends people to sign in.</div>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" for="saml-idp-cert">Signing certificate</label>
+            <InputTextArea id="saml-idp-cert" @bind-Value="localSettings.IdpSigningCertificate"
+                           class="form-control font-monospace" rows="4"
+                           placeholder="MIIDBTCCAe2gAwIBAgIF…" />
+            <div class="form-text">
+                Base64, without the <code>BEGIN CERTIFICATE</code> lines. This is the whole of the
+                trust — every assertion is checked against it. Identity Center rotates it, and a
+                rotation not reflected here stops every sign-in until it is pasted again.
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
+    </div>
+</EditForm>
+}
+
+@code {
+    [Parameter]
+    public SamlSignInSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<SamlSignInSettings> OnSave { get; set; }
+
+    private SamlSignInSettings localSettings = new();
+
+    /// <summary>What this address would give, or null when an assertion could not safely be posted to it.</summary>
+    private string? suggestedAcs;
+
+    /// <summary>Whether what is stored describes a different address than the one being used.</summary>
+    private bool originDiffers;
+
+    protected override void OnParametersSet()
+    {
+        // BaseUri, not a configured value: it is the address this administrator actually reached
+        // Connapse on, which is where their browser will be sent back to.
+        suggestedAcs = SamlServiceProvider.AcsFor(Navigation.BaseUri);
+        string? suggestedEntityId = SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
+
+        localSettings = new SamlSignInSettings
+        {
+            // Prefilled rather than fixed. A deployment behind a reverse proxy is reached on a
+            // name Connapse cannot see from here, and the registered values must describe the
+            // public one, so these stay editable.
+            EntityId = string.IsNullOrWhiteSpace(Settings.EntityId)
+                ? suggestedEntityId ?? string.Empty
+                : Settings.EntityId,
+            AcsUrl = string.IsNullOrWhiteSpace(Settings.AcsUrl)
+                ? suggestedAcs ?? string.Empty
+                : Settings.AcsUrl,
+            IdpEntityId = Settings.IdpEntityId,
+            IdpSingleSignOnUrl = Settings.IdpSingleSignOnUrl,
+            IdpSigningCertificate = Settings.IdpSigningCertificate,
+        };
+
+        originDiffers = !string.IsNullOrWhiteSpace(Settings.AcsUrl)
+                        && suggestedAcs is not null
+                        && !string.Equals(Settings.AcsUrl, suggestedAcs, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task HandleSubmit()
+    {
+        // Pasting a PEM block is the obvious thing to do, so the header and footer are taken off
+        // rather than refused: the certificate is base64 either way, and rejecting it would send an
+        // administrator to strip two lines by hand for no reason.
+        localSettings.IdpSigningCertificate = StripPem(localSettings.IdpSigningCertificate);
+
+        await OnSave.InvokeAsync(localSettings);
+    }
+
+    private static string StripPem(string? value) =>
+        string.Join(string.Empty, (value ?? string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !line.StartsWith("-----", StringComparison.Ordinal)));
+
+    private void Reset()
+    {
+        OnParametersSet();
+    }
+}

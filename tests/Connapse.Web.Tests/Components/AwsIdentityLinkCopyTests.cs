@@ -9,8 +9,8 @@ namespace Connapse.Web.Tests.Components;
 /// <remarks>
 /// Wording, not markup. This page already carries a test pinning it to *not* claiming that linking
 /// an identity filters search results, because it once did and that was false. The same care
-/// applies to the new card: connecting stores a token so Connapse can check permissions later, and
-/// saying more than that would be the same defect again.
+/// applies to what connecting stores: it records which directory user somebody is and nothing that
+/// could act as them, and saying either more or less than that would be the same defect again.
 /// </remarks>
 [Trait("Category", "Unit")]
 public class AwsIdentityLinkCopyTests
@@ -23,7 +23,7 @@ public class AwsIdentityLinkCopyTests
     [Fact]
     public void Page_OffersToConnectAnAwsIdentity()
     {
-        Markup.Should().Contain("cognito/connect",
+        Markup.Should().Contain("aws/connect",
             "the card has to actually start the flow");
     }
 
@@ -37,24 +37,24 @@ public class AwsIdentityLinkCopyTests
     [Fact]
     public void Page_DoesNotClaimSearchIsAlreadyFiltered()
     {
-        // Nothing filters until 5d registers a resolver. Promising it here would repeat exactly
+        // Nothing filters until a resolver is registered. Promising it here would repeat exactly
         // the defect #422 removed from this same page.
         Markup.Should().NotContain("results are narrowed");
         Markup.Should().NotContain("only the documents you can");
     }
 
     [Fact]
-    public void Page_DoesNotClaimNoTokensAreStoredForEveryCard()
+    public void Page_DoesNotClaimAnyTokenIsStored()
     {
-        // The intro paragraph above all three cards used to say "Only identity metadata is
-        // stored — no access keys or tokens" as a single blanket claim covering all of them. This
-        // card broke that the moment it started storing an encrypted Cognito refresh token: the
-        // card's own copy is careful, but the page-level sentence framing it was left
-        // contradicting it (#433 review finding). The intro must instead scope the "no tokens"
-        // claim to the sign-in cards and admit this card is the exception.
-        Markup.Should().NotContain("Only identity metadata is stored");
-        Markup.Should().Contain("encrypted refresh token",
-            "the intro must admit this card is the one that stores a token, not claim none are stored");
+        // This assertion is the inverse of the one it replaces, and deliberately so. The intro
+        // used to have to admit that connecting AWS stored an encrypted refresh token, because it
+        // did. Sign-in goes straight to IAM Identity Center now and the link holds an attested
+        // identity rather than a credential, so a page still describing a stored token would be
+        // frightening people about something that no longer exists — and would go stale in the
+        // direction that makes the product look worse than it is.
+        Markup.Should().NotContain("refresh token");
+        Markup.Should().Contain("no tokens",
+            "the intro should now say plainly that nothing able to act as the user is kept");
     }
 
     [Fact]

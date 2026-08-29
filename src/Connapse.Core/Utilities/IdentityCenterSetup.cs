@@ -73,7 +73,7 @@ public record IdentityCenterSetupResult(
 /// temporary credentials from the administrator's console session, so nothing is created, pasted
 /// into Connapse, or stored — the copy-paste round trip <i>is</i> the credential boundary.
 /// <para>
-/// This runs <b>before</b> <see cref="CognitoSetup"/> and answers the question that one assumes:
+/// This runs <b>before</b> <see cref="AccessGrantsSetup"/> and answers the question that one assumes:
 /// which region the instance is in. That script looks only in CloudShell's own region, so an
 /// instance one region over reads there as an instance that does not exist.
 /// </para>
