@@ -543,63 +543,6 @@
 
                 <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
 
-                @* Only once a pool exists. This cannot be done on a first run — the Identity
-                   Center application needs the pool's domain and id, and neither exists yet — so
-                   before then the field could say nothing but "leave this empty", which is a
-                   question with one answer taking up room next to a step somebody is mid-way
-                   through. It appears on the second pass, when it is answerable. *@
-                @if (SamlAcsUrl is not null)
-                {
-                <div class="border rounded p-2 mb-2 bg-body-tertiary">
-                    <label class="form-label small fw-semibold mb-1" for="idp-metadata">
-                        Finish: point the pool at Identity Center
-                    </label>
-                    <p class="form-text mt-0 mb-2">
-                        The pool exists but nobody can use it yet. Connect it to Identity Center and
-                        people sign in there with the credentials and MFA they already have, and
-                        their pool account is created for them the first time. That directory is
-                        also what their permissions are read from, so this is what makes a sign-in
-                        mean anything.
-                    </p>
-
-                    <ol class="form-text mt-0 mb-2 ps-3">
-                        <li>
-                            In the Identity Center console open <strong>Applications</strong>, then
-                            <strong>Add application &rarr; I have an application I want to set up
-                            &rarr; SAML 2.0</strong>.
-                        </li>
-                        <li>Give it the two values below when it asks for them.</li>
-                        <li>
-                            Under <strong>Attribute mappings</strong>, add an attribute named
-                            <code>userName</code> mapped to
-                            <code>&#36;&#123;user:preferredUsername&#125;</code>. This is what ties a
-                            sign-in to one person; without it people sign in and match nobody.
-                        </li>
-                        <li>Assign yourself, and anyone else who should have access, to it.</li>
-                        <li>
-                            Copy its <strong>metadata URL</strong> into the box below, then run the
-                            command again — it is safe to re-run.
-                        </li>
-                    </ol>
-
-                    <dl class="row small mb-2">
-                        <dt class="col-sm-3 fw-normal text-muted">ACS URL</dt>
-                        <dd class="col-sm-9"><code class="user-select-all">@SamlAcsUrl</code></dd>
-                        <dt class="col-sm-3 fw-normal text-muted">SAML audience</dt>
-                        <dd class="col-sm-9"><code class="user-select-all">@SamlAudience</code></dd>
-                    </dl>
-
-                    <input id="idp-metadata" class="form-control form-control-sm" type="url"
-                           placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
-                           @bind="idpMetadataUrl" @bind:event="oninput" />
-                    <div class="form-text">
-                        Until this is set, connecting is not offered on anyone's profile: a pool that
-                        federates nowhere holds only accounts made by hand, and each of those needs a
-                        matching Identity Center user to resolve against anyway.
-                    </div>
-                </div>
-                }
-
                 <div class="d-flex flex-wrap gap-2 mb-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary"
                             @onclick="DownloadTemplate">
@@ -662,6 +605,66 @@
                             The client secret is stored the same way every other provider secret is.
                         </div>
                     }
+                }
+
+                @* Only once a pool exists. This cannot be done on a first run — the Identity
+                   Center application needs the pool's domain and id, and neither exists yet — so
+                   before then the field could say nothing but "leave this empty", which is a
+                   question with one answer taking up room next to a step somebody is mid-way
+                   through. It appears on the second pass, when it is answerable. *@
+                @if (SamlAcsUrl is not null)
+                {
+                <div class="border rounded p-2 mb-2 bg-body-tertiary">
+                    <label class="form-label small fw-semibold mb-1" for="idp-metadata">
+                        Finish: point the pool at Identity Center
+                    </label>
+                    <p class="form-text mt-0 mb-2">
+                        The pool exists but nobody can use it yet. Connect it to Identity Center and
+                        people sign in there with the credentials and MFA they already have, and
+                        their pool account is created for them the first time. That directory is
+                        also what their permissions are read from, so this is what makes a sign-in
+                        mean anything.
+                    </p>
+
+                    <ol class="form-text mt-0 mb-2 ps-3">
+                        <li>
+                            Open the
+                            <a href="@IdentityCenterConsoleUrl" target="_blank" rel="noopener">
+                                Identity Center console<span class="bi-box-arrow-up-right ms-1 small"></span>
+                            </a>, go to <strong>Applications</strong>, then
+                            <strong>Add application &rarr; I have an application I want to set up
+                            &rarr; SAML 2.0</strong>.
+                        </li>
+                        <li>Give it the two values below when it asks for them.</li>
+                        <li>
+                            Under <strong>Attribute mappings</strong>, add an attribute named
+                            <code>userName</code> mapped to
+                            <code>&#36;&#123;user:preferredUsername&#125;</code>. This is what ties a
+                            sign-in to one person; without it people sign in and match nobody.
+                        </li>
+                        <li>Assign yourself, and anyone else who should have access, to it.</li>
+                        <li>
+                            Copy its <strong>metadata URL</strong> into the box below, then run the
+                            command again — it is safe to re-run.
+                        </li>
+                    </ol>
+
+                    <dl class="row small mb-2">
+                        <dt class="col-sm-3 fw-normal text-muted">ACS URL</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@SamlAcsUrl</code></dd>
+                        <dt class="col-sm-3 fw-normal text-muted">SAML audience</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@SamlAudience</code></dd>
+                    </dl>
+
+                    <input id="idp-metadata" class="form-control form-control-sm" type="url"
+                           placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
+                           @bind="idpMetadataUrl" @bind:event="oninput" />
+                    <div class="form-text">
+                        Until this is set, connecting is not offered on anyone's profile: a pool that
+                        federates nowhere holds only accounts made by hand, and each of those needs a
+                        matching Identity Center user to resolve against anyway.
+                    </div>
+                </div>
                 }
 
                 }
@@ -849,6 +852,18 @@
 
         await RefreshSetups();
     }
+
+    /// <summary>The Identity Center console, in the region the instance was found in.</summary>
+    /// <remarks>
+    /// Region-qualified deliberately. The console opens wherever it was last used, and Identity
+    /// Center exists in exactly one region — so a link without it lands somebody in a console that
+    /// truthfully reports no instance, which is the single most confusing way this step can fail.
+    /// Falls back to the region-less address when nothing has been located yet.
+    /// </remarks>
+    private string IdentityCenterConsoleUrl =>
+        IdentityCentre is { Region.Length: > 0 } located
+            ? $"https://{located.Region}.console.aws.amazon.com/singlesignon/home?region={located.Region}"
+            : "https://console.aws.amazon.com/singlesignon/home";
 
     /// <summary>Where Identity Center posts its SAML assertion. Null until a pool exists.</summary>
     private string? SamlAcsUrl =>
