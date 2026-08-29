@@ -24,23 +24,12 @@
 /// at all rather than as looking in the wrong place.
 /// </para>
 /// </param>
-/// <param name="SamlApplicationArn">
-/// The SAML application an administrator created in the Identity Center console, so the script can
-/// stop it requiring per-person assignment. Null leaves it alone.
-/// <para>
-/// Done here rather than by Connapse, which has an AWS identity of its own and could make the call.
-/// That identity is for reading data; letting it reconfigure Identity Center applications would
-/// hand a long-lived credential a power the setup needs once, and this script already runs under
-/// the administrator's own console session, where the power belongs.
-/// </para>
-/// </param>
 public record CognitoSetupRequest(
     string CallbackUrl,
     string ActorArn,
     string? IdpMetadataUrl = null,
     string? NamePrefix = null,
-    string? Region = null,
-    string? SamlApplicationArn = null);
+    string? Region = null);
 
 /// <summary>The settings the script printed.</summary>
 public record CognitoSetupResult(
@@ -299,7 +288,6 @@ public static class CognitoSetup
         string prefix = SanitisePrefix(request.NamePrefix);
         string idp = request.IdpMetadataUrl?.Trim() ?? string.Empty;
         string region = request.Region?.Trim() ?? string.Empty;
-        string samlApp = request.SamlApplicationArn?.Trim() ?? string.Empty;
 
         // JSON, not the CLI's shorthand. ActorPolicy is a document type, and shorthand cannot
         // express one: the call fails with "Shorthand syntax does not support document types"
@@ -328,15 +316,8 @@ public static class CognitoSetup
         # It creates NO access grants. Who may read what stays yours to decide, in AWS.
         # Nothing existing is modified.
 
-        # Nothing here sets -e, and nothing here exits. Both are right in a file and ruinous
-        # in a shell somebody is using: the first ends their session on any command that
-        # returns non-zero, the second ends it outright, and CloudShell reports either as a
-        # disconnected terminal with the error already scrolled away.
-        #
-        # The guards below record a failure instead of stopping. Whatever follows a failed
-        # guard fails too, in the AWS CLI's own words, and the block at the end refuses to
-        # print settings from a run that did not finish — which is the outcome worth
-        # protecting against: a half-finished setup that looks finished.
+        # Set by any check below that fails. The settings block at the end is withheld when it
+        # is set, so nothing from a half-finished run is pasted back into Connapse.
         FAILED=""
         PREFIX='{{prefix}}'
         CALLBACK='{{request.CallbackUrl}}'
@@ -479,24 +460,11 @@ public static class CognitoSetup
         aws sso-admin put-application-assignment-configuration --region "$REGION" \
           --application-arn "$APP_ARN" --no-assignment-required
 
-        # The SAML application the administrator made in the console, when they gave us its ARN.
-        # Same call, same reason: assignment defaults to required with nobody assigned, so people
-        # sign in and are refused by the one step in this chain that explains nothing. The SAML
-        # wizard has no setting for it, which is why it is not simply part of creating the thing.
-        SAML_APP='{{samlApp}}'
-        if [ -n "$SAML_APP" ]; then
-          aws sso-admin put-application-assignment-configuration --region "$REGION" \
-            --application-arn "$SAML_APP" --no-assignment-required
-          echo "Assignment turned off for $SAML_APP."
-        fi
-
-        # One printf, not eight. An interactive shell echoes each pasted command as it runs, so
-        # eight of them put a "$ printf ..." line between every value and left the block impossible
-        # to select in one go. Printed as a single command, the block comes out contiguous.
-        # Matches the template's ProviderName. Empty for a pool with local users, which is what
-        # tells Connapse to let Cognito render its own sign-in page rather than redirect past it.
+        # The provider Connapse sends people straight to. Matches the template's ProviderName.
         if [ -n "$IDP_METADATA" ]; then IDP_NAME='Workforce'; else IDP_NAME=''; fi
 
+        # One printf rather than one per value: an interactive shell echoes each pasted command
+        # as it runs, which would put a prompt line between every line of the block.
         if [ -n "$FAILED" ]; then
           echo 'Setup did not finish. Fix the error above and run this again.'
         else

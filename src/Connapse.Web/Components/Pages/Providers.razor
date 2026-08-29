@@ -686,18 +686,15 @@
                             </span>
                         </li>
                         <li>
-                            Copy that page's <strong>ARN</strong> into the Application ARN box below.
-                            The command uses it to turn off per-person assignment, so everyone in the
-                            directory can sign in — the SAML wizard has no setting for that, and
-                            without it people are refused by the one step in this chain that explains
-                            nothing. Connapse's own Identity Center application is configured the
-                            same way.
+                            On that same page, assign the people who should be able to sign in.
+                            Search by name in the picker — it lists nobody until you type. Anyone
+                            unassigned is refused at sign-in.
                         </li>
                         <li>
-                            Press <strong>Copy command with these values</strong> below, and run
-                            what it copies in CloudShell. It has to be copied again rather than
-                            re-run from your terminal history: the command carries both values, so
-                            the one you ran the first time still has neither and would change
+                            Press <strong>Copy command with this URL</strong> below, and run what
+                            it copies in CloudShell. It has to be copied again rather than re-run
+                            from your terminal history: the command carries the metadata URL, so the
+                            one you ran the first time still has an empty one and would change
                             nothing. Re-running is safe — CloudFormation updates the stack it
                             already made.
                         </li>
@@ -720,17 +717,10 @@
                            placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
                            @bind="idpMetadataUrl" @bind:event="oninput" />
 
-                    <label class="form-label small mb-1 mt-2" for="saml-app-arn">
-                        Application ARN
-                    </label>
-                    <input id="saml-app-arn" class="form-control form-control-sm font-monospace" type="text"
-                           placeholder="arn:aws:sso::123456789012:application/ssoins-…/apl-…"
-                           @bind="samlApplicationArn" @bind:event="oninput" />
-
                     <div class="d-flex flex-wrap gap-2 mt-2 mb-1">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
                                 @onclick="CopyCognitoScript">
-                            <span class="bi-clipboard me-1"></span> Copy command with these values
+                            <span class="bi-clipboard me-1"></span> Copy command with this URL
                         </button>
                         <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
                            href="https://console.aws.amazon.com/cloudshell/home">
@@ -853,23 +843,11 @@
         new(CognitoRedirect.CallbackFor(Navigation.BaseUri) ?? string.Empty,
             AccessRequirement?.Detail ?? string.Empty,
             IdpMetadataUrl: string.IsNullOrWhiteSpace(idpMetadataUrl) ? null : idpMetadataUrl.Trim(),
-            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null,
-            SamlApplicationArn: string.IsNullOrWhiteSpace(samlApplicationArn)
-                ? null
-                : samlApplicationArn.Trim());
+            Region: IdentityCentre is { IsConfigured: true } idc ? idc.Region : null);
 
     /// <summary>The Identity Center SAML metadata URL, or empty for a pool with local users.</summary>
     private string? idpMetadataUrl;
 
-    /// <summary>
-    /// The SAML application's ARN, so the script can stop it requiring per-person assignment.
-    /// </summary>
-    /// <remarks>
-    /// Asked for rather than found. Connapse could list applications and match one, but the
-    /// administrator names it, and guessing at which of several is theirs would turn a paste into a
-    /// wrong guess nobody could see. Optional: leaving it blank simply skips that call.
-    /// </remarks>
-    private string? samlApplicationArn;
 
     private string? pastedIdentityCenter;
     private string? identityCenterCopyMessage;

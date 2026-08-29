@@ -382,32 +382,19 @@ public class CognitoSetupTests
     }
 
     [Fact]
-    public void GenerateScript_GivenASamlApplication_TurnsOffItsAssignmentRequirement()
+    public void GenerateScript_DoesNotTryToConfigureAssignmentOnASamlApplication()
     {
-        // Assignment defaults to required with nobody assigned, and the SAML wizard has no setting
-        // for it — so without this people sign in and are refused by the one step in the chain that
-        // reports nothing useful. The script already does this for Connapse's own application; this
-        // is the same call for the one the administrator made by hand.
-        string script = CognitoSetup.GenerateScript(new CognitoSetupRequest(
-            "https://x/cb",
-            "arn:aws:iam::1:user/connapse",
-            SamlApplicationArn: "arn:aws:sso::1:application/ssoins-1/apl-saml"));
-
-        script.Should().Contain("SAML_APP='arn:aws:sso::1:application/ssoins-1/apl-saml'");
-        script.Should().Contain("--application-arn \"$SAML_APP\" --no-assignment-required");
-    }
-
-    [Fact]
-    public void GenerateScript_WithNoSamlApplication_SkipsThatCallRatherThanRunningItEmpty()
-    {
-        // A blank ARN must not reach the CLI: put-application-assignment-configuration with an
-        // empty --application-arn fails the whole script under set -e, on a first run where there
-        // is legitimately no SAML application yet.
+        // AWS refuses it: "The application with arn '...' is not supported for this action."
+        // put-application-assignment-configuration works on the custom application this script
+        // creates and not on the SAML one an administrator makes in the console, so people are
+        // assigned to that one by hand.
         string script = CognitoSetup.GenerateScript(
             new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
 
-        script.Should().Contain("SAML_APP=''");
-        script.Should().Contain("if [ -n \"$SAML_APP\" ]; then");
+        script.Should().NotContain("SAML_APP");
+        script.Split('\n')
+            .Count(l => l.Contains("put-application-assignment-configuration"))
+            .Should().Be(1, "only the application this script created");
     }
 
     [Fact]
