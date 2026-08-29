@@ -694,11 +694,12 @@
                             same way.
                         </li>
                         <li>
-                            Copy the setup command again with the button under those boxes, and run
-                            it in CloudShell. It has to be copied again rather than re-run from your
-                            terminal history: the command carries both values, so the one you ran the
-                            first time still has neither and would change nothing. Re-running is safe
-                            — CloudFormation updates the stack it already made.
+                            Press <strong>Copy command with these values</strong> below, and run
+                            what it copies in CloudShell. It has to be copied again rather than
+                            re-run from your terminal history: the command carries both values, so
+                            the one you ran the first time still has neither and would change
+                            nothing. Re-running is safe — CloudFormation updates the stack it
+                            already made.
                         </li>
                         <li>
                             Paste what it prints into <strong>Paste what it printed</strong> above,
@@ -729,7 +730,7 @@
                     <div class="d-flex flex-wrap gap-2 mt-2 mb-1">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
                                 @onclick="CopyCognitoScript">
-                            <span class="bi-clipboard me-1"></span> Copy command with this URL
+                            <span class="bi-clipboard me-1"></span> Copy command with these values
                         </button>
                         <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
                            href="https://console.aws.amazon.com/cloudshell/home">
