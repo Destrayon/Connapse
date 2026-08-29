@@ -58,8 +58,8 @@ else
             <InputText id="cognito-issuer" @bind-Value="localSettings.IssuerUrl" class="form-control"
                        placeholder="https://cognito-idp.us-east-1.amazonaws.com/us-east-1_abc123" />
             <div class="form-text">
-                The pool's OIDC issuer. Must match what you registered as the trusted token issuer in
-                IAM Identity Center, character for character.
+                The pool's OIDC issuer. Connapse checks it against the <code>iss</code> claim of
+                every token the pool issues, so it must match character for character.
             </div>
         </div>
 

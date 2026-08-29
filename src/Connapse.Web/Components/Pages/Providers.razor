@@ -525,9 +525,9 @@
                 {
                 <p class="small mb-2">
                     <span class="bi-shield-check me-1 text-muted"></span>
-                    Creates a Cognito pool, an Identity Center application and an S3 Access Grants
-                    instance, using your own AWS permissions. <strong>It writes no access
-                    grants</strong> — who may read what stays yours to decide, in AWS.
+                    Creates a Cognito pool and an S3 Access Grants instance, using your own AWS
+                    permissions. <strong>It writes no access grants</strong> — who may read what
+                    stays yours to decide, in AWS.
                 </p>
 
                 <ol class="small mb-2">
@@ -538,7 +538,10 @@
                         In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and upload
                         <code>connapse-cognito.yaml</code>.
                     </li>
-                    <li>Paste the script below. It deploys that template, then finishes the setup.</li>
+                    <li>
+                        Paste the script below. It deploys that template and prints the settings to
+                        paste back here.
+                    </li>
                 </ol>
 
                 <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@CognitoScript</code></pre>
