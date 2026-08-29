@@ -679,8 +679,19 @@
                             </span>
                         </li>
                         <li>
-                            On that same page, assign yourself and anyone else who should have
-                            access. Nobody unassigned can sign in.
+                            Let everyone in the directory use it, rather than naming people one at
+                            a time. When you create the application, set
+                            <strong>User and group assignment method</strong> to
+                            <strong>Do not require assignments</strong>. Connapse's own Identity
+                            Center application is created the same way.
+                            <span class="d-block mt-1">
+                                If it already exists and asks you to assign users, this does the
+                                same thing — its ARN comes from
+                                <code>aws sso-admin list-applications</code>:
+                            </span>
+                            <code class="user-select-all d-block mt-1">aws sso-admin put-application-assignment-configuration
+                            --region @(IdentityCentre?.Region is { Length: > 0 } r ? r : "&lt;region&gt;")
+                            --application-arn &lt;your-saml-application-arn&gt; --no-assignment-required</code>
                         </li>
                         <li>Copy its <strong>metadata URL</strong> into the box below.</li>
                         <li>
