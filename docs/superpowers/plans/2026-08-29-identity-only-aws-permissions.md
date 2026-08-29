@@ -1,4 +1,4 @@
-# AWS per-user permissions: Identity Center sign-in, no Cognito
+﻿# AWS per-user permissions: Identity Center sign-in, no Cognito
 
 Part of epic #436. Supersedes `2026-08-28-per-user-permissions-5b-connect-aws-identity.md`
 and the `ListCallerAccessGrants` decision in `search-permission-filtering.md` phase 6.
@@ -149,3 +149,20 @@ external login Connapse does not have.
   Next: the ACS and connect endpoints, which is the rest of phase 1 — the Cognito callback
   still exists and now resolves the directory id through `IDirectoryUserLookup` so it is
   correct in the meantime.
+- 2026-08-29 — **Phases 1-5 done.** Phase 1 finished with the `/aws/connect` and `/aws/acs`
+  endpoints; who is connecting travels as a nonce in RelayState because the assertion arrives on a
+  cross-site POST and a SameSite=Lax cookie is not sent on one. Phase 2 retired Cognito entirely
+  (+858/-2847). Phase 3 landed with the Providers rewrite. **Phases 4 and 5 were swapped**: the IAM
+  permissions had to exist before sign-in could be tested at all, since `/aws/acs` calls
+  `GetUserId`. Phase 4 added `AwsSearchScopeResolver`, `S3AccessGrantsReader` and the group
+  expansion, failing closed on every uncertain path.
+
+  Two findings worth keeping. `S3PrefixType` is write-only — accepted by `CreateAccessGrant` and
+  returned by neither `ListAccessGrants` nor `GetAccessGrant` — so whether a grant names one object
+  is inferred from the trailing asterisk, defaulting to the under-permissive reading. And SAML
+  customer-managed applications are console-only for **deletion** as well as creation, with
+  assignments having to be cleared first; teardown can never be fully scripted either.
+
+  Verified: build clean, 1,382 unit tests pass. **Not yet exercised against live AWS** — no
+  assertion has been through the new flow.
+  Next: walk a real setup end to end.

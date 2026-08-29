@@ -73,6 +73,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddScoped<AwsIdentityLinkStore>();
+        services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
 
         // Both are single-process by design and documented as such: one remembers assertion ids so

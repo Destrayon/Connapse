@@ -46,4 +46,13 @@ public interface IDirectoryUserLookup
     /// is reported to an administrator says which happened.
     /// </remarks>
     Task<DirectoryUser?> DescribeAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>The identity store ids of the groups <paramref name="userId"/> belongs to.</summary>
+    /// <remarks>
+    /// Needed because <c>ListAccessGrants</c> does not expand membership: a grantee filter matches
+    /// the grant record literally, so a grant made to a group is invisible when asking about one of
+    /// its members. This is the work AWS does inside <c>ListCallerAccessGrants</c> and that
+    /// Connapse takes on in exchange for not holding anybody's credential.
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListGroupIdsAsync(string userId, CancellationToken ct = default);
 }

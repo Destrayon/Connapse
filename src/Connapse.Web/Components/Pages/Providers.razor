@@ -500,6 +500,26 @@
                 permissions (see issue #421). This is the half that has to exist first.
             </p>
 
+            @* Said here rather than left in the policy. Connapse resolves what somebody may read
+               using its own identity instead of holding a credential belonging to them, and the
+               read that makes that possible is not scoped to one person — so an administrator
+               should meet that fact while deciding, not afterwards in IAM. *@
+            <div class="alert alert-secondary small">
+                <span class="bi-info-circle me-1"></span>
+                Connapse's own AWS identity needs four read-only permissions for this:
+                <code>s3:ListAccessGrants</code>, <code>identitystore:GetUserId</code>,
+                <code>identitystore:DescribeUser</code> and
+                <code>identitystore:ListGroupMembershipsForMember</code>. None of them reads an
+                object.
+                <span class="d-block mt-1">
+                    <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
+                    not scope it to one user, so it lets Connapse enumerate everyone's grants rather
+                    than only the person signing in. Connapse stores no credential belonging to
+                    anyone, which is the trade — a smaller blast radius than a per-user token, and a
+                    wider reach.
+                </span>
+            </div>
+
             @if (IdentityCentre is null)
             {
                 @* Ordered, because the step below needs the instance ARN and the region, and the

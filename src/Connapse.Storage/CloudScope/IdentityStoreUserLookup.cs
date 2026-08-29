@@ -106,6 +106,46 @@ public sealed class IdentityStoreUserLookup(
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> ListGroupIdsAsync(
+        string userId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
+        var settings = options.CurrentValue;
+        if (!settings.IsConfigured)
+            return [];
+
+        using var client = CreateClient(settings);
+
+        List<string> groupIds = [];
+        string? nextToken = null;
+
+        // Paged deliberately rather than taking the first page. Somebody in more groups than one
+        // page holds would otherwise silently lose the grants held by the rest of them, which
+        // presents as a permissions bug with no error anywhere.
+        do
+        {
+            var response = await client.ListGroupMembershipsForMemberAsync(
+                new ListGroupMembershipsForMemberRequest
+                {
+                    IdentityStoreId = settings.IdentityStoreId,
+                    MemberId = new MemberId { UserId = userId },
+                    NextToken = nextToken,
+                },
+                ct);
+
+            groupIds.AddRange(response.GroupMemberships
+                .Select(m => m.GroupId)
+                .Where(id => !string.IsNullOrWhiteSpace(id)));
+
+            nextToken = response.NextToken;
+        }
+        while (!string.IsNullOrEmpty(nextToken));
+
+        return groupIds;
+    }
+
     private AmazonIdentityStoreClient CreateClient(IdentityCenterSettings settings) =>
         new(credentials, RegionEndpoint.GetBySystemName(settings.Region));
 }

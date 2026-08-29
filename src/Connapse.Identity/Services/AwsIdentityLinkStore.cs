@@ -1,3 +1,4 @@
+﻿using Connapse.Core;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -15,8 +16,15 @@ namespace Connapse.Identity.Services;
 /// </remarks>
 public sealed class AwsIdentityLinkStore(
     IDbContextFactory<ConnapseIdentityDbContext> factory,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider) : IAwsIdentityLinkReader
 {
+    /// <inheritdoc />
+    public async Task<string?> GetDirectoryUserIdAsync(Guid userId, CancellationToken ct = default)
+    {
+        var link = await GetAsync(userId, ct);
+        return string.IsNullOrWhiteSpace(link?.DirectoryUserId) ? null : link.DirectoryUserId;
+    }
+
     /// <summary>Stores a user's link, replacing any existing one.</summary>
     /// <remarks>
     /// The read-then-write below is not itself atomic — two concurrent connects for the same user

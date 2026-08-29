@@ -210,6 +210,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
+        services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
+
+        // Registered here rather than in Connapse.Search, whose own registration is a TryAdd for
+        // the unrestricted default. This one resolves real grants, and it must win.
+        services.AddMemoryCache();
+        services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();
