@@ -686,9 +686,16 @@
                             </span>
                         </li>
                         <li>
-                            On that same page, assign the people who should be able to sign in.
-                            Search by name in the picker — it lists nobody until you type. Anyone
-                            unassigned is refused at sign-in.
+                            On that same page, assign whoever should be able to sign in. Anyone
+                            unassigned is refused before they reach Cognito. The picker lists nobody
+                            until you type a name.
+                            <span class="d-block mt-1">
+                                Assign a <strong>group</strong> rather than people one at a time and
+                                membership becomes the only thing to maintain: whoever joins it can
+                                sign in, and this application is never touched again. There is no
+                                setting that admits everyone — AWS refuses to turn the assignment
+                                requirement off for a SAML application.
+                            </span>
                         </li>
                         <li>
                             Press <strong>Copy command with this URL</strong> below, and run what
