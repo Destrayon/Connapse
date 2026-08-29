@@ -27,13 +27,60 @@ public class AwsIamUserSetupTests
     }
 
     [Fact]
-    public void GenerateScript_StopsWhenTheUserAlreadyExists()
+    public void GenerateScript_MintsNoSecondKeyForAnIdentityThatAlreadyExists()
     {
         // Re-running it must not mint a second key for an identity already in use: the operator
-        // would store the new one and leave the old one live, with nothing recording that it exists.
+        // would store the new one and leave the old one live, with nothing recording that it
+        // exists. The script used to guarantee that by refusing outright, which turned out to
+        // strand every installation that needed a permission added after it first ran.
         string script = Script();
 
-        script.Should().Contain("aws iam get-user").And.Contain("exit 1");
+        script.Should().Contain("aws iam get-user");
+        script.Should().Contain("[ -z \"$FAILED\" ] && [ -z \"$EXISTS\" ]",
+            "creating the key is gated on the identity not having existed a moment ago");
+    }
+
+    [Fact]
+    public void GenerateScript_UpdatesThePolicyOnAnIdentityConnapseAlreadyMade()
+    {
+        // How a permission added in a later version reaches an installation that already ran this.
+        // Deleting and recreating the user would work too, and would rotate its access key and
+        // break every configured source until the new one was pasted back.
+        string script = Script();
+
+        script.Should().Contain("aws iam put-user-policy");
+        script.Should().Contain("Permissions for $USER are up to date");
+        script.Should().Contain("access key is unchanged");
+    }
+
+    [Fact]
+    public void GenerateScript_WillNotAdoptAUserConnapseDidNotCreate()
+    {
+        // A user that merely shares the name belongs to somebody else, and rewriting its policy
+        // would be taking over an account this script cannot reason about. The tag is written at
+        // creation, so its absence is the signal.
+        string script = Script();
+
+        script.Should().Contain("list-user-tags");
+        script.Should().Contain("Connapse did not create it");
+    }
+
+    [Fact]
+    public void GenerateScript_SurvivesBeingPastedIntoAnInteractiveShell()
+    {
+        // `set -e` and a bare `exit` end the *session* rather than a script when pasted into an
+        // interactive shell. That is how CloudShell disconnects part-way through a paste instead
+        // of reporting a problem, and it cost two debugging sessions to find.
+        // Comment lines are excluded, because the script explains this rule in a comment that
+        // necessarily quotes the thing it forbids. A check that reads prose as code fails on its
+        // own documentation.
+        var commands = Script().Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .ToList();
+
+        commands.Should().NotContain(l => l == "set -e" || l.StartsWith("set -e "));
+        commands.Should().NotContain(l => l == "exit 1" || l == "exit");
     }
 
     [Fact]

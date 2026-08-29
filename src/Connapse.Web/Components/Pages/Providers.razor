@@ -336,11 +336,22 @@
                         <div class="mt-2">
                             <button type="button" class="btn btn-sm btn-outline-secondary"
                                     @onclick="() => showSetup = true">
-                                <span class="bi-arrow-repeat me-1"></span> Replace this identity
+                                <span class="bi-arrow-repeat me-1"></span> Update or replace
                             </button>
+                            @* Two outcomes from one script, and which one you get depends on the
+                               name. Worth spelling out: an administrator whose per-user permissions
+                               fail with AccessDenied needs the first, and would not guess that a
+                               button reading "replace" is what gives it to them. *@
                             <div class="form-text">
-                                Creates a second IAM user and switches to it. Delete the old one in
-                                AWS afterwards — nothing here can, and nothing here should.
+                                Run it with the same name to bring the permissions up to date —
+                                that is how actions added in a later version reach an identity
+                                created by an earlier one, and it leaves the access key alone, so
+                                nothing has to be pasted back.
+                                <span class="d-block mt-1">
+                                    Give it a different name and it creates a second IAM user and
+                                    switches to it. Delete the old one in AWS afterwards — nothing
+                                    here can, and nothing here should.
+                                </span>
                             </div>
                         </div>
                     }
