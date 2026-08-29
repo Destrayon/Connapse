@@ -650,8 +650,8 @@
                         </li>
                         <li>
                             You land on the application's own page. Choose
-                            <strong>Actions &rarr; Edit attribute mappings</strong>. There are two
-                            rows, and it will not save until both are set:
+                            <strong>Actions &rarr; Edit attribute mappings</strong>. There are three
+                            rows to end up with, and it will not save until the first is set:
                             <table class="table table-sm small mt-2 mb-1">
                                 <thead>
                                     <tr>
@@ -671,6 +671,11 @@
                                         <td><code class="user-select-all">&#36;&#123;user:preferredUsername&#125;</code></td>
                                         <td><code>unspecified</code></td>
                                     </tr>
+                                    <tr>
+                                        <td><code>email</code></td>
+                                        <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
+                                        <td><code>unspecified</code></td>
+                                    </tr>
                                 </tbody>
                             </table>
                             <span class="d-block">
@@ -680,9 +685,14 @@
                                 address becomes a new person who cannot get back in.
                             </span>
                             <span class="d-block mt-1">
-                                <code>userName</code> is the row you add, and it is what ties a
-                                sign-in to one Identity Center user. Without it people sign in and
-                                match nobody.
+                                <code>userName</code> is what ties a sign-in to one Identity Center
+                                user. Without it people sign in and match nobody.
+                            </span>
+                            <span class="d-block mt-1">
+                                <code>email</code> is required by the pool, so a sign-in without it
+                                is refused before anyone is created — <em>the attribute emails is
+                                required</em>. It is not the join key; the pool simply will not make
+                                a user without an address.
                             </span>
                         </li>
                         <li>
