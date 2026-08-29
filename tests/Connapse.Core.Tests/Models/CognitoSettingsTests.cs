@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using FluentAssertions;
 using Xunit;
 
@@ -17,6 +17,7 @@ public class CognitoSettingsTests
         ClientId = "3ia37m5mg4rtioih2slv8etmed",
         ClientSecret = "shh",
         Region = "us-west-1",
+        ApplicationArn = "arn:aws:sso::123456789012:application/ssoins-1234567890abcdef/apl-abcd1234a1b2c3d",
     };
 
     [Fact]

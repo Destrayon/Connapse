@@ -1,4 +1,4 @@
-@using Connapse.Core
+﻿@using Connapse.Core
 @using Connapse.Core.Utilities
 @inject NavigationManager Navigation
 
@@ -87,6 +87,20 @@ else
             <div class="form-text">The region the pool lives in.</div>
         </div>
 
+        <div class="col-12">
+            <label class="form-label" for="cognito-application-arn">
+                Identity Center application ARN
+            </label>
+            <InputText id="cognito-application-arn" @bind-Value="localSettings.ApplicationArn"
+                       class="form-control font-monospace"
+                       placeholder="arn:aws:sso::123456789012:application/ssoins-…/apl-…" />
+            <div class="form-text">
+                What a signed-in person's token is exchanged at, to learn which directory user they
+                are. The setup script creates this and prints it; there is no way to invent one, so
+                fill this in only from a pool you set up yourself.
+            </div>
+        </div>
+
         <div class="col-md-6">
             <label class="form-label" for="cognito-client-secret">Client Secret</label>
             <InputText id="cognito-client-secret" @bind-Value="localSettings.ClientSecret"
@@ -145,6 +159,7 @@ else
             Domain = Settings.Domain,
             ClientId = Settings.ClientId,
             Region = Settings.Region,
+            ApplicationArn = Settings.ApplicationArn,
             // Deliberately not copied into the form. Rendering it would put the pool's secret in
             // the page source on every visit, and a password input shows nothing anyway, so the
             // only thing a round trip buys is exposure. Blank means "keep what is stored".

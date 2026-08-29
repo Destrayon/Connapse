@@ -28,6 +28,7 @@ public class AwsIdentityLinkServiceTests
         ClientId = "test-client-id",
         ClientSecret = "test-client-secret",
         Region = "us-east-1",
+        ApplicationArn = "arn:aws:sso::123456789012:application/ssoins-1234567890abcdef/apl-abcd1234a1b2c3d",
     };
 
     private AwsIdentityLinkStore CreateStore(string dbName) =>

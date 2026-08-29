@@ -163,19 +163,6 @@ public class ProviderSetupReader(
                 "Nobody can connect an AWS identity until this is set up.",
                 "Set up", PermissionsSection);
 
-        // Configured enough to connect, not enough to answer what anyone may read. Reported as
-        // Warning rather than Satisfied because the two states differ in the only way that
-        // matters: one resolves permissions and the other cannot, ever, however long it is left.
-        //
-        // IsConfigured deliberately excludes the application ARN, so that adding that field could
-        // not disable the connect button for a pool set up before it existed. That is right for the
-        // button and wrong for the badge, which is what this branch exists to separate.
-        if (!settings.CanResolvePermissions)
-            return new ProviderRequirement(name, description,
-                RequirementStatus.Warning,
-                "People can connect, but nothing can be resolved: this pool has no Identity Center "
-                + "application. Run the setup again and paste what it prints.",
-                "Finish setup", PermissionsSection);
 
         return new ProviderRequirement(name, description,
             RequirementStatus.Satisfied, settings.IssuerUrl, "Change", PermissionsSection);

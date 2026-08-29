@@ -50,10 +50,9 @@ public class CognitoSettings
     /// token for an identity context.
     /// </summary>
     /// <remarks>
-    /// An output of setting AWS up rather than something anybody types: it is an ARN nobody has
-    /// before the application exists. Absent on a pool configured by hand before this field
-    /// existed, which is why it is not part of <see cref="IsConfigured"/> — see
-    /// <see cref="CanResolvePermissions"/>.
+    /// An output of setting AWS up rather than something anybody invents: it is an ARN nobody has
+    /// before the application exists. Required, because a pool without it completes a sign-in and
+    /// then cannot answer the only question the sign-in was for.
     /// </remarks>
     public string ApplicationArn { get; set; } = string.Empty;
 
@@ -90,20 +89,9 @@ public class CognitoSettings
         && IsSecureUrl(Domain)
         && !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)
-        && !string.IsNullOrWhiteSpace(Region);
+        && !string.IsNullOrWhiteSpace(Region)
+        && !string.IsNullOrWhiteSpace(ApplicationArn);
 
-    /// <summary>
-    /// True when this pool can also answer what a person may read, not merely who they are.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately separate from <see cref="IsConfigured"/> rather than folded into it. They
-    /// answer different questions — one gates the connect button, the other gates permission
-    /// resolution — and merging them would have taken the connect button away from every pool
-    /// configured before <see cref="ApplicationArn"/> existed, to protect a resolver that does not
-    /// read it yet.
-    /// </remarks>
-    public bool CanResolvePermissions =>
-        IsConfigured && !string.IsNullOrWhiteSpace(ApplicationArn);
 
     /// <summary>HTTPS only — these are the provider's own endpoints, not Connapse's.</summary>
     /// <remarks>

@@ -414,25 +414,18 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
-    public async Task PerUserPermissions_WithAPoolThatCannotResolve_IsNotReady()
+    public async Task PerUserPermissions_WithoutTheApplicationArn_IsNotConfigured()
     {
-        // The pool connects and can never answer what anyone may read: no Identity Center
-        // application means nothing to exchange a token with. Reported Satisfied before, so the
-        // card read Ready for a setup that was permanently incapable of its one job.
-        //
-        // IsConfigured excludes the application ARN on purpose, so that adding the field could not
-        // disable the connect button for a pool set up before it existed. Right for the button,
-        // wrong for the badge.
+        // Every other field can be present and the pool still cannot answer what anyone may read:
+        // with no Identity Center application there is nothing to exchange a token with. It is a
+        // sign-in that resolves to nobody, so it is not a configured pool.
         var unresolvable = ConfiguredPool();
         unresolvable.ApplicationArn = string.Empty;
 
         var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
             cognito: unresolvable);
 
-        var requirement = await PermissionsAsync(reader);
-
-        requirement.Status.Should().Be(RequirementStatus.Warning);
-        requirement.Detail.Should().Contain("no Identity Center application");
+        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
             .Overall.Should().NotBe(RequirementStatus.Satisfied);
     }
