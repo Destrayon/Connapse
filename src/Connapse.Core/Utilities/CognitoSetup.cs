@@ -366,7 +366,14 @@ public static class CognitoSetup
           --stack-name "$STACK" --template-file "$TEMPLATE_FILE" \
           --capabilities CAPABILITY_NAMED_IAM \
           --parameter-overrides Prefix="$PREFIX" DomainPrefix="$DOMAIN_PREFIX" \
-            CallbackUrl="$CALLBACK" InstanceArn="$INSTANCE" IdpMetadataUrl="$IDP_METADATA"
+            CallbackUrl="$CALLBACK" InstanceArn="$INSTANCE" IdpMetadataUrl="$IDP_METADATA" || {
+          echo 'The stack did not deploy. Everything below reads values from it, so they describe'
+          echo 'whatever the stack rolled back to rather than what you asked for. The reason is in'
+          echo 'the output above; this names the resource that failed:'
+          echo "  aws cloudformation describe-stack-events --region $REGION --stack-name $STACK \\"
+          echo "    --query \"StackEvents[?ResourceStatusReason!=null].[LogicalResourceId,ResourceStatusReason]\" --output text"
+          FAILED=1
+        }
 
         out() { aws cloudformation describe-stacks --region "$REGION" --stack-name "$STACK" \
                   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
@@ -450,16 +457,16 @@ public static class CognitoSetup
 
         aws sso-admin put-application-grant --region "$REGION" \
           --application-arn "$APP_ARN" --grant-type urn:ietf:params:oauth:grant-type:jwt-bearer \
-          --grant "JwtBearer={AuthorizedTokenIssuers=[{TrustedTokenIssuerArn=$TTI,AuthorizedAudiences=[$CLIENT_ID]}]}"
+          --grant "JwtBearer={AuthorizedTokenIssuers=[{TrustedTokenIssuerArn=$TTI,AuthorizedAudiences=[$CLIENT_ID]}]}" || FAILED=1
 
         aws sso-admin put-application-access-scope --region "$REGION" \
-          --application-arn "$APP_ARN" --scope s3:access_grants:read_write
+          --application-arn "$APP_ARN" --scope s3:access_grants:read_write || FAILED=1
 
         AUTH_METHOD=$(printf '{{authMethodFormat}}' "$ACTOR" "$APP_ARN")
 
         aws sso-admin put-application-authentication-method --region "$REGION" \
           --application-arn "$APP_ARN" --authentication-method-type IAM \
-          --authentication-method "$AUTH_METHOD"
+          --authentication-method "$AUTH_METHOD" || FAILED=1
 
         # Read back rather than trusted. This call and the one below are the last two steps, and
         # the whole chain fails at token exchange with a bare AccessDeniedException if either is
@@ -474,7 +481,7 @@ public static class CognitoSetup
         # one failure in this chain that reports nothing useful. Turning it off does not widen who
         # can read data: Access Grants still decides that, per person.
         aws sso-admin put-application-assignment-configuration --region "$REGION" \
-          --application-arn "$APP_ARN" --no-assignment-required
+          --application-arn "$APP_ARN" --no-assignment-required || FAILED=1
 
         # The provider Connapse sends people straight to. Matches the template's ProviderName.
         if [ -n "$IDP_METADATA" ]; then IDP_NAME='Workforce'; else IDP_NAME=''; fi

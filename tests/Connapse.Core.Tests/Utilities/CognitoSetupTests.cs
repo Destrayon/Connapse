@@ -473,6 +473,21 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_TreatsAFailedDeployAsAFailedRun()
+    {
+        // The regression that removing `set -e` introduced. The deploy's exit code went unread, so
+        // a rollback carried on to print a settings block describing federation the rollback had
+        // undone — the pool said COGNITO-only while Connapse recorded a federated one.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("The stack did not deploy.");
+        script.Split('\n')
+            .Count(l => l.Contains("FAILED=1"))
+            .Should().BeGreaterThan(5, "the deploy and each call that changes something");
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates
