@@ -584,6 +584,14 @@
                    customer managed application in the AWS Management Console only" — and
                    DeleteApplication refuses them too, so this stays a hand-guided step in both
                    directions. *@
+                <button type="button" class="btn btn-sm btn-link px-0 mb-1"
+                        @onclick="() => showSamlGuided = !showSamlGuided">
+                    <span class="@(showSamlGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided setup — the sign-in application
+                </button>
+
+                @if (showSamlGuided)
+                {
                 <div class="card mb-3">
                     <div class="card-body">
                         <h3 class="h6">Create the sign-in application</h3>
@@ -672,6 +680,7 @@
                         }
                     </div>
                 </div>
+                }
 
                 <a class="btn btn-sm btn-outline-secondary mb-3" target="_blank" rel="noopener"
                    href="@IdentityCenterConsoleUrl">
@@ -794,6 +803,13 @@
     /// <summary>Whether the guided pair — template and script — is expanded. Closed to begin with,
     /// for the same reason, and it is the longer of the two.</summary>
     private bool showGrantsGuided;
+
+    /// <summary>
+    /// Whether the sign-in application's instructions are expanded. Closed to begin with, like the
+    /// pair above it: it is the longest block on the page, and somebody returning to change one
+    /// stored value should not have to scroll past a walkthrough they have already followed.
+    /// </summary>
+    private bool showSamlGuided;
 
     /// <summary>Backs the manual Identity Center form.</summary>
     private IdentityCenterSettings identityCenterSettings = new();
