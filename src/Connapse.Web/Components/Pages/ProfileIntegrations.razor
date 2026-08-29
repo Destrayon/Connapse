@@ -205,12 +205,22 @@
                     }
                     else
                     {
-                        <p class="text-muted small mb-0">
+                        <p class="text-muted small mb-2">
                             Separate from the AWS sign-in card above, which carries no permission
                             information. Connecting here lets Connapse check your AWS permissions
                             once per-user search filtering is switched on — it does not filter your
                             search results today.
                         </p>
+                        @if (CognitoSignInHost is not null)
+                        {
+                            <p class="text-muted small mb-0">
+                                <span class="bi-box-arrow-up-right me-1"></span>
+                                You sign in to <strong>AWS</strong>, not to Connapse, at
+                                <code>@CognitoSignInHost</code>. Connapse never sees your AWS
+                                password. Your organisation may forward you from there to its own
+                                identity provider.
+                            </p>
+                        }
                     }
                 </div>
                 @if (cognitoIdentity is not null)
@@ -245,7 +255,7 @@
                 {
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
                         <button class="btn btn-sm btn-primary" @onclick="ConnectCognitoAsync" disabled="@isProcessing">
-                            <span class="bi-link-45deg me-1"></span>Connect AWS Permissions
+                            <span class="bi-box-arrow-up-right me-1"></span>Continue to AWS sign-in
                         </button>
                     </div>
                 }
@@ -263,6 +273,20 @@
 
     private CloudIdentityDto? azureIdentity;
     private bool azureAdConfigured;
+
+    /// <summary>
+    /// The host that sign-in starts at, so the destination is named before the redirect instead of
+    /// being discovered in the address bar afterwards. Reading it from settings rather than writing
+    /// it out is what makes it worth showing: it is the same value the redirect is built from, so
+    /// it can be compared against what the browser goes on to display.
+    ///
+    /// Null when the domain is unset or unparseable, in which case the note is left out rather than
+    /// rendered with a gap in it.
+    /// </summary>
+    private string? CognitoSignInHost =>
+        Uri.TryCreate(CognitoOptions.CurrentValue.Domain, UriKind.Absolute, out var domain)
+            ? domain.Host
+            : null;
 
     // AWS permissions identity (Cognito) — a separate link from the Azure card above.
     private AwsIdentityLinkDto? cognitoIdentity;
