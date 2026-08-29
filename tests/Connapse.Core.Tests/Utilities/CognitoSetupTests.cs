@@ -411,6 +411,61 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_RunsAsAScriptRatherThanInTheAdministratorsShell()
+    {
+        // The failure this exists to stop: pasted line by line, `set -e` exits the administrator's
+        // own shell on the first command that returns non-zero, and the guards' `exit 1` exits it
+        // outright. CloudShell reports both as a disconnected session, so an ordinary failure — a
+        // wrong ARN, a missing template — arrives as a dead terminal with its error already gone.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        var lines = script.Split('\n');
+
+        lines[0].Should().Be("bash -s <<'CONNAPSE_SETUP_SCRIPT'",
+            "the body has to reach a new shell, not this one");
+        lines[^1].Should().Be("CONNAPSE_SETUP_SCRIPT");
+
+        // Both are still wanted inside the script; they are only dangerous outside one.
+        script.Should().Contain("set -e");
+        script.Should().Contain("exit 1");
+    }
+
+    [Fact]
+    public void GenerateScript_BodyNeverContainsTheDelimiter()
+    {
+        // A terminator appearing in the body would end the script early, and the result would be a
+        // half-finished setup rather than an error — the pool created and the Identity Center calls
+        // never made.
+        string script = CognitoSetup.GenerateScript(new CognitoSetupRequest(
+            "https://x/cb",
+            "arn:aws:iam::1:user/connapse",
+            IdpMetadataUrl: "https://portal.sso.us-west-1.amazonaws.com/saml/metadata/x",
+            SamlApplicationArn: "arn:aws:sso::1:application/ssoins-1/apl-1",
+            NamePrefix: "connapse"));
+
+        var lines = script.Split('\n');
+
+        lines.Count(l => l == "CONNAPSE_SETUP_SCRIPT").Should().Be(1,
+            "exactly the closing line, and nothing in the body");
+    }
+
+    [Fact]
+    public void GenerateScript_IsStillReadableInFull()
+    {
+        // The wrapper must not hide anything. Everything between the two delimiter lines is what
+        // runs, and it is the same text the page displays — nothing is fetched, decoded or
+        // expanded at run time, which is what makes reading it before running it worth anything.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().NotContain("base64");
+        script.Should().NotContain("curl ");
+        script.Should().NotContain("wget ");
+        script.Should().NotContain("eval ");
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates
@@ -454,13 +509,19 @@ public class CognitoSetupTests
     [Fact]
     public void GenerateScript_DoesNotCarryTheTemplate()
     {
-        // Two things at once. The template is the reviewable artifact and belongs in a file an
-        // administrator reads, not buried in a shell script; and a hundred-line heredoc is what
-        // put CloudShell into continuation mode until it disconnected, twice.
+        // The template is the reviewable artifact and belongs in a file an administrator reads,
+        // not buried in a shell script.
+        //
+        // This used to forbid heredocs outright, on the theory that a hundred-line one had put
+        // CloudShell into continuation mode until it disconnected. That was wrong — the script went
+        // on killing sessions at 140 lines with no heredoc and no continuation in it, because the
+        // cause was `set -e` reaching the administrator's own shell. The body still has none of its
+        // own; the one that delivers it is asserted above.
         string script = CognitoSetup.GenerateScript(Request());
+        string body = string.Join("\n", script.Split('\n')[1..^1]);
 
         script.Should().NotContain("AWSTemplateFormatVersion");
-        script.Should().NotContain("<<");
+        body.Should().NotContain("<<");
     }
 
     [Fact]

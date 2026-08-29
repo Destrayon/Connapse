@@ -318,7 +318,7 @@ public static class CognitoSetup
             + "[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"%s\"},"
             + "\"Action\":\"sso-oauth:CreateTokenWithIAM\",\"Resource\":\"%s\"}]}}}";
 
-        return FlattenContinuations($$"""
+        return RunAsScript(FlattenContinuations($$"""
         # Sets up per-user AWS permissions for Connapse. Creates, in your account:
         #   a Cognito user pool, its domain and one app client
         #   an IAM Identity Center application, plus its trusted token issuer, grant,
@@ -491,8 +491,40 @@ public static class CognitoSetup
         printf '\n%s\nissuerUrl=%s\ndomain=%s\nclientId=%s\nclientSecret=%s\nregion=%s\napplicationArn=%s\nidentityProvider=%s\n%s\n\n' '{{BeginMarker}}' "$ISSUER" "$DOMAIN" "$CLIENT_ID" "$SECRET" "$REGION" "$APP_ARN" "$IDP_NAME" '{{EndMarker}}'
         echo "Copy the block above into Connapse."
         echo "Then, in AWS, write access grants saying who may read what. Identity store: $IDENTITY_STORE"
-        """);
+        """));
     }
+
+    /// <summary>
+    /// Hands the script to a fresh <c>bash</c> on standard input, rather than leaving it to be
+    /// typed into the administrator's own shell.
+    /// </summary>
+    /// <remarks>
+    /// The script begins <c>set -e</c> and guards several steps with <c>exit 1</c>. Both are right
+    /// for a script and ruinous for a session: pasted line by line, <c>set -e</c> makes the
+    /// administrator's own shell exit on the first command that returns non-zero, and <c>exit</c>
+    /// exits it outright. CloudShell answers either with "click inside the terminal window to
+    /// reconnect" — so a step failing for an ordinary reason, a wrong ARN or a missing file,
+    /// arrives as a dead terminal with its error already gone.
+    /// <para>
+    /// This is what the earlier continuation work was reaching for and missed. Flattening the
+    /// backslashes was worth doing, but the script went on killing the session at 140 lines with no
+    /// continuations left in it, because the cause was never the continuations.
+    /// </para>
+    /// <para>
+    /// Reading it is unaffected: the page shows this same text, and everything between the two
+    /// delimiter lines is what runs. Nothing executes that the reader cannot see, which is the
+    /// property the whole copy-and-paste design rests on.
+    /// </para>
+    /// </remarks>
+    private static string RunAsScript(string body) =>
+        $"bash -s <<'{ScriptDelimiter}'\n{body}\n{ScriptDelimiter}";
+
+    /// <summary>
+    /// Ends the script on standard input. Long and specific because the body is arbitrary shell: a
+    /// terminator it happened to contain would end the script early, and that failure would be a
+    /// half-finished setup rather than an error.
+    /// </summary>
+    private const string ScriptDelimiter = "CONNAPSE_SETUP_SCRIPT";
 
     /// <summary>
     /// Joins every backslash-continued line into one, so the shell never continues.
