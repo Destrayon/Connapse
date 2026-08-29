@@ -643,10 +643,40 @@
                         <li>Give it the two values below when it asks for them.</li>
                         <li>
                             Once it is created you land on the application's own page. Choose
-                            <strong>Actions &rarr; Edit attribute mappings</strong> and add an
-                            attribute named <code>userName</code> mapped to
-                            <code>&#36;&#123;user:preferredUsername&#125;</code>. This is what ties a
-                            sign-in to one person; without it people sign in and match nobody.
+                            <strong>Actions &rarr; Edit attribute mappings</strong>. There are two
+                            rows to fill in, and the page will not save until both are set:
+                            <table class="table table-sm small mt-2 mb-1">
+                                <thead>
+                                    <tr>
+                                        <th class="fw-normal text-muted">Attribute</th>
+                                        <th class="fw-normal text-muted">Maps to</th>
+                                        <th class="fw-normal text-muted">Format</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>Subject</code></td>
+                                        <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
+                                        <td><code>persistent</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>userName</code></td>
+                                        <td><code class="user-select-all">&#36;&#123;user:preferredUsername&#125;</code></td>
+                                        <td><code>unspecified</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <span class="d-block">
+                                <code>Subject</code> is there already and is required. It has to be
+                                a value that never changes: Cognito recognises a returning person by
+                                it, so mapping it to an email address means anyone who changes their
+                                address becomes a new person who cannot get back in.
+                            </span>
+                            <span class="d-block mt-1">
+                                <code>userName</code> is the row you add, and it is what ties a
+                                sign-in to one Identity Center user. Without it people sign in and
+                                match nobody.
+                            </span>
                         </li>
                         <li>
                             On that same page, assign yourself and anyone else who should have
