@@ -86,6 +86,30 @@ public static class CognitoSetup
         "iam:CreateRole", "iam:PutRolePolicy", "iam:PassRole"
     ];
 
+    /// <summary>
+    /// Where Identity Center posts its SAML assertion, for a pool at <paramref name="domain"/>.
+    /// </summary>
+    /// <remarks>
+    /// Fixed by Cognito's contract — the pool domain plus <c>/saml2/idpresponse</c> — but derived
+    /// rather than left to be assembled by hand, because getting it wrong fails at sign-in rather
+    /// than at setup. Null when there is no pool yet, which is what makes federation a second pass.
+    /// </remarks>
+    public static string? SamlAcsUrl(string? domain) =>
+        string.IsNullOrWhiteSpace(domain) ? null : $"{domain.TrimEnd('/')}/saml2/idpresponse";
+
+    /// <summary>
+    /// The audience Identity Center must claim, for a pool whose issuer is
+    /// <paramref name="issuerUrl"/>.
+    /// </summary>
+    /// <remarks>
+    /// Cognito derives this from the pool id, and the pool id is the last segment of the issuer, so
+    /// it is read from there rather than stored a second time.
+    /// </remarks>
+    public static string? SamlAudience(string? issuerUrl) =>
+        string.IsNullOrWhiteSpace(issuerUrl)
+            ? null
+            : $"urn:amazon:cognito:sp:{issuerUrl.TrimEnd('/').Split('/')[^1]}";
+
     /// <summary>The CloudFormation template, for the administrator to read and upload.</summary>
     /// <remarks>
     /// A separate artifact rather than a heredoc inside the script, for two reasons that happen to

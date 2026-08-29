@@ -1,4 +1,5 @@
-﻿using Connapse.Core.Utilities;
+﻿using Connapse.Core;
+using Connapse.Core.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Utilities;
@@ -335,6 +336,49 @@ public class CognitoSetupTests
         // sides look individually correct.
         CognitoSetup.GenerateTemplate()
             .Should().Contain("AttributeMapping: { email: email, preferred_username: userName }");
+    }
+
+    [Fact]
+    public void SamlValues_AreDerivedFromAPoolThatIsNotYetFinished()
+    {
+        // The shape of a real deadlock. Federation is part of being configured, and the field that
+        // configures it needs these two values — so deriving them from a *configured* pool meant the
+        // last step of the setup waited on the setup being complete, and it could never be finished.
+        //
+        // They depend on the pool existing and nothing else: a domain, and an issuer to read the
+        // pool id off.
+        var halfway = new CognitoSettings
+        {
+            IssuerUrl = "https://cognito-idp.us-west-1.amazonaws.com/us-west-1_QqEHl4dCR",
+            Domain = "https://connapse-1-us-west-1.auth.us-west-1.amazoncognito.com",
+        };
+
+        halfway.IsConfigured.Should().BeFalse("federation and the application ARN are still missing");
+
+        CognitoSetup.SamlAcsUrl(halfway.Domain).Should()
+            .Be("https://connapse-1-us-west-1.auth.us-west-1.amazoncognito.com/saml2/idpresponse");
+        CognitoSetup.SamlAudience(halfway.IssuerUrl).Should()
+            .Be("urn:amazon:cognito:sp:us-west-1_QqEHl4dCR");
+    }
+
+    [Fact]
+    public void SamlValues_WithNoPool_AreNull()
+    {
+        // Before the first run there is nothing to tell Identity Center, and the setup page uses
+        // this to keep a question with only one answer off the screen.
+        CognitoSetup.SamlAcsUrl(null).Should().BeNull();
+        CognitoSetup.SamlAcsUrl("  ").Should().BeNull();
+        CognitoSetup.SamlAudience(null).Should().BeNull();
+        CognitoSetup.SamlAudience("  ").Should().BeNull();
+    }
+
+    [Fact]
+    public void SamlAcsUrl_DoesNotDoubleTheSlash()
+    {
+        // A domain pasted with a trailing slash is common, and Cognito matches this URL literally
+        // against what the SAML application posts to.
+        CognitoSetup.SamlAcsUrl("https://pool.auth.us-west-1.amazoncognito.com/").Should()
+            .Be("https://pool.auth.us-west-1.amazoncognito.com/saml2/idpresponse");
     }
 
     [Fact]

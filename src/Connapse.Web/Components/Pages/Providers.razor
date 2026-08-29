@@ -738,9 +738,22 @@
     private string? cognitoCopyMessage;
     private bool cognitoCopySucceeded;
 
-    /// <summary>The configured pool, or null when there is not one yet.</summary>
+    /// <summary>The finished pool, or null while any part of the setup is outstanding.</summary>
     private CognitoSettings? CognitoPool =>
         cognitoSettings.IsConfigured ? cognitoSettings : null;
+
+    /// <summary>
+    /// Whether the script has created a pool, whether or not the setup around it is finished.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="CognitoPool"/>, and the distinction is load-bearing. Federation is
+    /// part of being configured, and the field that configures it needs this pool's domain and id —
+    /// so gating that field on <see cref="CognitoPool"/> made the last step of the setup wait for
+    /// the setup to be complete, and there was no way to finish at all.
+    /// </remarks>
+    private bool PoolExists =>
+        !string.IsNullOrWhiteSpace(cognitoSettings.IssuerUrl)
+        && !string.IsNullOrWhiteSpace(cognitoSettings.Domain);
 
     /// <summary>
     /// The script, built from the address this administrator reached Connapse on and the AWS
@@ -837,23 +850,13 @@
         await RefreshSetups();
     }
 
-    /// <summary>
-    /// Where Identity Center posts its SAML assertion. Fixed by Cognito's contract — the pool
-    /// domain plus /saml2/idpresponse — but it is derived here rather than left to be assembled by
-    /// hand, because getting it wrong produces a failure at sign-in rather than at setup.
-    /// Null until a pool exists, which is what makes federation a second pass.
-    /// </summary>
+    /// <summary>Where Identity Center posts its SAML assertion. Null until a pool exists.</summary>
     private string? SamlAcsUrl =>
-        CognitoPool?.Domain is { Length: > 0 } domain ? $"{domain.TrimEnd('/')}/saml2/idpresponse" : null;
+        PoolExists ? CognitoSetup.SamlAcsUrl(cognitoSettings.Domain) : null;
 
-    /// <summary>
-    /// The audience Identity Center must claim, which Cognito derives from the pool id. The id is
-    /// the last segment of the issuer URL, so it is read from there rather than stored twice.
-    /// </summary>
+    /// <summary>The audience Identity Center must claim. Null until a pool exists.</summary>
     private string? SamlAudience =>
-        CognitoPool?.IssuerUrl is { Length: > 0 } issuer
-            ? $"urn:amazon:cognito:sp:{issuer.TrimEnd('/').Split('/')[^1]}"
-            : null;
+        PoolExists ? CognitoSetup.SamlAudience(cognitoSettings.IssuerUrl) : null;
 
     private string CognitoScript => CognitoSetup.GenerateScript(CognitoRequest);
 
