@@ -177,7 +177,7 @@
                         <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
                             <small class="d-flex align-items-start" style="color: #fbbf24;">
                                 <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>Amazon Cognito is not configured. An administrator must set up the pool under Providers &rarr; Amazon Web Services before anyone can connect.</span>
+                                <span>AWS permissions are not set up yet. An administrator configures this under Providers &rarr; Amazon Web Services before anyone can connect.</span>
                             </small>
                         </div>
                     }
@@ -335,13 +335,13 @@
         var reason = error["cognito_".Length..];
         statusMessage = reason switch
         {
-            "exchange_failed" => "Could not connect your AWS identity: the token exchange with Cognito failed.",
-            "token_invalid" => "Could not connect your AWS identity: Cognito returned a token that could not be verified.",
+            "exchange_failed" => "Could not connect your AWS identity: the token exchange with AWS failed.",
+            "token_invalid" => "Could not connect your AWS identity: AWS returned a token that could not be verified.",
             "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
             "user_mismatch" => "Could not connect your AWS identity: you were signed in as a different user by the time AWS responded. Please try again.",
             "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
             "user_cancelled" => "AWS sign-in was cancelled.",
-            "provider_error" => "Could not connect your AWS identity: Cognito reported a problem with the request.",
+            "provider_error" => "Could not connect your AWS identity: AWS reported a problem with the request.",
             _ => "Could not connect your AWS identity. Please try again.",
         };
         statusSuccess = false;
