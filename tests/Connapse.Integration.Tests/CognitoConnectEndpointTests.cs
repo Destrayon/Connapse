@@ -159,6 +159,45 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Connect_RequestsOnlyScopesCognitoAndTheAppClientBothAllow()
+    {
+        // `offline_access` shipped here and broke every connection attempt: Cognito has no such
+        // scope, so it rejected the authorize request outright with error=invalid_request and
+        // error_description=invalid_scope, and the user reached the hosted login page. The refresh
+        // token this flow stores arrives with the code grant on its own.
+        //
+        // The list is also bounded by the app client the setup script creates, whose
+        // AllowedOAuthScopes are openid, email and profile. Asking for anything outside that set
+        // fails the same way, so this asserts the whole scope parameter rather than just the
+        // absence of the one value that caused the outage.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
+        await store.SaveAsync("cognito", ConfiguredSettings());
+        try
+        {
+            using var client = CreateAuthenticatedClient();
+
+            var response = await client.GetAsync("/api/v1/auth/cloud/cognito/connect");
+
+            response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+            var query = System.Web.HttpUtility.ParseQueryString(
+                new Uri(response.Headers.Location!.ToString()).Query);
+            var scopes = (query["scope"] ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            scopes.Should().NotContain("offline_access", "Cognito rejects the whole request for it");
+            scopes.Should().BeSubsetOf(["openid", "email", "profile"],
+                "the app client the setup script creates allows only these three");
+            scopes.Should().Contain("openid", "the flow needs an ID token");
+            scopes.Should().Contain("email",
+                "the trusted token issuer matches the email claim to an Identity Center user");
+        }
+        finally
+        {
+            await store.SaveAsync("cognito", new CognitoSettings());
+        }
+    }
+
+    [Fact]
     public async Task Callback_WithMismatchedState_IsRejected()
     {
         // This must actually reach the `expectedState != state` branch, not the

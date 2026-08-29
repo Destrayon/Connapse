@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -167,7 +167,13 @@ public static class CloudIdentityEndpoints
                 $"?response_type=code" +
                 $"&client_id={Uri.EscapeDataString(cognito.ClientId)}" +
                 $"&redirect_uri={Uri.EscapeDataString(CognitoCallbackUri(http))}" +
-                $"&scope={Uri.EscapeDataString("openid email offline_access")}" +
+                // Cognito is not a standard OIDC provider here: it has no `offline_access`
+                // scope, and asking for one fails the whole authorize request with
+                // error=invalid_request / error_description=invalid_scope before any login page is
+                // shown. The refresh token this flow stores arrives with the code grant regardless
+                // — it is governed by the client's RefreshTokenValidity, not by a requested scope.
+                // These two must also stay a subset of the app client's AllowedOAuthScopes.
+                $"&scope={Uri.EscapeDataString("openid email")}" +
                 $"&state={Uri.EscapeDataString(state)}" +
                 $"&nonce={Uri.EscapeDataString(nonce)}" +
                 $"&code_challenge={Uri.EscapeDataString(challenge)}" +
@@ -182,6 +188,7 @@ public static class CloudIdentityEndpoints
             [FromQuery] string? code,
             [FromQuery] string? state,
             [FromQuery] string? error,
+            [FromQuery(Name = "error_description")] string? errorDescription,
             [FromServices] IOptionsMonitor<CognitoSettings> settings,
             [FromServices] AwsIdentityLinkStore linkStore,
             [FromServices] IHttpClientFactory httpClientFactory,
@@ -212,7 +219,9 @@ public static class CloudIdentityEndpoints
             if (!string.IsNullOrEmpty(error))
             {
                 logger.LogWarning(
-                    "Cognito callback reported a provider-side error: {Error}", LogSanitizer.Sanitize(error));
+                    "Cognito callback reported a provider-side error: {Error} ({Description})",
+                    LogSanitizer.Sanitize(error),
+                    LogSanitizer.Sanitize(errorDescription ?? "no description"));
                 var reason = error == "access_denied" ? "cognito_user_cancelled" : "cognito_provider_error";
                 return Results.Redirect($"/profile/integrations?error={reason}");
             }
