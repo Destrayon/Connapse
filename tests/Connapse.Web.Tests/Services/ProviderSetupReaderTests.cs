@@ -37,7 +37,8 @@ public class ProviderSetupReaderTests
         ProviderCredentialInfo? stored = null,
         TimeSpan? sinceCreated = null,
         IProviderCredentialStore? credentials = null,
-        CognitoSettings? cognito = null)
+        CognitoSettings? cognito = null,
+        IdentityCenterSettings? identityCenter = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
@@ -56,6 +57,9 @@ public class ProviderSetupReaderTests
         return new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
             Options.Create(cognito ?? new CognitoSettings()).AsMonitor(),
+            // Defaults to located, so a test that varies one thing is not also silently varying
+            // this one. The tests that care pass an empty instance explicitly.
+            Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
             discovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -295,6 +299,7 @@ public class ProviderSetupReaderTests
         var reader = new ProviderSetupReader(
             Options.Create(new AzureAdSettings()).AsMonitor(),
             Options.Create(new CognitoSettings()).AsMonitor(),
+            Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
@@ -338,8 +343,20 @@ public class ProviderSetupReaderTests
         Domain = "https://pool.auth.us-east-1.amazoncognito.com",
         ClientId = "client-id",
         ClientSecret = "client-secret",
-        Region = "us-east-1"
+        Region = "us-east-1",
+        ApplicationArn = "arn:aws:sso::1:application/ssoins-1/apl-1"
     };
+
+    private static IdentityCenterSettings LocatedInstance() => new()
+    {
+        Region = "us-east-1",
+        InstanceArn = "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+        IdentityStoreId = "d-996773e796"
+    };
+
+    private static async Task<ProviderRequirement> IdentityCentreAsync(ProviderSetupReader reader) =>
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Requirements.Single(r => r.Name == "IAM Identity Center");
 
     private static async Task<ProviderRequirement> PermissionsAsync(ProviderSetupReader reader) =>
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
@@ -394,6 +411,57 @@ public class ProviderSetupReaderTests
         var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
 
         aws.Overall.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAPoolThatCannotResolve_IsNotReady()
+    {
+        // The pool connects and can never answer what anyone may read: no Identity Center
+        // application means nothing to exchange a token with. Reported Satisfied before, so the
+        // card read Ready for a setup that was permanently incapable of its one job.
+        //
+        // IsConfigured excludes the application ARN on purpose, so that adding the field could not
+        // disable the connect button for a pool set up before it existed. Right for the button,
+        // wrong for the badge.
+        var unresolvable = ConfiguredPool();
+        unresolvable.ApplicationArn = string.Empty;
+
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            cognito: unresolvable);
+
+        var requirement = await PermissionsAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("no Identity Center application");
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Overall.Should().NotBe(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task IdentityCentre_WhenNotLocated_IsNotConfiguredAndAwsIsNotReady()
+    {
+        // Its own requirement because it is answered first and separately, and because the Cognito
+        // script needs its region: Identity Center lives in exactly one region per organisation and
+        // looking in the wrong one reads as there being no instance at all.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            cognito: ConfiguredPool(), identityCenter: new IdentityCenterSettings());
+
+        (await IdentityCentreAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public async Task IdentityCentre_WhenLocated_NamesTheStoreAndRegion()
+    {
+        // The region is the field people get wrong, so it is the one worth showing back.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            cognito: ConfiguredPool());
+
+        var requirement = await IdentityCentreAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Satisfied);
+        requirement.Detail.Should().Be("d-996773e796 in us-east-1");
     }
 
     [Fact]

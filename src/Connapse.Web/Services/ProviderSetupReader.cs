@@ -16,6 +16,7 @@ namespace Connapse.Web.Services;
 public class ProviderSetupReader(
     IOptionsMonitor<AzureAdSettings> azureAd,
     IOptionsMonitor<CognitoSettings> cognito,
+    IOptionsMonitor<IdentityCenterSettings> identityCenter,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
@@ -46,6 +47,10 @@ public class ProviderSetupReader(
     /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
     private const string PermissionsSection = "#permissions";
 
+    /// <summary>The Identity Center scan's section on the AWS provider page.</summary>
+    /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
+    private const string IdentityCenterSection = "#identity-center";
+
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
@@ -53,7 +58,11 @@ public class ProviderSetupReader(
         return
         [
             new ProviderSetup("aws", "AWS",
-                [await Access(ct), PerUserPermissions(cognito.CurrentValue)],
+                [
+                    await Access(ct),
+                    IdentityCentre(identityCenter.CurrentValue),
+                    PerUserPermissions(cognito.CurrentValue)
+                ],
                 InUse: providers.Contains(ConnectionProvider.S3)),
 
             new ProviderSetup("azure", "Azure",
@@ -154,8 +163,49 @@ public class ProviderSetupReader(
                 "Nobody can connect an AWS identity until this is set up.",
                 "Set up", PermissionsSection);
 
+        // Configured enough to connect, not enough to answer what anyone may read. Reported as
+        // Warning rather than Satisfied because the two states differ in the only way that
+        // matters: one resolves permissions and the other cannot, ever, however long it is left.
+        //
+        // IsConfigured deliberately excludes the application ARN, so that adding that field could
+        // not disable the connect button for a pool set up before it existed. That is right for the
+        // button and wrong for the badge, which is what this branch exists to separate.
+        if (!settings.CanResolvePermissions)
+            return new ProviderRequirement(name, description,
+                RequirementStatus.Warning,
+                "People can connect, but nothing can be resolved: this pool has no Identity Center "
+                + "application. Run the setup again and paste what it prints.",
+                "Finish setup", PermissionsSection);
+
         return new ProviderRequirement(name, description,
             RequirementStatus.Satisfied, settings.IssuerUrl, "Change", PermissionsSection);
+    }
+
+    /// <summary>
+    /// Whether Connapse knows where the customer's IAM Identity Center instance is.
+    /// </summary>
+    /// <remarks>
+    /// Its own requirement rather than a detail of the one below, because it is answered first and
+    /// separately: the pool does not exist yet when this is found, and the setup script needs the
+    /// region from here to look in the right place. Identity Center lives in exactly one region per
+    /// organisation, and looking in the wrong one reads as there being no instance at all.
+    /// </remarks>
+    private static ProviderRequirement IdentityCentre(IdentityCenterSettings settings)
+    {
+        const string name = "IAM Identity Center";
+        const string description =
+            "The directory a person is resolved into when Connapse checks what they may read.";
+
+        if (!settings.IsConfigured)
+            return new ProviderRequirement(name, description,
+                RequirementStatus.NotConfigured,
+                "Not located yet. The scan is read-only and takes a moment.",
+                "Find it", IdentityCenterSection);
+
+        return new ProviderRequirement(name, description,
+            RequirementStatus.Satisfied,
+            $"{settings.IdentityStoreId} in {settings.Region}",
+            "Scan again", IdentityCenterSection);
     }
 
     /// <summary>

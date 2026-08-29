@@ -953,7 +953,9 @@
     /// even move, which is indistinguishable from a dead link. Both sections are therefore opened
     /// before the scroll rather than after somebody hunts for the button that opens them.
     /// <para>
-    /// Only these two need it. Every other action on a requirement card is a real link elsewhere.
+    /// Only these three need it. Every other action on a requirement card is a real link
+    /// elsewhere. A section missing from this list scrolls to a card that is collapsed, which
+    /// reads as the button doing nothing at all.
     /// </para>
     /// </remarks>
     private async Task ScrollTo(string elementId)
@@ -963,6 +965,9 @@
 
         if (elementId == "permissions")
             showCognitoManual = true;
+
+        if (elementId == "identity-center")
+            showIdentityCenterScan = true;
 
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
