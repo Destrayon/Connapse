@@ -458,7 +458,7 @@ public class CognitoSetupTests
         // a message about a path, which says nothing about the step that was skipped.
         string script = CognitoSetup.GenerateScript(Request());
 
-        script.Should().Contain("connapse-cognito.yaml");
+        script.Should().Contain("connapse-permissions.yaml");
         script.Should().Contain("Upload file");
     }
 

@@ -536,7 +536,7 @@
                     </li>
                     <li>
                         In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and upload
-                        <code>connapse-cognito.yaml</code>.
+                        <code>connapse-permissions.yaml</code>.
                     </li>
                     <li>
                         Paste the script below. It deploys that template and prints the settings to
@@ -1074,10 +1074,10 @@
         cognitoCopyMessage = null;
 
         cognitoCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.downloadText", "connapse-cognito.yaml", CognitoSetup.GenerateTemplate());
+            "connapse.downloadText", "connapse-permissions.yaml", CognitoSetup.GenerateTemplate());
 
         cognitoCopyMessage = cognitoCopySucceeded
-            ? "Downloaded connapse-cognito.yaml."
+            ? "Downloaded connapse-permissions.yaml."
             : "Could not download — check whether the browser blocked it.";
     }
 

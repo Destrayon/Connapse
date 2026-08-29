@@ -303,7 +303,7 @@ public static class CognitoSetup
         PREFIX='{{prefix}}'
         CALLBACK='{{request.CallbackUrl}}'
         IDP_METADATA='{{idp}}'
-        STACK="$PREFIX-cognito"
+        STACK="$PREFIX-permissions"
 
         # Pinned to where Connapse found the Identity Center instance, when it has. Falling back
         # to the session's region is a guess: CloudShell opens wherever the console last was.
@@ -329,7 +329,7 @@ public static class CognitoSetup
 
         # The template is a separate file you downloaded from Connapse and can read before
         # running any of this. Upload it here with Actions -> Upload file.
-        TEMPLATE_FILE="${TEMPLATE_FILE:-connapse-cognito.yaml}"
+        TEMPLATE_FILE="${TEMPLATE_FILE:-connapse-permissions.yaml}"
         [ -f "$TEMPLATE_FILE" ] || {
           echo "Cannot find $TEMPLATE_FILE in $(pwd)."
           echo 'Download it from Connapse, then upload it here: Actions -> Upload file.'
