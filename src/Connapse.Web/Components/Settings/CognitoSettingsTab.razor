@@ -102,6 +102,20 @@ else
         </div>
 
         <div class="col-md-6">
+            <label class="form-label" for="cognito-identity-provider">
+                Identity provider name
+            </label>
+            <InputText id="cognito-identity-provider" @bind-Value="localSettings.IdentityProvider"
+                       class="form-control font-monospace" placeholder="Workforce" />
+            <div class="form-text">
+                The SAML provider on the pool that federates to IAM Identity Center, named exactly as
+                Cognito has it — <code>Workforce</code> for a pool the setup script built. People are
+                sent straight there instead of to a Cognito page, so a name Cognito does not
+                recognise fails at sign-in rather than here.
+            </div>
+        </div>
+
+        <div class="col-md-6">
             <label class="form-label" for="cognito-client-secret">Client Secret</label>
             <InputText id="cognito-client-secret" @bind-Value="localSettings.ClientSecret"
                        class="form-control" type="password"
@@ -160,6 +174,7 @@ else
             ClientId = Settings.ClientId,
             Region = Settings.Region,
             ApplicationArn = Settings.ApplicationArn,
+            IdentityProvider = Settings.IdentityProvider,
             // Deliberately not copied into the form. Rendering it would put the pool's secret in
             // the page source on every visit, and a password input shows nothing anyway, so the
             // only thing a round trip buys is exposure. Blank means "keep what is stored".
