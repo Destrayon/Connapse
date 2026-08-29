@@ -739,6 +739,41 @@
                 </div>
                 }
 
+                @* Deleting the stack in AWS cannot tell Connapse, so the values here go on
+                   describing a pool that is gone — including the audience above, which would send
+                   somebody to configure their Identity Center application against a pool id that no
+                   longer exists. *@
+                @if (PoolExists)
+                {
+                    <div class="mt-2">
+                        @if (confirmForgetPool)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <span class="small">Forget this pool and start again?</span>
+                                <button type="button" class="btn btn-sm btn-danger"
+                                        @onclick="ForgetCognitoPool">
+                                    Forget it
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => confirmForgetPool = false">
+                                    Cancel
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                Clears what Connapse stored. Nothing in AWS is touched — delete the
+                                stack there separately if that is what you meant.
+                            </div>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-link btn-sm p-0 text-danger"
+                                    @onclick="() => confirmForgetPool = true">
+                                Deleted the stack in AWS? Forget this pool
+                            </button>
+                        }
+                    </div>
+                }
+
                 }
             }
             else
@@ -809,6 +844,7 @@
     private CognitoSettings cognitoSettings = new();
     private string? pastedCognito;
     private bool showCognitoManual;
+    private bool confirmForgetPool;
 
     private string? cognitoCopyMessage;
     private bool cognitoCopySucceeded;
@@ -1031,6 +1067,28 @@
         cognitoCopyMessage = cognitoCopySucceeded
             ? "Copied."
             : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>
+    /// Clears the recorded pool, for an administrator who removed it in AWS.
+    /// </summary>
+    /// <remarks>
+    /// Connapse has no way to notice: it holds no credential that may read the account, and asking
+    /// AWS on every page load would be the beginning of one. So the values simply persist, and the
+    /// worst of them is the SAML audience — it is built from the pool id, so a stale one reads as
+    /// perfectly valid while naming a pool that no longer exists.
+    /// </remarks>
+    private async Task ForgetCognitoPool()
+    {
+        await SaveCognitoSettings(new CognitoSettings());
+
+        if (saveSuccess)
+        {
+            confirmForgetPool = false;
+            pastedCognito = null;
+            idpMetadataUrl = null;
+            showCognitoManual = false;
+        }
     }
 
     /// <summary>Stores what the script printed, as one save.</summary>
