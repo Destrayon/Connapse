@@ -450,6 +450,29 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateTemplate_TiesTheClientToTheProviderItNames()
+    {
+        // Naming the provider as a literal left CloudFormation free to build the client first, and
+        // it did: "The provider Workforce does not exist for User Pool us-west-1_...". Ref on an
+        // identity provider returns its ProviderName, so this reads the same and also orders them.
+        CognitoSetup.GenerateTemplate().Should().Contain("- [ !Ref Idp ]");
+    }
+
+    [Fact]
+    public void GenerateScript_ChecksTheApplicationStillExists()
+    {
+        // Deleting an Identity Center application does not tell CloudFormation, so the stack goes
+        // on reporting one that is gone and every sso-admin call fails with a
+        // ResourceNotFoundException quoting an ARN the stack itself supplied. The pool has been
+        // checked for this since it happened there; the application had not.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("sso-admin describe-application");
+        script.Should().Contain("which no longer exists");
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates

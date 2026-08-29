@@ -197,9 +197,14 @@ public static class CognitoSetup
               AllowedOAuthScopes: [ openid, email, profile ]
               AllowedOAuthFlowsUserPoolClient: true
               CallbackURLs: [ !Ref CallbackUrl ]
+              # !Ref rather than the name, which reads the same and is not the same: Ref on an
+              # identity provider returns its ProviderName, and referencing it makes CloudFormation
+              # create the provider before this client. Naming it as a literal left the two
+              # unordered, and the client was built first: "The provider Workforce does not exist
+              # for User Pool us-west-1_...".
               SupportedIdentityProviders: !If
                 - Federated
-                - [ Workforce ]
+                - [ !Ref Idp ]
                 - [ COGNITO ]
           # Despite the resource name, this applies no branding of ours. UseCognitoProvidedValues
           # means "use Cognito's own default style" and the property requires that Settings and
@@ -374,6 +379,17 @@ public static class CognitoSetup
         # like a bug in the script rather than drift in the account.
         aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$POOL_ID"           >/dev/null 2>&1 || {
           echo "Stack $STACK refers to pool $POOL_ID, which no longer exists."
+          echo "Something removed it outside CloudFormation. Delete the stack and run this again:"
+          echo "  aws cloudformation delete-stack --region $REGION --stack-name $STACK"
+          FAILED=1
+        }
+
+        # The same drift, on the other resource the stack reports. Deleting an Identity Center
+        # application does not tell CloudFormation, so the stack goes on naming one that is gone and
+        # every sso-admin call below fails with ResourceNotFoundException quoting an ARN the stack
+        # itself supplied.
+        aws sso-admin describe-application --region "$REGION" --application-arn "$APP_ARN" >/dev/null 2>&1 || {
+          echo "Stack $STACK refers to application $APP_ARN, which no longer exists."
           echo "Something removed it outside CloudFormation. Delete the stack and run this again:"
           echo "  aws cloudformation delete-stack --region $REGION --stack-name $STACK"
           FAILED=1
