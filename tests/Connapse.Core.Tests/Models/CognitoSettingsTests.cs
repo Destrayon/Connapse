@@ -18,6 +18,7 @@ public class CognitoSettingsTests
         ClientSecret = "shh",
         Region = "us-west-1",
         ApplicationArn = "arn:aws:sso::123456789012:application/ssoins-1234567890abcdef/apl-abcd1234a1b2c3d",
+        IdentityProvider = "Workforce",
     };
 
     [Fact]
@@ -60,6 +61,11 @@ public class CognitoSettingsTests
     [InlineData("ClientId")]
     [InlineData("ClientSecret")]
     [InlineData("Region")]
+    // The application is what a signed-in token is exchanged at; the provider is who signs them in.
+    // A pool missing either completes a sign-in and then resolves to nobody, which is the failure
+    // this check exists to move earlier.
+    [InlineData("ApplicationArn")]
+    [InlineData("IdentityProvider")]
     public void IsConfigured_WithAnyFieldMissing_IsFalse(string missing)
     {
         // Every field is load-bearing, and a half-configured pool fails at a different step

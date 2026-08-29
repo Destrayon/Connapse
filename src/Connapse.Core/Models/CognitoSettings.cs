@@ -66,8 +66,11 @@ public class CognitoSettings
     /// at which Cognito is visible to anybody but the administrator who set it up, and it exists
     /// solely to ask a question with one answer.
     /// <para>
-    /// Not part of <see cref="IsConfigured"/>: a pool-local setup legitimately has none, and a
-    /// federated pool configured before this field existed still connects without it.
+    /// Required. A pool that federates nowhere has only the accounts an administrator creates in it
+    /// by hand, and each of those still needs a matching IAM Identity Center user to resolve
+    /// against — two accounts per person, the second of which does the actual work. Federating
+    /// makes the directory the single place a person exists, so it is the configuration this
+    /// supports rather than one of two.
     /// </para>
     /// </remarks>
     public string IdentityProvider { get; set; } = string.Empty;
@@ -90,7 +93,8 @@ public class CognitoSettings
         && !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)
         && !string.IsNullOrWhiteSpace(Region)
-        && !string.IsNullOrWhiteSpace(ApplicationArn);
+        && !string.IsNullOrWhiteSpace(ApplicationArn)
+        && !string.IsNullOrWhiteSpace(IdentityProvider);
 
 
     /// <summary>HTTPS only — these are the provider's own endpoints, not Connapse's.</summary>

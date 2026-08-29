@@ -226,18 +226,16 @@
                             once per-user search filtering is switched on — it does not filter your
                             search results today.
                         </p>
-                        @if (CognitoSignInHost is not null)
-                        {
-                            <p class="text-muted small mb-0">
-                                <span class="bi-box-arrow-up-right me-1"></span>
-                                You sign in on a page <strong>AWS</strong> hosts for your
-                                organisation, at <code>@CognitoSignInHost</code> — not in Connapse,
-                                which never sees what you type there. Use the credentials your
-                                administrator set up for this; they are not your AWS console
-                                sign-in. Your organisation may forward you on to its own identity
-                                provider.
-                            </p>
-                        }
+                        @* The pool always federates — Connapse will not offer to connect one
+                           that does not — so the page somebody lands on is their organisation's,
+                           not Cognito's. Naming the pool's own host here would name a redirect they
+                           pass through in a fraction of a second and never see. *@
+                        <p class="text-muted small mb-0">
+                            <span class="bi-box-arrow-up-right me-1"></span>
+                            You sign in at <strong>AWS IAM Identity Center</strong> with the
+                            credentials and multi-factor you already use — not in Connapse, which
+                            never sees what you type there.
+                        </p>
                     }
                 </div>
                 @if (cognitoIdentity is not null)
@@ -291,19 +289,6 @@
     private CloudIdentityDto? azureIdentity;
     private bool azureAdConfigured;
 
-    /// <summary>
-    /// The host that sign-in starts at, so the destination is named before the redirect instead of
-    /// being discovered in the address bar afterwards. Reading it from settings rather than writing
-    /// it out is what makes it worth showing: it is the same value the redirect is built from, so
-    /// it can be compared against what the browser goes on to display.
-    ///
-    /// Null when the domain is unset or unparseable, in which case the note is left out rather than
-    /// rendered with a gap in it.
-    /// </summary>
-    private string? CognitoSignInHost =>
-        Uri.TryCreate(CognitoOptions.CurrentValue.Domain, UriKind.Absolute, out var domain)
-            ? domain.Host
-            : null;
 
     // AWS permissions identity (Cognito) — a separate link from the Azure card above.
     private AwsIdentityLinkDto? cognitoIdentity;

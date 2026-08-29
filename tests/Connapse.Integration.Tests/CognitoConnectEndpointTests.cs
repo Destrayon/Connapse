@@ -47,6 +47,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
         ClientSecret = "secret",
         Region = "us-west-1",
         ApplicationArn = "arn:aws:sso::123456789012:application/ssoins-1234567890abcdef/apl-abcd1234a1b2c3d",
+        IdentityProvider = "Workforce",
     };
 
     // A fresh, authenticated client per test that needs one — never the shared fixture.AdminClient

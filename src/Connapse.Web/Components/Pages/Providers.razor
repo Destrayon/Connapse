@@ -552,14 +552,14 @@
                 {
                 <div class="border rounded p-2 mb-2 bg-body-tertiary">
                     <label class="form-label small fw-semibold mb-1" for="idp-metadata">
-                        Let people sign in with the accounts they already have
+                        Finish: point the pool at Identity Center
                     </label>
                     <p class="form-text mt-0 mb-2">
-                        Right now each person needs a password you create for them in this pool,
-                        <em>and</em> an Identity Center user with the same name — two accounts each.
-                        Connect the two and there is one: they sign in at Identity Center with the
-                        credentials and MFA they already use, and their pool account is made for
-                        them the first time.
+                        The pool exists but nobody can use it yet. Connect it to Identity Center and
+                        people sign in there with the credentials and MFA they already have, and
+                        their pool account is created for them the first time. That directory is
+                        also what their permissions are read from, so this is what makes a sign-in
+                        mean anything.
                     </p>
 
                     <ol class="form-text mt-0 mb-2 ps-3">
@@ -593,10 +593,9 @@
                            placeholder="https://portal.sso.<region>.amazonaws.com/saml/metadata/..."
                            @bind="idpMetadataUrl" @bind:event="oninput" />
                     <div class="form-text">
-                        Leave it empty to carry on creating a pool account for each person by hand.
-                        They still need a matching Identity Center user either way — that is what
-                        their permissions are read from — so this is two accounts each rather than
-                        one, not one step fewer.
+                        Until this is set, connecting is not offered on anyone's profile: a pool that
+                        federates nowhere holds only accounts made by hand, and each of those needs a
+                        matching Identity Center user to resolve against anyway.
                     </div>
                 </div>
                 }

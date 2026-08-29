@@ -344,7 +344,8 @@ public class ProviderSetupReaderTests
         ClientId = "client-id",
         ClientSecret = "client-secret",
         Region = "us-east-1",
-        ApplicationArn = "arn:aws:sso::1:application/ssoins-1/apl-1"
+        ApplicationArn = "arn:aws:sso::1:application/ssoins-1/apl-1",
+        IdentityProvider = "Workforce"
     };
 
     private static IdentityCenterSettings LocatedInstance() => new()
