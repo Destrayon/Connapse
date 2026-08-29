@@ -640,11 +640,18 @@
                             <strong>Add application &rarr; I have an application I want to set up
                             &rarr; SAML 2.0</strong>.
                         </li>
-                        <li>Give it the two values below when it asks for them.</li>
                         <li>
-                            Once it is created you land on the application's own page. Choose
+                            That page asks for two values and offers a third. Give it the
+                            <strong>ACS URL</strong> and <strong>SAML audience</strong> shown below,
+                            and copy its <strong>IAM Identity Center SAML metadata file</strong> URL
+                            into the Metadata URL box below — it is on the same page, under
+                            <strong>IAM Identity Center metadata</strong>. Take the
+                            <strong>Default (IPv4 only)</strong> one. Then create the application.
+                        </li>
+                        <li>
+                            You land on the application's own page. Choose
                             <strong>Actions &rarr; Edit attribute mappings</strong>. There are two
-                            rows to fill in, and the page will not save until both are set:
+                            rows, and it will not save until both are set:
                             <table class="table table-sm small mt-2 mb-1">
                                 <thead>
                                     <tr>
@@ -667,8 +674,8 @@
                                 </tbody>
                             </table>
                             <span class="d-block">
-                                <code>Subject</code> is there already and is required. It has to be
-                                a value that never changes: Cognito recognises a returning person by
+                                <code>Subject</code> is there already and is required. It has to be a
+                                value that never changes: Cognito recognises a returning person by
                                 it, so mapping it to an email address means anyone who changes their
                                 address becomes a new person who cannot get back in.
                             </span>
@@ -679,25 +686,24 @@
                             </span>
                         </li>
                         <li>
-                            Copy the application's <strong>ARN</strong> from its page into the second
-                            box below. The command turns off per-person assignment for it, so
-                            everyone in the directory can sign in — the SAML wizard has no setting
-                            for that, and without it people are refused by the one step in this
-                            chain that explains nothing. Connapse's own Identity Center application
-                            is configured the same way.
+                            Copy that page's <strong>ARN</strong> into the Application ARN box below.
+                            The command uses it to turn off per-person assignment, so everyone in the
+                            directory can sign in — the SAML wizard has no setting for that, and
+                            without it people are refused by the one step in this chain that explains
+                            nothing. Connapse's own Identity Center application is configured the
+                            same way.
                         </li>
-                        <li>Copy its <strong>metadata URL</strong> into the box below.</li>
                         <li>
-                            Copy the setup command again with the button under that box, and run it
-                            in CloudShell. It has to be copied again rather than re-run from your
-                            terminal history: the command carries the metadata URL, so the one you
-                            ran the first time still has an empty one and would change nothing.
-                            Re-running is safe — CloudFormation updates the stack it already made.
+                            Copy the setup command again with the button under those boxes, and run
+                            it in CloudShell. It has to be copied again rather than re-run from your
+                            terminal history: the command carries both values, so the one you ran the
+                            first time still has neither and would change nothing. Re-running is safe
+                            — CloudFormation updates the stack it already made.
                         </li>
                         <li>
                             Paste what it prints into <strong>Paste what it printed</strong> above,
-                            as before. That is what records the connection here; without it the
-                            pool federates in AWS and Connapse still shows this step unfinished.
+                            as before. That is what records the connection here; without it the pool
+                            federates in AWS and Connapse still shows this step unfinished.
                         </li>
                     </ol>
 
