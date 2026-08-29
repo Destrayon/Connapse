@@ -1,4 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Connapse.Core;
@@ -46,7 +46,8 @@ public class CognitoIdTokenValidatorTests
         DateTime? expires = null,
         string? nonce = Nonce,
         string email = "person@example.com",
-        bool? emailVerified = true)
+        bool? emailVerified = true,
+        string? preferredUsername = "Patrick.Summers")
     {
         var credentials = new SigningCredentials(signWith ?? SigningKey, SecurityAlgorithms.RsaSha256);
 
@@ -55,6 +56,8 @@ public class CognitoIdTokenValidatorTests
             new("sub", Guid.NewGuid().ToString()),
             new("email", email),
         };
+        if (preferredUsername is not null)
+            claims.Add(new Claim("preferred_username", preferredUsername));
         if (emailVerified.HasValue)
             claims.Add(new Claim("email_verified", emailVerified.Value ? "true" : "false"));
         if (nonce is not null)
@@ -79,6 +82,7 @@ public class CognitoIdTokenValidatorTests
         var result = CognitoIdTokenValidator.Validate(token, ValidationParameters(), Nonce);
 
         result.Success.Should().BeTrue();
+        result.DirectoryUserName.Should().Be("Patrick.Summers");
         result.Email.Should().Be("person@example.com");
         result.FailureReason.Should().BeNull();
     }
@@ -152,27 +156,50 @@ public class CognitoIdTokenValidatorTests
         result.FailureReason.Should().Be("nonce_mismatch");
     }
 
-    [Fact]
-    public void Validate_EmailNotVerified_IsRejected()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void Validate_UnverifiedEmail_IsAccepted(bool? emailVerified)
     {
-        var token = ForgeToken(emailVerified: false);
+        // The whole reason the join key moved. Cognito marks a SAML-federated user's mapped email
+        // unverified by default and cannot verify it with a one-time code, so refusing on this
+        // would reject every user of the configuration this feature is built around. The email is
+        // display data now; nothing authorizes from it.
+        var token = ForgeToken(emailVerified: emailVerified);
 
         var result = CognitoIdTokenValidator.Validate(token, ValidationParameters(), Nonce);
 
-        result.Success.Should().BeFalse();
-        result.FailureReason.Should().Be("email_not_verified");
-        result.Email.Should().BeNull("nothing should be readable out of a rejected result");
+        result.Success.Should().BeTrue();
+        result.DirectoryUserName.Should().Be("Patrick.Summers");
     }
 
     [Fact]
-    public void Validate_EmailVerifiedClaimMissing_IsRejected()
+    public void Validate_WithNoDirectoryUserName_IsRejected()
     {
-        var token = ForgeToken(emailVerified: null);
+        // Valid signature, right issuer, right audience, live — and it names nobody the directory
+        // can resolve. Accepting it would store a link that fails at permission-resolution time,
+        // which is the failure this validator exists to move earlier.
+        var token = ForgeToken(preferredUsername: null);
 
         var result = CognitoIdTokenValidator.Validate(token, ValidationParameters(), Nonce);
 
         result.Success.Should().BeFalse();
-        result.FailureReason.Should().Be("email_not_verified");
+        result.FailureReason.Should().Be("no_directory_user");
+        result.DirectoryUserName.Should().BeNull("nothing should be readable out of a rejected result");
+        result.Email.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_DirectoryUserName_KeepsItsCase()
+    {
+        // The email this replaced was lower-cased before storage, which is safe for addresses and
+        // wrong for user names: this one belongs to a directory Connapse does not own, and folding
+        // its case would record an identifier that may never have existed.
+        var token = ForgeToken(preferredUsername: "Patrick.Summers");
+
+        var result = CognitoIdTokenValidator.Validate(token, ValidationParameters(), Nonce);
+
+        result.DirectoryUserName.Should().Be("Patrick.Summers");
     }
 
     // --- BuildValidationParameters ---

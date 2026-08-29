@@ -1,4 +1,4 @@
-using Connapse.Identity.Data;
+﻿using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -40,9 +40,15 @@ public sealed class AwsIdentityLinkStore(
     /// upsert, which the EF Core InMemory provider (used by this store's unit tests) cannot run.
     /// </remarks>
     public async Task SaveAsync(
-        Guid userId, string email, string refreshToken, CancellationToken ct = default)
+        Guid userId,
+        string directoryUserName,
+        string? email,
+        string refreshToken,
+        CancellationToken ct = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        // The user name is the join key, so a blank one is a link that cannot resolve. The email is
+        // display data and legitimately absent, which is why only one of the two is guarded.
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryUserName);
         ArgumentException.ThrowIfNullOrWhiteSpace(refreshToken);
 
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -58,7 +64,8 @@ public sealed class AwsIdentityLinkStore(
             {
                 Id = Guid.NewGuid(),
                 UserId = userId,
-                Email = email,
+                DirectoryUserName = directoryUserName,
+                Email = email ?? string.Empty,
                 ProtectedRefreshToken = Protector.Protect(refreshToken),
                 ConnectedAt = timeProvider.GetUtcNow().UtcDateTime,
             };
@@ -81,7 +88,8 @@ public sealed class AwsIdentityLinkStore(
             }
         }
 
-        existing.Email = email;
+        existing.DirectoryUserName = directoryUserName;
+        existing.Email = email ?? string.Empty;
         existing.ProtectedRefreshToken = Protector.Protect(refreshToken);
         existing.ConnectedAt = timeProvider.GetUtcNow().UtcDateTime;
         existing.LastUsedAt = null;

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Connapse.Core;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
@@ -83,7 +83,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        await store.SaveAsync(userId, "user", "user@example.com", "refresh-token-abc");
 
         bool? linkPresentDuringRevoke = null;
         var handler = new RecordingHandler(HttpStatusCode.OK,
@@ -112,7 +112,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        await store.SaveAsync(userId, "user", "user@example.com", "refresh-token-abc");
 
         var handler = new RecordingHandler(HttpStatusCode.BadRequest);
         var sut = new AwsIdentityLinkService(
@@ -133,7 +133,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        await store.SaveAsync(userId, "user", "user@example.com", "refresh-token-abc");
 
         var handler = new ThrowingHandler(new HttpRequestException("connection refused"));
         var sut = new AwsIdentityLinkService(
@@ -197,10 +197,10 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        await store.SaveAsync(userId, "user", "user@example.com", "refresh-token-abc");
 
         var handler = new RecordingHandler(HttpStatusCode.OK,
-            onSend: () => store.SaveAsync(userId, "reconnected@example.com", "refresh-token-xyz"));
+            onSend: () => store.SaveAsync(userId, "reconnected", "reconnected@example.com", "refresh-token-xyz"));
 
         var sut = new AwsIdentityLinkService(
             store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
@@ -222,7 +222,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        await store.SaveAsync(userId, "user", "user@example.com", "refresh-token-abc");
 
         var handler = new RecordingHandler(HttpStatusCode.OK);
         var sut = new AwsIdentityLinkService(

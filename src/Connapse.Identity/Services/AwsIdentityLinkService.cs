@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -26,7 +26,10 @@ public sealed class AwsIdentityLinkService(
     public async Task<AwsIdentityLinkDto?> GetAsync(Guid userId, CancellationToken ct = default)
     {
         var link = await linkStore.GetAsync(userId, ct);
-        return link is null ? null : new AwsIdentityLinkDto(link.Email, link.ConnectedAt, link.LastUsedAt);
+        return link is null
+            ? null
+            : new AwsIdentityLinkDto(
+                link.DirectoryUserName, link.Email, link.ConnectedAt, link.LastUsedAt);
     }
 
     public async Task<AwsIdentityLinkDisconnectResult> DisconnectAsync(Guid userId, CancellationToken ct = default)

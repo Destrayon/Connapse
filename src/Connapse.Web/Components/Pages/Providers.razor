@@ -411,7 +411,15 @@
                             In Identity Center choose <strong>Applications &rarr; Add application
                             &rarr; I have an application I want to set up &rarr; SAML 2.0</strong>,
                             then give it these two values and paste its metadata URL back here.
-                            Map the <code>email</code> attribute. Re-run the script afterwards.
+                            Re-run the script afterwards.
+                        </p>
+                        <p class="form-text mt-0 mb-1">
+                            Under <strong>Attribute mappings</strong>, add an application attribute
+                            named <code>userName</code> mapped to
+                            <code>&#36;&#123;user:preferredUsername&#125;</code>. That is what ties a
+                            sign-in to one Identity Center user; without it people sign in and
+                            resolve to nobody. Map <code>email</code> too if you want the address to
+                            show on their profile.
                         </p>
                         <dl class="row small mb-1">
                             <dt class="col-sm-3 fw-normal text-muted">ACS URL</dt>

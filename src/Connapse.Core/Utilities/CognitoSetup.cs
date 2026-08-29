@@ -142,7 +142,16 @@ public static class CognitoSetup
               ProviderName: Workforce
               ProviderType: SAML
               ProviderDetails: { MetadataURL: !Ref IdpMetadataUrl }
-              AttributeMapping: { email: email }
+              # `userName` is the join key: the trusted token issuer resolves it against the
+              # Identity Center directory. It is carried as preferred_username because a trusted
+              # token issuer matches one claim against one of exactly three identity-store
+              # attributes — user name, email or external ID — and of those three this is the only
+              # one that always holds a value. External ID is populated by SCIM sync alone, and a
+              # federated user's email is unverified by construction: Cognito marks a mapped
+              # address unverified and cannot verify it with a one-time code.
+              #
+              # `email` stays mapped for display. Nothing authorizes from it.
+              AttributeMapping: { email: email, preferred_username: userName }
           Client:
             Type: AWS::Cognito::UserPoolClient
             Properties:
@@ -378,7 +387,7 @@ public static class CognitoSetup
                   --instance-arn "$INSTANCE" --name "$PREFIX" \
                   --trusted-token-issuer-type OIDC_JWT \
                   --trusted-token-issuer-configuration \
-                    "OidcJwtConfiguration={IssuerUrl=$ISSUER,ClaimAttributePath=email,IdentityStoreAttributePath=emails.value,JwksRetrievalOption=OPEN_ID_DISCOVERY}" \
+                    "OidcJwtConfiguration={IssuerUrl=$ISSUER,ClaimAttributePath=preferred_username,IdentityStoreAttributePath=userName,JwksRetrievalOption=OPEN_ID_DISCOVERY}" \
                   --query TrustedTokenIssuerArn --output text)
         fi
 

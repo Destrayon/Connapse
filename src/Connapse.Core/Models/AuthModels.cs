@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 public record LoginRequest(string Email, string Password);
 
@@ -102,7 +102,8 @@ public record AzureConnectResult(string AuthorizeUrl, string State, string CodeV
 /// A user's connected AWS (Cognito) identity link, as the integrations page needs to show it —
 /// never the refresh token itself.
 /// </summary>
-public record AwsIdentityLinkDto(string Email, DateTime ConnectedAt, DateTime? LastUsedAt);
+public record AwsIdentityLinkDto(
+    string DirectoryUserName, string Email, DateTime ConnectedAt, DateTime? LastUsedAt);
 
 /// <summary>
 /// The outcome of disconnecting an AWS identity link.

@@ -1,4 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Connapse.Core;
 using Microsoft.IdentityModel.Tokens;
@@ -7,11 +7,11 @@ namespace Connapse.Identity.Services;
 
 /// <summary>
 /// Validates a Cognito ID token's signature, issuer, audience and lifetime, then checks the nonce
-/// this deployment issued and that the pool has proven the email it carries.
+/// this deployment issued and that it names an IAM Identity Center user.
 /// </summary>
 /// <remarks>
 /// Split out from the callback endpoint specifically so each rejection path — bad signature, wrong
-/// nonce, unverified email — can be exercised against a token forged locally with a throwaway
+/// nonce, no directory user — can be exercised against a token forged locally with a throwaway
 /// signing key, without needing a live Cognito pool to mint a genuine one.
 /// <para>
 /// Worth knowing why signature validation is belt-and-braces rather than the only line of defence:
@@ -53,7 +53,8 @@ public static class CognitoIdTokenValidator
     /// Validates <paramref name="idToken"/> against <paramref name="validationParameters"/> (the
     /// pool's signing keys, issuer and audience — built by the caller from live discovery, or from
     /// a throwaway key in a test), then checks its <c>nonce</c> claim against
-    /// <paramref name="expectedNonce"/> and that <c>email_verified</c> is true.
+    /// <paramref name="expectedNonce"/> and that it carries the user name that IAM Identity
+    /// Center matches against its directory.
     /// </summary>
     public static CognitoIdTokenResult Validate(
         string idToken,
@@ -88,23 +89,39 @@ public static class CognitoIdTokenValidator
             return CognitoIdTokenResult.Rejected("nonce_mismatch");
         }
 
-        // Rule: refuse an unverified email. The pool has not proven the address, and the address
-        // is the join key into Identity Center.
-        string? emailVerified = principal.FindFirst("email_verified")?.Value;
-        string? email = principal.FindFirst("email")?.Value;
-        if (!string.Equals(emailVerified, "true", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(email))
-        {
-            return CognitoIdTokenResult.Rejected("email_not_verified");
-        }
+        // Rule: refuse a token that names nobody in the directory. A trusted token issuer resolves
+        // one claim against one of three identity-store attributes — user name, email or external
+        // ID — and this deployment registers it against the user name, so a token without one can
+        // be perfectly valid and still be unresolvable to a person.
+        //
+        // Deliberately not case-folded, unlike the email this replaced. Addresses are conventionally
+        // case-insensitive; user names are not, and this one belongs to a directory Connapse does
+        // not own. Lower-casing it would record an identifier that may never have existed.
+        string? directoryUserName = principal.FindFirst("preferred_username")?.Value;
+        if (string.IsNullOrWhiteSpace(directoryUserName))
+            return CognitoIdTokenResult.Rejected("no_directory_user");
 
-        return CognitoIdTokenResult.Accepted(email);
+        // Carried for display only. A federated user's mapped email is unverified — Cognito marks
+        // it so by default and cannot verify it with a one-time code — which is precisely why it is
+        // no longer the join key. Nothing may make an authorization decision from it.
+        string? email = principal.FindFirst("email")?.Value;
+
+        return CognitoIdTokenResult.Accepted(directoryUserName.Trim(), email);
     }
 }
 
-/// <summary>The outcome of validating a Cognito ID token: either the verified email, or why not.</summary>
-public sealed record CognitoIdTokenResult(bool Success, string? Email, string? FailureReason)
+/// <summary>
+/// The outcome of validating a Cognito ID token: the directory user it names, or why it names none.
+/// </summary>
+/// <remarks>
+/// <see cref="Email"/> is display data and is never the basis of an authorization decision — see the
+/// validator. <see cref="DirectoryUserName"/> is the identifier IAM Identity Center resolves.
+/// </remarks>
+public sealed record CognitoIdTokenResult(
+    bool Success, string? DirectoryUserName, string? Email, string? FailureReason)
 {
-    public static CognitoIdTokenResult Accepted(string email) => new(true, email, null);
-    public static CognitoIdTokenResult Rejected(string reason) => new(false, null, reason);
+    public static CognitoIdTokenResult Accepted(string directoryUserName, string? email) =>
+        new(true, directoryUserName, email, null);
+
+    public static CognitoIdTokenResult Rejected(string reason) => new(false, null, null, reason);
 }

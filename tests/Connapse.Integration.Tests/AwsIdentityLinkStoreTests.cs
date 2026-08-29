@@ -1,4 +1,4 @@
-using Connapse.Identity.Data;
+﻿using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +41,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
 
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
+        await store.SaveAsync(userId, "person", "person@example.com", "the-refresh-token");
 
         (await store.GetRefreshTokenAsync(userId)).Should().Be("the-refresh-token");
     }
@@ -55,7 +55,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
 
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
+        await store.SaveAsync(userId, "person", "person@example.com", "the-refresh-token");
 
         var factory = scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>();
@@ -64,6 +64,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
 
         row.ProtectedRefreshToken.Should().NotBe("the-refresh-token");
         row.ProtectedRefreshToken.Should().NotContain("the-refresh-token");
+        row.DirectoryUserName.Should().Be("person");
         row.Email.Should().Be("person@example.com");
     }
 
@@ -76,8 +77,8 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
 
-        await store.SaveAsync(userId, "first@example.com", "first-token");
-        await store.SaveAsync(userId, "second@example.com", "second-token");
+        await store.SaveAsync(userId, "first", "first@example.com", "first-token");
+        await store.SaveAsync(userId, "second", "second@example.com", "second-token");
 
         var factory = scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>();
@@ -107,7 +108,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
             .Select(i => Task.Run(async () =>
             {
                 gate.Wait();
-                await store.SaveAsync(userId, $"user{i}@example.com", $"token-{i}");
+                await store.SaveAsync(userId, $"user{i}", $"user{i}@example.com", $"token-{i}");
             }))
             .ToArray();
 
@@ -135,7 +136,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
+        await store.SaveAsync(userId, "person", "person@example.com", "the-refresh-token");
 
         (await store.DeleteAsync(userId)).Should().BeTrue();
         (await store.DeleteAsync(userId)).Should().BeFalse("nothing was left to delete");

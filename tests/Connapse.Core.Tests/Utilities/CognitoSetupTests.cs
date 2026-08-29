@@ -313,6 +313,31 @@ public class CognitoSetupTests
     }
 
     [Fact]
+    public void GenerateScript_MatchesTheDirectoryOnUserNameRatherThanEmail()
+    {
+        // A trusted token issuer resolves one claim against one of exactly three identity-store
+        // attributes. Email was the original choice and is the one that cannot work for a federated
+        // pool: Cognito marks a mapped address unverified and cannot verify it with a one-time
+        // code, so the address proves nothing about who signed in.
+        string script = CognitoSetup.GenerateScript(
+            new CognitoSetupRequest("https://x/cb", "arn:aws:iam::1:user/connapse"));
+
+        script.Should().Contain("ClaimAttributePath=preferred_username");
+        script.Should().Contain("IdentityStoreAttributePath=userName");
+        script.Should().NotContain("IdentityStoreAttributePath=emails.value");
+    }
+
+    [Fact]
+    public void GenerateTemplate_CarriesTheDirectoryUserNameIntoTheToken()
+    {
+        // The two halves have to agree: the pool must put the directory user name in the claim that
+        // the trusted token issuer above reads, or every sign-in resolves to nobody while both
+        // sides look individually correct.
+        CognitoSetup.GenerateTemplate()
+            .Should().Contain("AttributeMapping: { email: email, preferred_username: userName }");
+    }
+
+    [Fact]
     public void GenerateTemplate_ServesManagedLoginRatherThanTheClassicHostedUi()
     {
         // All three are needed together and none of them reports its own absence. The tier gates

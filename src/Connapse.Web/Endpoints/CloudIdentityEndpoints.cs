@@ -360,11 +360,12 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect($"/profile/integrations?error=cognito_{result.FailureReason}");
             }
 
-            // Normalized because this is the join key into an IAM Identity Center lookup — a case
-            // difference between what Cognito emits and what the directory holds would fail the
-            // match at resolution time, long after this connection looked like it succeeded.
-            var normalizedEmail = result.Email!.ToLowerInvariant();
-            await linkStore.SaveAsync(userId.Value, normalizedEmail, refreshToken, ct);
+            // Stored with its case intact. The email this replaced was lower-cased, which is right
+            // for an address and wrong for a user name: this identifier belongs to a directory
+            // Connapse does not own, and folding its case would record one that may never have
+            // existed. The email rides along for display and authorizes nothing.
+            await linkStore.SaveAsync(
+                userId.Value, result.DirectoryUserName!, result.Email, refreshToken, ct);
 
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();

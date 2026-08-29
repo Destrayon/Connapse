@@ -186,7 +186,22 @@
                         <div class="d-flex flex-column gap-2 mb-3">
                             <div>
                                 <small class="text-muted d-block">Connected as</small>
-                                <span class="small">@cognitoIdentity.Email</span>
+                                @if (!string.IsNullOrWhiteSpace(cognitoIdentity.DirectoryUserName))
+                                {
+                                    <span class="small">@cognitoIdentity.DirectoryUserName</span>
+                                    @if (!string.IsNullOrWhiteSpace(cognitoIdentity.Email))
+                                    {
+                                        <span class="small text-muted"> &middot; @cognitoIdentity.Email</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="small text-warning">
+                                        Connected before this deployment recorded directory user
+                                        names. Disconnect and connect again, or permissions will not
+                                        resolve.
+                                    </span>
+                                }
                             </div>
                             <div class="d-flex gap-4">
                                 <div>
@@ -339,7 +354,7 @@
             "token_invalid" => "Could not connect your AWS identity: AWS returned a token that could not be verified.",
             "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
             "user_mismatch" => "Could not connect your AWS identity: you were signed in as a different user by the time AWS responded. Please try again.",
-            "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
+            "no_directory_user" => "Could not connect your AWS identity: AWS did not say which directory user you are. An administrator needs to map the user name attribute in IAM Identity Center.",
             "user_cancelled" => "AWS sign-in was cancelled.",
             "provider_error" => "Could not connect your AWS identity: AWS reported a problem with the request.",
             _ => "Could not connect your AWS identity. Please try again.",
