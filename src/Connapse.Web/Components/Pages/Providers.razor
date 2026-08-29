@@ -484,19 +484,9 @@
                 }
                 }
 
-                <div class="mt-2">
-                    <button type="button" class="btn btn-link btn-sm p-0"
-                            @onclick="() => showIdentityCenterManual = !showIdentityCenterManual">
-                        @(showIdentityCenterManual ? "Hide the fields" : "Or fill the fields in by hand")
-                    </button>
-                </div>
-            }
-
-            @* Outside the branch above, so it survives the summary card replacing the scan. Nothing
-               here is a secret — every value is one the account owner can read off their console —
-               so unlike the Cognito form there is no reason to hide it once something is saved. *@
-            @if (showIdentityCenterManual)
-            {
+                @* The fields, not a link to them. An unfilled step should look like the thing
+                   that fills it, the way Access does — the guided scan above is the shortcut for
+                   somebody who does not already know these three values, not the main route. *@
                 <IdentityCenterSettingsTab Settings="identityCenterSettings"
                                            OnSave="SaveIdentityCenterSettings" />
             }
@@ -666,13 +656,6 @@
                 }
 
                 }
-
-                <div class="mt-3">
-                    <button type="button" class="btn btn-link btn-sm p-0"
-                            @onclick="() => showCognitoManual = !showCognitoManual">
-                        @(showCognitoManual ? "Hide the fields" : "Or fill the fields in by hand")
-                    </button>
-                </div>
             }
             else
             {
@@ -702,10 +685,11 @@
                 </div>
             }
 
-            @* Only when the administrator has asked to edit. Rendering it whenever a pool exists
-               put five mostly-empty fields under the summary that describes them, and made
-               "Change" look like it had done nothing. *@
-            @if (showCognitoManual)
+            @* Shown while the step is unfilled, and once a pool exists only if the administrator
+               asked to edit. Rendering it under the summary as well put five mostly-empty fields
+               beneath the description of the values they hold, and made "Change" look like it had
+               done nothing. *@
+            @if (CognitoPool is null || showCognitoManual)
             {
                 <CognitoSettingsTab Settings="cognitoSettings" OnSave="SaveCognitoSettings" />
             }
@@ -774,14 +758,16 @@
     /// <summary>Whether the scan is open over an instance that is already recorded.</summary>
     private bool showIdentityCenterScan;
 
-    /// <summary>Whether the guided scan's script is expanded. Collapsing it leaves the manual
-    /// fields, which is the shorter path for somebody who already knows the three values.</summary>
-    private bool showIdentityCenterGuided = true;
+    /// <summary>
+    /// Whether the guided scan's script is expanded. Closed to begin with: the fields below it are
+    /// what this step is, and the scan is the shortcut for somebody who does not already know the
+    /// three values it fills in.
+    /// </summary>
+    private bool showIdentityCenterGuided;
 
-    private bool showIdentityCenterManual;
-
-    /// <summary>Whether the guided pair — template and script — is expanded.</summary>
-    private bool showCognitoGuided = true;
+    /// <summary>Whether the guided pair — template and script — is expanded. Closed to begin with,
+    /// for the same reason, and it is the longer of the two.</summary>
+    private bool showCognitoGuided;
 
     /// <summary>Backs the manual Identity Center form.</summary>
     private IdentityCenterSettings identityCenterSettings = new();
