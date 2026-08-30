@@ -1,4 +1,4 @@
-using Connapse.Identity.Data;
+﻿using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +44,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid();
         var store = CreateStore(dbName);
-        await store.SaveAsync(userId, "a1b2c3d4-user", "diviel", "diviel@example.com");
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
         var result = await CreateService(store).DisconnectAsync(userId);
 
@@ -74,7 +74,7 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid();
         var store = CreateStore(dbName);
-        await store.SaveAsync(userId, "a1b2c3d4-user", "diviel", "diviel@example.com");
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
         var original = await store.GetAsync(userId);
         original.Should().NotBeNull();
@@ -97,13 +97,13 @@ public class AwsIdentityLinkServiceTests
         var dbName = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid();
         var store = CreateStore(dbName);
-        await store.SaveAsync(userId, "a1b2c3d4-user", "diviel", "diviel@example.com");
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
         var dto = await CreateService(store).GetAsync(userId);
 
         dto.Should().NotBeNull();
-        dto!.DirectoryUserName.Should().Be("diviel");
-        dto.Email.Should().Be("diviel@example.com");
+        dto!.DirectoryUserName.Should().Be("jsmith");
+        dto.Email.Should().Be("jsmith@example.com");
         dto.ConnectedAt.Should().NotBe(default);
         dto.LastUsedAt.Should().BeNull();
     }
@@ -123,13 +123,13 @@ public class AwsIdentityLinkServiceTests
         var userId = Guid.NewGuid();
         var store = CreateStore(dbName);
 
-        await store.SaveAsync(userId, "a1b2c3d4-user", "diviel", "diviel@example.com");
-        await store.SaveAsync(userId, "e5f6a7b8-user", "diviel-renamed", "diviel@example.com");
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
+        await store.SaveAsync(userId, "e5f6a7b8-user", "jsmith-renamed", "jsmith@example.com");
 
         var link = await store.GetAsync(userId);
         link.Should().NotBeNull();
         link!.DirectoryUserId.Should().Be("e5f6a7b8-user");
-        link.DirectoryUserName.Should().Be("diviel-renamed");
+        link.DirectoryUserName.Should().Be("jsmith-renamed");
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public class AwsIdentityLinkServiceTests
         // resolve is worse than no row: it presents as connected while filtering nothing.
         var store = CreateStore(Guid.NewGuid().ToString());
 
-        var save = async () => await store.SaveAsync(Guid.NewGuid(), "  ", "diviel", null);
+        var save = async () => await store.SaveAsync(Guid.NewGuid(), "  ", "jsmith", null);
 
         await save.Should().ThrowAsync<ArgumentException>();
     }

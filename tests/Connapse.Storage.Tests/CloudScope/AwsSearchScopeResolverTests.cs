@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Storage.CloudScope;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
@@ -53,7 +53,7 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "diviel", "diviel@example.com", Enabled: true));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", "jsmith@example.com", Enabled: true));
         directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
     }
@@ -111,7 +111,7 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "diviel", null, Enabled: false));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, Enabled: false));
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
 
@@ -171,7 +171,7 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "diviel", null, Enabled: true));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, Enabled: true));
         directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
             .Returns(new[] { "group-1" });
 
