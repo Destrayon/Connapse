@@ -782,12 +782,18 @@
                                     <div class="mt-2">
                                         <strong>This bucket is in @mismatch.Bucket, and Identity
                                         Center is in @mismatch.Directory.</strong>
-                                        Per-user permissions cannot span regions: a grant is created
-                                        against the S3 Access Grants instance in the bucket's region,
-                                        and that instance must be associated with an Identity Center
-                                        instance in the same region. Use a bucket in
-                                        @mismatch.Directory, or set Identity Center and Access Grants
-                                        up in @mismatch.Bucket as well.
+                                        A grant is created against the S3 Access Grants instance in
+                                        the bucket's region, and there is none in @mismatch.Bucket.
+                                        The simplest fix is a bucket in @mismatch.Directory, where
+                                        the instance already is.
+                                        <div class="mt-1">
+                                            Otherwise you would need an Access Grants instance in
+                                            @mismatch.Bucket. An organisation has only one Identity
+                                            Center instance and its primary region cannot be moved,
+                                            so that means replicating it to @mismatch.Bucket —
+                                            which requires a multi-region customer-managed KMS key.
+                                            Group and user ids stay the same across regions.
+                                        </div>
                                     </div>
                                 }
                                 else if (GrantCommand is { Length: > 0 } grantCommand)
