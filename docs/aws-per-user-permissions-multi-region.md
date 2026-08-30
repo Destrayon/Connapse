@@ -134,7 +134,14 @@ it prints the grant command for that connection's buckets.
 ## Cost
 
 Identity Center is free and the multi-Region documentation prices replication at nothing. The cost
-is KMS: a customer managed key is billed per key per region, plus request charges.
+is KMS, and it is small and flat.
+
+A KMS key is **$1/month**, and AWS bills *"each primary and each replica multi-Region key"*
+separately. One primary plus one replica is $2/month; each further region adds a dollar.
+
+Requests are $0.03 per 10,000, against a free tier of 20,000 requests/month across all regions.
+Identity Center's encryption traffic will not approach that, so in practice the cost is the flat
+per-key charge.
 
 S3 Access Grants pricing is not listed on the S3 pricing page. Connapse calls `ListAccessGrants` on
 every search whose scopes are not cached — the cache is 60 seconds per user — so do not assume it
