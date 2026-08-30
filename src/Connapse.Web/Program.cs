@@ -215,8 +215,21 @@ builder.Services.AddCors(options =>
         else
         {
             // Default: same-origin only (no cross-origin requests)
+            //
+            // TryCreate, not `new Uri`. An Origin header is not always a URL: a browser sends the
+            // literal string "null" for an opaque origin, which is what a cross-site POST arrives
+            // with once it has been through a redirect — exactly the shape of a SAML sign-in. The
+            // constructor throws on that, and because CORS runs ahead of the exception handler the
+            // throw became a 500 on any request carrying such a header, from anyone.
+            //
+            // An unparseable origin is refused rather than allowed. "null" is opaque by definition
+            // and there is nothing to match it against.
+            //
+            // IdnHost, matching SamlServiceProvider: the bracketed form of an IPv6 literal arrives
+            // as "[::1]" from Host, and the loopback set is written unbracketed.
             policy.SetIsOriginAllowed(origin =>
-                new Uri(origin).Host == "localhost" || new Uri(origin).Host == "127.0.0.1")
+                Uri.TryCreate(origin, UriKind.Absolute, out var parsed)
+                && parsed.IdnHost is "localhost" or "127.0.0.1" or "::1")
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials();
