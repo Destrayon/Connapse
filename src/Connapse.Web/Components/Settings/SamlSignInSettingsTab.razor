@@ -1,4 +1,4 @@
-@using Connapse.Core
+﻿@using Connapse.Core
 @using Connapse.Core.Utilities
 @inject NavigationManager Navigation
 
@@ -85,6 +85,27 @@ else
         not a sign-in outage.
     </p>
 
+    @* Filling the three fields from the document beats copying them one at a time, and the
+       certificate in particular is a long base64 block that is easy to truncate. Pasted rather
+       than fetched from a URL: handing the server an address to retrieve would make it a
+       request-forgery surface, and would undo the no-outbound-access property stated above. *@
+    <div class="border rounded p-3 mb-3">
+        <label class="form-label" for="saml-metadata">Paste the metadata file</label>
+        <InputTextArea id="saml-metadata" @bind-Value="pastedMetadata"
+                       class="form-control font-monospace" rows="3"
+                       placeholder="&lt;EntityDescriptor entityID=&quot;…&quot;&gt;…" />
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReadMetadata">
+                <span class="bi-magic me-1"></span> Fill the three fields
+            </button>
+            <span class="small @(metadataSucceeded ? "text-success" : "text-danger")">@metadataMessage</span>
+        </div>
+        <div class="form-text">
+            Download it from the application's page in the Identity Center console, open it, and
+            paste the whole thing. The fields below stay editable either way.
+        </div>
+    </div>
+
     <div class="row g-3">
         <div class="col-md-6">
             <label class="form-label" for="saml-idp-entity">Identity Center issuer</label>
@@ -137,6 +158,41 @@ else
 
     /// <summary>Whether what is stored describes a different address than the one being used.</summary>
     private bool originDiffers;
+
+    /// <summary>The metadata document an administrator pasted, before it is read.</summary>
+    private string? pastedMetadata;
+
+    private string? metadataMessage;
+    private bool metadataSucceeded;
+
+    /// <summary>Fills the three fields below from a pasted metadata document.</summary>
+    /// <remarks>
+    /// Writes into the form rather than saving, so what was read is visible and correctable before
+    /// it is stored — the same shape as the two setup steps before this one, which parse a pasted
+    /// block into fields rather than committing it.
+    /// </remarks>
+    private void ReadMetadata()
+    {
+        var values = SamlMetadata.Parse(pastedMetadata);
+
+        if (values is null)
+        {
+            // Deliberately not naming which of the three was missing. The usual cause is pasting
+            // the console page instead of the file, and listing a field implies the document was
+            // nearly right.
+            metadataSucceeded = false;
+            metadataMessage = "That does not look like the application's metadata. "
+                              + "Download the file from the console and paste all of it.";
+            return;
+        }
+
+        localSettings.IdpEntityId = values.EntityId;
+        localSettings.IdpSingleSignOnUrl = values.SingleSignOnUrl;
+        localSettings.IdpSigningCertificate = values.SigningCertificate;
+
+        metadataSucceeded = true;
+        metadataMessage = "Read. Check the three fields, then save.";
+    }
 
     protected override void OnParametersSet()
     {
