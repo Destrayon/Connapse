@@ -791,10 +791,51 @@
                                             </li>
 
                             <li>
-                                Finally, open the metadata file you downloaded and paste it into the
-                                form below — Connapse reads the issuer, sign-in URL and signing
-                                certificate out of it. All three stay editable, so they can still
-                                be typed in one at a time.
+                                Finally, paste the metadata file you downloaded. Connapse reads the
+                                issuer, sign-in URL and signing certificate out of it — the
+                                certificate especially, being a long base64 block that is easy to
+                                truncate by hand. All three stay editable in the form below, so they
+                                can still be typed in one at a time.
+
+                                @* Pasted rather than fetched from a URL: handing the server an
+                                   address to retrieve would make it a request-forgery surface, and
+                                   would undo the property the form states — that these are stored so
+                                   a self-hosted deployment needs no outbound access to AWS. *@
+                                <label class="form-label small mt-2" for="saml-metadata">
+                                    Paste the metadata file
+                                </label>
+                                <InputTextArea id="saml-metadata" @bind-Value="pastedMetadata"
+                                               @bind:event="oninput"
+                                               class="form-control font-monospace small mb-2" rows="3"
+                                               placeholder="&lt;EntityDescriptor entityID=&quot;…&quot;&gt;…" />
+
+                                @if (SamlMetadata.Parse(pastedMetadata) is { } read)
+                                {
+                                    <div class="border rounded p-2 small mb-2">
+                                        <div class="text-muted">Issuer</div>
+                                        <div class="font-monospace text-break mb-1">@read.EntityId</div>
+                                        <div class="text-muted">Sign-in URL</div>
+                                        <div class="font-monospace text-break mb-1">@read.SingleSignOnUrl</div>
+                                        <div class="text-muted">Signing certificate</div>
+                                        <div class="font-monospace text-break">
+                                            @(read.SigningCertificate.Length > 48
+                                                ? read.SigningCertificate[..48] + "…"
+                                                : read.SigningCertificate)
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="btn btn-sm btn-primary mb-1"
+                                            @onclick="() => SaveSamlMetadata(read)">
+                                        <span class="bi-save me-1"></span> Use these three values
+                                    </button>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(pastedMetadata))
+                                {
+                                    <div class="small text-danger mb-1">
+                                        That does not look like the application's metadata. Download
+                                        the file from the console and paste all of it.
+                                    </div>
+                                }
                             </li>
                         }
                     </ol>
@@ -1108,6 +1149,35 @@
     /// </remarks>
     private string DirectoryGroupScript => DirectoryGroupSetup.GenerateScript(
         SetupRegion, IdentityCentre?.IdentityStoreId, connectedDirectoryUserId, newGroupName);
+
+    /// <summary>The metadata document an administrator pasted, before it is read.</summary>
+    private string? pastedMetadata;
+
+    /// <summary>
+    /// Stores the three values read out of the application's metadata.
+    /// </summary>
+    /// <remarks>
+    /// Shown before it is stored, and stored on a deliberate click, so what was read is visible and
+    /// correctable rather than silently applied — the same shape as the group step above.
+    /// </remarks>
+    private async Task SaveSamlMetadata(SamlMetadataValues values)
+    {
+        var updated = new SamlSignInSettings
+        {
+            EntityId = samlSettings.EntityId,
+            AcsUrl = samlSettings.AcsUrl,
+            IdpEntityId = values.EntityId,
+            IdpSingleSignOnUrl = values.SingleSignOnUrl,
+            IdpSigningCertificate = values.SigningCertificate,
+            GrantGroupId = samlSettings.GrantGroupId,
+            GrantGroupName = samlSettings.GrantGroupName,
+        };
+
+        await SaveSamlSettings(updated);
+
+        if (saveSuccess)
+            pastedMetadata = null;
+    }
 
     /// <summary>The block an administrator pasted back from the group command.</summary>
     private string? pastedGroup;
