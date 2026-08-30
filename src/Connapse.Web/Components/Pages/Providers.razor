@@ -750,6 +750,44 @@
 
                             <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@DirectoryGroupScript</code></pre>
 
+                            @* Pasted back, like every other step. Without this the group id is on
+                               screen for a moment and then gone, which is exactly why the grant
+                               command it feeds shipped with a placeholder where the grantee
+                               belonged — and got run with the placeholder still in it. *@
+                            @if (IdentityCentre is { HasGrantGroup: true } chosen)
+                            {
+                                <div class="alert alert-success small py-2 mb-2">
+                                    <span class="bi-check-circle-fill me-1"></span>
+                                    Grants will be offered for
+                                    <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
+                                    <code class="ms-1">@chosen.GrantGroupId</code>
+                                </div>
+                            }
+
+                            <label class="form-label small" for="group-paste">
+                                Paste the block the command printed
+                            </label>
+                            <textarea id="group-paste" class="form-control font-monospace small mb-2"
+                                      rows="3" placeholder="@DirectoryGroupSetup.BeginMarker"
+                                      @bind="pastedGroup" @bind:event="oninput"></textarea>
+
+                            @if (DirectoryGroupSetup.ParseResult(pastedGroup) is { } parsedGroup)
+                            {
+                                <button type="button" class="btn btn-sm btn-primary mb-2"
+                                        @onclick="() => SaveGrantGroup(parsedGroup)">
+                                    <span class="bi-save me-1"></span>
+                                    Use @(parsedGroup.Name is { Length: > 0 } pn ? pn : "this group")
+                                </button>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(pastedGroup))
+                            {
+                                <div class="small text-danger mb-2">
+                                    No group block in that text. Copy from
+                                    <code>@DirectoryGroupSetup.BeginMarker</code> to
+                                    <code>@DirectoryGroupSetup.EndMarker</code>.
+                                </div>
+                            }
+
                             <div class="d-flex flex-wrap gap-2">
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
                                         @onclick="CopyDirectoryGroupScript">
@@ -1079,6 +1117,36 @@
     /// </remarks>
     private string DirectoryGroupScript => DirectoryGroupSetup.GenerateScript(
         SetupRegion, IdentityCentre?.IdentityStoreId, connectedDirectoryUserId, newGroupName);
+
+    /// <summary>The block an administrator pasted back from the group command.</summary>
+    private string? pastedGroup;
+
+    /// <summary>
+    /// Records the group so a connection can print a grant command naming it.
+    /// </summary>
+    /// <remarks>
+    /// Written onto the located instance rather than into a record of its own: a group is a
+    /// directory fact, and the same one usually covers every bucket. A connection may still name a
+    /// different grantee, because granting separate teams separate buckets is the point of groups.
+    /// </remarks>
+    private async Task SaveGrantGroup((string Id, string Name) group)
+    {
+        var updated = new IdentityCenterSettings
+        {
+            Region = identityCenterSettings.Region,
+            InstanceArn = identityCenterSettings.InstanceArn,
+            IdentityStoreId = identityCenterSettings.IdentityStoreId,
+            GrantGroupId = group.Id,
+            GrantGroupName = group.Name,
+        };
+
+        await SaveIdentityCenterSettings(updated);
+
+        // Cleared only on success, so a failed save leaves the block in the box rather than sending
+        // somebody back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+            pastedGroup = null;
+    }
 
     private async Task CopyDirectoryGroupScript()
     {

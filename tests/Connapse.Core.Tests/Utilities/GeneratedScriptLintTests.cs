@@ -66,6 +66,15 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
             DirectoryGroupSetup.GenerateScript("us-west-1", "d-9067f4e3a1", "c989c98e-e031", null) },
         { "directory-group/create",
             DirectoryGroupSetup.GenerateScript("us-west-1", "d-9067f4e3a1", "c989c98e-e031", "Connapse Readers") },
+
+        // One bucket and several: with a single entry a quoted word reads as a command being run,
+        // which ShellCheck flags and a bare list would have shipped.
+        { "access-grant/one-bucket",
+            AccessGrantScript.GenerateScript("us-west-1", ["reports"], "69f9f9de-00f1", true) },
+        { "access-grant/several-buckets",
+            AccessGrantScript.GenerateScript("us-west-1", ["a", "b/team"], "69f9f9de-00f1", true) },
+        { "access-grant/nothing-chosen",
+            AccessGrantScript.GenerateScript(null, [], null, false) },
     };
 
     [Theory]

@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>
 /// Builds the command that finds an administrator's Identity Center groups, and optionally makes
@@ -26,6 +26,18 @@ namespace Connapse.Core.Utilities;
 /// </remarks>
 public static class DirectoryGroupSetup
 {
+    /// <summary>
+    /// Delimits the block an administrator pastes back, so Connapse can hold the group id.
+    /// </summary>
+    /// <remarks>
+    /// The same shape the other two setup steps use. Without it the id is on screen for a
+    /// moment and then gone, which is why the grant command it feeds had a placeholder where
+    /// the grantee belonged.
+    /// </remarks>
+    public const string BeginMarker = "----- BEGIN CONNAPSE GROUP -----";
+
+    public const string EndMarker = "----- END CONNAPSE GROUP -----";
+
     /// <summary>Names Identity Center refuses, whatever else it accepts.</summary>
     private static readonly string[] ReservedNames = ["Administrator", "AWSAdministrators"];
 
@@ -142,6 +154,21 @@ public static class DirectoryGroupSetup
           fi
         fi
 
+        # Printed whichever branch ran, so choosing a group that already exists records it just as
+        # creating one does. Built whole and printed once: pasting a script into an interactive
+        # shell echoes every line, and printing piece by piece lets that echo land between the
+        # markers.
+        if [ -z "$FAILED" ] && [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
+          BLOCK=$(
+            printf '%s\n' '{{BeginMarker}}'
+            printf 'groupId=%s\n' "$GROUP_ID"
+            printf 'groupName=%s\n' "$GROUP_NAME"
+            printf '%s\n' '{{EndMarker}}'
+          )
+          printf '\n%s\n\n' "$BLOCK"
+          echo 'Copy the block above into Connapse so it can name this group for you.'
+        fi
+
         if [ -n "$FAILED" ]; then
           echo
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
@@ -157,6 +184,51 @@ public static class DirectoryGroupSetup
           echo '  aws s3control create-access-grant --account-id "$(aws sts get-caller-identity --query Account --output text)" --access-grants-location-id default --access-grants-location-configuration S3SubPrefix=YOUR-BUCKET/* --permission READ --grantee GranteeType=DIRECTORY_GROUP,GranteeIdentifier=GROUP-ID'
         fi
         """.Replace("\r\n", "\n");
+    }
+
+    /// <summary>
+    /// Reads the block the script printed. Returns null when the text has no usable one.
+    /// </summary>
+    /// <remarks>
+    /// Anchored on the <b>last</b> marker pair. The script contains both markers in its own text,
+    /// so a pasted terminal buffer holds each twice: once in the echoed source, once in the real
+    /// output below it. Taking the first pair selects the echo, whose body is printf lines that
+    /// parse to no fields at all.
+    /// </remarks>
+    public static (string Id, string Name)? ParseResult(string? pasted)
+    {
+        if (string.IsNullOrWhiteSpace(pasted))
+            return null;
+
+        int end = pasted.LastIndexOf(EndMarker, StringComparison.Ordinal);
+        int start = end < 0 ? -1 : pasted.LastIndexOf(BeginMarker, end, StringComparison.Ordinal);
+
+        if (start < 0 || end <= start)
+            return null;
+
+        string? id = null, name = null;
+
+        foreach (string raw in pasted[(start + BeginMarker.Length)..end]
+                     .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string line = raw.Trim();
+            int split = line.IndexOf('=');
+            if (split <= 0) continue;
+
+            string value = line[(split + 1)..].Trim();
+            if (value.Length == 0) continue;
+
+            switch (line[..split].Trim())
+            {
+                case "groupId": id = value; break;
+                case "groupName": name = value; break;
+            }
+        }
+
+        // The id is what a grant names. A block without one records nothing useful, and storing a
+        // name alone would show a group in the UI that no command could reference.
+        string cleanId = SanitiseId(id);
+        return cleanId.Length == 0 ? null : (cleanId, SanitiseGroupName(name));
     }
 
     /// <summary>
