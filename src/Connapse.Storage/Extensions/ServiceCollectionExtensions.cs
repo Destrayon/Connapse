@@ -216,6 +216,10 @@ public static class ServiceCollectionExtensions
         // the unrestricted default. This one resolves real grants, and it must win.
         services.AddMemoryCache();
         services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
+
+        // Advisory, and read by pages rather than by a search. Scoped because it is consumed from
+        // a Blazor circuit alongside the connection store.
+        services.AddScoped<IGrantCoverageReporter, CloudScope.GrantCoverageReporter>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();
