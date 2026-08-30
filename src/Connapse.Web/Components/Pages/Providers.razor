@@ -704,6 +704,91 @@
                                 assignment requirement off for a SAML application.
                             </li>
 
+                            <li class="mb-2">
+                                Decide which group grants are offered for. Grants are held by a
+                                grantee, and a group is the grantee worth using: adding and removing
+                                people then happens in the directory, where joining and leaving
+                                already happens, instead of as an edit to S3. Paste the block back
+                                and every connection can print its own grant command.
+
+                                <div class="border rounded p-3 mb-3">
+                                    <p class="small mb-2">
+                                        Lists the groups the connected person already belongs to. Most
+                                        directories synchronise these from your identity provider, and those
+                                        are the groups to grant to.
+                                    </p>
+
+                                    <label class="form-label small" for="group-name">
+                                        Create a group as well (optional)
+                                    </label>
+                                    <input id="group-name" class="form-control form-control-sm mb-1"
+                                           placeholder="Connapse Readers"
+                                           @bind="newGroupName" @bind:event="oninput" />
+                                    <div class="form-text mb-2">
+                                        Leave empty to only list. A group created here is not known to your
+                                        identity provider and a later sync will not reconcile it — so if
+                                        your groups come from Okta or Entra, make it there instead. Only the
+                                        connected person is added to it.
+                                    </div>
+
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@DirectoryGroupScript</code></pre>
+
+                                    @* Pasted back, like every other step. Without this the group id is on
+                                       screen for a moment and then gone, which is exactly why the grant
+                                       command it feeds shipped with a placeholder where the grantee
+                                       belonged — and got run with the placeholder still in it. *@
+                                    @if (IdentityCentre is { HasGrantGroup: true } chosen)
+                                    {
+                                        <div class="alert alert-success small py-2 mb-2">
+                                            <span class="bi-check-circle-fill me-1"></span>
+                                            Grants will be offered for
+                                            <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
+                                            <code class="ms-1">@chosen.GrantGroupId</code>
+                                        </div>
+                                    }
+
+                                    <label class="form-label small" for="group-paste">
+                                        Paste the block the command printed
+                                    </label>
+                                    <textarea id="group-paste" class="form-control font-monospace small mb-2"
+                                              rows="3" placeholder="@DirectoryGroupSetup.BeginMarker"
+                                              @bind="pastedGroup" @bind:event="oninput"></textarea>
+
+                                    @if (DirectoryGroupSetup.ParseResult(pastedGroup) is { } parsedGroup)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-primary mb-2"
+                                                @onclick="() => SaveGrantGroup(parsedGroup)">
+                                            <span class="bi-save me-1"></span>
+                                            Use @(parsedGroup.Name is { Length: > 0 } pn ? pn : "this group")
+                                        </button>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(pastedGroup))
+                                    {
+                                        <div class="small text-danger mb-2">
+                                            No group block in that text. Copy from
+                                            <code>@DirectoryGroupSetup.BeginMarker</code> to
+                                            <code>@DirectoryGroupSetup.EndMarker</code>.
+                                        </div>
+                                    }
+
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="CopyDirectoryGroupScript">
+                                            <span class="bi-clipboard me-1"></span> Copy command
+                                        </button>
+                                        <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                                           href="https://console.aws.amazon.com/cloudshell/home">
+                                            <span class="bi-terminal me-1"></span> Open CloudShell
+                                            <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                        </a>
+                                        <span class="align-self-center small @(groupCopySucceeded ? "text-success" : "text-danger")">
+                                            @groupCopyMessage
+                                        </span>
+                                    </div>
+                                </div>
+                    }
+                                            </li>
+
                             <li>
                                 Finally, open the metadata file you downloaded and paste it into the
                                 form below — Connapse reads the issuer, sign-in URL and signing
@@ -712,98 +797,6 @@
                             </li>
                         }
                     </ol>
-                }
-
-                @* Grants are held by a grantee, and a group is the grantee worth using: adding and
-                   removing people then happens in the directory, where joining and leaving already
-                   happens, rather than as an edit to S3. Collapsed because it is only useful once
-                   somebody has connected. *@
-                @if (SamlSignIn is not null)
-                {
-                    <button type="button" class="btn btn-sm btn-outline-secondary mb-2"
-                            @onclick="() => showGroupSetup = !showGroupSetup">
-                        <span class="@(showGroupSetup ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
-                        Find or create a group to grant to
-                    </button>
-
-                    @if (showGroupSetup)
-                    {
-                        <div class="border rounded p-3 mb-3">
-                            <p class="small mb-2">
-                                Lists the groups the connected person already belongs to. Most
-                                directories synchronise these from your identity provider, and those
-                                are the groups to grant to.
-                            </p>
-
-                            <label class="form-label small" for="group-name">
-                                Create a group as well (optional)
-                            </label>
-                            <input id="group-name" class="form-control form-control-sm mb-1"
-                                   placeholder="Connapse Readers"
-                                   @bind="newGroupName" @bind:event="oninput" />
-                            <div class="form-text mb-2">
-                                Leave empty to only list. A group created here is not known to your
-                                identity provider and a later sync will not reconcile it — so if
-                                your groups come from Okta or Entra, make it there instead. Only the
-                                connected person is added to it.
-                            </div>
-
-                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@DirectoryGroupScript</code></pre>
-
-                            @* Pasted back, like every other step. Without this the group id is on
-                               screen for a moment and then gone, which is exactly why the grant
-                               command it feeds shipped with a placeholder where the grantee
-                               belonged — and got run with the placeholder still in it. *@
-                            @if (IdentityCentre is { HasGrantGroup: true } chosen)
-                            {
-                                <div class="alert alert-success small py-2 mb-2">
-                                    <span class="bi-check-circle-fill me-1"></span>
-                                    Grants will be offered for
-                                    <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
-                                    <code class="ms-1">@chosen.GrantGroupId</code>
-                                </div>
-                            }
-
-                            <label class="form-label small" for="group-paste">
-                                Paste the block the command printed
-                            </label>
-                            <textarea id="group-paste" class="form-control font-monospace small mb-2"
-                                      rows="3" placeholder="@DirectoryGroupSetup.BeginMarker"
-                                      @bind="pastedGroup" @bind:event="oninput"></textarea>
-
-                            @if (DirectoryGroupSetup.ParseResult(pastedGroup) is { } parsedGroup)
-                            {
-                                <button type="button" class="btn btn-sm btn-primary mb-2"
-                                        @onclick="() => SaveGrantGroup(parsedGroup)">
-                                    <span class="bi-save me-1"></span>
-                                    Use @(parsedGroup.Name is { Length: > 0 } pn ? pn : "this group")
-                                </button>
-                            }
-                            else if (!string.IsNullOrWhiteSpace(pastedGroup))
-                            {
-                                <div class="small text-danger mb-2">
-                                    No group block in that text. Copy from
-                                    <code>@DirectoryGroupSetup.BeginMarker</code> to
-                                    <code>@DirectoryGroupSetup.EndMarker</code>.
-                                </div>
-                            }
-
-                            <div class="d-flex flex-wrap gap-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                        @onclick="CopyDirectoryGroupScript">
-                                    <span class="bi-clipboard me-1"></span> Copy command
-                                </button>
-                                <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                                   href="https://console.aws.amazon.com/cloudshell/home">
-                                    <span class="bi-terminal me-1"></span> Open CloudShell
-                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
-                                </a>
-                                <span class="align-self-center small @(groupCopySucceeded ? "text-success" : "text-danger")">
-                                    @groupCopyMessage
-                                </span>
-                            </div>
-                        </div>
-                    }
                 }
 
                 @if (SamlSignIn is not null && !showSamlManual)
@@ -1098,9 +1091,6 @@
             ? "Downloaded connapse-permissions.yaml."
             : "Could not download — check whether the browser blocked it.";
     }
-
-    /// <summary>Whether the group discovery block is open.</summary>
-    private bool showGroupSetup;
 
     /// <summary>A group to create, or empty to only list what already exists.</summary>
     private string? newGroupName;
