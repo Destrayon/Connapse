@@ -780,10 +780,11 @@
                                 @if (RegionMismatch is { } mismatch)
                                 {
                                     <div class="mt-2">
-                                        <strong>This bucket is in @mismatch.Bucket, and Identity
-                                        Center is in @mismatch.Directory.</strong>
+                                        <strong>Connapse cannot read access grants in
+                                        @mismatch.Bucket, where this bucket is.</strong>
                                         A grant is created against the S3 Access Grants instance in
-                                        the bucket's region, and there is none in @mismatch.Bucket.
+                                        the bucket's region, and there does not appear to be a
+                                        usable one there — Identity Center is in @mismatch.Directory.
                                         The simplest fix is a bucket in @mismatch.Directory, where
                                         the instance already is.
                                         <div class="mt-1">
@@ -1299,13 +1300,22 @@
         {
             string directory = IdentityCenterOptions.CurrentValue.Region;
 
-            // Nothing to compare against until both are known, and a blank is not a disagreement.
+            // Nothing to say until both are known, and a blank is not a disagreement.
             if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(form.Region))
                 return null;
 
-            return string.Equals(directory, form.Region, StringComparison.OrdinalIgnoreCase)
-                ? null
-                : (form.Region, directory);
+            if (string.Equals(directory, form.Region, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // Different regions are not automatically a problem. Identity Center can be replicated,
+            // and then the bucket's region has its own Access Grants instance and grants work
+            // normally. Comparing the strings alone refused a command that would have succeeded.
+            //
+            // The reporter asks every region that has buckets, so an outright failure to read this
+            // one is what a missing instance looks like from here.
+            return coverage?.Outcome == CoverageOutcome.Unavailable
+                ? (form.Region, directory)
+                : null;
         }
     }
 

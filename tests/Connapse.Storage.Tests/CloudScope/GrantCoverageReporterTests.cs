@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Storage.CloudScope;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
@@ -14,7 +14,10 @@ namespace Connapse.Storage.Tests.CloudScope;
 [Trait("Category", "Unit")]
 public class GrantCoverageReporterTests
 {
+    private const string Region = "us-west-1";
+
     private readonly IAccessGrantsReader grants = Substitute.For<IAccessGrantsReader>();
+    private readonly IAwsGrantRegions regions = Substitute.For<IAwsGrantRegions>();
 
     private static IOptionsMonitor<SamlSignInSettings> SignIn(bool configured)
     {
@@ -33,9 +36,14 @@ public class GrantCoverageReporterTests
         return monitor;
     }
 
-    private GrantCoverageReporter Reporter(bool configured = true) =>
-        new(grants, SignIn(configured), new MemoryCache(new MemoryCacheOptions()),
-            NullLogger<GrantCoverageReporter>.Instance);
+    private GrantCoverageReporter Reporter(bool configured = true, params string[] inRegions)
+    {
+        regions.ListAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<string>>(inRegions.Length > 0 ? inRegions : [Region]);
+
+        return new(grants, regions, SignIn(configured),
+            new MemoryCache(new MemoryCacheOptions()), NullLogger<GrantCoverageReporter>.Instance);
+    }
 
     [Fact]
     public async Task CheckAsync_WithSignInUnconfigured_SaysNothingAndDoesNotAskAws()
@@ -46,13 +54,13 @@ public class GrantCoverageReporterTests
 
         report.Outcome.Should().Be(CoverageOutcome.NotFiltering);
         report.HasWarning.Should().BeFalse();
-        await grants.DidNotReceive().ListAllScopesAsync(Arg.Any<CancellationToken>());
+        await grants.DidNotReceive().ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task CheckAsync_WithAGrantCoveringTheBucket_HasNoWarning()
     {
-        grants.ListAllScopesAsync(Arg.Any<CancellationToken>())
+        grants.ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>(["s3://reports/*"]);
 
         var report = await Reporter().CheckAsync(["reports"]);
@@ -64,7 +72,7 @@ public class GrantCoverageReporterTests
     [Fact]
     public async Task CheckAsync_WithNoGrantTouchingTheBucket_NamesIt()
     {
-        grants.ListAllScopesAsync(Arg.Any<CancellationToken>())
+        grants.ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>(["s3://elsewhere/*"]);
 
         var report = await Reporter().CheckAsync(["reports", "elsewhere"]);
@@ -78,7 +86,7 @@ public class GrantCoverageReporterTests
     {
         // Reporting every bucket as ungranted on an outage would send somebody to author grants
         // that already exist, and teach them the warning is noise.
-        grants.ListAllScopesAsync(Arg.Any<CancellationToken>())
+        grants.ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>(_ => throw new InvalidOperationException("throttled"));
 
         var report = await Reporter().CheckAsync(["reports"]);
@@ -92,7 +100,7 @@ public class GrantCoverageReporterTests
     {
         // A page listing connections asks this repeatedly, and the answer is the same for all of
         // them. One call, not one per row.
-        grants.ListAllScopesAsync(Arg.Any<CancellationToken>())
+        grants.ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>(["s3://reports/*"]);
 
         var reporter = Reporter();
@@ -100,14 +108,14 @@ public class GrantCoverageReporterTests
         await reporter.CheckAsync(["other"]);
         await reporter.CheckAsync(["third"]);
 
-        await grants.Received(1).ListAllScopesAsync(Arg.Any<CancellationToken>());
+        await grants.Received(1).ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task CheckAsync_WithNoGrantsAtAll_NamesEveryBucket()
     {
         // The state a fresh Access Grants instance is in, and the one this exists to surface.
-        grants.ListAllScopesAsync(Arg.Any<CancellationToken>())
+        grants.ListAllScopesAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>([]);
 
         var report = await Reporter().CheckAsync(["alpha", "beta"]);

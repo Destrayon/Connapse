@@ -24,7 +24,10 @@ public class AwsSearchScopeResolverTests
 
     private readonly IAwsIdentityLinkReader links = Substitute.For<IAwsIdentityLinkReader>();
     private readonly IDirectoryUserLookup directory = Substitute.For<IDirectoryUserLookup>();
+    private const string Region = "us-west-1";
+
     private readonly IAccessGrantsReader grants = Substitute.For<IAccessGrantsReader>();
+    private readonly IAwsGrantRegions regions = Substitute.For<IAwsGrantRegions>();
 
     private static SamlSignInSettings Configured() => new()
     {
@@ -42,11 +45,17 @@ public class AwsSearchScopeResolverTests
         return monitor;
     }
 
-    private AwsSearchScopeResolver Build(SamlSignInSettings? settings = null) =>
-        new(links, directory, grants,
+    private AwsSearchScopeResolver Build(
+        SamlSignInSettings? settings = null, params string[] inRegions)
+    {
+        regions.ListAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<string>>(inRegions.Length > 0 ? inRegions : [Region]);
+
+        return new(links, directory, grants, regions,
             Monitor(settings ?? Configured()),
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AwsSearchScopeResolver>.Instance);
+    }
 
     private void LinkedAndEnabled()
     {
@@ -124,7 +133,7 @@ public class AwsSearchScopeResolverTests
         // The single most important test here. An AWS outage, a missing permission or a throttle
         // must never widen a search — Failed and Unrestricted are opposites.
         LinkedAndEnabled();
-        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<CancellationToken>())
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns<Task<IReadOnlyList<AccessGrantRecord>>>(_ => throw new InvalidOperationException("boom"));
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
@@ -138,7 +147,7 @@ public class AwsSearchScopeResolverTests
     public async Task NoGrants_IsNoGrants_NotUnrestricted()
     {
         LinkedAndEnabled();
-        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<CancellationToken>())
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
@@ -152,7 +161,7 @@ public class AwsSearchScopeResolverTests
     {
         LinkedAndEnabled();
         grants.ListForGranteeAsync(
-                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<CancellationToken>())
+                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([new AccessGrantRecord("s3://acme/team/*", false, null)]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
@@ -160,6 +169,70 @@ public class AwsSearchScopeResolverTests
         result.Outcome.Should().Be(ScopeOutcome.Granted);
         result.Matches.Should().ContainSingle()
             .Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Fact]
+    public async Task GrantsInASecondRegion_AreFound()
+    {
+        // A grant is created against the Access Grants instance in the bucket's region, so a
+        // deployment with data in two regions keeps its grants in two instances. Asking only one
+        // hid documents the person was granted, with nothing anywhere to notice.
+        LinkedAndEnabled();
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null)]);
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://east-bucket/*", false, null)]);
+
+        var result = await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.Granted);
+        result.Matches.Select(m => m.Value)
+            .Should().BeEquivalentTo(["s3://west-bucket/", "s3://east-bucket/"]);
+    }
+
+    [Fact]
+    public async Task OneRegionFailing_DeniesRatherThanReturningTheRest()
+    {
+        // A partial answer looks exactly like a complete one. Returning what succeeded would show
+        // somebody a short result set with no indication that a region was missing -- which is the
+        // failure this whole feature exists to prevent, arrived at from the other direction.
+        LinkedAndEnabled();
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null)]);
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<AccessGrantRecord>>(_ => throw new InvalidOperationException("throttled"));
+
+        var result = await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+        result.Matches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EveryRegionIsAskedForEveryGrantee()
+    {
+        // Two regions and a group membership means four questions. Getting the loop nesting wrong
+        // would drop the group's grants in one region only, which is invisible until somebody in
+        // that group searches for something in that bucket.
+        LinkedAndEnabled();
+        directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new[] { "group-1" });
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => !g.IsGroup), "us-west-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => !g.IsGroup), "us-east-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => g.IsGroup), "us-west-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => g.IsGroup), "us-east-1", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -176,10 +249,10 @@ public class AwsSearchScopeResolverTests
             .Returns(new[] { "group-1" });
 
         grants.ListForGranteeAsync(
-                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<CancellationToken>())
+                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([]);
         grants.ListForGranteeAsync(
-                Arg.Is<AccessGrantee>(g => g.IsGroup && g.Id == "group-1"), Arg.Any<CancellationToken>())
+                Arg.Is<AccessGrantee>(g => g.IsGroup && g.Id == "group-1"), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([new AccessGrantRecord("s3://shared/*", false, null)]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
@@ -195,7 +268,7 @@ public class AwsSearchScopeResolverTests
         // was actually exercised. Showing the documents anyway would be a disclosure that looks
         // like a correctly configured grant.
         LinkedAndEnabled();
-        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<CancellationToken>())
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([
                 new AccessGrantRecord("s3://acme/team/*", false,
                     "arn:aws:sso::1:application/ssoins-1/apl-other"),
@@ -214,7 +287,7 @@ public class AwsSearchScopeResolverTests
         // No trailing asterisk, so it names one object. AWS never reports S3PrefixType back, and
         // treating this as a prefix would also admit "report.pdf.bak".
         LinkedAndEnabled();
-        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<CancellationToken>())
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([new AccessGrantRecord("s3://acme/report.pdf", true, null)]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());

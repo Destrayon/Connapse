@@ -1,4 +1,4 @@
-using Connapse.Core;
+﻿using Connapse.Core;
 using Connapse.Core.Utilities;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -21,13 +21,14 @@ namespace Connapse.Storage.CloudScope;
 /// </remarks>
 public sealed class GrantCoverageReporter(
     IAccessGrantsReader grants,
+    IAwsGrantRegions grantRegions,
     IOptionsMonitor<SamlSignInSettings> samlSignIn,
     IMemoryCache cache,
     ILogger<GrantCoverageReporter> logger) : IGrantCoverageReporter
 {
     public static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(60);
 
-    private const string CacheKey = "aws-all-grant-scopes";
+    private const string CacheKeyPrefix = "aws-all-grant-scopes:";
 
     /// <inheritdoc />
     public async Task<GrantCoverageReport> CheckAsync(
@@ -39,16 +40,14 @@ public sealed class GrantCoverageReporter(
         if (!samlSignIn.CurrentValue.IsConfigured)
             return GrantCoverageReport.NotFiltering;
 
-        IReadOnlyList<string> scopes;
+        List<string> scopes = [];
         try
         {
-            if (!cache.TryGetValue(CacheKey, out IReadOnlyList<string>? cached) || cached is null)
-            {
-                cached = await grants.ListAllScopesAsync(ct);
-                cache.Set(CacheKey, cached, CacheLifetime);
-            }
-
-            scopes = cached;
+            // Every region that has buckets. A grant lives in the instance in its bucket's region,
+            // so a connection whose region was never asked would be reported as ungranted however
+            // carefully it had been granted.
+            foreach (string region in await grantRegions.ListAsync(ct))
+                scopes.AddRange(await ScopesInAsync(region, ct));
         }
         catch (OperationCanceledException)
         {
@@ -65,5 +64,22 @@ public sealed class GrantCoverageReporter(
 
         return new GrantCoverageReport(
             CoverageOutcome.Checked, GrantCoverage.Ungranted(allowedLocations, scopes));
+    }
+
+    /// <summary>Grant scopes in one region, cached for <see cref="CacheLifetime"/>.</summary>
+    /// <remarks>
+    /// Keyed by region rather than one entry for everything, so adding a connection in a new region
+    /// does not discard what is already known about the others.
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> ScopesInAsync(string region, CancellationToken ct)
+    {
+        string key = CacheKeyPrefix + region;
+
+        if (cache.TryGetValue(key, out IReadOnlyList<string>? cached) && cached is not null)
+            return cached;
+
+        var scopes = await grants.ListAllScopesAsync(region, ct);
+        cache.Set(key, scopes, CacheLifetime);
+        return scopes;
     }
 }

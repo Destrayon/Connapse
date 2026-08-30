@@ -43,19 +43,19 @@ public sealed class S3AccessGrantsReader(
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<AccessGrantRecord>> ListForGranteeAsync(
-        AccessGrantee grantee, CancellationToken ct = default)
+        AccessGrantee grantee, string region, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(grantee.Id);
+        ArgumentException.ThrowIfNullOrWhiteSpace(region);
 
-        var settings = options.CurrentValue;
-        if (!settings.IsConfigured)
+        if (!options.CurrentValue.IsConfigured)
             return [];
 
-        var region = RegionEndpoint.GetBySystemName(settings.Region);
-        string account = await ResolveAccountIdAsync(region, ct);
+        var endpoint = RegionEndpoint.GetBySystemName(region);
+        string account = await ResolveAccountIdAsync(endpoint, ct);
 
         using var client = new AmazonS3ControlClient(
-            credentials, new AmazonS3ControlConfig { RegionEndpoint = region });
+            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
 
         List<AccessGrantRecord> grants = [];
         string? nextToken = null;
@@ -95,17 +95,19 @@ public sealed class S3AccessGrantsReader(
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> ListAllScopesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> ListAllScopesAsync(
+        string region, CancellationToken ct = default)
     {
-        var settings = options.CurrentValue;
-        if (!settings.IsConfigured)
+        ArgumentException.ThrowIfNullOrWhiteSpace(region);
+
+        if (!options.CurrentValue.IsConfigured)
             return [];
 
-        var region = RegionEndpoint.GetBySystemName(settings.Region);
-        string account = await ResolveAccountIdAsync(region, ct);
+        var endpoint = RegionEndpoint.GetBySystemName(region);
+        string account = await ResolveAccountIdAsync(endpoint, ct);
 
         using var client = new AmazonS3ControlClient(
-            credentials, new AmazonS3ControlConfig { RegionEndpoint = region });
+            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
 
         List<string> scopes = [];
         string? nextToken = null;

@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>Who a grant was made to.</summary>
 /// <param name="IsGroup">
@@ -51,8 +51,13 @@ public interface IAccessGrantsReader
     /// Empty is a real answer — that person has been granted nothing — and must not be confused
     /// with a failure to ask, which has to deny rather than return nothing.
     /// </remarks>
+    /// <param name="region">
+    /// Which Access Grants instance to ask. Grants are created against the instance in the bucket's
+    /// region, so there is no single place to look — a deployment with buckets in two regions has
+    /// its grants in two instances, and asking only one hides documents the person was granted.
+    /// </param>
     Task<IReadOnlyList<AccessGrantRecord>> ListForGranteeAsync(
-        AccessGrantee grantee, CancellationToken ct = default);
+        AccessGrantee grantee, string region, CancellationToken ct = default);
 
     /// <summary>
     /// The scope of every grant in the instance, whoever holds it.
@@ -68,7 +73,25 @@ public interface IAccessGrantsReader
     /// <see cref="ListForGranteeAsync"/>'s job and the two must not be confused.
     /// </para>
     /// </remarks>
-    Task<IReadOnlyList<string>> ListAllScopesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<string>> ListAllScopesAsync(string region, CancellationToken ct = default);
+}
+
+/// <summary>
+/// The AWS regions Connapse has S3 data in, and therefore has to look for grants in.
+/// </summary>
+/// <remarks>
+/// Taken from the connections rather than from a setting, because it is the same answer and one of
+/// them would go stale. Asking every AWS region instead would be dozens of calls on every search
+/// resolution to find grants in two.
+/// </remarks>
+public interface IAwsGrantRegions
+{
+    /// <summary>Distinct regions of the configured S3 connections.</summary>
+    /// <remarks>
+    /// Empty when nothing is connected, which is a real answer: there are no buckets, so there is
+    /// nowhere to look and nothing to find.
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListAsync(CancellationToken ct = default);
 }
 
 /// <summary>

@@ -220,6 +220,9 @@ public static class ServiceCollectionExtensions
         // Advisory, and read by pages rather than by a search. Scoped because it is consumed from
         // a Blazor circuit alongside the connection store.
         services.AddScoped<IGrantCoverageReporter, CloudScope.GrantCoverageReporter>();
+
+        // Reads the connections, so scoped alongside the store it uses.
+        services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();

@@ -25,6 +25,7 @@ public sealed class AwsSearchScopeResolver(
     IAwsIdentityLinkReader links,
     IDirectoryUserLookup directoryUsers,
     IAccessGrantsReader accessGrants,
+    IAwsGrantRegions grantRegions,
     IOptionsMonitor<SamlSignInSettings> samlSignIn,
     IMemoryCache cache,
     ILogger<AwsSearchScopeResolver> logger) : ISearchScopeResolver
@@ -111,16 +112,30 @@ public sealed class AwsSearchScopeResolver(
             return SearchScopes.NoPrincipal;
         }
 
-        List<AccessGrantRecord> records =
-            [.. await accessGrants.ListForGranteeAsync(new AccessGrantee(false, directoryUserId), ct)];
+        // Every region that has buckets, not just the directory's. A grant is created against
+        // the Access Grants instance in the bucket's region, so a deployment with data in two
+        // regions keeps its grants in two instances — and asking only one hides documents the
+        // person was granted, silently, with nothing to notice.
+        //
+        // Any region that throws takes the whole resolution down with it, by design: the catch
+        // above turns that into a denial. Unioning whatever succeeded would hand somebody a
+        // partial answer that looks complete, which is the failure this feature exists to prevent.
+        var regions = await grantRegions.ListAsync(ct);
+
+        var grantees = new List<AccessGrantee> { new(false, directoryUserId) };
 
         // Group-held grants are invisible to a user-grantee filter, so each group is asked for
         // separately. This is the expansion AWS performs inside ListCallerAccessGrants and that
         // Connapse takes on in exchange for not holding anybody's credential.
         foreach (string groupId in await directoryUsers.ListGroupIdsAsync(directoryUserId, ct))
+            grantees.Add(new AccessGrantee(true, groupId));
+
+        List<AccessGrantRecord> records = [];
+
+        foreach (string region in regions)
         {
-            records.AddRange(
-                await accessGrants.ListForGranteeAsync(new AccessGrantee(true, groupId), ct));
+            foreach (var grantee in grantees)
+                records.AddRange(await accessGrants.ListForGranteeAsync(grantee, region, ct));
         }
 
         var matches = records
