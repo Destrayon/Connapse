@@ -102,6 +102,7 @@ public static class DirectoryGroupSetup
         USER_ID="{{user}}"
         GROUP_NAME="{{name}}"
         GROUP_ID=""
+        RECORD_NAME=""
 
         [ -n "$REGION" ] || { echo 'No region. Locate your Identity Center instance first.'; FAILED=1; }
         [ -n "$STORE" ] || { echo 'No identity store. Locate your Identity Center instance first.'; FAILED=1; }
@@ -116,10 +117,25 @@ public static class DirectoryGroupSetup
           elif [ -z "$MEMBERSHIPS" ] || [ "$MEMBERSHIPS" = 'None' ]; then
             echo '  (none)'
           else
+            FOUND_COUNT=0
             for G in $MEMBERSHIPS; do
               DISPLAY=$(aws identitystore describe-group --region "$REGION" --identity-store-id "$STORE" --group-id "$G" --query DisplayName --output text 2>/dev/null || echo '?')
               echo "  $DISPLAY  $G"
+              FOUND_COUNT=$((FOUND_COUNT + 1))
+              FOUND_ID="$G"
+              FOUND_NAME="$DISPLAY"
             done
+
+            # Exactly one, and you did not ask for a group to be created: that one is unambiguous,
+            # so it is recorded without making you retype its name to choose it.
+            if [ -z "$GROUP_NAME" ] && [ "$FOUND_COUNT" -eq 1 ]; then
+              GROUP_ID="$FOUND_ID"
+              RECORD_NAME="$FOUND_NAME"
+            elif [ -z "$GROUP_NAME" ] && [ "$FOUND_COUNT" -gt 1 ]; then
+              echo
+              echo 'More than one, so none is chosen for you. Type the name of the one you want'
+              echo 'into Connapse and run this again.'
+            fi
           fi
           echo
         fi
@@ -130,9 +146,11 @@ public static class DirectoryGroupSetup
           GROUP_ID=$(aws identitystore get-group-id --region "$REGION" --identity-store-id "$STORE" --alternate-identifier "UniqueAttribute={AttributePath=displayName,AttributeValue=$GROUP_NAME}" --query GroupId --output text 2>/dev/null || true)
 
           if [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
+            RECORD_NAME="$GROUP_NAME"
             echo "Group $GROUP_NAME already exists: $GROUP_ID"
           elif CREATED=$(aws identitystore create-group --region "$REGION" --identity-store-id "$STORE" --display-name "$GROUP_NAME" --query GroupId --output text 2>&1); then
             GROUP_ID="$CREATED"
+            RECORD_NAME="$GROUP_NAME"
             echo "Created $GROUP_NAME: $GROUP_ID"
             echo 'Note: a group created here is not known to your identity provider, and a later'
             echo 'sync will not remove or reconcile it.'
@@ -169,7 +187,7 @@ public static class DirectoryGroupSetup
           BLOCK=$(
             printf '%s\n' '{{BeginMarker}}'
             printf 'groupId=%s\n' "$GROUP_ID"
-            printf 'groupName=%s\n' "$GROUP_NAME"
+            printf 'groupName=%s\n' "$RECORD_NAME"
             printf '%s\n' '{{EndMarker}}'
           )
           printf '\n%s\n\n' "$BLOCK"
@@ -179,10 +197,16 @@ public static class DirectoryGroupSetup
         if [ -n "$FAILED" ]; then
           echo
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
-        else
+        elif [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
           echo
           echo 'Paste the block above into Connapse. Every S3 connection then shows the exact'
           echo 'grant command for its own buckets -- no bucket name or group id to fill in.'
+        else
+          # No block was printed, so telling somebody to paste one sends them looking for output
+          # that does not exist.
+          echo
+          echo 'No group was chosen, so there is nothing to paste. Name a group in Connapse to'
+          echo 'create one, or type the name of an existing group above to record it.'
         fi
         """.Replace("\r\n", "\n");
     }

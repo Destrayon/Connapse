@@ -47,6 +47,38 @@ public class DirectoryGroupSetupTests
     }
 
     [Fact]
+    public void GenerateScript_RecordsASingleDiscoveredGroupWithoutBeingAsked()
+    {
+        // Someone whose group already exists had to retype its name into the create field before
+        // anything was recorded -- and the script then told them to paste a block it had never
+        // printed. One membership is unambiguous, so it is recorded on sight.
+        string script = Script();
+
+        script.Should().Contain("FOUND_COUNT")
+            .And.Contain("[ -z \"$GROUP_NAME\" ] && [ \"$FOUND_COUNT\" -eq 1 ]");
+    }
+
+    [Fact]
+    public void GenerateScript_WithSeveralGroups_ChoosesNoneAndSaysWhy()
+    {
+        // Picking one of several would be a coin flip that surfaces as grants against a group
+        // nobody meant.
+        Script().Should().Contain("More than one, so none is chosen for you");
+    }
+
+    [Fact]
+    public void GenerateScript_DoesNotAskForAPasteWhenNoBlockWasPrinted()
+    {
+        // The closing message used to claim a block existed whatever happened, sending somebody
+        // scrolling for output that was never there.
+        string script = Script();
+
+        script.Should().Contain("No group was chosen, so there is nothing to paste");
+        script.Should().Contain("elif [ -n \"$GROUP_ID\" ]",
+            "the paste instruction is gated on a block having been printed");
+    }
+
+    [Fact]
     public void GenerateScript_LooksTheGroupUpBeforeCreatingIt()
     {
         // Otherwise running it twice leaves two groups with the same display name, and the grant
