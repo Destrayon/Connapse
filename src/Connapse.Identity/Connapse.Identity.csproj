@@ -10,6 +10,25 @@
 
   <ItemGroup>
     <PackageReference Include="ITfoxtec.Identity.Saml2" Version="4.20.1" />
+
+    <!--
+      Pinned so the whole Microsoft.IdentityModel set moves together.
+
+      ITfoxtec brings Microsoft.IdentityModel.Tokens.Saml 8.18.0, which lifts
+      Microsoft.IdentityModel.Tokens to 8.18.0. The JWT half of the same family arrives
+      through Microsoft.AspNetCore.Authentication.JwtBearer and stayed at 8.0.1. These
+      packages ship as one versioned set and are not written to interoperate across it:
+      the mismatch made every bearer token validate to false, so the API issued a token and
+      then answered 401 to it, with nothing logged. Cookie auth was unaffected, which is why
+      the UI kept working and only the REST API and CLI broke.
+
+      Keep all four on the same version as whatever Tokens.Saml resolves to, and re-check
+      when ITfoxtec is upgraded.
+    -->
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.18.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols" Version="8.18.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.18.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.7" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
