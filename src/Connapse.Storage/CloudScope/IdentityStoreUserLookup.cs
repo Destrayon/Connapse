@@ -1,4 +1,4 @@
-using Amazon;
+﻿using Amazon;
 using Amazon.IdentityStore;
 using Amazon.IdentityStore.Model;
 using Connapse.Core;
@@ -135,7 +135,9 @@ public sealed class IdentityStoreUserLookup(
                 },
                 ct);
 
-            groupIds.AddRange(response.GroupMemberships
+            // Null, not empty, for a user in no groups -- the SDK leaves response
+            // collections unset rather than initialising them.
+            groupIds.AddRange((response.GroupMemberships ?? [])
                 .Select(m => m.GroupId)
                 .Where(id => !string.IsNullOrWhiteSpace(id)));
 

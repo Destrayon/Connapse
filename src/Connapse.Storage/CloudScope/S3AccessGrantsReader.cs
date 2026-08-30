@@ -1,4 +1,4 @@
-using Amazon;
+﻿using Amazon;
 using Amazon.S3Control;
 using Amazon.S3Control.Model;
 using Amazon.SecurityToken;
@@ -72,7 +72,11 @@ public sealed class S3AccessGrantsReader(
                 },
                 ct);
 
-            foreach (var grant in response.AccessGrantsList)
+            // Null, not empty, when the account holds no grants. The AWS SDK for .NET
+            // leaves response collections unset rather than initialising them, so the
+            // ordinary state of a fresh Access Grants instance threw here and the
+            // resolver reported an outage -- meaning NoGrants was never reachable.
+            foreach (var grant in response.AccessGrantsList ?? [])
             {
                 if (string.IsNullOrWhiteSpace(grant.GrantScope))
                     continue;
