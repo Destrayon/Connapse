@@ -40,6 +40,11 @@ Tested against live AWS, 2026-08-30:
   only the region differs.
 - Creating a grant against an instance in the wrong region fails as
   `InvalidAccessGrant: The requested S3 Bucket is in a different region`.
+- **Replication fixes the association.** After `sso-admin add-region` brought Identity Center into
+  the second region, the same `associate-access-grants-identity-center` call that had failed
+  succeeded, and an `s3://` location registered there against the IAM role the first region already
+  used. Roles are global, so no second role is needed. This procedure is verified end to end, not
+  inferred.
 
 ## Prerequisites for replication
 
@@ -129,7 +134,12 @@ created can be reused.
 ### 7. Grant
 
 Open the connection in Connapse. With an Access Grants instance now present in the bucket's region,
-it prints the grant command for that connection's buckets.
+it prints the grant command for that connection's buckets, targeting that region.
+
+Connapse reads grants from every region that has buckets, so nothing else has to be configured: the
+regions come from the connections themselves. A region it cannot read denies the whole resolution
+rather than returning what the other regions had, because a short result set that looks complete is
+worse than an error.
 
 ## Cost
 
