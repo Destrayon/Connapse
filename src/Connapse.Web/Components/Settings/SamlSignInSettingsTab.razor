@@ -164,6 +164,36 @@ else
     /// <summary>Whether what is stored describes a different address than the one being used.</summary>
     private bool originDiffers;
 
+    protected override void OnParametersSet()
+    {
+        // BaseUri, not a configured value: it is the address this administrator actually reached
+        // Connapse on, which is where their browser will be sent back to.
+        suggestedAcs = SamlServiceProvider.AcsFor(Navigation.BaseUri);
+        string? suggestedEntityId = SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
+
+        localSettings = new SamlSignInSettings
+        {
+            // Prefilled rather than fixed. A deployment behind a reverse proxy is reached on a
+            // name Connapse cannot see from here, and the registered values must describe the
+            // public one, so these stay editable.
+            EntityId = string.IsNullOrWhiteSpace(Settings.EntityId)
+                ? suggestedEntityId ?? string.Empty
+                : Settings.EntityId,
+            AcsUrl = string.IsNullOrWhiteSpace(Settings.AcsUrl)
+                ? suggestedAcs ?? string.Empty
+                : Settings.AcsUrl,
+            IdpEntityId = Settings.IdpEntityId,
+            IdpSingleSignOnUrl = Settings.IdpSingleSignOnUrl,
+            GrantGroupId = Settings.GrantGroupId,
+            GrantGroupName = Settings.GrantGroupName,
+            IdpSigningCertificate = Settings.IdpSigningCertificate,
+        };
+
+        originDiffers = !string.IsNullOrWhiteSpace(Settings.AcsUrl)
+                        && suggestedAcs is not null
+                        && !string.Equals(Settings.AcsUrl, suggestedAcs, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task HandleSubmit()
     {
         // Pasting a PEM block is the obvious thing to do, so the header and footer are taken off
