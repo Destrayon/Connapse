@@ -777,7 +777,20 @@
                                     grant in AWS and it starts working, no change needed here.
                                 </div>
 
-                                @if (GrantCommand is { Length: > 0 } grantCommand)
+                                @if (RegionMismatch is { } mismatch)
+                                {
+                                    <div class="mt-2">
+                                        <strong>This bucket is in @mismatch.Bucket, and Identity
+                                        Center is in @mismatch.Directory.</strong>
+                                        Per-user permissions cannot span regions: a grant is created
+                                        against the S3 Access Grants instance in the bucket's region,
+                                        and that instance must be associated with an Identity Center
+                                        instance in the same region. Use a bucket in
+                                        @mismatch.Directory, or set Identity Center and Access Grants
+                                        up in @mismatch.Bucket as well.
+                                    </div>
+                                }
+                                else if (GrantCommand is { Length: > 0 } grantCommand)
                                 {
                                     <div class="mt-2">
                                         <div class="small mb-1">
@@ -1256,11 +1269,37 @@
 
             // Only the buckets nothing covers. Re-granting one that already works would be noise
             // in a command whose whole point is that everything in it is needed.
-            // The region comes from the located instance, which is genuinely where the
-            // directory lives; the group comes from per-user permissions, which is what it is for.
+            // The connection's region, not the directory's. A grant is created against the
+            // Access Grants instance in the region the bucket lives in, and using the Identity
+            // Center region instead fails as InvalidAccessGrant with "The requested S3 Bucket is
+            // in a different region" -- which names the symptom and not the cause.
             return AccessGrantScript.GenerateScript(
-                IdentityCenterOptions.CurrentValue.Region, coverage.Ungranted,
-                signIn.GrantGroupId, isGroup: true);
+                form.Region, coverage.Ungranted, signIn.GrantGroupId, isGroup: true);
+        }
+    }
+
+    /// <summary>
+    /// The two regions when a grant could never be created, or null when they agree.
+    /// </summary>
+    /// <remarks>
+    /// AWS requires the bucket, the Access Grants instance and the Identity Center instance to be in
+    /// one region. Offering a command that cannot succeed wastes a trip to CloudShell and returns
+    /// "The requested S3 Bucket is in a different region", which names the symptom rather than the
+    /// cause — and reads as a problem with the grant rather than with the arrangement.
+    /// </remarks>
+    private (string Bucket, string Directory)? RegionMismatch
+    {
+        get
+        {
+            string directory = IdentityCenterOptions.CurrentValue.Region;
+
+            // Nothing to compare against until both are known, and a blank is not a disagreement.
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(form.Region))
+                return null;
+
+            return string.Equals(directory, form.Region, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : (form.Region, directory);
         }
     }
 
