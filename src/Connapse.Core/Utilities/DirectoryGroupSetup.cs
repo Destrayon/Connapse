@@ -5,10 +5,16 @@
 /// one, so grants can be held by a group rather than by each person.
 /// </summary>
 /// <remarks>
+/// It prints no grant command of its own. One would have to name a bucket, and this step
+/// cannot know which buckets exist — that is a property of a connection, and the version that
+/// guessed shipped a placeholder that was duly run unreplaced. <c>AccessGrantScript</c> builds
+/// the real one, on the connection, from the group id this records.
+/// <para>
 /// Group-held grants are the shape this feature is meant to be used in. A grant names a grantee,
 /// and when that grantee is a group, adding and removing people becomes a directory operation —
 /// which is where joiner/mover/leaver already happens — instead of an edit to S3. A grant held by
 /// a person is removed by nothing anybody's offboarding process does.
+/// </para>
 /// <para>
 /// Discovery first, creation only if asked. Most organisations synchronise groups into Identity
 /// Center from Okta or Entra over SCIM, and those groups are the right grantees; a script that
@@ -86,8 +92,9 @@ public static class DirectoryGroupSetup
         # held by a group rather than by each individual. Creates a group only if you named one in
         # Connapse, and adds only that one person to it.
         #
-        # It creates NO access grant. Who may read what stays yours to decide; the command to do it
-        # is printed at the end for you to run when you are ready.
+        # It creates NO access grant. Who may read what stays yours to decide -- paste the block
+        # this prints back into Connapse, and each S3 connection then shows the exact grant command
+        # for its own buckets, with nothing left to fill in.
 
         FAILED=""
         REGION="{{pinnedRegion}}"
@@ -174,14 +181,8 @@ public static class DirectoryGroupSetup
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
         else
           echo
-          echo 'To let a group read a bucket, run this with a group id from above, replacing'
-          echo 'YOUR-BUCKET and GROUP-ID. Connapse honours it within a minute.'
-          # Single quotes on purpose: the command substitution is printed for the operator to
-          # copy, not expanded here. Expanding it would bake this session's account into a line
-          # they may paste somewhere else entirely. A directive takes no trailing prose, so the
-          # reason lives here and the directive stands alone.
-          # shellcheck disable=SC2016
-          echo '  aws s3control create-access-grant --account-id "$(aws sts get-caller-identity --query Account --output text)" --access-grants-location-id default --access-grants-location-configuration S3SubPrefix=YOUR-BUCKET/* --permission READ --grantee GranteeType=DIRECTORY_GROUP,GranteeIdentifier=GROUP-ID'
+          echo 'Paste the block above into Connapse. Every S3 connection then shows the exact'
+          echo 'grant command for its own buckets -- no bucket name or group id to fill in.'
         fi
         """.Replace("\r\n", "\n");
     }

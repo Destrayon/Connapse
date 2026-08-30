@@ -35,16 +35,15 @@ public class DirectoryGroupSetupTests
         // administrator to run, and running it is their decision, not this script's.
         string script = Script("Connapse Readers");
 
-        // Every mention of it must be inside an echo. Asserted structurally rather than by
-        // matching one spelling, so rewording the printed command cannot quietly turn it into a
-        // command the script runs.
-        script.Split('\n')
-            .Select(l => l.Trim())
-            .Where(l => l.Contains("create-access-grant") && !l.StartsWith('#'))
-            .Should().OnlyContain(l => l.StartsWith("echo "))
-            .And.NotBeEmpty("the grant command is printed for the operator to run themselves");
+        // Not even printed as an example any more. A command here could not name a bucket --
+        // that is a property of a connection -- and the version that guessed shipped YOUR-BUCKET,
+        // which was duly run unreplaced and rejected by AWS. The connection builds the real one.
+        script.Should().NotContain("create-access-grant");
+        script.Should().NotContain("YOUR-BUCKET");
 
         script.Should().Contain("It creates NO access grant");
+        script.Should().Contain("shows the exact",
+            "it points at where the real command is instead of inventing one");
     }
 
     [Fact]
