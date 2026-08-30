@@ -163,17 +163,46 @@ public static class S3SetupPolicy
             // without it this names buckets, and every object read is denied.
             ["Resource"] = "arn:aws:s3:::*/*"
         },
-        // Resource "*" because none of these four accepts a narrower one. The Access Grants and
-        // Identity Store reads are instance-wide by construction, which is exactly why the setup
-        // page says so rather than leaving it here to be found.
+        // Split in two because only one half can be scoped.
+        //
+        // The grant read is named at the Access Grants instances of this account. AWS documents
+        // that resource form for this action, and it is the one worth narrowing: it is the call
+        // that can enumerate what every grantee in the instance may read.
+        //
+        // The region is a wildcard because this script runs before the Identity Center region is
+        // known -- it is the step that mints the credential the later steps use. The account is
+        // substituted by the script from sts:GetCallerIdentity.
         new Dictionary<string, object>
         {
-            ["Sid"] = "ConnapseResolvePermissions",
+            ["Sid"] = "ConnapseReadGrants",
             ["Effect"] = "Allow",
-            ["Action"] = PermissionResolutionActions,
+            ["Action"] = new[] { "s3:ListAccessGrants" },
+            ["Resource"] = $"arn:aws:s3:*:{AccountPlaceholder}:access-grants/*"
+        },
+        // Resource "*", and deliberately not narrowed on a guess. AWS's own Identity Store policy
+        // examples use "*" for these, and the service authorization reference does not state
+        // whether they accept a resource. A wrong ARN here does not fail loudly: the calls return
+        // AccessDenied, the resolver treats that as an outage and denies, and every search comes
+        // back empty with nothing saying why. Narrow it once the reference confirms the form.
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseReadDirectory",
+            ["Effect"] = "Allow",
+            ["Action"] = PermissionResolutionActions.Where(a => a.StartsWith("identitystore:")).ToArray(),
             ["Resource"] = "*"
         }
     ];
+
+    /// <summary>
+    /// Stands in for the AWS account id until the script that runs the policy substitutes it.
+    /// </summary>
+    /// <remarks>
+    /// The account is not known here — this class builds a document, and the only place the number
+    /// exists is the shell session the administrator runs it in. Written as a placeholder rather
+    /// than a wildcard so that a policy which somehow reaches AWS unsubstituted is refused for a
+    /// malformed ARN, rather than quietly attaching as an account-wide grant.
+    /// </remarks>
+    public const string AccountPlaceholder = "__CONNAPSE_ACCOUNT_ID__";
 
     /// <summary>
     /// One policy document covering every allowed location.

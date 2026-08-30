@@ -34,7 +34,7 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(4);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(5);
     }
 
     [Fact]

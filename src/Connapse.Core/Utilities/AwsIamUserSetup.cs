@@ -43,7 +43,8 @@ public static class AwsIamUserSetup
     /// </remarks>
     public static readonly IReadOnlyList<string> RequiredPermissions =
     [
-        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey"
+        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey",
+        "sts:GetCallerIdentity"
     ];
 
     /// <summary>
@@ -69,6 +70,7 @@ public static class AwsIamUserSetup
     {
         string user = SanitiseUserName(userName);
         string policy = S3SetupPolicy.ForManagedIdentity();
+        string placeholder = S3SetupPolicy.AccountPlaceholder;
         string scopeSummary = S3SetupPolicy.ManagedIdentitySummary;
 
         // Single-quoted heredoc so the shell expands nothing inside the policy document.
@@ -84,6 +86,12 @@ public static class AwsIamUserSetup
         # part-way through rather than reporting a problem.
         FAILED=""
         USER='{{user}}'
+
+        # The grant-read permission is named at this account's Access Grants instances rather
+        # than at every resource, and the account number only exists here, in the session
+        # running this.
+        ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        [ -n "$ACCOUNT" ] || { echo 'Could not read your AWS account id.'; FAILED=1; }
 
         EXISTS=""
         aws iam get-user --user-name "$USER" >/dev/null 2>&1 && EXISTS=1
@@ -112,9 +120,17 @@ public static class AwsIamUserSetup
         # Inline rather than managed, so the grant is deleted along with the user rather than
         # lingering as an orphan.
         if [ -z "$FAILED" ]; then
+          # Single-quoted so the shell expands nothing inside the document, then the one
+          # placeholder is replaced by hand. Substituted with the shell rather than built
+          # here, because a heredoc puts an interactive shell into continuation mode for the
+          # whole policy -- which is how CloudShell disconnected part-way through an earlier
+          # version of this setup.
+          POLICY='{{policy}}'
+          POLICY=${POLICY//{{placeholder}}/$ACCOUNT}
+
           aws iam put-user-policy --user-name "$USER" \
             --policy-name ConnapseRead \
-            --policy-document '{{policy}}' || FAILED=1
+            --policy-document "$POLICY" || FAILED=1
         fi
 
         # Only for an identity that did not exist a moment ago. Creating a second key for one that

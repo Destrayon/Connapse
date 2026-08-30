@@ -110,6 +110,37 @@ public class AwsIamUserSetupTests
         Script().Should().Contain(S3SetupPolicy.ForManagedIdentity().Replace("\r\n", "\n"));
     }
 
+    [Fact]
+    public void GenerateScript_SubstitutesTheAccountIntoThePolicy()
+    {
+        // The grant-read permission names this account's Access Grants instances rather than every
+        // resource, and the account number is not known where the policy is built -- it exists only
+        // in the shell session running this. Left unsubstituted the ARN is malformed and IAM refuses
+        // the whole document, so the placeholder must never reach AWS.
+        string script = Script();
+
+        script.Should().Contain("aws sts get-caller-identity",
+            "the account number has to come from somewhere");
+        script.Should().Contain($"POLICY=${{POLICY//{S3SetupPolicy.AccountPlaceholder}/$ACCOUNT}}");
+
+        // Both halves present: the policy carries the placeholder, and the script replaces it.
+        S3SetupPolicy.ForManagedIdentity().Should().Contain(S3SetupPolicy.AccountPlaceholder);
+    }
+
+    [Fact]
+    public void GenerateScript_ScopesTheGrantReadButNotTheDirectoryReads()
+    {
+        // Split deliberately. The Access Grants read is the call that can enumerate what every
+        // grantee may see, and AWS documents a resource form for it. The Identity Store reads stay
+        // on "*" because the reference does not confirm they accept one, and a wrong ARN there
+        // fails as AccessDenied -- which the resolver reads as an outage and turns into an empty
+        // result set, with nothing anywhere saying why.
+        string policy = S3SetupPolicy.ForManagedIdentity();
+
+        policy.Should().Contain("access-grants/*");
+        policy.Should().Contain("ConnapseReadGrants").And.Contain("ConnapseReadDirectory");
+    }
+
     [Theory]
     [InlineData(null, "connapse-reader")]
     [InlineData("", "connapse-reader")]
