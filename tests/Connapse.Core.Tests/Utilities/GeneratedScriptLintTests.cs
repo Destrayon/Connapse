@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
@@ -60,6 +60,12 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
         { "access-grants/rejected-region", AccessGrantsSetup.GenerateScript("us-east-1\"; rm -rf /") },
 
         { "identity-center", IdentityCenterSetup.GenerateScript() },
+
+        // Both branches: discovery alone, and the create path a group name opens up.
+        { "directory-group/discover",
+            DirectoryGroupSetup.GenerateScript("us-west-1", "d-9067f4e3a1", "c989c98e-e031", null) },
+        { "directory-group/create",
+            DirectoryGroupSetup.GenerateScript("us-west-1", "d-9067f4e3a1", "c989c98e-e031", "Connapse Readers") },
     };
 
     [Theory]
