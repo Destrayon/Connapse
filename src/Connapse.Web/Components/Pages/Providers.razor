@@ -549,11 +549,17 @@
                 region. An organisation has one Identity Center instance and its primary region
                 cannot be moved.
                 <span class="d-block mt-1">
-                    Buckets elsewhere can still be indexed and searched — they are simply not
-                    filtered per user. To cover them, replicate Identity Center to their region
-                    (<code>sso-admin add-region</code>, which needs a multi-region customer-managed
-                    KMS key) and set Access Grants up there too. User and group ids are the same
-                    across regions, so nothing recorded here has to change.
+                    Buckets elsewhere are indexed and synced normally, but no grant can cover
+                    them — so once this is switched on <strong>they return nothing to
+                    anyone</strong>. Filtering hides what is not granted; it does not fall back to
+                    showing it. Every connection says so before you save it.
+                    <span class="d-block mt-1">
+                        To cover them, replicate Identity Center to their region
+                        (<code>sso-admin add-region</code>, which needs an organization instance and
+                        a multi-region customer-managed KMS key) and set Access Grants up there too.
+                        User and group ids are the same across regions, so nothing recorded here has
+                        to change.
+                    </span>
                 </span>
             </div>
 
