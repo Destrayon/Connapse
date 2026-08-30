@@ -1,4 +1,4 @@
-using Connapse.Core.Utilities;
+﻿using Connapse.Core.Utilities;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Utilities;
@@ -50,10 +50,24 @@ public class AccessGrantScriptTests
     }
 
     [Fact]
-    public void GenerateScript_TreatsAnExistingGrantAsFine()
+    public void GenerateScript_SkipsAScopeThatIsAlreadyGranted()
     {
-        // Running it twice is the normal way to check it worked.
-        Script("reports").Should().Contain("Already granted on");
+        // Running it twice is the normal way to check it worked, and AWS documents no error for
+        // creating a grant that already exists -- so a second run might conflict, or might quietly
+        // make a duplicate. Reading what exists first makes the outcome the same either way.
+        string script = Script("reports");
+
+        script.Should().Contain("list-access-grants ");
+        script.Should().Contain("Already granted on");
+        script.Should().Contain("continue", "an existing scope is skipped rather than recreated");
+    }
+
+    [Fact]
+    public void GenerateScript_ComparesScopesAsWholeWordsNotPatterns()
+    {
+        // A grant scope ends in a star. Matched with a case pattern it would behave as a wildcard
+        // and report buckets nobody granted as already covered.
+        Script("reports").Should().Contain("[ \"$SCOPE\" = \"s3://$SUBPREFIX\" ]");
     }
 
     [Fact]
