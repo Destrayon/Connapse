@@ -1,4 +1,4 @@
-namespace Connapse.Core.Utilities;
+﻿namespace Connapse.Core.Utilities;
 
 /// <summary>One IAM Identity Center instance the discovery script found.</summary>
 /// <param name="Region">
@@ -239,7 +239,7 @@ public static class IdentityCenterSetup
 
         printf '\n%s\n\n' "$BLOCK"
         echo 'Copy the block above, including both marker lines, back into Connapse.'
-        """;
+        """.Replace("\r\n", "\n");
     }
 
     /// <summary>

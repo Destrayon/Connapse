@@ -81,6 +81,13 @@ public class AwsIamUserSetupTests
 
         commands.Should().NotContain(l => l == "set -e" || l.StartsWith("set -e "));
         commands.Should().NotContain(l => l == "exit 1" || l == "exit");
+
+        // An odd number of quotes leaves the shell waiting for the rest of a string that never
+        // arrives, so the paste appears to hang with no error — which is exactly how this shipped
+        // once, with a stray quote appended after the final `fi`. Comment lines are excluded
+        // because prose legitimately contains an apostrophe.
+        commands.Sum(l => l.Count(c => c == '\''))
+            .Should().Match(n => n % 2 == 0, "every quote in a command must be closed");
     }
 
     [Fact]
@@ -96,7 +103,11 @@ public class AwsIamUserSetupTests
     {
         // Not a policy assembled here. One place decides what Connapse asks AWS for, so the script
         // and the sentence describing it cannot drift apart.
-        Script().Should().Contain(S3SetupPolicy.ForManagedIdentity());
+        //
+        // Compared with the policy's newlines normalised, because the script's are: the whole
+        // script is forced to LF so a saved copy runs under a real Linux bash, and the serializer
+        // writes whatever this platform calls a newline.
+        Script().Should().Contain(S3SetupPolicy.ForManagedIdentity().Replace("\r\n", "\n"));
     }
 
     [Theory]

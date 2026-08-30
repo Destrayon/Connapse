@@ -170,12 +170,19 @@ public static class AccessGrantsSetup
     }
 
     /// <summary>
-    /// Folds the script's line continuations away, so it pastes as plain one-line commands.
+    /// Folds the script's line continuations away and forces its line endings to LF.
     /// </summary>
     /// <remarks>
-    /// Written with continuations because the source is read by people, and pasted without them
+    /// Written with continuations because the source is read by people, and emitted without them
     /// because an interactive shell in continuation mode is what CloudShell disconnected during.
+    /// <para>
+    /// Newlines are normalised because a raw string literal inherits the line endings of the C#
+    /// file it is written in, and on Windows that is CRLF. Pasting into a terminal survives that;
+    /// saving the script and running it does not, because a real Linux bash reads the carriage
+    /// return as part of the token and `fi` becomes a word it has never heard of. Git Bash
+    /// tolerates it, which is exactly why this went unnoticed until a lint ran under WSL.
+    /// </para>
     /// </remarks>
     private static string FlattenContinuations(string script) =>
-        script.Replace(" \\\n", " ").Replace(" \\\r\n", " ");
+        script.Replace("\r\n", "\n").Replace(" \\\n", " ");
 }

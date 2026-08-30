@@ -151,8 +151,8 @@ public static class AwsIamUserSetup
           echo
           echo "Permissions for $USER are up to date."
           echo 'Its access key is unchanged, so there is nothing to paste back into Connapse.'
-        fi'
-        """;
+        fi
+        """.Replace("\r\n", "\n");
     }
 
     /// <summary>
