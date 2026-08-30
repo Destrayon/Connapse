@@ -102,7 +102,7 @@ public static class AccessGrantsSetup
     /// </remarks>
     public static string GenerateScript(string? region)
     {
-        string pinnedRegion = region?.Trim() ?? string.Empty;
+        string pinnedRegion = SanitiseRegion(region);
 
         return FlattenContinuations($$"""
         # Sets up the S3 Access Grants side of per-user permissions for Connapse. Creates, in your
@@ -167,6 +167,35 @@ public static class AccessGrantsSetup
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
         fi
         """);
+    }
+
+    /// <summary>
+    /// Returns <paramref name="region"/> if it looks like an AWS region name, and an empty string
+    /// otherwise.
+    /// </summary>
+    /// <remarks>
+    /// An allowlist rather than an escape, because the set of legal region names is small and
+    /// regular — lowercase letters, digits and hyphens — and anything outside it is not a region
+    /// this script could use anyway.
+    /// <para>
+    /// The value reaches here from a block the administrator pasted, and is interpolated into a
+    /// double-quoted assignment. A stray quote in it would end that string early and leave the rest
+    /// of the script parsing as something else entirely — the same class of defect as the trailing
+    /// quote that once made a paste hang with no error. Rejecting rather than escaping means the
+    /// failure lands on the script's existing "no region" branch, which already says what to do.
+    /// </para>
+    /// </remarks>
+    public static string SanitiseRegion(string? region)
+    {
+        string trimmed = region?.Trim() ?? string.Empty;
+
+        // Bounded so a pasted paragraph cannot arrive here as one very long "region".
+        if (trimmed.Length is 0 or > 32)
+            return string.Empty;
+
+        return trimmed.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-')
+            ? trimmed
+            : string.Empty;
     }
 
     /// <summary>

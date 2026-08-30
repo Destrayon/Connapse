@@ -89,4 +89,29 @@ public class AccessGrantsSetupTests
         script.Should().Contain("REGION=\"\"");
         script.Should().Contain("Locate your Identity Center instance first");
     }
+
+    [Theory]
+    [InlineData("us-west-1", "us-west-1")]
+    [InlineData("  eu-central-1  ", "eu-central-1")]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    // The region arrives from a block the administrator pasted, and lands inside a double-quoted
+    // assignment. A quote in it would close that string early and hand the rest of the line to the
+    // shell as something else — so the allowlist rejects rather than escapes, and the script falls
+    // to the branch that already knows what to say about a missing region.
+    [InlineData("us-east-1\"; rm -rf /", "")]
+    [InlineData("$(id)", "")]
+    [InlineData("US-EAST-1", "")]
+    public void SanitiseRegion_KeepsOnlyWhatCouldBeARegion(string? given, string expected)
+    {
+        AccessGrantsSetup.SanitiseRegion(given).Should().Be(expected);
+    }
+
+    [Fact]
+    public void SanitiseRegion_RejectsAPastedParagraph()
+    {
+        // Not a region, however much of it looks like one. Bounded so a whole terminal buffer
+        // cannot arrive here as a single very long value.
+        AccessGrantsSetup.SanitiseRegion(new string('a', 33)).Should().BeEmpty();
+    }
 }

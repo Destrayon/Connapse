@@ -1,7 +1,8 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Connapse.Core.Utilities;
 using FluentAssertions;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Connapse.Core.Tests.Utilities;
 
@@ -21,31 +22,116 @@ namespace Connapse.Core.Tests.Utilities;
 /// thing is a valid script at all. Hand-written substring checks kept being written after each new
 /// way of breaking it was discovered, which is a poor substitute for asking bash.
 /// </para>
+/// <para>
+/// Every generated variant is checked, not one sample per generator. The scripts differ by
+/// substitution, and a substitution is exactly what can turn a valid script into an invalid one —
+/// so linting only the shape that happens to be listed first would miss the case this is for.
+/// </para>
 /// </remarks>
 [Trait("Category", "Unit")]
-public class GeneratedScriptLintTests
+public class GeneratedScriptLintTests(ITestOutputHelper output)
 {
-    /// <summary>Every generated script, named so a failure says which one.</summary>
+    /// <summary>
+    /// Set in CI. Decides whether a missing ShellCheck is a failure or a notice, because a
+    /// development machine on Windows has no reason to have it and CI always does.
+    /// </summary>
+    private const string CiVariable = "CI";
+
+    /// <summary>
+    /// Every script a generator can produce, named so a failure says which one, and covering each
+    /// substitution that changes the result.
+    /// </summary>
     public static TheoryData<string, string> Scripts() => new()
     {
-        { "aws-iam-user", AwsIamUserSetup.GenerateScript(null) },
-        { "access-grants", AccessGrantsSetup.GenerateScript("us-west-1") },
+        { "aws-iam-user/default-name", AwsIamUserSetup.GenerateScript(null) },
+
+        // The name is an allowlist away from arbitrary text, and the allowlist keeps the characters
+        // that survive IAM. This asserts the ones it keeps are also ones a shell is happy with.
+        { "aws-iam-user/awkward-name", AwsIamUserSetup.GenerateScript("Team+Reader=1,dev.ops@x-y") },
+
+        { "access-grants/region", AccessGrantsSetup.GenerateScript("eu-central-1") },
+
+        // The branch where discovery has not run yet, so the script must still parse in order to
+        // reach the line that says so.
+        { "access-grants/no-region", AccessGrantsSetup.GenerateScript(null) },
+
+        // Rejected by the allowlist, so this is the no-region script — asserted here rather than
+        // assumed, since the whole point of the allowlist is that this text never reaches the shell.
+        { "access-grants/rejected-region", AccessGrantsSetup.GenerateScript("us-east-1\"; rm -rf /") },
+
         { "identity-center", IdentityCenterSetup.GenerateScript() },
     };
 
     [Theory]
     [MemberData(nameof(Scripts))]
-    public void GeneratedScript_IsValidShell(string name, string script)
+    public void GeneratedScript_ParsesAsShell(string name, string script)
     {
         // -n parses without running anything, which is the only safe way to check a script whose
         // whole purpose is to create AWS resources.
-        var (exitCode, output) = RunShell(script);
+        var (exitCode, shellOutput) = Run("bash", "-n", script);
 
         exitCode.Should().Be(0,
-            "the {0} script must parse as shell; bash said:{1}{2}", name, Environment.NewLine, output);
+            "the {0} script must parse as shell; bash said:{1}{2}", name, Environment.NewLine, shellOutput);
     }
 
-    /// <summary>Parses <paramref name="script"/> with <c>bash -n</c> and reports what it said.</summary>
+    [Theory]
+    [MemberData(nameof(Scripts))]
+    public void GeneratedScript_PassesShellCheck(string name, string script)
+    {
+        // The half `bash -n` cannot do. A script can parse perfectly and still be wrong: an unquoted
+        // expansion that word-splits on a path with a space, a comparison that is always true, a
+        // variable read one branch before it is set. Those are the bugs that reach an administrator
+        // as "it ran and did nothing".
+        if (!IsOnPath("shellcheck"))
+        {
+            // A lint that quietly passes when it did not run is worse than no lint, so this is loud
+            // where it can be enforced and merely stated where it cannot. Windows development
+            // machines have no ShellCheck and were never told to get one; the Ubuntu runner ships
+            // with it, and gates the pull request.
+            Environment.GetEnvironmentVariable(CiVariable).Should().BeNullOrEmpty(
+                "CI must have ShellCheck available, and it was not found on PATH");
+
+            output.WriteLine($"ShellCheck is not installed, so {name} was only parsed, not linted.");
+            return;
+        }
+
+        // -s bash, because there is no shebang to read one from and these are pasted into
+        // CloudShell, whose shell is bash. Told to assume sh instead, ShellCheck reports the
+        // bash-only constructs the scripts deliberately use.
+        var (exitCode, shellOutput) = Run("shellcheck", "-s bash", script);
+
+        exitCode.Should().Be(0,
+            "the {0} script must be clean under ShellCheck; it said:{1}{2}",
+            name, Environment.NewLine, shellOutput);
+    }
+
+    /// <summary>Whether <paramref name="tool"/> can be started at all.</summary>
+    private static bool IsOnPath(string tool)
+    {
+        try
+        {
+            using var probe = Process.Start(new ProcessStartInfo
+            {
+                FileName = tool,
+                Arguments = "--version",
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            });
+
+            probe?.WaitForExit();
+            return probe is not null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Writes <paramref name="script"/> to a file, runs <paramref name="tool"/> over it, and reports
+    /// what it said.
+    /// </summary>
     /// <remarks>
     /// Written to a file in a temporary directory and named relatively, with that directory as the
     /// working directory. Two things forced that shape. Git Bash on Windows cannot open a path in
@@ -53,7 +139,7 @@ public class GeneratedScriptLintTests
     /// machine; and feeding the script on stdin instead reported syntax errors on scripts that
     /// <c>bash -n</c> accepts from a file, so the pipe is not a faithful substitute for one.
     /// </remarks>
-    private static (int ExitCode, string Output) RunShell(string script)
+    private static (int ExitCode, string Output) Run(string tool, string arguments, string script)
     {
         string folder = $"connapse-lint-{Guid.NewGuid():N}";
         string directory = Path.Combine(Path.GetTempPath(), folder);
@@ -71,21 +157,20 @@ public class GeneratedScriptLintTests
 
             using var process = Process.Start(new ProcessStartInfo
             {
-                // Found on PATH. Both supported platforms have it: CI runs on Ubuntu, and Windows
-                // development uses Git Bash. A missing bash fails the test rather than skipping it,
-                // because a lint that quietly passes when it did not run is worse than no lint.
-                FileName = "bash",
-                Arguments = $"-n {fileName}",
+                // Found on PATH. A missing bash fails the test rather than skipping it: CI runs on
+                // Ubuntu and Windows development uses Git Bash, so both have one.
+                FileName = tool,
+                Arguments = $"{arguments} {fileName}",
                 WorkingDirectory = Path.GetTempPath(),
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
-            }) ?? throw new InvalidOperationException("Could not start bash.");
+            }) ?? throw new InvalidOperationException($"Could not start {tool}.");
 
-            string output = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
+            string result = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
             process.WaitForExit();
 
-            return (process.ExitCode, output);
+            return (process.ExitCode, result);
         }
         finally
         {
