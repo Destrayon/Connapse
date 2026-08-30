@@ -536,6 +536,27 @@
                 </span>
             </div>
 
+            @* Stated before anything is set up, because it decides whether any of this is usable
+               and cannot be worked around afterwards. Tested against AWS: an S3 Access Grants
+               instance can be created in any region, but associating it with Identity Center fails
+               unless Identity Center is present in that region — the regional endpoint cannot
+               resolve an instance whose home is elsewhere. *@
+            <div class="alert alert-warning small">
+                <span class="bi-exclamation-triangle-fill me-1"></span>
+                <strong>This covers buckets in your Identity Center region only.</strong>
+                A grant is created against the S3 Access Grants instance in the bucket's region, and
+                that instance can only be associated with an Identity Center instance in the same
+                region. An organisation has one Identity Center instance and its primary region
+                cannot be moved.
+                <span class="d-block mt-1">
+                    Buckets elsewhere can still be indexed and searched — they are simply not
+                    filtered per user. To cover them, replicate Identity Center to their region
+                    (<code>sso-admin add-region</code>, which needs a multi-region customer-managed
+                    KMS key) and set Access Grants up there too. User and group ids are the same
+                    across regions, so nothing recorded here has to change.
+                </span>
+            </div>
+
             @if (IdentityCentre is null)
             {
                 @* Ordered, because the step below needs the instance ARN and the region, and the
