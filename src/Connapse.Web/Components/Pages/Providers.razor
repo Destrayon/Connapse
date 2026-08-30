@@ -649,6 +649,14 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                @* Mentioned here rather than only at the end. The same page carries
+                                   the exchange in both directions, so downloading it now saves
+                                   coming back to the console for one file after the rest is done. *@
+                                <span class="d-block text-muted mt-1">
+                                    This page also offers the values travelling the other way, as an
+                                    <strong>IAM Identity Center metadata file</strong>. Download it
+                                    while you are here — the last step below reads it.
+                                </span>
                             </li>
 
                             <li class="mb-2">
@@ -693,8 +701,8 @@
                             </li>
 
                             <li>
-                                Finally, download the application's metadata file and paste it into
-                                the form below — Connapse reads the issuer, sign-in URL and signing
+                                Finally, open the metadata file you downloaded and paste it into the
+                                form below — Connapse reads the issuer, sign-in URL and signing
                                 certificate out of it. All three stay editable, so they can still
                                 be typed in one at a time.
                             </li>
