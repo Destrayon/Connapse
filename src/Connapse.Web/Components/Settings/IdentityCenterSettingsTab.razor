@@ -42,30 +42,6 @@
             </div>
         </div>
 
-        @* Editable for the same reason the three above it are: the guided step records this from
-           a pasted block, and an administrator who already knows the id should not have to run a
-           command to tell Connapse something they can read off their own console. *@
-        <div class="col-md-8">
-            <label class="form-label" for="idc-group">Group to grant to</label>
-            <InputText id="idc-group" @bind-Value="localSettings.GrantGroupId"
-                       class="form-control font-monospace"
-                       placeholder="a1b2c3d4-5678-90ab-cdef-EXAMPLE11111" />
-            <div class="form-text">
-                The directory group access grants are offered for. A connection uses it to print a
-                grant command with nothing left to fill in. Optional — sign-in works without it, and
-                grants can name any grantee you like.
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <label class="form-label" for="idc-group-name">Group name</label>
-            <InputText id="idc-group-name" @bind-Value="localSettings.GrantGroupName"
-                       class="form-control" placeholder="Connapse Readers" />
-            <div class="form-text">
-                Shown instead of the id, which nobody recognises.
-            </div>
-        </div>
-
         <div class="col-12 mt-4">
             <button type="submit" class="btn btn-primary me-2">
                 <span class="bi-save me-1"></span> Save Changes
@@ -96,8 +72,6 @@
             Region = Settings.Region,
             InstanceArn = Settings.InstanceArn,
             IdentityStoreId = Settings.IdentityStoreId,
-            GrantGroupId = Settings.GrantGroupId,
-            GrantGroupName = Settings.GrantGroupName,
         };
     }
 

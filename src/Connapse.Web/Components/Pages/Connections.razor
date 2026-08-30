@@ -21,6 +21,7 @@
 @inject IProviderSetupReader SetupReader
 @inject IGrantCoverageReporter GrantCoverage
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -1248,21 +1249,24 @@
     {
         get
         {
-            var identityCentre = IdentityCenterOptions.CurrentValue;
+            var signIn = SamlOptions.CurrentValue;
 
-            if (!identityCentre.HasGrantGroup || coverage is not { HasWarning: true })
+            if (!signIn.HasGrantGroup || coverage is not { HasWarning: true })
                 return string.Empty;
 
             // Only the buckets nothing covers. Re-granting one that already works would be noise
             // in a command whose whole point is that everything in it is needed.
+            // The region comes from the located instance, which is genuinely where the
+            // directory lives; the group comes from per-user permissions, which is what it is for.
             return AccessGrantScript.GenerateScript(
-                identityCentre.Region, coverage.Ungranted, identityCentre.GrantGroupId, isGroup: true);
+                IdentityCenterOptions.CurrentValue.Region, coverage.Ungranted,
+                signIn.GrantGroupId, isGroup: true);
         }
     }
 
     /// <summary>What to call the group in the sentence above the command.</summary>
     private string GrantGroupLabel =>
-        IdentityCenterOptions.CurrentValue.GrantGroupName is { Length: > 0 } name
+        SamlOptions.CurrentValue.GrantGroupName is { Length: > 0 } name
             ? name
             : "the chosen group";
 

@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>
 /// The IAM Identity Center SAML application a person signs in through to prove which directory
@@ -63,6 +63,43 @@ public class SamlSignInSettings
     /// there is nothing to validate against, and a sign-in that got that far would have to either
     /// fail late or trust an unverified assertion.
     /// </remarks>
+    /// <summary>
+    /// A directory group to grant S3 access to, or empty when none has been chosen.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than with the Identity Center instance, which is only "where is the directory".
+    /// A group is not a directory fact Connapse happens to hold — it exists solely to be the
+    /// grantee on an access grant, which is what per-user permissions are made of. Its setup step
+    /// is in this feature and connections read it to print a grant command, so it belongs to the
+    /// thing being configured rather than to AWS's own taxonomy.
+    /// <para>
+    /// Held so a connection can print a grant command with nothing left to fill in. Group discovery
+    /// happens in CloudShell, so without this the id is on an administrator's screen for a moment
+    /// and then gone — which is why the first version of that command shipped with a placeholder
+    /// where the grantee belonged, and got run with the placeholder still in it.
+    /// </para>
+    /// <para>
+    /// A convenience, not a constraint. Granting different teams different buckets is the point of
+    /// groups, so this is the offered default rather than the only grantee a command may name.
+    /// </para>
+    /// <para>
+    /// Deliberately outside <see cref="IsConfigured"/>. Sign-in works perfectly without a group;
+    /// requiring one would make a working sign-in read as unconfigured and stall the steps that
+    /// depend on it.
+    /// </para>
+    /// </remarks>
+    public string GrantGroupId { get; set; } = string.Empty;
+
+    /// <summary>The group's display name, for showing which group a command names.</summary>
+    /// <remarks>
+    /// Stored alongside the id because the id is a UUID nobody recognises, and reading it back from
+    /// AWS would need a directory call on every page that mentions it.
+    /// </remarks>
+    public string GrantGroupName { get; set; } = string.Empty;
+
+    /// <summary>Whether a group has been chosen to grant to.</summary>
+    public bool HasGrantGroup => !string.IsNullOrWhiteSpace(GrantGroupId);
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(EntityId)
         && !string.IsNullOrWhiteSpace(AcsUrl)

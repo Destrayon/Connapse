@@ -32,36 +32,6 @@ public class IdentityCenterSettings
     /// <summary><c>d-…</c>, the directory a trusted token issuer resolves a user into.</summary>
     public string IdentityStoreId { get; set; } = string.Empty;
 
-    /// <summary>
-    /// A directory group to grant S3 access to, or empty when none has been chosen.
-    /// </summary>
-    /// <remarks>
-    /// Held so a connection can print a grant command with nothing left to fill in. Group discovery
-    /// happens in CloudShell, so without this the id is on an administrator's screen for a moment
-    /// and then gone — which is why the first version of that command shipped with a placeholder
-    /// where the grantee belonged, and got run with the placeholder still in it.
-    /// <para>
-    /// A convenience, not a constraint. Granting different teams different buckets is the point of
-    /// groups, so this is the offered default rather than the only grantee a command may name.
-    /// </para>
-    /// <para>
-    /// Deliberately outside <see cref="IsConfigured"/>. The instance is located long before any
-    /// group exists, and requiring one would make a perfectly good instance read as unconfigured
-    /// and stall every step that builds on it.
-    /// </para>
-    /// </remarks>
-    public string GrantGroupId { get; set; } = string.Empty;
-
-    /// <summary>The group's display name, for showing which group a command names.</summary>
-    /// <remarks>
-    /// Stored alongside the id because the id is a UUID nobody recognises, and reading it back from
-    /// AWS would need a directory call on every page that mentions it.
-    /// </remarks>
-    public string GrantGroupName { get; set; } = string.Empty;
-
-    /// <summary>Whether a group has been chosen to grant to.</summary>
-    public bool HasGrantGroup => !string.IsNullOrWhiteSpace(GrantGroupId);
-
     /// <summary>True once the instance has been located.</summary>
     /// <remarks>
     /// The ARN alone would do — the other two are derivable from a scan that produced it — but all
