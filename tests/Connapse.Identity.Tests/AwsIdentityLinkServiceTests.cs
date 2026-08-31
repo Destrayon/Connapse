@@ -1,37 +1,28 @@
-using System.Net;
-using Connapse.Core;
-using Connapse.Identity.Data;
-using Connapse.Identity.Data.Entities;
+﻿using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
 namespace Connapse.Identity.Tests;
 
 /// <summary>
-/// Disconnecting an AWS identity link must revoke the refresh token at Cognito before removing the
-/// local row, and must remove the row regardless of whether revocation succeeded — see
-/// <see cref="AwsIdentityLinkService"/>.
+/// Disconnecting an AWS identity link removes the local row, and must not remove one a reconnect
+/// established underneath it — see <see cref="AwsIdentityLinkService"/>.
 /// </summary>
+/// <remarks>
+/// Much smaller than it was. This class used to cover revoking a stored refresh token at Cognito
+/// and every way that could half-succeed. The link now records an identity IAM Identity Center
+/// attested rather than a credential, so there is nothing at AWS to tell and those outcomes no
+/// longer exist to test.
+/// </remarks>
 [Trait("Category", "Unit")]
 public class AwsIdentityLinkServiceTests
 {
-    private static readonly CognitoSettings ConfiguredSettings = new()
-    {
-        IssuerUrl = "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test",
-        Domain = "https://my-pool.auth.us-east-1.amazoncognito.com",
-        ClientId = "test-client-id",
-        ClientSecret = "test-client-secret",
-        Region = "us-east-1",
-    };
-
-    private AwsIdentityLinkStore CreateStore(string dbName) =>
-        new(CreateFactory(dbName), new EphemeralDataProtectionProvider(), TimeProvider.System);
+    private static AwsIdentityLinkStore CreateStore(string dbName) =>
+        new(CreateFactory(dbName), TimeProvider.System);
 
     private static IDbContextFactory<ConnapseIdentityDbContext> CreateFactory(string dbName)
     {
@@ -44,236 +35,112 @@ public class AwsIdentityLinkServiceTests
         return factory;
     }
 
-    // Bypasses AwsIdentityLinkStore.SaveAsync (which always writes a properly protected token) to
-    // put a row in place whose ProtectedRefreshToken is not valid Data Protection payload at all —
-    // the shape a corrupted column or a rotated-beyond-retention key ring would leave behind.
-    private static async Task SeedUnreadableLinkAsync(string dbName, Guid userId, string email)
-    {
-        await using var db = new ConnapseIdentityDbContext(
-            new DbContextOptionsBuilder<ConnapseIdentityDbContext>().UseInMemoryDatabase(dbName).Options);
-
-        db.UserAwsIdentityLinks.Add(new UserAwsIdentityLinkEntity
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Email = email,
-            ProtectedRefreshToken = "not-valid-protected-data",
-            ConnectedAt = DateTime.UtcNow,
-        });
-        await db.SaveChangesAsync();
-    }
-
-    private static IOptionsMonitor<CognitoSettings> Options(CognitoSettings settings)
-    {
-        var options = Substitute.For<IOptionsMonitor<CognitoSettings>>();
-        options.CurrentValue.Returns(settings);
-        return options;
-    }
-
-    private static IHttpClientFactory HttpFactory(HttpMessageHandler handler)
-    {
-        var factory = Substitute.For<IHttpClientFactory>();
-        factory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(handler));
-        return factory;
-    }
+    private static AwsIdentityLinkService CreateService(AwsIdentityLinkStore store) =>
+        new(store, NullLogger<AwsIdentityLinkService>.Instance);
 
     [Fact]
-    public async Task DisconnectAsync_ExistingLink_RevokesAtCognitoWhileTheRowStillExists_ThenDeletesIt()
+    public async Task DisconnectAsync_ExistingLink_DeletesTheRow()
     {
         var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        var store = CreateStore(dbName);
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
-        bool? linkPresentDuringRevoke = null;
-        var handler = new RecordingHandler(HttpStatusCode.OK,
-            onSend: async () => linkPresentDuringRevoke = await store.GetAsync(userId) is not null);
-
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var result = await sut.DisconnectAsync(userId);
+        var result = await CreateService(store).DisconnectAsync(userId);
 
         result.Deleted.Should().BeTrue();
-        result.RevokedSuccessfully.Should().BeTrue();
-        linkPresentDuringRevoke.Should().BeTrue("the token must be revoked before the local row disappears");
-        (await store.GetAsync(userId)).Should().BeNull("the row must be gone once Disconnect returns");
-
-        handler.LastRequest.Should().NotBeNull();
-        handler.LastRequest!.RequestUri!.ToString().Should().Be("https://my-pool.auth.us-east-1.amazoncognito.com/oauth2/revoke");
-        handler.LastRequestBody.Should().Contain("token=refresh-token-abc");
-        handler.LastRequestBody.Should().Contain("client_id=test-client-id");
-        handler.LastRequestBody.Should().Contain("client_secret=test-client-secret");
-    }
-
-    [Fact]
-    public async Task DisconnectAsync_RevocationFails_StillDeletesTheRow_AndReportsRevocationFailed()
-    {
-        var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
-        var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
-
-        var handler = new RecordingHandler(HttpStatusCode.BadRequest);
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var result = await sut.DisconnectAsync(userId);
-
-        // A user who clicks Disconnect must end up disconnected locally regardless of what AWS
-        // reports — but a failed revocation must not be reported as a clean success.
-        result.Deleted.Should().BeTrue();
-        result.RevokedSuccessfully.Should().BeFalse();
+        result.LinkChangedDuringDisconnect.Should().BeFalse();
         (await store.GetAsync(userId)).Should().BeNull();
     }
 
     [Fact]
-    public async Task DisconnectAsync_UnreachablePool_StillDeletesTheRow_AndReportsRevocationFailed()
+    public async Task DisconnectAsync_NoLinkExists_ReturnsDeletedFalse()
     {
-        var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
-        var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        var store = CreateStore(Guid.NewGuid().ToString());
 
-        var handler = new ThrowingHandler(new HttpRequestException("connection refused"));
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var result = await sut.DisconnectAsync(userId);
-
-        result.Deleted.Should().BeTrue();
-        result.RevokedSuccessfully.Should().BeFalse();
-        (await store.GetAsync(userId)).Should().BeNull();
-    }
-
-    [Fact]
-    public async Task DisconnectAsync_NoLinkExists_ReturnsDeletedFalse_AndNeverCallsCognito()
-    {
-        var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
-
-        var handler = new RecordingHandler(HttpStatusCode.OK);
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var result = await sut.DisconnectAsync(Guid.NewGuid());
+        var result = await CreateService(store).DisconnectAsync(Guid.NewGuid());
 
         result.Deleted.Should().BeFalse();
-        handler.LastRequest.Should().BeNull("there is no token to revoke when nothing was connected");
+        result.LinkChangedDuringDisconnect.Should().BeFalse();
     }
 
     [Fact]
-    public async Task DisconnectAsync_UnreadableToken_ReportsRevocationFailed_NeverCallsCognito_ButStillDeletesTheRow()
+    public async Task DisconnectAsync_LinkReplacedDuringDisconnect_LeavesTheNewRowInPlace_AndReportsLinkChanged()
     {
-        // A row exists — unlike DisconnectAsync_NoLinkExists — but its token cannot be decrypted.
-        // This must not be treated as "nothing to revoke": the row being present means the token
-        // may still be live at Cognito, and Connapse has simply lost the ability to speak for it.
+        // The race disconnect exists to survive: someone reconnects between the read and the
+        // delete. SaveAsync updates the row in place and keeps its Id, so only the rewritten
+        // ConnectedAt distinguishes the new link from the one that was read — and deleting anyway
+        // would throw away a link the user had just re-established.
         var dbName = Guid.NewGuid().ToString();
         var userId = Guid.NewGuid();
-        await SeedUnreadableLinkAsync(dbName, userId, "user@example.com");
         var store = CreateStore(dbName);
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
-        var handler = new RecordingHandler(HttpStatusCode.OK);
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+        var original = await store.GetAsync(userId);
+        original.Should().NotBeNull();
 
-        var result = await sut.DisconnectAsync(userId);
+        // Reconnect, with a distinct timestamp so the discriminator actually differs.
+        await Task.Delay(10);
+        await store.SaveAsync(userId, "e5f6a7b8-user", "someone-else", "someone@example.com");
 
-        result.RevokedSuccessfully.Should().BeFalse(
-            "an unreadable token means Connapse never told Cognito, not that there was nothing to tell it");
-        handler.LastRequest.Should().BeNull("there is no plaintext token to send in a revoke request");
-        result.Deleted.Should().BeTrue("the local row must still go regardless of the revoke outcome");
-        (await store.GetAsync(userId)).Should().BeNull();
+        var deleted = await store.DeleteAsync(userId, original!.ConnectedAt);
+
+        deleted.Should().BeFalse("the row was replaced after it was read");
+        var surviving = await store.GetAsync(userId);
+        surviving.Should().NotBeNull();
+        surviving!.DirectoryUserName.Should().Be("someone-else");
     }
 
     [Fact]
-    public async Task DisconnectAsync_LinkReplacedDuringRevoke_LeavesTheNewRowInPlace_AndReportsLinkChanged()
-    {
-        // A reconnect races this disconnect: SaveAsync updates the existing row in place, keeping
-        // its Id, while the HTTP revoke call for the *old* token is still in flight. An Id-based
-        // delete would not be able to tell the new row apart from the old one and would remove the
-        // reconnect's link along with it — the row must survive, and the caller must be told the
-        // link changed so it can try again, rather than being told it cleanly disconnected.
-        var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
-        var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
-
-        var handler = new RecordingHandler(HttpStatusCode.OK,
-            onSend: () => store.SaveAsync(userId, "reconnected@example.com", "refresh-token-xyz"));
-
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var result = await sut.DisconnectAsync(userId);
-
-        result.RevokedSuccessfully.Should().BeTrue("the original token was successfully revoked at Cognito");
-        result.Deleted.Should().BeFalse("the row that exists now is not the one this call revoked");
-        result.LinkChangedDuringDisconnect.Should().BeTrue();
-
-        var survivingLink = await store.GetAsync(userId);
-        survivingLink.Should().NotBeNull("the reconnect's link must survive an unrelated disconnect");
-        survivingLink!.Email.Should().Be("reconnected@example.com");
-    }
-
-    [Fact]
-    public async Task GetAsync_ExistingLink_ReturnsEmailAndTimestamps()
+    public async Task GetAsync_ExistingLink_ReturnsTheDirectoryUserAndTimestamps()
     {
         var dbName = Guid.NewGuid().ToString();
-        var store = CreateStore(dbName);
         var userId = Guid.NewGuid();
-        await store.SaveAsync(userId, "user@example.com", "refresh-token-abc");
+        var store = CreateStore(dbName);
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
 
-        var handler = new RecordingHandler(HttpStatusCode.OK);
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
-
-        var dto = await sut.GetAsync(userId);
+        var dto = await CreateService(store).GetAsync(userId);
 
         dto.Should().NotBeNull();
-        dto!.Email.Should().Be("user@example.com");
+        dto!.DirectoryUserName.Should().Be("jsmith");
+        dto.Email.Should().Be("jsmith@example.com");
+        dto.ConnectedAt.Should().NotBe(default);
         dto.LastUsedAt.Should().BeNull();
     }
 
     [Fact]
     public async Task GetAsync_NoLink_ReturnsNull()
     {
+        var store = CreateStore(Guid.NewGuid().ToString());
+
+        (await CreateService(store).GetAsync(Guid.NewGuid())).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SaveAsync_Again_ReplacesTheRowRatherThanAddingASecond()
+    {
         var dbName = Guid.NewGuid().ToString();
+        var userId = Guid.NewGuid();
         var store = CreateStore(dbName);
 
-        var handler = new RecordingHandler(HttpStatusCode.OK);
-        var sut = new AwsIdentityLinkService(
-            store, Options(ConfiguredSettings), HttpFactory(handler), NullLogger<AwsIdentityLinkService>.Instance);
+        await store.SaveAsync(userId, "a1b2c3d4-user", "jsmith", "jsmith@example.com");
+        await store.SaveAsync(userId, "e5f6a7b8-user", "jsmith-renamed", "jsmith@example.com");
 
-        var dto = await sut.GetAsync(Guid.NewGuid());
-
-        dto.Should().BeNull();
+        var link = await store.GetAsync(userId);
+        link.Should().NotBeNull();
+        link!.DirectoryUserId.Should().Be("e5f6a7b8-user");
+        link.DirectoryUserName.Should().Be("jsmith-renamed");
     }
 
-    private sealed class RecordingHandler(HttpStatusCode statusCode, Func<Task>? onSend = null) : HttpMessageHandler
+    [Fact]
+    public async Task SaveAsync_WithoutADirectoryUserId_IsRefused()
     {
-        public HttpRequestMessage? LastRequest { get; private set; }
-        public string? LastRequestBody { get; private set; }
+        // The id is the join key. A link without one resolves to nobody, and a row that cannot
+        // resolve is worse than no row: it presents as connected while filtering nothing.
+        var store = CreateStore(Guid.NewGuid().ToString());
 
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            LastRequest = request;
-            LastRequestBody = request.Content is null
-                ? null
-                : await request.Content.ReadAsStringAsync(cancellationToken);
+        var save = async () => await store.SaveAsync(Guid.NewGuid(), "  ", "jsmith", null);
 
-            if (onSend is not null)
-                await onSend();
-
-            return new HttpResponseMessage(statusCode);
-        }
-    }
-
-    private sealed class ThrowingHandler(Exception exception) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken) =>
-            throw exception;
+        await save.Should().ThrowAsync<ArgumentException>();
     }
 }

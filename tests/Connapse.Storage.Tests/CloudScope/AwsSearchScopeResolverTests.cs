@@ -1,0 +1,460 @@
+﻿using Connapse.Core;
+using Connapse.Storage.CloudScope;
+using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NSubstitute;
+using Xunit;
+
+namespace Connapse.Storage.Tests.CloudScope;
+
+/// <summary>
+/// What a Connapse user may search, resolved from S3 access grants with Connapse's own identity.
+/// </summary>
+/// <remarks>
+/// Weighted towards the ways this can refuse. Returning too little is a person saying they cannot
+/// find a document; returning too much is a disclosure nobody reports, so every path that cannot
+/// produce a confident answer is pinned here rather than left to inspection.
+/// </remarks>
+[Trait("Category", "Unit")]
+public class AwsSearchScopeResolverTests
+{
+    private const string DirectoryUserId = "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111";
+
+    private readonly IAwsIdentityLinkReader links = Substitute.For<IAwsIdentityLinkReader>();
+    private readonly IDirectoryUserLookup directory = Substitute.For<IDirectoryUserLookup>();
+    private const string Region = "us-west-1";
+
+    private readonly IAccessGrantsReader grants = Substitute.For<IAccessGrantsReader>();
+    private readonly IAwsGrantRegions regions = Substitute.For<IAwsGrantRegions>();
+
+    /// <summary>A deployment that set per-user permissions up and is enforcing them.</summary>
+    /// <remarks>
+    /// Both halves matter. Configuration alone no longer switches filtering on — the latch does —
+    /// so a fixture that set only the five fields would take the unrestricted path and quietly
+    /// stop testing anything below it.
+    /// </remarks>
+    private static SamlSignInSettings Configured() => new()
+    {
+        EntityId = "https://connapse.example.com/saml/connapse",
+        AcsUrl = "https://connapse.example.com/api/v1/auth/cloud/aws/acs",
+        IdpEntityId = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSingleSignOnUrl = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
+    };
+
+    private static IOptionsMonitor<T> Monitor<T>(T settings) where T : class
+    {
+        var monitor = Substitute.For<IOptionsMonitor<T>>();
+        monitor.CurrentValue.Returns(settings);
+        return monitor;
+    }
+
+    /// <param name="enforcing">
+    /// Whether this deployment has latched enforcement on. Defaults to true, because a fixture that
+    /// left it off would take the unrestricted path and quietly stop testing everything below it.
+    /// </param>
+    /// <param name="migrated">
+    /// Whether the startup migration established the state. False is the deployment whose migration
+    /// threw, which must deny rather than assume nothing was being enforced.
+    /// </param>
+    private AwsSearchScopeResolver Build(
+        SamlSignInSettings? settings = null,
+        bool enforcing = true,
+        bool migrated = true,
+        params string[] inRegions)
+    {
+        regions.ListAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<string>>(inRegions.Length > 0 ? inRegions : [Region]);
+
+        var migration = new EnforcementMigration();
+        if (migrated) migration.Complete();
+
+        return new(links, directory, grants, regions,
+            Monitor(settings ?? Configured()),
+            Monitor(new PermissionEnforcementSettings { IsEnforcing = enforcing }),
+            migration,
+            new MemoryCache(new MemoryCacheOptions()),
+            NullLogger<AwsSearchScopeResolver>.Instance);
+    }
+
+    private void LinkedAndEnabled()
+    {
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", "jsmith@example.com", DirectoryUserStatus.Enabled));
+        directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<string>());
+    }
+
+    [Fact]
+    public async Task NeverConfigured_IsUnrestricted()
+    {
+        // The one legitimate Unrestricted. Filtering is opt-in, and denying here would leave every
+        // installation that upgraded without setting this up unable to search anything.
+        var result = await Build(new SamlSignInSettings(), enforcing: false)
+            .ResolveAsync(Guid.NewGuid());
+
+        result.IsUnrestricted.Should().BeTrue();
+        result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+    }
+
+    [Fact]
+    public async Task EnforcingWithABlankedField_DeniesRatherThanOpening()
+    {
+        // The case this separation exists for. Clearing the signing certificate to paste a rotated
+        // one is an ordinary maintenance step, and it used to switch filtering off for as long as
+        // the box was empty -- while breaking sign-in at the same moment, so nobody was likely to
+        // be looking at search results when it happened.
+        var midRotation = Configured();
+        midRotation.IdpSigningCertificate = string.Empty;
+
+        var result = await Build(midRotation).ResolveAsync(Guid.NewGuid());
+
+        result.IsUnrestricted.Should().BeFalse();
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task EnforcingWithSettingsThatFailedToLoadEntirely_Denies()
+    {
+        // A settings load that returns defaults is indistinguishable from a wiped configuration.
+        // Enforcement is the only thing that remembers this deployment was filtering.
+        var result = await Build(new SamlSignInSettings()).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task WhenTheStartupMigrationCouldNotDetermineTheState_Denies()
+    {
+        // The migration threw, so whether this deployment was filtering is unknown. The first
+        // version of it logged and carried on with enforcement off, which turned one transient
+        // database error at boot into the entire corpus being readable.
+        var result = await Build(Configured(), enforcing: false, migrated: false)
+            .ResolveAsync(Guid.NewGuid());
+
+        result.IsUnrestricted.Should().BeFalse();
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task AnUndeterminedMigration_DeniesEvenOnAnUnconfiguredDeployment()
+    {
+        // Cannot be distinguished from a deployment that was filtering, so it is treated as one.
+        var result = await Build(new SamlSignInSettings(), enforcing: false, migrated: false)
+            .ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task ConfiguredButNotEnforcing_IsUnrestricted()
+    {
+        // An administrator who deliberately stopped enforcing. The settings are still complete, so
+        // configuration alone must not put filtering back.
+        var result = await Build(Configured(), enforcing: false).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+    }
+
+    [Fact]
+    public async Task DirectoryUserOfUnknownStatus_IsRefused()
+    {
+        // DescribeUser does not populate UserStatus for every identity source, and absent used to
+        // be read as enabled. Because the stored link never expires and Connapse holds no
+        // credential that lapses, that made a missing optional attribute into a deprovisioned
+        // person keeping their grants forever.
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Unknown));
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+        result.IsUnrestricted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NoUser_IsNoPrincipal_NotUnrestricted()
+    {
+        var result = await Build().ResolveAsync(null);
+
+        result.IsUnrestricted.Should().BeFalse();
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+    }
+
+    [Fact]
+    public async Task NoLinkedIdentity_IsNoPrincipal()
+    {
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns((string?)null);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+        result.IsUnrestricted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DeletedDirectoryUser_IsRefused()
+    {
+        // Revocation is detected rather than awaited: no credential remains to expire, so this call
+        // noticing is the only thing that stops a deprovisioned person searching.
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns((DirectoryUser?)null);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+    }
+
+    [Fact]
+    public async Task DisabledDirectoryUser_IsRefused()
+    {
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Disabled));
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+    }
+
+    [Fact]
+    public async Task WhenAwsThrows_FailsClosed()
+    {
+        // The single most important test here. An AWS outage, a missing permission or a throttle
+        // must never widen a search — Failed and Unrestricted are opposites.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyList<AccessGrantRecord>>>(_ => throw new InvalidOperationException("boom"));
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+        result.IsUnrestricted.Should().BeFalse();
+        result.IsEmpty.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task NoGrants_IsNoGrants_NotUnrestricted()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoGrants);
+        result.IsUnrestricted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DirectGrants_BecomePrefixes()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(
+                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, "READ")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.Granted);
+        result.Matches.Should().ContainSingle()
+            .Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Fact]
+    public async Task GrantsInASecondRegion_AreFound()
+    {
+        // A grant is created against the Access Grants instance in the bucket's region, so a
+        // deployment with data in two regions keeps its grants in two instances. Asking only one
+        // hid documents the person was granted, with nothing anywhere to notice.
+        LinkedAndEnabled();
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null, "READ")]);
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://east-bucket/*", false, null, "READ")]);
+
+        var result = await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.Granted);
+        result.Matches.Select(m => m.Value)
+            .Should().BeEquivalentTo(["s3://west-bucket/", "s3://east-bucket/"]);
+    }
+
+    [Fact]
+    public async Task OneRegionFailing_DeniesRatherThanReturningTheRest()
+    {
+        // A partial answer looks exactly like a complete one. Returning what succeeded would show
+        // somebody a short result set with no indication that a region was missing -- which is the
+        // failure this whole feature exists to prevent, arrived at from the other direction.
+        LinkedAndEnabled();
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null, "READ")]);
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<AccessGrantRecord>>(_ => throw new InvalidOperationException("throttled"));
+
+        var result = await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+        result.Matches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EveryRegionIsAskedForEveryGrantee()
+    {
+        // Two regions and a group membership means four questions. Getting the loop nesting wrong
+        // would drop the group's grants in one region only, which is invisible until somebody in
+        // that group searches for something in that bucket.
+        LinkedAndEnabled();
+        directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new[] { "group-1" });
+
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
+
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => !g.IsGroup), "us-west-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => !g.IsGroup), "us-east-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => g.IsGroup), "us-west-1", Arg.Any<CancellationToken>());
+        await grants.Received(1).ListForGranteeAsync(
+            Arg.Is<AccessGrantee>(g => g.IsGroup), "us-east-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GroupHeldGrants_AreIncluded()
+    {
+        // ListAccessGrants matches the grant record literally and does not expand membership, so a
+        // grant made to a group is invisible when asking about one of its members. Missing this
+        // would look like a permissions bug in AWS rather than an omission here.
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Enabled));
+        directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new[] { "group-1" });
+
+        grants.ListForGranteeAsync(
+                Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+        grants.ListForGranteeAsync(
+                Arg.Is<AccessGrantee>(g => g.IsGroup && g.Id == "group-1"), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://shared/*", false, null, "READ")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle()
+            .Which.Value.Should().Be("s3://shared/");
+    }
+
+    [Fact]
+    public async Task GrantBoundToAnotherApplication_IsNotHonoured()
+    {
+        // Connapse presents no application identity, so AWS would refuse this grant anywhere it
+        // was actually exercised. Showing the documents anyway would be a disclosure that looks
+        // like a correctly configured grant.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([
+                new AccessGrantRecord("s3://acme/team/*", false,
+                    "arn:aws:sso::1:application/ssoins-1/apl-other", "READ"),
+                new AccessGrantRecord("s3://acme/open/*", false, "ALL", "READ"),
+            ]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle()
+            .Which.Value.Should().Be("s3://acme/open/");
+    }
+
+    [Fact]
+    public async Task WriteOnlyGrant_IsNotPermissionToRead()
+    {
+        // A write-only grant on a prefix people upload into is an ordinary thing to author. Reading
+        // it as permission to search would show somebody the contents of a location AWS lets them
+        // add to and nothing else -- a disclosure that looks like a correctly configured grant.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/uploads/*", false, null, "WRITE")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoGrants);
+        result.Matches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadWriteGrant_IsHonoured()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, "READWRITE")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle().Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("SOMETHING_AWS_ADDED_LATER")]
+    public async Task GrantWithAPermissionThisDoesNotUnderstand_Denies(string? permission)
+    {
+        // AWS always populates this field, so an absent or unfamiliar value means the response was
+        // not what this understands. Guessing in the permissive direction is how a write-only grant
+        // becomes a disclosure.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, permission)]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoGrants);
+    }
+
+    [Fact]
+    public async Task WriteOnlyAndReadGrants_KeepOnlyTheReadable()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([
+                new AccessGrantRecord("s3://acme/uploads/*", false, null, "WRITE"),
+                new AccessGrantRecord("s3://acme/team/*", false, null, "read"),
+            ]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle().Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Fact]
+    public async Task ObjectGrant_MatchesExactly()
+    {
+        // No trailing asterisk, so it names one object. AWS never reports S3PrefixType back, and
+        // treating this as a prefix would also admit "report.pdf.bak".
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/report.pdf", true, null, "READ")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        var match = result.Matches.Should().ContainSingle().Subject;
+        match.Value.Should().Be("s3://acme/report.pdf");
+        match.IsExact.Should().BeTrue();
+    }
+}

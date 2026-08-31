@@ -1,6 +1,28 @@
-<Project>
+﻿<Project>
   <ItemGroup>
     <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <!--
+    Test projects only, and deliberately not the shipping ones.
+
+    ITfoxtec.Identity.Saml2 asks for System.Security.Cryptography.Xml 10.0.7, which carries five
+    high-severity advisories. The applications never resolve it: the ASP.NET Core shared framework
+    supersedes that package, so Connapse.Web's dependency graph has no entry for it and the
+    published output ships no copy — the assembly comes from whatever runtime the container has.
+    A test assembly is a plain library with no shared framework behind it, so there the package
+    materialises for real, at 10.0.7, and NU1903 fires on every build.
+
+    Pinned here rather than in each test project because the reason is the same for all of them,
+    and at the version Connapse.Storage already pins for its own copy, so the repository carries
+    one number instead of two. Do NOT add this to a project under src/: a direct reference would
+    make an application ship its own copy of an assembly the framework already supplies, which is
+    a copy somebody then has to keep patched.
+
+    Remove once ITfoxtec.Identity.Saml2 asks for a patched version.
+  -->
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" />
   </ItemGroup>
 
   <PropertyGroup>

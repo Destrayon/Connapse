@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,9 +20,10 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     private static readonly Dictionary<string, string> CategoryPrefixMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["security"] = "Identity:Jwt",
-        ["awssso"] = "Identity:AwsSso",
         ["azuread"] = "Identity:AzureAd",
-        ["cognito"] = "Identity:Cognito",
+        ["samlsignin"] = "Identity:SamlSignIn",
+        ["identitycenter"] = "Identity:IdentityCenter",
+        ["permissionenforcement"] = "Identity:PermissionEnforcement",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)

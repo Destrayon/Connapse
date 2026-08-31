@@ -380,8 +380,8 @@ public class ConnectionFormTests
     // ── Connect this computer ──────────────────────────────────────────────
 
     private static SftpHostSetupResult Reported(
-        string user = "Diviel",
-        string home = "/C:/Users/Diviel",
+        string user = "jsmith",
+        string home = "/C:/Users/jsmith",
         string fingerprint = "SHA256:hostkey") => new(user, home, fingerprint);
 
     private const string GeneratedKey = "-----BEGIN RSA PRIVATE KEY-----\ngenerated\n";
@@ -409,12 +409,12 @@ public class ConnectionFormTests
             Reported(), "host.docker.internal", "Documents", GeneratedKey);
 
         form.Provider.Should().Be(ConnectionProvider.Sftp);
-        form.Username.Should().Be("Diviel");
+        form.Username.Should().Be("jsmith");
         form.Host.Should().Be("host.docker.internal");
         form.Port.Should().Be("22");
         form.HostKeyFingerprint.Should().Be("SHA256:hostkey");
         form.PrivateKey.Should().Be(GeneratedKey);
-        form.Name.Should().Be("Diviel@host.docker.internal");
+        form.Name.Should().Be("jsmith@host.docker.internal");
     }
 
     /// <summary>
@@ -436,7 +436,7 @@ public class ConnectionFormTests
     public void ForGuidedSetup_NoFolderChosen_UsesTheHomeDirectory(string? root)
     {
         ConnectionForm.ForGuidedSetup(Reported(), "h", root, GeneratedKey)
-            .AllowedRoot.Should().Be("/C:/Users/Diviel");
+            .AllowedRoot.Should().Be("/C:/Users/jsmith");
     }
 
     /// <summary>
@@ -446,7 +446,7 @@ public class ConnectionFormTests
     [Theory]
     [InlineData(@"D:\CodeProjects", "/D:/CodeProjects")]
     [InlineData("D:/CodeProjects", "/D:/CodeProjects")]
-    [InlineData(@"C:\Users\Diviel\Documents", "/C:/Users/Diviel/Documents")]
+    [InlineData(@"C:\Users\jsmith\Documents", "/C:/Users/jsmith/Documents")]
     public void NormaliseRemoteRoot_ConvertsAWindowsPathFromExplorer(string entered, string expected)
     {
         ConnectionForm.NormaliseRemoteRoot(entered, "/fallback").Should().Be(expected);
@@ -476,7 +476,7 @@ public class ConnectionFormTests
     [InlineData("/", true)]
     [InlineData("/D:", true)]
     [InlineData("/D:/", true)]
-    [InlineData("/C:/Users/Diviel", false)]
+    [InlineData("/C:/Users/jsmith", false)]
     [InlineData("/D:/CodeProjects", false)]
     [InlineData("/home/me", false)]
     [InlineData(null, false)]

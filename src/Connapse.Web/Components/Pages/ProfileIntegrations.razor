@@ -8,12 +8,13 @@
 @using Microsoft.Extensions.Options
 @inject ICloudIdentityService CloudIdentityService
 @inject IAwsIdentityLinkService AwsIdentityLinkService
-@inject IOptionsMonitor<CognitoSettings> CognitoOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
+@inject EnforcementMigration Migration
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
 @rendermode InteractiveServer
-@implements IDisposable
 
 <PageTitle>Integrations - Connapse</PageTitle>
 
@@ -38,153 +39,46 @@
         <h2 class="h5 mb-0">Cloud Identities</h2>
     </div>
     <p class="text-muted small mb-4">
-        Link your cloud accounts so Connapse knows who you are in AWS or Azure. The AWS and Azure
-        sign-in cards below store identity metadata only — no access keys or tokens — and linking
-        does not grant Connapse access to your storage. The AWS Permissions card is different:
-        connecting it stores an encrypted refresh token so Connapse can check your AWS permissions
-        on your behalf.
+        Link your cloud account so Connapse knows who you are. Both cards below store identity
+        metadata only — no access keys, no tokens — and linking does not grant Connapse access to
+        your storage. Connecting AWS records which IAM Identity Center user you are, so that what
+        you may read can be looked up later; nothing that could act as you is kept.
         <br />
-        <strong>Linking does not yet filter your search results.</strong> Per-user search
-        permissions are not implemented, so every Connapse user can currently search everything
-        indexed, whether or not an account is linked. See issue #421.
+        @* What linking actually does here depends on whether this deployment enforces per-user
+           permissions, and saying the wrong one of these is worse than saying nothing: telling
+           somebody their results are unfiltered when they are filtered sends them hunting for a
+           bug, and the reverse tells them they are protected when they are not. *@
+        @switch (awsEnforcement)
+        {
+            case EnforcementState.Enforcing:
+                <strong>Your search results are filtered to what you may read.</strong>
+                <text>
+                    Once your AWS account is linked, searches return only documents covered by an
+                    S3 access grant held by you or a group you belong to. Removing a grant, or
+                    disabling you in the directory, takes effect within a minute.
+                </text>
+                break;
+
+            case EnforcementState.EnforcingButUnusable:
+                <strong>Per-user permissions are enabled but cannot be applied.</strong>
+                <text>
+                    Searches are being refused rather than answered without filtering. An
+                    administrator needs to finish the AWS sign-in settings under Providers.
+                </text>
+                break;
+
+            default:
+                <strong>Linking does not filter your search results on this deployment.</strong>
+                <text>
+                    Per-user search permissions have not been set up, so every Connapse user can
+                    search everything indexed, whether or not an account is linked. An
+                    administrator turns this on under Providers.
+                </text>
+                break;
+        }
     </p>
 
     <div class="row g-3">
-        <!-- AWS Card -->
-        <div class="col-md-6">
-            <div class="card h-100 provider-card @(awsIdentity is not null ? "provider-connected" : "")"
-                 style="--provider-color: #f59e0b;">
-                <div class="card-body p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
-                             style="width: 40px; height: 40px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25);">
-                            <span class="bi-cloud" style="font-size: 1.1rem; color: #f59e0b;"></span>
-                        </div>
-                        <div class="ms-3 flex-grow-1">
-                            <strong>Amazon Web Services (Sign-In)</strong>
-                        </div>
-                        @if (awsIdentity is not null)
-                        {
-                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
-                                <span class="bi-check-circle-fill me-1"></span>Connected
-                            </span>
-                        }
-                    </div>
-
-                    @if (!awsSsoConfigured)
-                    {
-                        <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
-                            <small class="d-flex align-items-start" style="color: #fbbf24;">
-                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>AWS SSO is not configured. An admin must set the IAM Identity Center Issuer URL and Region in settings.</span>
-                            </small>
-                        </div>
-                    }
-                    else if (awsDeviceAuth is not null)
-                    {
-                        <!-- Device Authorization in progress -->
-                        <div class="rounded-3 p-3 mb-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
-                            <p class="small mb-2">Open the link below and enter this code:</p>
-                            <div class="d-flex align-items-center justify-content-center mb-2">
-                                <code style="font-size: 1.4rem; letter-spacing: 0.15em; padding: 0.5rem 1rem; background: var(--shadow-sm); border-radius: 0.5rem;">
-                                    @awsDeviceAuth.UserCode
-                                </code>
-                            </div>
-                            <div class="text-center">
-                                <a href="@awsDeviceAuth.VerificationUriComplete" target="_blank" rel="noopener noreferrer" class="small">
-                                    <span class="bi-box-arrow-up-right me-1"></span>Open AWS Sign-in
-                                </a>
-                            </div>
-                            <div class="text-center mt-2">
-                                <small class="text-muted">
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                    Waiting for authentication...
-                                </small>
-                            </div>
-                        </div>
-                    }
-                    else if (awsIdentity is not null)
-                    {
-                        <div class="d-flex flex-column gap-2 mb-3">
-                            @if (!string.IsNullOrEmpty(awsIdentity.Data.DisplayName))
-                            {
-                                <div>
-                                    <small class="text-muted d-block">Display Name</small>
-                                    <span class="small">@awsIdentity.Data.DisplayName</span>
-                                </div>
-                            }
-                            <div>
-                                <small class="text-muted d-block">Account ID</small>
-                                <span class="font-monospace small">@(awsIdentity.Data.AccountId ?? "—")</span>
-                            </div>
-                            <div>
-                                <small class="text-muted d-block">AWS Accounts</small>
-                                <span class="font-monospace small text-break">@(awsIdentity.Data.PrincipalArn ?? "—")</span>
-                            </div>
-                            <div class="d-flex gap-4">
-                                <div>
-                                    <small class="text-muted d-block">Connected</small>
-                                    <small>@awsIdentity.CreatedAt.ToString("MMM dd, yyyy")</small>
-                                </div>
-                                @if (awsIdentity.LastUsedAt is not null)
-                                {
-                                    <div>
-                                        <small class="text-muted d-block">Last used</small>
-                                        <small>@awsIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted small mb-0">
-                            Sign in with AWS IAM Identity Center to record which AWS accounts your
-                            SSO identity covers. Connapse stores this for future per-user search
-                            filtering; nothing filters on it today.
-                        </p>
-                    }
-                </div>
-                @if (awsSsoConfigured)
-                {
-                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                        @if (awsDeviceAuth is not null)
-                        {
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="CancelAwsDeviceAuth">
-                                Cancel
-                            </button>
-                        }
-                        else if (awsIdentity is not null)
-                        {
-                            @if (confirmDisconnectProvider == CloudProvider.AWS)
-                            {
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm btn-danger" @onclick="() => DisconnectAsync(CloudProvider.AWS)" disabled="@isProcessing">
-                                        Confirm Disconnect
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectProvider = null">
-                                        Cancel
-                                    </button>
-                                </div>
-                            }
-                            else
-                            {
-                                <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectProvider = CloudProvider.AWS" disabled="@isProcessing">
-                                    <span class="bi-x-circle me-1"></span>Disconnect
-                                </button>
-                            }
-                        }
-                        else
-                        {
-                            <button class="btn btn-sm btn-primary" @onclick="StartAwsDeviceAuthAsync" disabled="@isProcessing">
-                                <span class="bi-link-45deg me-1"></span>Sign in with AWS
-                            </button>
-                        }
-                    </div>
-                }
-            </div>
-        </div>
-
         <!-- Azure Card -->
         <div class="col-md-6">
             <div class="card h-100 provider-card @(azureIdentity is not null ? "provider-connected" : "")"
@@ -287,9 +181,9 @@
             </div>
         </div>
 
-        <!-- AWS Permissions Identity Card (Cognito) -->
+        <!-- AWS Permissions Identity Card -->
         <div class="col-md-6">
-            <div class="card h-100 provider-card @(cognitoIdentity is not null ? "provider-connected" : "")"
+            <div class="card h-100 provider-card @(awsIdentity is not null ? "provider-connected" : "")"
                  style="--provider-color: #f59e0b;">
                 <div class="card-body p-4">
                     <div class="d-flex align-items-center mb-3">
@@ -300,7 +194,7 @@
                         <div class="ms-3 flex-grow-1">
                             <strong>Amazon Web Services (Permissions)</strong>
                         </div>
-                        @if (cognitoIdentity is not null)
+                        @if (awsIdentity is not null)
                         {
                             <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
                                 <span class="bi-check-circle-fill me-1"></span>Connected
@@ -308,32 +202,47 @@
                         }
                     </div>
 
-                    @if (!cognitoConfigured)
+                    @if (!awsSignInConfigured)
                     {
                         <div class="rounded-3 p-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
                             <small class="d-flex align-items-start" style="color: #fbbf24;">
                                 <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>Amazon Cognito is not configured. An administrator must set up the pool under Settings before anyone can connect.</span>
+                                <span>AWS permissions are not set up yet. An administrator configures this under Providers &rarr; Amazon Web Services before anyone can connect.</span>
                             </small>
                         </div>
                     }
-                    else if (cognitoIdentity is not null)
+                    else if (awsIdentity is not null)
                     {
                         <div class="d-flex flex-column gap-2 mb-3">
                             <div>
                                 <small class="text-muted d-block">Connected as</small>
-                                <span class="small">@cognitoIdentity.Email</span>
+                                @if (!string.IsNullOrWhiteSpace(awsIdentity.DirectoryUserName))
+                                {
+                                    <span class="small">@awsIdentity.DirectoryUserName</span>
+                                    @if (!string.IsNullOrWhiteSpace(awsIdentity.Email))
+                                    {
+                                        <span class="small text-muted"> &middot; @awsIdentity.Email</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="small text-warning">
+                                        Connected before this deployment recorded directory user
+                                        names. Disconnect and connect again, or permissions will not
+                                        resolve.
+                                    </span>
+                                }
                             </div>
                             <div class="d-flex gap-4">
                                 <div>
                                     <small class="text-muted d-block">Connected</small>
-                                    <small>@cognitoIdentity.ConnectedAt.ToString("MMM dd, yyyy")</small>
+                                    <small>@awsIdentity.ConnectedAt.ToString("MMM dd, yyyy")</small>
                                 </div>
-                                @if (cognitoIdentity.LastUsedAt is not null)
+                                @if (awsIdentity.LastUsedAt is not null)
                                 {
                                     <div>
                                         <small class="text-muted d-block">Last used</small>
-                                        <small>@cognitoIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
+                                        <small>@awsIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
                                     </div>
                                 }
                             </div>
@@ -341,47 +250,55 @@
                     }
                     else
                     {
-                        <p class="text-muted small mb-0">
+                        <p class="text-muted small mb-2">
                             Separate from the AWS sign-in card above, which carries no permission
                             information. Connecting here lets Connapse check your AWS permissions
                             once per-user search filtering is switched on — it does not filter your
                             search results today.
                         </p>
+                        @* There is no longer anything between Connapse and the directory to
+                           name: the sign-in goes straight to Identity Center. *@
+                        <p class="text-muted small mb-0">
+                            <span class="bi-box-arrow-up-right me-1"></span>
+                            You sign in at <strong>AWS IAM Identity Center</strong> with the
+                            credentials and multi-factor you already use — not in Connapse, which
+                            never sees what you type there.
+                        </p>
                     }
                 </div>
-                @if (cognitoIdentity is not null)
+                @if (awsIdentity is not null)
                 {
-                    <!-- Always reachable, even if an admin cleared the pool settings after this user
-                         connected: disconnecting must never depend on cognitoConfigured, or a
-                         connected user's row (and its live refresh token) becomes unremovable
-                         through any surface. AwsIdentityLinkService.DisconnectAsync already
-                         handles the not-configured case — it deletes the local row and reports
-                         that AWS could not be told, rather than failing outright. -->
+                    <!-- Always reachable, even if an admin cleared the AWS sign-in settings after
+                         this user connected: disconnecting must never depend on
+                         awsSignInConfigured, or a connected row becomes unremovable through any
+                         surface. Nothing about the removal needs AWS to be reachable — the row is
+                         local and holds no credential — so there is no not-configured case left to
+                         handle. -->
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                        @if (confirmDisconnectCognito)
+                        @if (confirmDisconnectAws)
                         {
                             <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-danger" @onclick="DisconnectCognitoAsync" disabled="@isProcessing">
+                                <button class="btn btn-sm btn-danger" @onclick="DisconnectAwsAsync" disabled="@isProcessing">
                                     Confirm Disconnect
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectCognito = false">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectAws = false">
                                     Cancel
                                 </button>
                             </div>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectCognito = true" disabled="@isProcessing">
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectAws = true" disabled="@isProcessing">
                                 <span class="bi-x-circle me-1"></span>Disconnect
                             </button>
                         }
                     </div>
                 }
-                else if (cognitoConfigured)
+                else if (awsSignInConfigured)
                 {
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                        <button class="btn btn-sm btn-primary" @onclick="ConnectCognitoAsync" disabled="@isProcessing">
-                            <span class="bi-link-45deg me-1"></span>Connect AWS Permissions
+                        <button class="btn btn-sm btn-primary" @onclick="ConnectAwsAsync" disabled="@isProcessing">
+                            <span class="bi-box-arrow-up-right me-1"></span>Continue to AWS sign-in
                         </button>
                     </div>
                 }
@@ -397,19 +314,17 @@
     private bool statusSuccess;
     private CloudProvider? confirmDisconnectProvider;
 
-    private CloudIdentityDto? awsIdentity;
     private CloudIdentityDto? azureIdentity;
-    private bool awsSsoConfigured;
     private bool azureAdConfigured;
 
-    // AWS permissions identity (Cognito) — a separate link from awsIdentity above.
-    private AwsIdentityLinkDto? cognitoIdentity;
-    private bool cognitoConfigured;
-    private bool confirmDisconnectCognito;
 
-    // Device auth flow state
-    private AwsDeviceAuthStartResult? awsDeviceAuth;
-    private CancellationTokenSource? pollCts;
+    // AWS permissions identity — a separate link from the Azure card above.
+    private AwsIdentityLinkDto? awsIdentity;
+    private bool awsSignInConfigured;
+
+    /// <summary>Whether this deployment filters search results, and whether it currently can.</summary>
+    private EnforcementState awsEnforcement;
+    private bool confirmDisconnectAws;
 
     protected override async Task OnInitializedAsync()
     {
@@ -420,11 +335,12 @@
         if (userIdStr is not null)
             Guid.TryParse(userIdStr, out currentUserId);
 
-        awsSsoConfigured = CloudIdentityService.IsAwsSsoConfigured();
         azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
-        cognitoConfigured = CognitoOptions.CurrentValue.IsConfigured;
+        awsSignInConfigured = SamlOptions.CurrentValue.IsConfigured;
+        awsEnforcement = EnforcementOptions.CurrentValue.StateFor(
+            SamlOptions.CurrentValue, Migration.Determined);
 
-        ApplyCognitoErrorFromQuery();
+        ApplyAwsErrorFromQuery();
 
         await LoadIdentitiesAsync();
     }
@@ -432,14 +348,13 @@
     private async Task LoadIdentitiesAsync()
     {
         var identities = await CloudIdentityService.ListAsync(currentUserId);
-        awsIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.AWS);
         azureIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.Azure);
-        cognitoIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
+        awsIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
     }
 
-    // The Cognito callback redirects here with ?error=cognito_<reason> when a connection attempt
-    // failed. A silent, unchanged page would leave the user guessing whether anything happened.
-    private void ApplyCognitoErrorFromQuery()
+    // The assertion consumer redirects here with ?error=aws_<reason> when a sign-in failed. A
+    // silent, unchanged page would leave the user guessing whether anything happened.
+    private void ApplyAwsErrorFromQuery()
     {
         var uri = new Uri(Navigation.Uri);
         var query = QueryHelpers.ParseQuery(uri.Query);
@@ -447,19 +362,33 @@
             return;
 
         var error = errorValues.ToString();
-        if (!error.StartsWith("cognito_", StringComparison.Ordinal))
+        if (!error.StartsWith("aws_", StringComparison.Ordinal))
             return;
 
-        var reason = error["cognito_".Length..];
+        // One message per reason the assertion consumer can refuse. Several of these are the same
+        // sentence to a person and different to whoever investigates, which is the point: the
+        // difference between an expired assertion and a forged one matters to an administrator.
+        var reason = error["aws_".Length..];
         statusMessage = reason switch
         {
-            "exchange_failed" => "Could not connect your AWS identity: the token exchange with Cognito failed.",
-            "token_invalid" => "Could not connect your AWS identity: Cognito returned a token that could not be verified.",
-            "nonce_mismatch" => "Could not connect your AWS identity: the response did not match the request that started it. Please try again.",
-            "user_mismatch" => "Could not connect your AWS identity: you were signed in as a different user by the time AWS responded. Please try again.",
-            "email_not_verified" => "Could not connect your AWS identity: AWS reports your email address is not verified.",
-            "user_cancelled" => "AWS sign-in was cancelled.",
-            "provider_error" => "Could not connect your AWS identity: Cognito reported a problem with the request.",
+            "not_configured" => "Could not connect your AWS identity: AWS sign-in is not set up yet. An administrator sets it up under Providers.",
+            "unknown_request" => "Could not connect your AWS identity: the sign-in did not match the one that started it, or it took too long. Please try again.",
+            "response_missing" or "response_malformed" => "Could not connect your AWS identity: AWS sent something Connapse could not read.",
+            "signature_invalid" => "Could not connect your AWS identity: the response from AWS could not be verified. An administrator may need to paste the current signing certificate.",
+            "configuration_invalid" => "Could not connect your AWS identity: the stored AWS sign-in settings are unusable. An administrator needs to check them.",
+            "status_not_success" => "AWS did not complete the sign-in.",
+            "issuer_mismatch" => "Could not connect your AWS identity: the response came from a different directory than the one Connapse is set up for.",
+            "destination_mismatch" => "Could not connect your AWS identity: the response was addressed elsewhere. Connapse's address may have changed without the AWS application being updated.",
+            "assertion_not_yet_valid" or "assertion_expired" => "Could not connect your AWS identity: the response from AWS was outside its validity window. Check the clock on the Connapse server, then try again.",
+            "assertion_replayed" => "Could not connect your AWS identity: that sign-in had already been used. Please start again.",
+            "response_unsolicited" => "Could not connect your AWS identity: AWS sent a response to a different sign-in than the one you started. Please try again.",
+            // Not phrased as an accusation. The ordinary way to reach this is finishing a sign-in
+            // in a browser signed in as somebody else, which is a mistake far more often than it
+            // is an attack — and the person reading it is whoever finished the sign-in, who in the
+            // attack is the victim rather than the attacker.
+            "wrong_user" => "Could not connect your AWS identity: that sign-in was started by a different Connapse account. Sign in as the account you want to connect, then start again.",
+            "assertion_id_missing" => "Could not connect your AWS identity: AWS sent a response Connapse cannot safely accept.",
+            "no_directory_user" => "Could not connect your AWS identity: AWS did not say which directory user you are. An administrator needs to map the Subject attribute in IAM Identity Center.",
             _ => "Could not connect your AWS identity. Please try again.",
         };
         statusSuccess = false;
@@ -470,23 +399,23 @@
         Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
     }
 
-    private void ConnectCognitoAsync()
+    private void ConnectAwsAsync()
     {
-        Navigation.NavigateTo("/api/v1/auth/cloud/cognito/connect", forceLoad: true);
+        Navigation.NavigateTo("/api/v1/auth/cloud/aws/connect", forceLoad: true);
     }
 
-    private async Task DisconnectCognitoAsync()
+    private async Task DisconnectAwsAsync()
     {
         isProcessing = true;
         statusMessage = null;
-        confirmDisconnectCognito = false;
+        confirmDisconnectAws = false;
         try
         {
             var result = await AwsIdentityLinkService.DisconnectAsync(currentUserId);
             if (result.LinkChangedDuringDisconnect)
             {
-                // A reconnect raced this disconnect: the token was revoked, but the row was left
-                // in place because it had already been replaced by the time the delete ran.
+                // A reconnect raced this disconnect: the row was left in place because it had
+                // already been replaced by the time the delete ran.
                 // Reload so the card reflects whatever is actually connected now.
                 statusMessage = "Your AWS identity changed while disconnecting. Please try again.";
                 statusSuccess = false;
@@ -494,18 +423,11 @@
             }
             else if (result.Deleted)
             {
-                if (result.RevokedSuccessfully)
-                {
-                    statusMessage = "AWS identity disconnected.";
-                    statusSuccess = true;
-                }
-                else
-                {
-                    // Never claim a clean success here: the row is gone locally, but the refresh
-                    // token may still be valid at AWS until it expires on its own.
-                    statusMessage = "Disconnected here, but AWS could not be told; the token stays valid until it expires.";
-                    statusSuccess = false;
-                }
+                // Nothing to qualify. The link held an attested identity rather than a credential,
+                // so removing the row is the whole of disconnecting — there is nothing left live
+                // at AWS to warn about.
+                statusMessage = "AWS identity disconnected.";
+                statusSuccess = true;
                 await LoadIdentitiesAsync();
             }
             else
@@ -524,73 +446,6 @@
         {
             isProcessing = false;
         }
-    }
-
-    private async Task StartAwsDeviceAuthAsync()
-    {
-        isProcessing = true;
-        statusMessage = null;
-        try
-        {
-            awsDeviceAuth = await CloudIdentityService.StartAwsDeviceAuthAsync();
-            _ = PollForAwsCompletionAsync(awsDeviceAuth.DeviceCode);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to start AWS device auth for user {UserId}", currentUserId);
-            statusMessage = "Failed to start AWS sign-in. Please try again.";
-            statusSuccess = false;
-            awsDeviceAuth = null;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task PollForAwsCompletionAsync(string deviceCode)
-    {
-        pollCts?.Cancel();
-        pollCts = new CancellationTokenSource();
-        var ct = pollCts.Token;
-        var interval = awsDeviceAuth?.IntervalSeconds ?? 5;
-
-        try
-        {
-            while (!ct.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(interval), ct);
-
-                var identity = await CloudIdentityService.PollAwsDeviceAuthAsync(currentUserId, deviceCode, ct);
-                if (identity is not null)
-                {
-                    awsIdentity = identity;
-                    awsDeviceAuth = null;
-                    statusMessage = "AWS identity connected successfully.";
-                    statusSuccess = true;
-                    await InvokeAsync(StateHasChanged);
-                    return;
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // User cancelled or component disposed
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "AWS device auth polling failed for user {UserId}", currentUserId);
-            awsDeviceAuth = null;
-            statusMessage = "AWS sign-in failed. Please try again.";
-            statusSuccess = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private void CancelAwsDeviceAuth()
-    {
-        pollCts?.Cancel();
-        awsDeviceAuth = null;
     }
 
     private async Task DisconnectAsync(CloudProvider provider)
@@ -623,11 +478,5 @@
         {
             isProcessing = false;
         }
-    }
-
-    public void Dispose()
-    {
-        pollCts?.Cancel();
-        pollCts?.Dispose();
     }
 }

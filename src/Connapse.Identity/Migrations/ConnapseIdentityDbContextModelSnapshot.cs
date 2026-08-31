@@ -609,6 +609,18 @@ namespace Connapse.Identity.Migrations
                         .HasColumnName("connected_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("DirectoryUserId")
+                        .IsRequired()
+                        .HasMaxLength(47)
+                        .HasColumnType("character varying(47)")
+                        .HasColumnName("directory_user_id");
+
+                    b.Property<string>("DirectoryUserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("directory_user_name");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(320)
@@ -618,11 +630,6 @@ namespace Connapse.Identity.Migrations
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_used_at");
-
-                    b.Property<string>("ProtectedRefreshToken")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("protected_refresh_token");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")

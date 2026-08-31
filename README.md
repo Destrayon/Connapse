@@ -242,7 +242,7 @@ The MCP server exposes:
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
 - **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), Amazon S3 (IAM auth), or Azure Blob Storage (managed identity). Your files stay where they are.
 - **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server for Claude. Built for humans, scripts, and AI agents equally.
-- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with AWS IAM Identity Center and Azure AD identity linking. Cloud permissions are the source of truth.
+- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with Azure AD identity linking. Per-user filtering of search results by cloud permissions is in progress, not yet enforced.
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
 <details>
@@ -251,7 +251,7 @@ The MCP server exposes:
 - **📄 Multi-Format Ingestion**: PDF, Office documents, Markdown, plain text — parsed, chunked, and embedded automatically
 - **⚡ Real-Time Processing**: Background ingestion with live progress updates via SignalR
 - **🎛️ Runtime Configuration**: Change chunking strategy, embedding model, and search settings per container without restart
-- **☁️ Cloud Identity Linking**: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE) with IAM-derived scope enforcement
+- **☁️ Cloud Identity Linking**: Azure AD (OAuth2+PKCE) identity linking. Per-user AWS permission filtering is in progress — search is not yet filtered by cloud permissions
 - **👥 Invite-Only Access**: Admin-controlled user registration with four roles (Admin / Editor / Viewer / Agent)
 - **🤖 Agent Management**: Dedicated agent entities with API key lifecycle, scoped permissions, and audit trails
 - **📋 Audit Logging**: Structured audit trail for uploads, deletes, container operations, and auth events
@@ -274,13 +274,13 @@ The MCP server exposes:
 
 **This project is in active development (v0.3.2) and approaching production-readiness.**
 
-v0.3.x adds cloud connector architecture with IAM-based access control, multi-provider embeddings and LLM support, cloud identity linking (AWS SSO + Azure AD), and rate limiting.
+v0.3.x adds cloud connector architecture, multi-provider embeddings and LLM support, Azure AD cloud identity linking, and rate limiting.
 
 - ✅ **Authentication and authorization** (v0.2.0)
 - ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
 - ✅ **Audit logging**
-- ✅ **Cloud identity linking** — AWS IAM Identity Center + Azure AD OAuth2+PKCE (v0.3.0)
-- ✅ **IAM-derived scope enforcement** — cloud permissions are source of truth (v0.3.0)
+- ✅ **Cloud identity linking** — Azure AD OAuth2+PKCE (v0.3.0)
+- ⚠️ **No per-user search filtering** — any user who can reach a container can search every document in it. Cloud permissions are not yet enforced on search; see [SECURITY.md](SECURITY.md)
 - ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
 - ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
 
@@ -343,7 +343,6 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [Architecture Guide](docs/architecture.md) - System design and component overview
 - [API Reference](docs/api.md) - REST API endpoints and examples
 - [Connectors Guide](docs/connectors.md) - Connector types, configuration, and background sync
-- [AWS SSO Setup](docs/aws-sso-setup.md) - AWS IAM Identity Center integration
 - [Azure Identity Setup](docs/azure-identity-setup.md) - Azure AD OAuth2+PKCE integration
 - [Deployment Guide](docs/deployment.md) - Docker and production setup
 - [Security Policy](SECURITY.md) - Security limitations and roadmap
@@ -375,14 +374,15 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 ### v0.3.0 — Connector Architecture (Complete)
 - ✅ 4 connector types: Managed Storage (MinIO default, provider-abstracted), Filesystem (FileSystemWatcher), Amazon S3 (IAM-only), Azure Blob Storage (managed identity)
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
-- ✅ Cloud identity linking: AWS IAM Identity Center (device auth flow) + Azure AD (OAuth2+PKCE)
-- ✅ IAM-derived scope enforcement — cloud permissions are the source of truth
+- ✅ Cloud identity linking: Azure AD (OAuth2+PKCE)
+- ↩️ AWS IAM Identity Center (device auth flow) — shipped in v0.3.0, since removed ([#435](https://github.com/Destrayon/Connapse/issues/435)): the device flow could not carry a per-user identity through to a token
+- ⚠️ IAM-derived scope enforcement — built but never wired into search ([#422](https://github.com/Destrayon/Connapse/issues/422)); cloud permissions do not filter results today
 - ✅ Multi-provider embeddings: Ollama, OpenAI, Azure OpenAI
 - ✅ Multi-provider LLM: Ollama, OpenAI, Azure OpenAI, Anthropic
 - ✅ Multi-dimension vector support with partial IVFFlat indexes per model
 - ✅ Cross-model search: automatic Semantic→Hybrid fallback for legacy vectors
 - ✅ Background sync: FileSystemWatcher for local, 5-min polling for cloud containers
-- ✅ Connection testing for all providers (Amazon S3, Azure Blob Storage, MinIO, LLM, embeddings, AWS SSO, Azure AD)
+- ✅ Connection testing for all providers (Amazon S3, Azure Blob Storage, MinIO, LLM, embeddings, Azure AD)
 - ✅ 457 passing tests (unit + integration)
 
 ### v0.3.2 — Hardening & Polish (Complete)
@@ -397,7 +397,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Docker release package on ghcr.io
 
 ### Future
-- **v0.4.0**: Communication connectors (Slack, Discord)
+- **v0.4.0**: Per-user AWS search permissions via Amazon Cognito identity linking ([#436](https://github.com/Destrayon/Connapse/issues/436)); communication connectors (Slack, Discord)
 - **v0.5.0**: Knowledge platform connectors (Notion, Confluence, GitHub)
 - **v1.0.0**: Production-ready stable release
 

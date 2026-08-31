@@ -189,8 +189,8 @@ public class SftpHostSetupTests
     // ── Parsing the result ─────────────────────────────────────────────────
 
     private static string Block(
-        string user = "Diviel",
-        string home = "/C:/Users/Diviel",
+        string user = "jsmith",
+        string home = "/C:/Users/jsmith",
         string fingerprint = "SHA256:abc123") =>
         $"""
         {SftpHostSetup.BeginMarker}
@@ -206,8 +206,8 @@ public class SftpHostSetupTests
         var result = SftpHostSetup.ParseResult(Block());
 
         result.Should().NotBeNull();
-        result!.Username.Should().Be("Diviel");
-        result.HomePath.Should().Be("/C:/Users/Diviel");
+        result!.Username.Should().Be("jsmith");
+        result.HomePath.Should().Be("/C:/Users/jsmith");
         result.Fingerprint.Should().Be("SHA256:abc123");
     }
 
@@ -219,20 +219,20 @@ public class SftpHostSetupTests
     public void ParseResult_IgnoresEverythingOutsideTheMarkers()
     {
         string messy = $"""
-        PS C:\Users\Diviel> .\setup.ps1
+        PS C:\Users\jsmith> .\setup.ps1
         Path          : C:\
         Online        : True
 
         {Block()}
 
         Copy the block above, including both marker lines, back into Connapse.
-        PS C:\Users\Diviel>
+        PS C:\Users\jsmith>
         """;
 
         var result = SftpHostSetup.ParseResult(messy);
 
         result.Should().NotBeNull();
-        result!.Username.Should().Be("Diviel");
+        result!.Username.Should().Be("jsmith");
     }
 
     /// <summary>
@@ -247,14 +247,14 @@ public class SftpHostSetupTests
         var result = SftpHostSetup.ParseResult(block);
 
         result.Should().NotBeNull();
-        result!.Username.Should().Be("Diviel");
+        result!.Username.Should().Be("jsmith");
     }
 
     [Fact]
     public void ParseResult_ToleratesCarriageReturns()
     {
         SftpHostSetup.ParseResult(Block().Replace("\n", "\r\n"))!
-            .Username.Should().Be("Diviel");
+            .Username.Should().Be("jsmith");
     }
 
     /// <summary>
@@ -320,7 +320,7 @@ public class SftpHostSetupTests
     [Fact]
     public void ParseResult_WindowsHomePath_KeepsItsLeadingSlash()
     {
-        SftpHostSetup.ParseResult(Block(home: "/C:/Users/Diviel"))!
+        SftpHostSetup.ParseResult(Block(home: "/C:/Users/jsmith"))!
             .HomePath.Should().StartWith("/C:/");
     }
     // ── The installed key is restricted (Codex review on #405) ─────────────
@@ -383,8 +383,8 @@ public class SftpHostSetupTests
     {
         string block = $"""
         {SftpHostSetup.BeginMarker}
-        user=Diviel
-        home=/C:/Users/Diviel
+        user=jsmith
+        home=/C:/Users/jsmith
         fingerprint=
         {SftpHostSetup.EndMarker}
         """;
@@ -392,7 +392,7 @@ public class SftpHostSetupTests
         var result = SftpHostSetup.ParseResult(block);
 
         result.Should().NotBeNull();
-        result!.Username.Should().Be("Diviel");
+        result!.Username.Should().Be("jsmith");
         result.Fingerprint.Should().BeEmpty("blank means trust on first use, which is defined behaviour");
     }
 
@@ -401,8 +401,8 @@ public class SftpHostSetupTests
     {
         string block = $"""
         {SftpHostSetup.BeginMarker}
-        user=Diviel
-        home=/C:/Users/Diviel
+        user=jsmith
+        home=/C:/Users/jsmith
         {SftpHostSetup.EndMarker}
         """;
 
@@ -421,8 +421,8 @@ public class SftpHostSetupTests
         string block = string.Join('\n',
             $"""
             {SftpHostSetup.BeginMarker}
-            user=Diviel
-            home=/C:/Users/Diviel
+            user=jsmith
+            home=/C:/Users/jsmith
             fingerprint=SHA256:abc
             {SftpHostSetup.EndMarker}
             """.Split('\n').Where(l => !l.TrimStart().StartsWith(omit + "=")));
@@ -616,17 +616,17 @@ public class SftpHostSetupTests
         // container has none. So it stays in the list, at the bottom.
         string block = $"""
             {SftpHostSetup.BeginMarker}
-            user=diviel
-            home=/home/diviel
+            user=jsmith
+            home=/home/jsmith
             fingerprint=SHA256:abc
-            host=divielserver
-            fqdn=divielserver.attlocal.net
+            host=jsmithserver
+            fqdn=jsmithserver.attlocal.net
             addresses=192.168.1.194
             {SftpHostSetup.EndMarker}
             """;
 
         SftpHostSetup.ParseResult(block)!.Addresses
-            .Should().Equal("divielserver.attlocal.net", "192.168.1.194", "divielserver");
+            .Should().Equal("jsmithserver.attlocal.net", "192.168.1.194", "jsmithserver");
     }
 
     [Fact]
@@ -635,8 +635,8 @@ public class SftpHostSetupTests
         // hostname -f falls back to the short name on a host with no domain configured.
         string block = $"""
             {SftpHostSetup.BeginMarker}
-            user=diviel
-            home=/home/diviel
+            user=jsmith
+            home=/home/jsmith
             fingerprint=SHA256:abc
             host=fileserver
             fqdn=fileserver
@@ -654,8 +654,8 @@ public class SftpHostSetupTests
         // no resolver at all, where the short name needs one that appends a search suffix.
         string block = $"""
             {SftpHostSetup.BeginMarker}
-            user=diviel
-            home=/home/diviel
+            user=jsmith
+            home=/home/jsmith
             fingerprint=SHA256:abc
             host=fileserver
             addresses=192.168.1.50,10.8.0.3
@@ -671,8 +671,8 @@ public class SftpHostSetupTests
     {
         string block = $"""
             {SftpHostSetup.BeginMarker}
-            user=diviel
-            home=/home/diviel
+            user=jsmith
+            home=/home/jsmith
             fingerprint=SHA256:abc
             host=192.168.1.50
             addresses=192.168.1.50,10.8.0.3
@@ -690,8 +690,8 @@ public class SftpHostSetupTests
         // is already configured — the same trap the optional fingerprint avoids.
         string block = $"""
             {SftpHostSetup.BeginMarker}
-            user=diviel
-            home=/home/diviel
+            user=jsmith
+            home=/home/jsmith
             fingerprint=SHA256:abc
             {SftpHostSetup.EndMarker}
             """;

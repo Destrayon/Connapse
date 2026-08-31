@@ -11,11 +11,18 @@
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
-@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
+@inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject IAwsIdentityLinkReader AwsIdentityLinks
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 @*
@@ -75,7 +82,7 @@
                                 <div class="fw-semibold">@provider.DisplayName</div>
                                 <div class="small text-muted">@Summarise(provider)</div>
                             </div>
-                            <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <span class="badge @BadgeClass(provider.Overall)">@ProviderLabel(provider.Overall)</span>
                             <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
                         </a>
                     }
@@ -140,7 +147,7 @@
                             <div class="d-flex align-items-center gap-2 mb-1">
                                 <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
                                 <strong>@requirement.Name</strong>
-                                <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
+                                <span class="badge @BadgeClass(requirement.Status)">@RequirementLabel(requirement.Status)</span>
                             </div>
                             <div class="form-text mb-2">@requirement.Description</div>
 
@@ -334,32 +341,595 @@
                         <div class="mt-2">
                             <button type="button" class="btn btn-sm btn-outline-secondary"
                                     @onclick="() => showSetup = true">
-                                <span class="bi-arrow-repeat me-1"></span> Replace this identity
+                                <span class="bi-arrow-repeat me-1"></span> Update or replace
                             </button>
+                            @* Two outcomes from one script, and which one you get depends on the
+                               name. Worth spelling out: an administrator whose per-user permissions
+                               fail with AccessDenied needs the first, and would not guess that a
+                               button reading "replace" is what gives it to them. *@
                             <div class="form-text">
-                                Creates a second IAM user and switches to it. Delete the old one in
-                                AWS afterwards — nothing here can, and nothing here should.
+                                Run it with the same name to bring the permissions up to date —
+                                that is how actions added in a later version reach an identity
+                                created by an earlier one, and it leaves the access key alone, so
+                                nothing has to be pasted back.
+                                <span class="d-block mt-1">
+                                    Give it a different name and it creates a second IAM user and
+                                    switches to it. Delete the old one in AWS afterwards — nothing
+                                    here can, and nothing here should.
+                                </span>
                             </div>
                         </div>
                     }
                 </div>
             </div>
-        }
 
-        <h2 class="h5" id="signin">Sign-in</h2>
-        <p class="text-muted small">
-            Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
-            search results are scoped against.
-        </p>
+            <h2 class="h5" id="identity-center">IAM Identity Center</h2>
+            <p class="text-muted small">
+                The directory a person is resolved into when Connapse checks what they may read.
+                This step only finds it — nothing here creates or changes anything in AWS.
+                <br />
+                Worth doing first because of one field: Identity Center lives in exactly one region
+                per organisation, nothing else you have tells you which, and the setup below looks
+                in whichever region CloudShell happened to open in.
+            </p>
+
+            @if (IdentityCentre is { IsConfigured: true } && !showIdentityCenterScan)
+            {
+                <div class="border rounded p-3 mb-3">
+                    <dl class="row small mb-2">
+                        <dt class="col-sm-3 fw-normal text-muted">Region</dt>
+                        <dd class="col-sm-9"><code>@IdentityCentre.Region</code></dd>
+                        <dt class="col-sm-3 fw-normal text-muted">Instance</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@IdentityCentre.InstanceArn</code></dd>
+                        <dt class="col-sm-3 fw-normal text-muted">Identity store</dt>
+                        <dd class="col-sm-9"><code class="user-select-all">@IdentityCentre.IdentityStoreId</code></dd>
+
+                    </dl>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => showIdentityCenterScan = true">
+                            <span class="bi-arrow-repeat me-1"></span> Change or scan again
+                        </button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-2"
+                        @onclick="() => showIdentityCenterGuided = !showIdentityCenterGuided">
+                    <span class="@(showIdentityCenterGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided scan
+                </button>
+
+                @if (showIdentityCenterGuided)
+                {
+                <p class="small mb-2">
+                    <span class="bi-search me-1 text-muted"></span>
+                    Read-only. It calls <code>@string.Join("</code>, <code>", IdentityCenterSetup.RequiredPermissions)</code>
+                    and prints what it found.
+                </p>
+
+                <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@IdentityCenterScript</code></pre>
+
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="CopyIdentityCenterScript">
+                        <span class="bi-clipboard me-1"></span> Copy command
+                    </button>
+                    <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                       href="https://console.aws.amazon.com/cloudshell/home">
+                        <span class="bi-terminal me-1"></span> Open CloudShell
+                        <span class="bi-box-arrow-up-right ms-1 small"></span>
+                    </a>
+                    <span class="align-self-center small @(identityCenterCopySucceeded ? "text-success" : "text-danger")">
+                        @identityCenterCopyMessage
+                    </span>
+                </div>
+
+                <label class="form-label small mb-1">Paste what it printed</label>
+                <textarea class="form-control font-monospace" rows="4" @bind="pastedIdentityCenter"
+                          @bind:event="oninput"
+                          placeholder="@IdentityCenterSetup.BeginMarker&#10;region=…&#10;@IdentityCenterSetup.EndMarker"></textarea>
+
+                @if (!string.IsNullOrWhiteSpace(pastedIdentityCenter))
+                {
+                    var scan = IdentityCenterSetup.ParseResult(pastedIdentityCenter);
+                    @if (scan is null)
+                    {
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-exclamation-triangle me-1"></span>
+                            No block found yet. Copy everything the command printed, including both
+                            <code>-----</code> marker lines.
+                        </div>
+                    }
+                    else if (scan.Instances.Count > 0)
+                    {
+                        @foreach (var found in scan.Instances)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                <span class="small">
+                                    Found <code>@found.IdentityStoreId</code> in
+                                    <code>@found.Region</code>.
+                                </span>
+                                <button type="button" class="btn btn-sm btn-primary"
+                                        @onclick="() => SaveIdentityCenter(found)">
+                                    <span class="bi-check-lg me-1"></span> Use this instance
+                                </button>
+                            </div>
+                        }
+                    }
+                    else if (scan.MissingPermissions.Count > 0)
+                    {
+                        @* A refusal, not an absence. Offering to enable an instance here would send
+                           somebody to create a second one they cannot see the first of. *@
+                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                            <span class="bi-shield-exclamation me-1"></span>
+                            The scan was refused, so it cannot say whether an instance exists. Add
+                            <code>@string.Join("</code>, <code>", scan.MissingPermissions)</code>
+                            to whoever ran it, then scan again.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info py-2 mt-2 mb-0 small">
+                            <span class="bi-info-circle me-1"></span>
+                            @if (scan.CanEnableItself)
+                            {
+                                <span>
+                                    No instance in any region scanned. This account can enable one
+                                    itself, from the IAM Identity Center console.
+                                </span>
+                            }
+                            else if (scan.Posture == AwsAccountPosture.Member)
+                            {
+                                <span>
+                                    No instance in any region scanned, and this is a member account
+                                    of an organisation — enabling one is an organisation-wide act,
+                                    so it has to be done from the management account.
+                                </span>
+                            }
+                            else
+                            {
+                                <span>
+                                    No instance in any region scanned, and the scan could not tell
+                                    whether this account belongs to an organisation. If it does, the
+                                    management account enables the instance.
+                                </span>
+                            }
+                        </div>
+                    }
+                }
+                }
+
+                @* The fields, not a link to them. An unfilled step should look like the thing
+                   that fills it, the way Access does — the guided scan above is the shortcut for
+                   somebody who does not already know these three values, not the main route. *@
+                <IdentityCenterSettingsTab Settings="identityCenterSettings"
+                                           OnSave="SaveIdentityCenterSettings" />
+            }
+
+            <h2 class="h5 mt-4" id="permissions">Per-user permissions</h2>
+            <p class="text-muted small">
+                The IAM Identity Center application a person signs into to prove which directory
+                user they are. Once it is saved, the connect button appears on their Profile page.
+                <br />
+                Connecting does not scope anyone's results yet — search is not filtered by cloud
+                permissions (see issue #421). This is the half that has to exist first.
+            </p>
+
+            @* Said here rather than left in the policy. Connapse resolves what somebody may read
+               using its own identity instead of holding a credential belonging to them, and the
+               read that makes that possible is not scoped to one person — so an administrator
+               should meet that fact while deciding, not afterwards in IAM. *@
+            <div class="alert alert-secondary small">
+                <span class="bi-info-circle me-1"></span>
+                Connapse's own AWS identity needs four read-only permissions for this:
+                <code>s3:ListAccessGrants</code>, <code>identitystore:GetUserId</code>,
+                <code>identitystore:DescribeUser</code> and
+                <code>identitystore:ListGroupMembershipsForMember</code>. None of them reads an
+                object.
+                <span class="d-block mt-1">
+                    <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
+                    not scope it to one user, so it lets Connapse enumerate everyone's grants rather
+                    than only the person signing in. Connapse stores no credential belonging to
+                    anyone, which is the trade — a smaller blast radius than a per-user token, and a
+                    wider reach.
+                </span>
+            </div>
+
+            @* Stated before anything is set up, because it decides whether any of this is usable
+               and cannot be worked around afterwards. Tested against AWS: an S3 Access Grants
+               instance can be created in any region, but associating it with Identity Center fails
+               unless Identity Center is present in that region — the regional endpoint cannot
+               resolve an instance whose home is elsewhere. *@
+            <div class="alert alert-warning small">
+                <span class="bi-exclamation-triangle-fill me-1"></span>
+                <strong>This covers buckets in your Identity Center region only.</strong>
+                A grant is created against the S3 Access Grants instance in the bucket's region, and
+                that instance can only be associated with an Identity Center instance in the same
+                region. An organisation has one Identity Center instance and its primary region
+                cannot be moved.
+                <span class="d-block mt-1">
+                    Buckets elsewhere are indexed and synced normally, but no grant can cover
+                    them — so once this is switched on <strong>they return nothing to
+                    anyone</strong>. Filtering hides what is not granted; it does not fall back to
+                    showing it. Every connection says so before you save it.
+                    <span class="d-block mt-1">
+                        To cover them, replicate Identity Center to their region
+                        (<code>sso-admin add-region</code>, which needs an organization instance and
+                        a multi-region customer-managed KMS key) and set Access Grants up there too.
+                        User and group ids are the same across regions, so nothing recorded here has
+                        to change.
+                    </span>
+                </span>
+            </div>
+
+            @if (IdentityCentre is null)
+            {
+                @* Ordered, because the step below needs the instance ARN and the region, and the
+                   console link is region-qualified. Offering it first would ask an administrator to
+                   run a script that cannot find what it is looking for. *@
+                <div class="alert alert-secondary small">
+                    Find your IAM Identity Center instance first — the step above. Everything here
+                    is created inside it.
+                </div>
+            }
+            else
+            {
+                <button type="button" class="btn btn-sm btn-link px-0 mb-1"
+                        @onclick="() => showGuided = !showGuided">
+                    <span class="@(showGuided ? "bi-chevron-down" : "bi-chevron-right") me-1"></span>
+                    Guided setup
+                </button>
+
+                @* One walkthrough rather than two. The halves look separable — a script and a
+                   console visit — but they are one errand: neither is any use alone, and reading
+                   them as separate offers invited doing the second without the first, which fails
+                   at the first sign-in with an error naming neither. Each link sits at the step
+                   that needs it instead of in a row underneath, so nothing has to be scrolled back
+                   to. *@
+                @if (showGuided)
+                {
+                    <p class="small mb-2">
+                        <span class="bi-shield-check me-1 text-muted"></span>
+                        Creates an S3 Access Grants instance and the application people sign in
+                        through, using your own AWS permissions. <strong>It writes no access
+                        grants</strong> — who may read what stays yours to decide, in AWS.
+                    </p>
+
+                    <ol class="small mb-0">
+                        <li class="mb-2">
+                            Download the template and read it. Nothing runs at this point.
+                            <div class="mt-1">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="DownloadTemplate">
+                                    <span class="bi-download me-1"></span> Download template
+                                </button>
+                            </div>
+                        </li>
+
+                        <li class="mb-2">
+                            In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and
+                            upload <code>connapse-permissions.yaml</code>.
+                            <div class="mt-1">
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                   href="https://console.aws.amazon.com/cloudshell/home">
+                                    <span class="bi-terminal me-1"></span> Open CloudShell
+                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                </a>
+                            </div>
+                        </li>
+
+                        <li class="mb-2">
+                            Paste this. It deploys the template and stops.
+                            <pre class="bg-body-tertiary border rounded p-2 small mt-1 mb-1" style="max-height:18rem;overflow:auto"><code>@AccessGrantsScript</code></pre>
+                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    @onclick="CopyAccessGrantsScript">
+                                <span class="bi-clipboard me-1"></span> Copy command
+                            </button>
+                            <span class="ms-2 small @(grantsCopySucceeded ? "text-success" : "text-danger")">
+                                @grantsCopyMessage
+                            </span>
+                        </li>
+
+                        @* The application itself, which cannot be scripted at all.
+                           CreateApplication refuses SAML customer-managed applications outright —
+                           "You can create a SAML 2.0 customer managed application in the AWS
+                           Management Console only" — and DeleteApplication refuses them too, so
+                           this stays hand-guided in both directions. *@
+                        <li class="mb-2">
+                            In the Identity Center console, choose <strong>Applications &rarr;
+                            Customer managed &rarr; Add application &rarr; I have an application I
+                            want to set up &rarr; SAML 2.0</strong>. AWS offers no API for this one.
+                            <div class="mt-1">
+                                <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                   href="@IdentityCenterConsoleUrl">
+                                    <span class="bi-box-arrow-up-right me-1"></span>
+                                    Open Identity Center console
+                                </a>
+                            </div>
+                        </li>
+
+                        @if (SamlAcsUrl is null)
+                        {
+                            <li class="mb-2">
+                                <div class="alert alert-warning small mb-0">
+                                    The two values to paste cannot be shown, because you are reading
+                                    this over <code>@Navigation.BaseUri</code>. A SAML assertion is a
+                                    bearer credential, so it may only be posted to an
+                                    <code>https://</code> address, or to <code>localhost</code>,
+                                    <code>127.0.0.1</code> or <code>[::1]</code> over plain HTTP.
+                                    Serve Connapse over HTTPS, or reach it on the machine it runs
+                                    on, and they will appear here.
+                                </div>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="mb-2">
+                                On the application metadata page, paste these two:
+                                <div class="table-responsive mt-1 mb-0">
+                                    <table class="table table-sm small mb-0">
+                                        <tbody>
+                                            <tr>
+                                                <td class="text-muted" style="width:14rem">Application ACS URL</td>
+                                                <td><code class="user-select-all">@SamlAcsUrl</code></td>
+                                            </tr>
+                                            <tr>
+                                                <td class="text-muted">Application SAML audience</td>
+                                                <td><code class="user-select-all">@SamlAudience</code></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                @* Mentioned here rather than only at the end. The same page carries
+                                   the exchange in both directions, so downloading it now saves
+                                   coming back to the console for one file after the rest is done. *@
+                                <span class="d-block text-muted mt-1">
+                                    This page also offers the values travelling the other way, as an
+                                    <strong>IAM Identity Center metadata file</strong>. Download it
+                                    while you are here — the last step below reads it.
+                                </span>
+                            </li>
+
+                            <li class="mb-2">
+                                Then <strong>Actions &rarr; Edit attribute mappings</strong>.
+                                <code>Subject</code> is required and is the one that matters:
+                                <div class="table-responsive mt-1 mb-1">
+                                    <table class="table table-sm small mb-0">
+                                        <thead>
+                                            <tr><th>Attribute</th><th>Maps to</th><th>Format</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><code>Subject</code></td>
+                                                <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
+                                                <td><code>unspecified</code></td>
+                                            </tr>
+                                            <tr>
+                                                <td><code>email</code></td>
+                                                <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
+                                                <td><code>unspecified</code></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <span class="d-block text-muted">
+                                    <code>&#36;&#123;user:subject&#125;</code> carries the directory
+                                    user name — the short name someone signs in with, such as
+                                    <code>jsmith</code>, not their display name
+                                    <code>Jane Smith</code>. Connapse resolves it into the
+                                    identity store id that access grants are held against, so
+                                    <code>&#36;&#123;user:preferredUsername&#125;</code> is wrong
+                                    here: it gives the display name, which matches nobody.
+                                </span>
+                            </li>
+
+                            <li class="mb-2">
+                                Assign whoever should be able to sign in. Anyone unassigned is
+                                refused. Assign a <strong>group</strong> rather than people one at a
+                                time and membership becomes the only thing to maintain — there is no
+                                setting that admits everyone, because AWS refuses to turn the
+                                assignment requirement off for a SAML application.
+                            </li>
+
+                            <li class="mb-2">
+                                Decide which group grants are offered for. Grants are held by a
+                                grantee, and a group is the grantee worth using: adding and removing
+                                people then happens in the directory, where joining and leaving
+                                already happens, instead of as an edit to S3. Paste the block back
+                                and every connection can print its own grant command.
+
+                                <div class="border rounded p-3 mb-3">
+                                    <p class="small mb-2">
+                                        Lists the groups the connected person already belongs to. Most
+                                        directories synchronise these from your identity provider, and those
+                                        are the groups to grant to.
+                                    </p>
+
+                                    <label class="form-label small" for="group-name">
+                                        Create a group as well (optional)
+                                    </label>
+                                    <input id="group-name" class="form-control form-control-sm mb-1"
+                                           placeholder="Connapse Readers"
+                                           @bind="newGroupName" @bind:event="oninput" />
+                                    <div class="form-text mb-2">
+                                        Leave empty to only list. A group created here is not known to your
+                                        identity provider and a later sync will not reconcile it — so if
+                                        your groups come from Okta or Entra, make it there instead. Only the
+                                        connected person is added to it.
+                                    </div>
+
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@DirectoryGroupScript</code></pre>
+
+                                    @* Pasted back, like every other step. Without this the group id is on
+                                       screen for a moment and then gone, which is exactly why the grant
+                                       command it feeds shipped with a placeholder where the grantee
+                                       belonged — and got run with the placeholder still in it. *@
+                                    @if (SamlSignIn is { HasGrantGroup: true } chosen)
+                                    {
+                                        <div class="alert alert-success small py-2 mb-2">
+                                            <span class="bi-check-circle-fill me-1"></span>
+                                            Grants will be offered for
+                                            <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
+                                            <code class="ms-1">@chosen.GrantGroupId</code>
+                                        </div>
+                                    }
+
+                                    <label class="form-label small" for="group-paste">
+                                        Paste the block the command printed
+                                    </label>
+                                    <textarea id="group-paste" class="form-control font-monospace small mb-2"
+                                              rows="3" placeholder="@DirectoryGroupSetup.BeginMarker"
+                                              @bind="pastedGroup" @bind:event="oninput"></textarea>
+
+                                    @if (DirectoryGroupSetup.ParseResult(pastedGroup) is { } parsedGroup)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-primary mb-2"
+                                                @onclick="() => SaveGrantGroup(parsedGroup)">
+                                            <span class="bi-save me-1"></span>
+                                            Use @(parsedGroup.Name is { Length: > 0 } pn ? pn : "this group")
+                                        </button>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(pastedGroup))
+                                    {
+                                        <div class="small text-danger mb-2">
+                                            No group block in that text. Copy from
+                                            <code>@DirectoryGroupSetup.BeginMarker</code> to
+                                            <code>@DirectoryGroupSetup.EndMarker</code>.
+                                        </div>
+                                    }
+
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="CopyDirectoryGroupScript">
+                                            <span class="bi-clipboard me-1"></span> Copy command
+                                        </button>
+                                        <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
+                                           href="https://console.aws.amazon.com/cloudshell/home">
+                                            <span class="bi-terminal me-1"></span> Open CloudShell
+                                            <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                        </a>
+                                        <span class="align-self-center small @(groupCopySucceeded ? "text-success" : "text-danger")">
+                                            @groupCopyMessage
+                                        </span>
+                                    </div>
+                                </div>
+                            </li>
+
+                            <li>
+                                Finally, paste the metadata file you downloaded. Connapse reads the
+                                issuer, sign-in URL and signing certificate out of it — the
+                                certificate especially, being a long base64 block that is easy to
+                                truncate by hand. All three stay editable in the form below, so they
+                                can still be typed in one at a time.
+
+                                @* Pasted rather than fetched from a URL: handing the server an
+                                   address to retrieve would make it a request-forgery surface, and
+                                   would undo the property the form states — that these are stored so
+                                   a self-hosted deployment needs no outbound access to AWS. *@
+                                <label class="form-label small mt-2" for="saml-metadata">
+                                    Paste the metadata file
+                                </label>
+                                <InputTextArea id="saml-metadata" @bind-Value="pastedMetadata"
+                                               @bind:event="oninput"
+                                               class="form-control font-monospace small mb-2" rows="3"
+                                               placeholder="&lt;EntityDescriptor entityID=&quot;…&quot;&gt;…" />
+
+                                @if (SamlMetadata.Parse(pastedMetadata) is { } read)
+                                {
+                                    <div class="border rounded p-2 small mb-2">
+                                        <div class="text-muted">Issuer</div>
+                                        <div class="font-monospace text-break mb-1">@read.EntityId</div>
+                                        <div class="text-muted">Sign-in URL</div>
+                                        <div class="font-monospace text-break mb-1">@read.SingleSignOnUrl</div>
+                                        <div class="text-muted">Signing certificate</div>
+                                        <div class="font-monospace text-break">
+                                            @(read.SigningCertificate.Length > 48
+                                                ? read.SigningCertificate[..48] + "…"
+                                                : read.SigningCertificate)
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="btn btn-sm btn-primary mb-1"
+                                            @onclick="() => SaveSamlMetadata(read)">
+                                        <span class="bi-save me-1"></span> Use these three values
+                                    </button>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(pastedMetadata))
+                                {
+                                    <div class="small text-danger mb-1">
+                                        That does not look like the application's metadata. Download
+                                        the file from the console and paste all of it.
+                                    </div>
+                                }
+                            </li>
+                        }
+                    </ol>
+                }
+
+                @if (SamlSignIn is not null && !showSamlManual)
+                {
+                    <div class="card border-success-subtle mb-3">
+                        <div class="card-body py-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="bi-check-circle-fill text-success"></span>
+                                <strong class="small">AWS sign-in is set up</strong>
+                            </div>
+                            <div class="small text-muted font-monospace text-break mt-1">
+                                @samlSettings.EntityId
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => showSamlManual = true">
+                                    Change
+                                </button>
+                                @if (confirmForgetSignIn)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger"
+                                            @onclick="ForgetSamlSignIn">
+                                        Confirm — forget it
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => confirmForgetSignIn = false">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => confirmForgetSignIn = true">
+                                        Forget
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @* Shown while the step is unfilled, and once it is set up only if the administrator
+                   asked to edit. Rendering it under the summary as well put five mostly-empty
+                   fields beneath the description of the values they hold, and made "Change" look
+                   like it had done nothing. *@
+                @if (SamlSignIn is null || showSamlManual)
+                {
+                    <SamlSignInSettingsTab Settings="samlSettings" OnSave="SaveSamlSettingsFromForm" />
+                }
+            }
+        }
 
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. *@
-        @if (Key == "aws")
+           between once the page is about one cloud. AWS has no sign-in *into Connapse* — what it
+           has instead is the Identity Center application above, which establishes which directory
+           user somebody is so their results can be scoped, without being a way to log in here. *@
+        @if (Key == "azure")
         {
-            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
-        }
-        else if (Key == "azure")
-        {
+            <h2 class="h5" id="signin">Sign-in</h2>
+            <p class="text-muted small">
+                Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
+                search results are scoped against.
+            </p>
+
             <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
     }
@@ -373,8 +943,130 @@
     private string? saveMessage;
     private bool saveSuccess;
 
-    private AwsSsoSettings awsSsoSettings = new();
     private AzureAdSettings azureAdSettings = new();
+    private SamlSignInSettings samlSettings = new();
+    private bool showSamlManual;
+    private bool confirmForgetSignIn;
+
+    private string? grantsCopyMessage;
+    private bool grantsCopySucceeded;
+
+    /// <summary>The finished sign-in, or null while any part of it is outstanding.</summary>
+    private SamlSignInSettings? SamlSignIn =>
+        samlSettings.IsConfigured ? samlSettings : null;
+
+    /// <summary>The region the Identity Center instance was found in, which pins the script.</summary>
+    private string? SetupRegion =>
+        IdentityCentre is { IsConfigured: true } idc ? idc.Region : null;
+
+
+    private string? pastedIdentityCenter;
+    private string? identityCenterCopyMessage;
+    private bool identityCenterCopySucceeded;
+
+    /// <summary>Whether the scan is open over an instance that is already recorded.</summary>
+    private bool showIdentityCenterScan;
+
+    /// <summary>
+    /// Whether the guided scan's script is expanded. Closed to begin with: the fields below it are
+    /// what this step is, and the scan is the shortcut for somebody who does not already know the
+    /// three values it fills in.
+    /// </summary>
+    private bool showIdentityCenterGuided;
+
+    /// <summary>
+    /// Whether the per-user permissions walkthrough is expanded. Closed to begin with: the fields
+    /// below it are what this step is, and somebody returning to change one stored value should not
+    /// have to scroll past instructions they have already followed.
+    /// </summary>
+    private bool showGuided;
+
+    /// <summary>Backs the manual Identity Center form.</summary>
+    private IdentityCenterSettings identityCenterSettings = new();
+
+    private async Task SaveIdentityCenterSettings(IdentityCenterSettings settings)
+    {
+        await SaveSettings("identitycenter", settings);
+
+        // What was posted, not a re-read: the options reload behind SaveSettings is not guaranteed
+        // to have landed, and a stale read would hand the form back the previous values.
+        if (saveSuccess)
+        {
+            identityCenterSettings = settings;
+            showIdentityCenterScan = false;
+        }
+
+        await RefreshSetups();
+    }
+
+    /// <summary>What is recorded about the customer's Identity Center instance, if anything.</summary>
+    private IdentityCenterSettings? IdentityCentre => IdentityCenterOptions.CurrentValue;
+
+    private static string IdentityCenterScript => IdentityCenterSetup.GenerateScript();
+
+    private async Task CopyIdentityCenterScript()
+    {
+        identityCenterCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", IdentityCenterScript);
+        identityCenterCopyMessage = identityCenterCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it.";
+    }
+
+    /// <summary>Records the instance the scan found.</summary>
+    private async Task SaveIdentityCenter(IdentityCenterInstance found)
+    {
+        await SaveSettings("identitycenter", new IdentityCenterSettings
+        {
+            Region = found.Region,
+            InstanceArn = found.InstanceArn,
+            IdentityStoreId = found.IdentityStoreId,
+        });
+
+        // Cleared on success only. Leaving the block in place after a failure means the
+        // administrator can retry without going back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+        {
+            pastedIdentityCenter = null;
+            showIdentityCenterScan = false;
+            identityCenterSettings = new IdentityCenterSettings
+            {
+                Region = found.Region,
+                InstanceArn = found.InstanceArn,
+                IdentityStoreId = found.IdentityStoreId,
+            };
+        }
+
+        await RefreshSetups();
+    }
+
+    /// <summary>The Identity Center console, in the region the instance was found in.</summary>
+    /// <remarks>
+    /// Region-qualified deliberately. The console opens wherever it was last used, and Identity
+    /// Center exists in exactly one region — so a link without it lands somebody in a console that
+    /// truthfully reports no instance, which is the single most confusing way this step can fail.
+    /// Falls back to the region-less address when nothing has been located yet.
+    /// </remarks>
+    private string IdentityCenterConsoleUrl =>
+        IdentityCentre is { Region.Length: > 0 } located
+            ? $"https://{located.Region}.console.aws.amazon.com/singlesignon/home?region={located.Region}"
+            : "https://console.aws.amazon.com/singlesignon/home";
+
+    /// <summary>
+    /// Where Identity Center posts the assertion, or null when this address could not receive one
+    /// safely.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the address this administrator reached Connapse on, not from anything stored,
+    /// so it can be shown before anything in AWS exists — it is one half of what creates the
+    /// application rather than something read back from it.
+    /// </remarks>
+    private string? SamlAcsUrl => SamlServiceProvider.AcsFor(Navigation.BaseUri);
+
+    /// <summary>The audience the application must claim. Null for the same reason.</summary>
+    private string? SamlAudience => SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
+
+    private string AccessGrantsScript => AccessGrantsSetup.GenerateScript(SetupRegion);
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -386,8 +1078,9 @@
     {
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
-        awsSsoSettings = AwsSsoOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
+        samlSettings = SamlOptions.CurrentValue;
+        identityCenterSettings = IdentityCenterOptions.CurrentValue;
     }
 
     /// <summary>
@@ -403,7 +1096,27 @@
         if (!firstRender) return;
 
         setups = await SetupReader.ReadAsync();
+        await LoadConnectedDirectoryUserAsync();
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// The signed-in administrator's own directory user id, for the group script.
+    /// </summary>
+    /// <remarks>
+    /// Theirs rather than anybody's. This page sets Connapse up, so the person running the script
+    /// is the one whose groups are worth listing and the only one it may add to a group. Null until
+    /// they have connected, and the script then only creates.
+    /// </remarks>
+    private string? connectedDirectoryUserId;
+
+    private async Task LoadConnectedDirectoryUserAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        string? userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (Guid.TryParse(userIdStr, out Guid userId))
+            connectedDirectoryUserId = await AwsIdentityLinks.GetDirectoryUserIdAsync(userId);
     }
 
     private bool awsBusy;
@@ -434,6 +1147,143 @@
     private string? pastedKey;
     private string? copyMessage;
     private bool copySucceeded;
+
+    /// <summary>Hands over the CloudFormation template to read and upload.</summary>
+    private async Task DownloadTemplate()
+    {
+        grantsCopyMessage = null;
+
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.downloadText", "connapse-permissions.yaml", AccessGrantsSetup.GenerateTemplate());
+
+        grantsCopyMessage = grantsCopySucceeded
+            ? "Downloaded connapse-permissions.yaml."
+            : "Could not download — check whether the browser blocked it.";
+    }
+
+    /// <summary>A group to create, or empty to only list what already exists.</summary>
+    private string? newGroupName;
+
+    private string? groupCopyMessage;
+    private bool groupCopySucceeded;
+
+    /// <summary>
+    /// The command that lists the connected person's groups, and makes one if a name was given.
+    /// </summary>
+    /// <remarks>
+    /// The directory user id comes from the stored link rather than from anything typed: it is the
+    /// key grants are held against, and the only person this script is allowed to add to a group.
+    /// </remarks>
+    private string DirectoryGroupScript => DirectoryGroupSetup.GenerateScript(
+        SetupRegion, IdentityCentre?.IdentityStoreId, connectedDirectoryUserId, newGroupName);
+
+    /// <summary>The metadata document an administrator pasted, before it is read.</summary>
+    private string? pastedMetadata;
+
+    /// <summary>
+    /// Stores the three values read out of the application's metadata.
+    /// </summary>
+    /// <remarks>
+    /// Shown before it is stored, and stored on a deliberate click, so what was read is visible and
+    /// correctable rather than silently applied — the same shape as the group step above.
+    /// </remarks>
+    private async Task SaveSamlMetadata(SamlMetadataValues values)
+    {
+        var updated = new SamlSignInSettings
+        {
+            EntityId = samlSettings.EntityId,
+            AcsUrl = samlSettings.AcsUrl,
+            IdpEntityId = values.EntityId,
+            IdpSingleSignOnUrl = values.SingleSignOnUrl,
+            IdpSigningCertificate = values.SigningCertificate,
+            GrantGroupId = samlSettings.GrantGroupId,
+            GrantGroupName = samlSettings.GrantGroupName,
+        };
+
+        await SaveSamlSettings(updated);
+
+        if (saveSuccess)
+            pastedMetadata = null;
+    }
+
+    /// <summary>The block an administrator pasted back from the group command.</summary>
+    private string? pastedGroup;
+
+    /// <summary>
+    /// Records the group so a connection can print a grant command naming it.
+    /// </summary>
+    /// <remarks>
+    /// Written onto the sign-in settings rather than onto the located instance. The instance is
+    /// only "where is the directory"; a group exists solely to be the grantee on an access grant,
+    /// which is what per-user permissions are made of. A connection may still name a different
+    /// grantee, because granting separate teams separate buckets is the point of groups.
+    /// </remarks>
+    private async Task SaveGrantGroup((string Id, string Name) group)
+    {
+        var updated = new SamlSignInSettings
+        {
+            EntityId = samlSettings.EntityId,
+            AcsUrl = samlSettings.AcsUrl,
+            IdpEntityId = samlSettings.IdpEntityId,
+            IdpSingleSignOnUrl = samlSettings.IdpSingleSignOnUrl,
+            IdpSigningCertificate = samlSettings.IdpSigningCertificate,
+            GrantGroupId = group.Id,
+            GrantGroupName = group.Name,
+        };
+
+        await SaveSamlSettings(updated);
+
+        // Cleared only on success, so a failed save leaves the block in the box rather than sending
+        // somebody back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+            pastedGroup = null;
+    }
+
+    private async Task CopyDirectoryGroupScript()
+    {
+        groupCopyMessage = null;
+
+        groupCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", DirectoryGroupScript);
+
+        groupCopyMessage = groupCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    private async Task CopyAccessGrantsScript()
+    {
+        grantsCopyMessage = null;
+
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", AccessGrantsScript);
+
+        grantsCopyMessage = grantsCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>
+    /// Clears the recorded pool, for an administrator who removed it in AWS.
+    /// </summary>
+    /// <remarks>
+    /// Connapse has no way to notice: it holds no credential that may read the account, and asking
+    /// AWS on every page load would be the beginning of one. So the values simply persist, and the
+    /// worst of them is the SAML audience — it is built from the pool id, so a stale one reads as
+    /// perfectly valid while naming a pool that no longer exists.
+    /// </remarks>
+    private async Task ForgetSamlSignIn()
+    {
+        // The one way enforcement is switched off. Everything else that writes these settings
+        // leaves it exactly as it found it.
+        await SaveSamlSettings(new SamlSignInSettings(), stopEnforcing: true);
+
+        if (saveSuccess)
+        {
+            confirmForgetSignIn = false;
+            showSamlManual = false;
+        }
+    }
 
     private async Task CopyIdentityScript()
     {
@@ -482,16 +1332,28 @@
         }
     }
 
-    /// <summary>Scrolls to a section of this page, and opens it if it is the setup.</summary>
+    /// <summary>Scrolls to a section of this page, and opens whatever it is you came to change.</summary>
     /// <remarks>
-    /// The setup form is already rendered whenever access is not confirmed, so opening it matters
-    /// only for the case where the credential works and somebody wants to replace it — scrolling to
-    /// a collapsed section would be the same dead end in a new place.
+    /// Each requirement that is already satisfied shows its section as a summary, so scrolling
+    /// alone lands on something with nothing to do on it — and on a tall enough window it does not
+    /// even move, which is indistinguishable from a dead link. Both sections are therefore opened
+    /// before the scroll rather than after somebody hunts for the button that opens them.
+    /// <para>
+    /// Only these three need it. Every other action on a requirement card is a real link
+    /// elsewhere. A section missing from this list scrolls to a card that is collapsed, which
+    /// reads as the button doing nothing at all.
+    /// </para>
     /// </remarks>
     private async Task ScrollTo(string elementId)
     {
         if (elementId == "access")
             showSetup = true;
+
+        if (elementId == "permissions")
+            showSamlManual = true;
+
+        if (elementId == "identity-center")
+            showIdentityCenterScan = true;
 
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
@@ -511,7 +1373,7 @@
     /// </remarks>
     private static string Offer(ProviderSetup provider) => provider.Key switch
     {
-        "aws" => "Sign in with AWS, and read files from S3.",
+        "aws" => "Read files from S3.",
         "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
         _ => $"Set up {provider.DisplayName}."
     };
@@ -533,16 +1395,6 @@
             : $"Needs attention: {string.Join(", ", outstanding)}";
     }
 
-    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
-    {
-        awsSsoSettings = settings;
-        await SaveSettings("awssso", settings);
-
-        // The cards above report this very setting, so leaving them alone would show the old
-        // answer beside the new form.
-        await RefreshSetups();
-    }
-
     private async Task SaveAzureAdSettings(AzureAdSettings settings)
     {
         azureAdSettings = settings;
@@ -550,12 +1402,85 @@
         await RefreshSetups();
     }
 
+    /// <summary>What the settings form saves. Never stops enforcement.</summary>
+    /// <remarks>
+    /// A named wrapper rather than binding the method below directly: an editing form has no
+    /// business being able to switch permission enforcement off, and this way it cannot express it.
+    /// </remarks>
+    private Task SaveSamlSettingsFromForm(SamlSignInSettings settings) =>
+        SaveSamlSettings(settings);
+
+    /// <summary>
+    /// Stores the sign-in settings, and decides whether permissions are still being enforced.
+    /// </summary>
+    /// <param name="stopEnforcing">
+    /// True only for the deliberate act of forgetting the configuration. Enforcement is never
+    /// switched off as a side effect of an edit.
+    /// </param>
+    /// <remarks>
+    /// The latch lives here rather than on the form because several callers above rebuild this
+    /// object field by field, and every one of them would otherwise clear the flag by omission —
+    /// which is precisely the silent un-enforcement the flag exists to prevent. One choke point,
+    /// so a new caller cannot reintroduce it.
+    /// <para>
+    /// A complete configuration turns enforcement on. An incomplete save leaves an existing one
+    /// alone, so blanking the certificate to paste a rotated one keeps filtering in force — the
+    /// searches deny while it is blank, which is the loud failure rather than the quiet one.
+    /// </para>
+    /// </remarks>
+    private async Task SaveSamlSettings(SamlSignInSettings settings, bool stopEnforcing = false)
+    {
+        // Written to its own category, so recording enforcement never rewrites a SAML value. That
+        // matters for a deployment configured through environment variables: the database outranks
+        // the environment, so copying those values into a row here would shadow them permanently.
+        bool enforcing = !stopEnforcing
+            && (settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing);
+
+        await SaveSettings("samlsignin", settings);
+
+        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
+        {
+            await SaveSettings(
+                PermissionEnforcementSettings.Category,
+                new PermissionEnforcementSettings { IsEnforcing = enforcing });
+        }
+
+        // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
+        // not guaranteed to have landed by the time this line runs, so a stale read would hand the
+        // form back the previous values and make a save look as though it had not taken. Guarded on
+        // success so a failed save leaves the form showing what is actually stored.
+        if (saveSuccess) samlSettings = settings;
+
+        await RefreshSetups();
+    }
+
+    @* Two labels, because Warning means two different things depending on what carries it, and one
+       switch serving both put "Partly set up" on a card for something that was not partly anything.
+       Every other status reads the same at either scale, so both switches fall through to Label. *@
+
+    /// <summary>The badge on a whole provider.</summary>
+    private static string ProviderLabel(RequirementStatus status) => status switch
+    {
+        // Some requirements met and some not. A complete label, unlike "Works, but", which left
+        // the reader holding an unfinished sentence in a chip four words wide.
+        RequirementStatus.Warning => "Partly set up",
+        _ => Label(status)
+    };
+
+    /// <summary>The badge on one requirement.</summary>
+    private static string RequirementLabel(RequirementStatus status) => status switch
+    {
+        // A single requirement has no parts to be partly through. Warning here means the one
+        // thing it has ever meant: this works, and Connapse cannot demonstrate that it does.
+        RequirementStatus.Warning => "Unconfirmed",
+        _ => Label(status)
+    };
+
     private static string Label(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "Ready",
         RequirementStatus.Provisioning => "Provisioning",
         RequirementStatus.Failed => "Failed",
-        RequirementStatus.Warning => "Works, but",
         RequirementStatus.NotConfigured => "Not set up",
         _ => "Unknown"
     };
@@ -590,13 +1515,25 @@
         {
             await SettingsStore.SaveAsync(category, settings);
             ReloadService.Reload();
-            saveMessage = $"{category} settings saved successfully!";
+            saveMessage = $"{SettingsName(category)} settings saved successfully!";
             saveSuccess = true;
         }
         catch (Exception ex)
         {
-            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
             saveSuccess = false;
         }
     }
+
+    /// <summary>What to call a settings category in a sentence.</summary>
+    /// <remarks>
+    /// The category is a storage key — lower-case, no spaces — and reading it back to somebody as
+    /// "samlsignin settings saved successfully" shows them the key rather than a readable name.
+    /// Unlisted categories fall through unchanged, which is what they did before this existed.
+    /// </remarks>
+    private static string SettingsName(string category) => category switch
+    {
+        "samlsignin" => "AWS sign-in",
+        _ => category
+    };
 }

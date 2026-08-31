@@ -1,17 +1,20 @@
 namespace Connapse.Identity.Data.Entities;
 
 /// <summary>
-/// A Connapse user's connected AWS identity, and the token that lets Connapse prove it again later
-/// without them present.
+/// A Connapse user's connected AWS identity — which IAM Identity Center user they signed in as.
 /// </summary>
 /// <remarks>
+/// Holds no credential. IAM Identity Center attests the identity once, at sign-in, and Connapse
+/// records who it named; permissions are then read with Connapse's own IAM identity rather than
+/// with anything belonging to the person. There is nothing here to expire, and nothing here worth
+/// stealing.
+/// <para>
 /// Separate from <see cref="UserCloudIdentityEntity"/> on purpose. That entity records which cloud
 /// account a user signed into, as plaintext metadata in a JSON column, and it predates this feature.
-/// A refresh token is a per-user secret; putting one in a column built for display metadata would
-/// be a mistake nothing in the type system would catch.
+/// </para>
 /// <para>
 /// One row per user, enforced by a unique index. Connecting again replaces the row rather than
-/// adding a second, so there is never a question of which token is current.
+/// adding a second, so there is never a question of which identity is current.
 /// </para>
 /// </remarks>
 public class UserAwsIdentityLinkEntity
@@ -21,25 +24,41 @@ public class UserAwsIdentityLinkEntity
     public Guid UserId { get; set; }
 
     /// <summary>
-    /// The verified email the token was issued for, and the join key into IAM Identity Center.
+    /// The identity store's own identifier for the user — the key access grants are held against.
     /// </summary>
     /// <remarks>
-    /// Stored rather than re-read from the token because it is what a later exchange is matched on,
-    /// and because it lets the integrations page say which identity is connected without decrypting
-    /// anything. AWS accepts only user name, email or external ID as the claim mapped to a directory
-    /// user, so the opaque OIDC subject cannot serve here.
+    /// Resolved once at sign-in by <c>identitystore:GetUserId</c> from the asserted user name, and
+    /// stored rather than re-resolved because it is the stable identifier: renaming somebody in the
+    /// directory changes their user name and not this, so a rename does not force them to connect
+    /// again. It is also what <c>ListGroupMembershipsForMember</c> takes, so it is needed twice per
+    /// resolve.
+    /// <para>
+    /// Empty on a row written before this column existed. Such a row cannot resolve and the user
+    /// has to connect again; it is left in place rather than deleted so nothing silently discards a
+    /// link Connapse did not author.
+    /// </para>
     /// </remarks>
-    public string Email { get; set; } = string.Empty;
+    public string DirectoryUserId { get; set; } = string.Empty;
 
     /// <summary>
-    /// The Cognito refresh token, already through ASP.NET Core Data Protection.
+    /// The IAM Identity Center user name the assertion named, for display and for reconnecting.
     /// </summary>
     /// <remarks>
-    /// Named for its state so that assigning a plaintext token reads as wrong at the call site.
-    /// Only <c>AwsIdentityLinkStore</c> protects and unprotects it; nothing else should hold the
-    /// plaintext for longer than one exchange.
+    /// Stored with its case intact: this identifier belongs to a directory Connapse does not own,
+    /// and lower-casing it would record something that may never have existed. Not the join key —
+    /// <see cref="DirectoryUserId"/> is — but it is what an administrator recognises in the
+    /// console, so it is what the integrations page shows.
     /// </remarks>
-    public string ProtectedRefreshToken { get; set; } = string.Empty;
+    public string DirectoryUserName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The email the assertion carried, for display. Empty when it carried none.
+    /// </summary>
+    /// <remarks>
+    /// Display data only. Nothing may make an authorization decision from it — that is what
+    /// <see cref="DirectoryUserId"/> is for.
+    /// </remarks>
+    public string Email { get; set; } = string.Empty;
 
     public DateTime ConnectedAt { get; set; }
 

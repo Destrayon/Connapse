@@ -34,7 +34,7 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(3);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(5);
     }
 
     [Fact]
@@ -50,10 +50,19 @@ public class S3SetupPolicyTests
             .Select(a => a.GetString()!)
             .ToList();
 
-        actions.Should().BeEquivalentTo(
-            ["s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"]);
+        actions.Should().BeEquivalentTo([
+            "s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject",
+            // Resolving what a person may read. None of these touches an object, and they are here
+            // rather than in a second policy so one document describes everything the identity can
+            // do.
+            "s3:ListAccessGrants", "identitystore:GetUserId", "identitystore:DescribeUser",
+            "identitystore:ListGroupMembershipsForMember"
+        ]);
 
-        actions.Should().OnlyContain(a => a.StartsWith("s3:Get") || a.StartsWith("s3:List"));
+        // Read-only, whichever service. The verb is the guard: Get, List and Describe cannot change
+        // anything, and no wildcard is allowed to smuggle one in.
+        actions.Should().OnlyContain(a =>
+            a.Contains(":Get") || a.Contains(":List") || a.Contains(":Describe"));
         actions.Should().NotContain(a => a.Contains("*"));
     }
 

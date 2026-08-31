@@ -36,7 +36,9 @@ public class ProviderSetupReaderTests
         AwsProbe<IReadOnlyList<string>> buckets,
         ProviderCredentialInfo? stored = null,
         TimeSpan? sinceCreated = null,
-        IProviderCredentialStore? credentials = null)
+        IProviderCredentialStore? credentials = null,
+        SamlSignInSettings? samlSignIn = null,
+        IdentityCenterSettings? identityCenter = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
@@ -53,8 +55,11 @@ public class ProviderSetupReaderTests
             .Returns([]);
 
         return new ProviderSetupReader(
-            Options.Create(new AwsSsoSettings()).AsMonitor(),
             Options.Create(new AzureAdSettings()).AsMonitor(),
+            Options.Create(samlSignIn ?? new SamlSignInSettings()).AsMonitor(),
+            // Defaults to located, so a test that varies one thing is not also silently varying
+            // this one. The tests that care pass an empty instance explicitly.
+            Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
             discovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -292,8 +297,9 @@ public class ProviderSetupReaderTests
             .Returns(call => call.ArgAt<int>(0) == 0 ? filler : secondPage);
 
         var reader = new ProviderSetupReader(
-            Options.Create(new AwsSsoSettings()).AsMonitor(),
             Options.Create(new AzureAdSettings()).AsMonitor(),
+            Options.Create(new SamlSignInSettings()).AsMonitor(),
+            Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
@@ -327,6 +333,180 @@ public class ProviderSetupReaderTests
         ]);
 
         setup.Overall.Should().Be(RequirementStatus.Provisioning);
+    }
+
+    // ── Per-user permissions ──────────────────────────────────────────
+
+    private static SamlSignInSettings ConfiguredSignIn() => new()
+    {
+        EntityId = "https://connapse.example.com/saml/connapse",
+        AcsUrl = "https://connapse.example.com/api/v1/auth/cloud/aws/acs",
+        IdpEntityId = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSingleSignOnUrl = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
+        IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
+    };
+
+    private static IdentityCenterSettings LocatedInstance() => new()
+    {
+        Region = "us-east-1",
+        InstanceArn = "arn:aws:sso:::instance/ssoins-1234567890abcdef",
+        IdentityStoreId = "d-996773e796"
+    };
+
+    private static async Task<ProviderRequirement> IdentityCentreAsync(ProviderSetupReader reader) =>
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Requirements.Single(r => r.Name == "IAM Identity Center");
+
+    private static async Task<ProviderRequirement> PermissionsAsync(ProviderSetupReader reader) =>
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Requirements.Single(r => r.Name == "Per-user permissions");
+
+    [Fact]
+    public async Task PerUserPermissions_WithNoPool_IsNotConfigured()
+    {
+        // Plainly NotConfigured, not a softened Warning. No part of a pool exists, and the card
+        // that renders this says so; keeping the provider's own summary out of "Not set up" is
+        // ProviderSetup.Overall's job, not this requirement's.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"));
+
+        var requirement = await PermissionsAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.NotConfigured);
+        requirement.ActionHref.Should().Be("#permissions");
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAPool_IsSatisfiedAndNamesIt()
+    {
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn());
+
+        var requirement = await PermissionsAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Satisfied);
+        requirement.Detail.Should().Be(ConfiguredSignIn().EntityId);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithNoSignIn_StopsAwsClaimingItIsFullySetUp()
+    {
+        // The point of the requirement. Without it the provider list showed AWS as Ready while the
+        // page below it plainly had an unconfigured section on it.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"));
+
+        var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
+
+        aws.Requirements.Single(r => r.Name == "Access").Status
+            .Should().Be(RequirementStatus.Satisfied);
+        aws.Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAPool_LetsAwsBeReady()
+    {
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn());
+
+        var aws = (await reader.ReadAsync()).Single(p => p.Key == "aws");
+
+        aws.Overall.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithoutTheApplicationArn_IsNotConfigured()
+    {
+        // Every other field can be present and the sign-in still cannot be trusted: with no
+        // signing certificate there is nothing to validate an assertion against, so it would have
+        // to be either refused late or believed unverified.
+        var unresolvable = ConfiguredSignIn();
+        unresolvable.IdpSigningCertificate = string.Empty;
+
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: unresolvable);
+
+        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Overall.Should().NotBe(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task IdentityCentre_WhenNotLocated_IsNotConfiguredAndAwsIsNotReady()
+    {
+        // Its own requirement because it is answered first and separately, and because the sign-in
+        // script needs its region: Identity Center lives in exactly one region per organisation and
+        // looking in the wrong one reads as there being no instance at all.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn(), identityCenter: new IdentityCenterSettings());
+
+        (await IdentityCentreAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
+        (await reader.ReadAsync()).Single(p => p.Key == "aws")
+            .Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public async Task IdentityCentre_WhenLocated_NamesTheStoreAndRegion()
+    {
+        // The region is the field people get wrong, so it is the one worth showing back.
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn());
+
+        var requirement = await IdentityCentreAsync(reader);
+
+        requirement.Status.Should().Be(RequirementStatus.Satisfied);
+        requirement.Detail.Should().Be("d-996773e796 in us-east-1");
+    }
+
+    [Fact]
+    public async Task PerUserPermissions_WithAHalfFilledSignIn_Warns()
+    {
+        // IsConfigured is the gate, not "somebody typed something". A sign-in with no consumer
+        // URL cannot complete, and reporting it green would send the administrator to debug the
+        // Profile page instead of the field they left blank.
+        var half = ConfiguredSignIn();
+        half.AcsUrl = string.Empty;
+
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"), samlSignIn: half);
+
+        (await PermissionsAsync(reader)).Status.Should().Be(RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public void Overall_UnconfiguredAlongsideSatisfied_IsPartlySetUpRatherThanUnconfigured()
+    {
+        var setup = new ProviderSetup("aws", "AWS",
+        [
+            new ProviderRequirement("Access", "", RequirementStatus.Satisfied),
+            new ProviderRequirement("Per-user permissions", "", RequirementStatus.NotConfigured)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public void Overall_UnconfiguredWithNothingSatisfied_StaysUnconfigured()
+    {
+        // The distinction only earns its keep in one direction. With nothing set up, "Not set up"
+        // is exactly right and softening it would invent progress.
+        var setup = new ProviderSetup("azure", "Azure",
+        [
+            new ProviderRequirement("Sign-in", "", RequirementStatus.NotConfigured),
+            new ProviderRequirement("Access", "", RequirementStatus.Unknown)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public void Overall_FailedStillOutranksAPartlyConfiguredProvider()
+    {
+        var setup = new ProviderSetup("aws", "AWS",
+        [
+            new ProviderRequirement("Access", "", RequirementStatus.Satisfied),
+            new ProviderRequirement("Sign-in", "", RequirementStatus.NotConfigured),
+            new ProviderRequirement("Other", "", RequirementStatus.Failed)
+        ]);
+
+        setup.Overall.Should().Be(RequirementStatus.Failed);
     }
 }
 

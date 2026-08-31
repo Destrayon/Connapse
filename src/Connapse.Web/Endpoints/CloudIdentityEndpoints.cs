@@ -1,17 +1,11 @@
-using System.Collections.Concurrent;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
+﻿using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
+using ITfoxtec.Identity.Saml2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Connapse.Web.Endpoints;
 
@@ -20,15 +14,17 @@ public static class CloudIdentityEndpoints
     private const string AzureStateCookieName = "__connapse_az_state";
     private const string AzurePkceCookieName = "__connapse_az_pkce";
 
-    private const string CognitoStateCookieName = "__connapse_cog_state";
-    private const string CognitoPkceCookieName = "__connapse_cog_pkce";
-    private const string CognitoNonceCookieName = "__connapse_cog_nonce";
-    private const string CognitoCookiePath = "/api/v1/auth/cloud/cognito";
+    /// <summary>Carries the one-time code that claims a validated assertion.</summary>
+    /// <remarks>
+    /// A cookie rather than a query parameter: it must not be readable by script, must not sit in
+    /// browser history, and must not be in anything a person could paste to somebody else. It is
+    /// set on the response to the cross-site POST from AWS — SameSite governs when a cookie is
+    /// *sent*, not whether it may be stored — and read back on the same-site redirect that follows,
+    /// which is a top-level GET and therefore does carry Lax cookies.
+    /// </remarks>
+    private const string SamlConfirmCookieName = "__connapse_aws_link";
 
-    // Cached per issuer so signing keys are fetched from the pool's discovery document once and
-    // reused, rather than refetched on every callback.
-    private static readonly ConcurrentDictionary<string, ConfigurationManager<OpenIdConnectConfiguration>>
-        CognitoConfigManagers = new();
+    private const string SamlConfirmCookiePath = "/api/v1/auth/cloud/aws";
 
     public static IEndpointRouteBuilder MapCloudIdentityEndpoints(this IEndpointRouteBuilder app)
     {
@@ -47,7 +43,6 @@ public static class CloudIdentityEndpoints
             return Results.Ok(new
             {
                 identities,
-                awsSsoConfigured = service.IsAwsSsoConfigured(),
                 azureAdConfigured = service.IsAzureAdConfigured()
             });
         }).RequireAuthorization();
@@ -117,295 +112,199 @@ public static class CloudIdentityEndpoints
             }
         }).RequireAuthorization();
 
-        // --- Cognito (per-user AWS identity link) ---
+        // --- AWS (per-user identity link) ---
         //
         // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the
-        // Azure/AWS-SSO pair above, which write to UserCloudIdentityEntity via
-        // ICloudIdentityService. This link exists so per-user AWS permissions can later be
-        // resolved for search — it is not a connector credential. It shares the same versioned
-        // route group as the pair above: this callback URL is registered in the customer's
-        // Cognito app client, so it must not need to change again after ship.
+        // Azure connect/callback above, which write to UserCloudIdentityEntity via
+        // ICloudIdentityService. This link exists so per-user AWS permissions can be resolved for
+        // search — it is not a connector credential, and it holds no credential of its own. It
+        // shares the same versioned route group as the Azure endpoints above: the assertion
+        // consumer URL is registered in the customer's Identity Center application, so it must not
+        // need to change again after ship.
 
-        // GET /api/v1/auth/cloud/cognito/connect — redirect to the pool's authorize endpoint.
+        // GET /api/v1/auth/cloud/aws/connect — send the browser to IAM Identity Center.
         // Mirrors /azure/connect deliberately. A second convention for the same job in the same
         // file costs more than reusing an imperfect one.
-        group.MapGet("/cognito/connect", (
+        group.MapGet("/aws/connect", (
             HttpContext http,
-            IOptionsMonitor<CognitoSettings> settings) =>
+            [FromServices] IOptionsMonitor<SamlSignInSettings> settings,
+            [FromServices] SamlSignInRequests pending) =>
         {
             var userId = GetUserId(http);
             if (userId is null) return Results.Unauthorized();
 
-            var cognito = settings.CurrentValue;
-            if (!cognito.IsConfigured)
+            var saml = settings.CurrentValue;
+            if (!saml.IsConfigured)
                 return Results.Problem(
-                    "Cognito is not configured. An administrator sets it up under Settings.",
+                    "AWS sign-in is not configured. An administrator sets it up under Providers.",
                     statusCode: StatusCodes.Status409Conflict);
 
-            // PKCE: the verifier never leaves this deployment, and the challenge is what Cognito
-            // holds until the callback proves possession of the verifier that produced it.
-            string verifier = GenerateCodeVerifier();
-            string challenge = ComputeCodeChallenge(verifier);
-            // State, verifier and nonce are stashed as browser-scoped cookies, not
-            // session-scoped ones: they carry no user identity of their own. Without more, the
-            // callback would decide whose account to link by trusting whichever principal
-            // happens to be signed in when it runs — which can be a different person than the
-            // one who clicked Connect, if their session ends and someone else signs in on the
-            // same browser inside the cookie's lifetime. Prefixing the initiating user's id onto
-            // the opaque state lets the callback catch that without a fourth cookie. The id is
-            // not a secret, so it must not be treated as contributing entropy — the random half
-            // is generated exactly as it was before this was added.
-            string state = $"{userId.Value}:{GenerateOpaqueToken()}";
-            // Bound in the authorize request; checked against the ID token's `nonce` claim in the
-            // callback. Cheap, and stops a token minted for a different request being replayed
-            // into this one.
-            string nonce = GenerateOpaqueToken();
+            // Who is connecting travels as a nonce in RelayState rather than being read from the
+            // session at the other end. The assertion arrives on a cross-site POST from AWS, and a
+            // SameSite=Lax cookie is not sent on one — so the consumer endpoint cannot see who is
+            // signed in, however plainly the browser is theirs.
+            //
+            // It also answers, with one value, what the OIDC flow this replaced needed three
+            // cookies for. The nonce names nobody on its own, is single-use, and the user it
+            // belongs to never leaves this process.
+            var configuration = new Saml2Configuration
+            {
+                Issuer = saml.EntityId,
+                SingleSignOnDestination = new Uri(saml.IdpSingleSignOnUrl),
+            };
 
-            StashCognitoState(http, state, verifier, nonce);
+            // Built before the nonce, because the nonce records the id this request carries. The
+            // assertion has to name it back in InResponseTo, which is what stops one minted for a
+            // different sign-in — or for none at all — being posted into this one.
+            var authnRequest = new Saml2AuthnRequest(configuration)
+            {
+                AssertionConsumerServiceUrl = new Uri(saml.AcsUrl),
+            };
 
-            string authorize =
-                $"{cognito.Domain.TrimEnd('/')}/oauth2/authorize" +
-                $"?response_type=code" +
-                $"&client_id={Uri.EscapeDataString(cognito.ClientId)}" +
-                $"&redirect_uri={Uri.EscapeDataString(CognitoCallbackUri(http))}" +
-                $"&scope={Uri.EscapeDataString("openid email offline_access")}" +
-                $"&state={Uri.EscapeDataString(state)}" +
-                $"&nonce={Uri.EscapeDataString(nonce)}" +
-                $"&code_challenge={Uri.EscapeDataString(challenge)}" +
-                $"&code_challenge_method=S256";
+            var binding = new Saml2RedirectBinding
+            {
+                RelayState = pending.Start(userId.Value, authnRequest.Id.Value),
+            };
 
-            return Results.Redirect(authorize);
+            binding.Bind(authnRequest);
+
+            return Results.Redirect(binding.RedirectLocation.OriginalString);
         }).RequireAuthorization();
 
-        // GET /api/v1/auth/cloud/cognito/callback — Cognito OAuth2 callback.
-        group.MapGet("/cognito/callback", async (
+        // POST /api/v1/auth/cloud/aws/acs — where IAM Identity Center posts the assertion.
+        //
+        // Anonymous, and it has to be: the browser arrives here from AWS, so no session cookie
+        // comes with it. Nothing is trusted on that account — the assertion is signed, and
+        // RelayState is matched against a sign-in this deployment started.
+        //
+        // This endpoint deliberately saves nothing. It knows which directory user signed the
+        // assertion and which Connapse user started the sign-in, and nothing here ties those two to
+        // the same person: anybody with an account can start a sign-in and send the Identity Center
+        // URL to a colleague, whose genuine assertion then comes back carrying the starter's nonce.
+        // The pairing is what would be forged, not the document, so every check below passes. The
+        // outcome is therefore parked and claimed at /aws/confirm, where a session exists.
+        group.MapPost("/aws/acs", async (
             HttpContext http,
-            [FromQuery] string? code,
-            [FromQuery] string? state,
-            [FromQuery] string? error,
-            [FromServices] IOptionsMonitor<CognitoSettings> settings,
-            [FromServices] AwsIdentityLinkStore linkStore,
-            [FromServices] IHttpClientFactory httpClientFactory,
+            [FromServices] IOptionsMonitor<SamlSignInSettings> settings,
+            [FromServices] SamlSignInRequests pending,
+            [FromServices] SamlLinkConfirmations confirmations,
+            [FromServices] ISamlReplayGuard replayGuard,
+            [FromServices] IDirectoryUserLookup directoryUsers,
+            [FromServices] TimeProvider timeProvider,
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
-            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Cognito");
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Saml");
 
-            var expectedState = http.Request.Cookies[CognitoStateCookieName];
-            var codeVerifier = http.Request.Cookies[CognitoPkceCookieName];
-            var expectedNonce = http.Request.Cookies[CognitoNonceCookieName];
+            if (!http.Request.HasFormContentType)
+                return Results.Redirect("/profile/integrations?error=aws_response_malformed");
 
-            // Rule: clear the stashed state either way — a callback is one-shot regardless of
-            // whether it succeeds.
-            var deleteCookieOptions = new CookieOptions { Path = CognitoCookiePath };
-            http.Response.Cookies.Delete(CognitoStateCookieName, deleteCookieOptions);
-            http.Response.Cookies.Delete(CognitoPkceCookieName, deleteCookieOptions);
-            http.Response.Cookies.Delete(CognitoNonceCookieName, deleteCookieOptions);
+            var form = await http.Request.ReadFormAsync(ct);
 
-            // Rule: a provider-side error (the user declined consent, or Cognito rejected the
-            // request before ever issuing a code) arrives with `error` set and no `code` at all.
-            // code/state used to be non-nullable [FromQuery] parameters, so minimal API's model
-            // binding rejected this shape before the handler ever ran, leaving the user with a
-            // raw 400 and the three cookies just cleared above stuck in the browser until they
-            // expired on their own. Handle it the same way every other failure path here does:
-            // cookies are already gone, so just redirect with a fixed reason. The provider's raw
-            // error string is never echoed into the redirect — only ever one of our own values.
-            if (!string.IsNullOrEmpty(error))
+            // Consumed before the assertion is examined, and single-use. A replayed RelayState
+            // resolves to nobody here, which is the cheapest of the several places this stops.
+            var started = pending.Consume(form["RelayState"]);
+            if (started is null)
             {
-                logger.LogWarning(
-                    "Cognito callback reported a provider-side error: {Error}", LogSanitizer.Sanitize(error));
-                var reason = error == "access_denied" ? "cognito_user_cancelled" : "cognito_provider_error";
-                return Results.Redirect($"/profile/integrations?error={reason}");
+                logger.LogWarning("A SAML assertion arrived for a sign-in this deployment did not start");
+                return Results.Redirect("/profile/integrations?error=aws_unknown_request");
             }
 
-            // Rule: validate state before anything else. A callback whose state does not match is
-            // not a connection.
-            if (string.IsNullOrEmpty(expectedState) || string.IsNullOrEmpty(state) || expectedState != state)
-                return Results.BadRequest(new { error = "invalid_state", message = "Invalid or expired state parameter." });
+            var result = SamlAssertionValidator.Validate(
+                form["SAMLResponse"].ToString(),
+                settings.CurrentValue,
+                replayGuard,
+                timeProvider.GetUtcNow(),
+                started.Value.AuthnRequestId);
 
-            if (string.IsNullOrEmpty(codeVerifier))
-                return Results.BadRequest(new { error = "invalid_pkce", message = "Missing PKCE code verifier." });
-
-            if (string.IsNullOrEmpty(code))
+            if (!result.Success)
             {
-                // No provider error was reported, yet there is still no code to exchange. Not a
-                // shape Cognito is documented to produce, but code below assumes a non-empty code,
-                // so this is handled the same way as the explicit-error branch above rather than
-                // let a null reach the token exchange.
-                logger.LogWarning("Cognito callback carried no error but was also missing an authorization code");
-                return Results.Redirect("/profile/integrations?error=cognito_provider_error");
+                // result.FailureReason is a fixed code, never assertion content.
+                logger.LogWarning("SAML assertion rejected: {Reason}", result.FailureReason);
+                return Results.Redirect($"/profile/integrations?error=aws_{result.FailureReason}");
             }
+
+            // The asserted name is only half an identity. Access grants are held against the
+            // identity store's own id, so it is resolved once here rather than on every search —
+            // and because it is the stable identifier, a later rename in the directory does not
+            // force this person to connect again.
+            string? directoryUserId =
+                await directoryUsers.FindUserIdAsync(result.DirectoryUserName!, ct);
+            if (string.IsNullOrWhiteSpace(directoryUserId))
+            {
+                logger.LogWarning("The directory has no user matching the name an assertion carried");
+                return Results.Redirect("/profile/integrations?error=aws_no_directory_user");
+            }
+
+            // Parked, not saved. Case intact: this identifier belongs to a directory Connapse does
+            // not own, and folding its case would record one that may never have existed. The email
+            // rides along for display and authorizes nothing.
+            string code = confirmations.Start(new PendingIdentityLink(
+                started.Value.UserId, directoryUserId, result.DirectoryUserName!, result.Email));
+
+            http.Response.Cookies.Append(SamlConfirmCookieName, code, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = http.Request.IsHttps,
+                SameSite = SameSiteMode.Lax,
+                MaxAge = SamlLinkConfirmations.Lifetime,
+                Path = SamlConfirmCookiePath,
+            });
+
+            return Results.Redirect("/api/v1/auth/cloud/aws/confirm");
+        }).AllowAnonymous();
+
+        // GET /api/v1/auth/cloud/aws/confirm — where the link is actually saved.
+        //
+        // Reached by a same-site top-level redirect, so unlike the consumer this one gets the
+        // session cookie. Two things must agree before anything is written: the browser must hold
+        // the confirmation cookie the consumer set, and the signed-in user must be the one who
+        // started the sign-in.
+        //
+        // That is what makes the attack fail. An attacker who starts a sign-in and has a victim
+        // complete it never receives the cookie — it is HttpOnly in the victim's browser — and the
+        // victim, who does hold it, is not the user the sign-in was started by. Neither of them can
+        // save the link, which is the correct outcome for both.
+        group.MapGet("/aws/confirm", async (
+            HttpContext http,
+            [FromServices] SamlLinkConfirmations confirmations,
+            [FromServices] AwsIdentityLinkStore linkStore,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Saml");
+
+            string? code = http.Request.Cookies[SamlConfirmCookieName];
+            http.Response.Cookies.Delete(
+                SamlConfirmCookieName, new CookieOptions { Path = SamlConfirmCookiePath });
 
             var userId = GetUserId(http);
             if (userId is null) return Results.Unauthorized();
 
-            // Rule: the flow is bound to whoever started it, not whoever happens to be signed in
-            // when Cognito redirects back. State, verifier and nonce are browser-scoped cookies
-            // with no session identity of their own, so without this check a session that ended
-            // (or was switched) mid-flow on the same browser would silently link the verified AWS
-            // email to whoever is signed in now instead of who clicked Connect.
-            var initiatingUserId = ParseInitiatingUserId(expectedState);
-            if (initiatingUserId is null || initiatingUserId != userId.Value)
+            // Single-use, so an interrupted confirmation cannot be retried from history.
+            var link = confirmations.Consume(code);
+            if (link is null)
             {
-                logger.LogWarning("Cognito callback rejected: the signed-in user did not match who started the flow");
-                return Results.Redirect("/profile/integrations?error=cognito_user_mismatch");
+                logger.LogWarning("A SAML link confirmation arrived without a claim this deployment issued");
+                return Results.Redirect("/profile/integrations?error=aws_unknown_request");
             }
 
-            var cognito = settings.CurrentValue;
-            if (!cognito.IsConfigured)
-                return Results.Problem(
-                    "Cognito is not configured. An administrator sets it up under Settings.",
-                    statusCode: StatusCodes.Status409Conflict);
-
-            var redirectUri = CognitoCallbackUri(http);
-            var httpClient = httpClientFactory.CreateClient();
-            // A browser is waiting on this request. Don't rely on HttpClient's 100-second default —
-            // an unreachable or slow pool should redirect with an error well before the user gives up.
-            httpClient.Timeout = TimeSpan.FromSeconds(10);
-
-            var tokenParams = new Dictionary<string, string>
+            if (link.StartedByUserId != userId.Value)
             {
-                ["grant_type"] = "authorization_code",
-                ["client_id"] = cognito.ClientId,
-                ["client_secret"] = cognito.ClientSecret,
-                ["code"] = code,
-                ["redirect_uri"] = redirectUri,
-                ["code_verifier"] = codeVerifier,
-            };
-
-            HttpResponseMessage tokenResponse;
-            try
-            {
-                // Never log tokenParams above — it carries the authorization code, the PKCE
-                // verifier and the client secret.
-                tokenResponse = await httpClient.PostAsync(
-                    $"{cognito.Domain.TrimEnd('/')}/oauth2/token",
-                    new FormUrlEncodedContent(tokenParams), ct);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-            {
-                // TaskCanceledException is what HttpClient throws on its own timeout above (and
-                // what a client-disconnect cancellation looks like) — neither carries a token or
-                // secret, so nothing more than the exception type is worth knowing here.
-                logger.LogError("Cognito token exchange could not reach the pool in time");
-                return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
+                // The cross-user case. Worth a warning rather than an information line: the
+                // ordinary flow cannot produce it, so it means somebody completed a sign-in that
+                // somebody else began.
+                logger.LogWarning(
+                    "A SAML sign-in was completed by a different user than the one who started it; refusing to link");
+                return Results.Redirect("/profile/integrations?error=aws_wrong_user");
             }
 
-            if (!tokenResponse.IsSuccessStatusCode)
-            {
-                logger.LogError("Cognito token exchange failed with status {StatusCode}", tokenResponse.StatusCode);
-                return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
-            }
-
-            string? idToken;
-            string? refreshToken;
-            try
-            {
-                var responseBody = await tokenResponse.Content.ReadAsStringAsync(ct);
-                var tokenJson = JsonSerializer.Deserialize<JsonElement>(responseBody);
-                idToken = tokenJson.TryGetProperty("id_token", out var idTokenProp) ? idTokenProp.GetString() : null;
-                refreshToken = tokenJson.TryGetProperty("refresh_token", out var refreshTokenProp) ? refreshTokenProp.GetString() : null;
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                // InvalidOperationException is what JsonElement.GetString() throws when a property
-                // is present but not a string (e.g. the pool returned id_token as a number/object) —
-                // a malformed response, not a parse failure, but the same "give up cleanly" outcome.
-                logger.LogError("Cognito token response was not valid JSON");
-                return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
-            }
-
-            if (string.IsNullOrEmpty(idToken) || string.IsNullOrEmpty(refreshToken))
-            {
-                logger.LogError("Cognito token response was missing id_token or refresh_token");
-                return Results.Redirect("/profile/integrations?error=cognito_exchange_failed");
-            }
-
-            // Rule: validate the ID token — signature against the pool's JWKS, issuer, audience
-            // and lifetime — before reading any claim from it.
-            OpenIdConnectConfiguration openIdConfig;
-            try
-            {
-                var configManager = GetCognitoConfigManager(cognito.IssuerUrl);
-                openIdConfig = await configManager.GetConfigurationAsync(ct);
-            }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException)
-            {
-                logger.LogError(ex, "Could not fetch the Cognito pool's discovery document");
-                return Results.Redirect("/profile/integrations?error=cognito_token_invalid");
-            }
-
-            var validationParameters = CognitoIdTokenValidator.BuildValidationParameters(cognito, openIdConfig.SigningKeys);
-
-            var result = CognitoIdTokenValidator.Validate(idToken, validationParameters, expectedNonce);
-            if (!result.Success)
-            {
-                // result.FailureReason is a fixed code, never token or claim content.
-                logger.LogWarning("Cognito ID token rejected: {Reason}", result.FailureReason);
-                return Results.Redirect($"/profile/integrations?error=cognito_{result.FailureReason}");
-            }
-
-            // Normalized because this is the join key into an IAM Identity Center lookup — a case
-            // difference between what Cognito emits and what the directory holds would fail the
-            // match at resolution time, long after this connection looked like it succeeded.
-            var normalizedEmail = result.Email!.ToLowerInvariant();
-            await linkStore.SaveAsync(userId.Value, normalizedEmail, refreshToken, ct);
+            await linkStore.SaveAsync(
+                userId.Value, link.DirectoryUserId, link.DirectoryUserName, link.Email, ct);
 
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();
 
-        // --- AWS SSO (Device Authorization Flow) ---
-
-        // POST /api/v1/auth/cloud/aws/device-auth — start device authorization
-        group.MapPost("/aws/device-auth", async (
-            HttpContext httpContext,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            if (!service.IsAwsSsoConfigured())
-                return Results.BadRequest(new
-                {
-                    error = "aws_sso_not_configured",
-                    message = "AWS IAM Identity Center SSO is not configured. An admin must set the Issuer URL and Region in settings."
-                });
-
-            try
-            {
-                var result = await service.StartAwsDeviceAuthAsync(ct);
-                return Results.Ok(result);
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { error = "aws_device_auth_failed", message = ex.Message });
-            }
-        }).RequireAuthorization();
-
-        // POST /api/v1/auth/cloud/aws/device-auth/poll — poll for device authorization completion
-        group.MapPost("/aws/device-auth/poll", async (
-            HttpContext httpContext,
-            [FromBody] AwsDevicePollRequest request,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            try
-            {
-                var identity = await service.PollAwsDeviceAuthAsync(userId.Value, request.DeviceCode, ct);
-
-                if (identity is null)
-                    return Results.Ok(new { status = "pending" });
-
-                return Results.Ok(new { status = "complete", identity });
-            }
-            catch (Exception ex)
-            {
-                return Results.BadRequest(new { error = "aws_poll_failed", message = ex.Message });
-            }
-        }).RequireAuthorization();
-
-        // DELETE /api/v1/auth/cloud/{provider} — disconnect a cloud identity
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
@@ -463,61 +362,4 @@ public static class CloudIdentityEndpoints
         var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(idClaim, out var id) ? id : null;
     }
-
-    // --- Cognito helpers ---
-
-    private static ConfigurationManager<OpenIdConnectConfiguration> GetCognitoConfigManager(string issuerUrl) =>
-        CognitoConfigManagers.GetOrAdd(issuerUrl, iss =>
-            new ConfigurationManager<OpenIdConnectConfiguration>(
-                $"{iss.TrimEnd('/')}/.well-known/openid-configuration",
-                new OpenIdConnectConfigurationRetriever()));
-
-    private static void StashCognitoState(HttpContext http, string state, string verifier, string nonce)
-    {
-        var cookieOptions = new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = http.Request.IsHttps,
-            SameSite = SameSiteMode.Lax,
-            MaxAge = TimeSpan.FromMinutes(10),
-            Path = CognitoCookiePath
-        };
-
-        http.Response.Cookies.Append(CognitoStateCookieName, state, cookieOptions);
-        http.Response.Cookies.Append(CognitoPkceCookieName, verifier, cookieOptions);
-        http.Response.Cookies.Append(CognitoNonceCookieName, nonce, cookieOptions);
-    }
-
-    private static string CognitoCallbackUri(HttpContext http) =>
-        $"{http.Request.Scheme}://{http.Request.Host}/api/v1/auth/cloud/cognito/callback";
-
-    /// <summary>
-    /// Splits the initiating user's id off the front of a stashed Cognito state value (format
-    /// <c>"{userId}:{random}"</c>), or null when the state does not have that shape at all — e.g.
-    /// an old-format state left over from before this existed, which must not be trusted as
-    /// belonging to anyone.
-    /// </summary>
-    private static Guid? ParseInitiatingUserId(string state)
-    {
-        var separatorIndex = state.IndexOf(':');
-        if (separatorIndex <= 0) return null;
-        return Guid.TryParse(state[..separatorIndex], out var id) ? id : null;
-    }
-
-    private static string GenerateOpaqueToken() =>
-        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-
-    private static string GenerateCodeVerifier() =>
-        Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-
-    private static string ComputeCodeChallenge(string codeVerifier) =>
-        Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
-
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
 }
-
-public record AwsDevicePollRequest(string DeviceCode);

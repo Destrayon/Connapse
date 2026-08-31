@@ -2,7 +2,7 @@
 
 ## Development Status
 
-**Connapse v0.3.0 is in beta.** Authentication, authorization, and cloud identity linking are fully implemented. The project is suitable for self-hosted deployments in trusted environments, but is **not yet recommended for production exposure to the public internet** without review of the remaining limitations below.
+**Connapse v0.3.x is in beta.** Authentication and authorization are fully implemented. Cloud identity linking is being rebuilt (see [Corrections since v0.3.0](#corrections-since-v030)). The project is suitable for self-hosted deployments in trusted environments, but is **not yet recommended for production exposure to the public internet** without review of the remaining limitations below.
 
 ### What Changed in v0.2.0
 
@@ -26,16 +26,32 @@ v0.2.0 delivered the full authentication and authorization foundation:
 
 v0.3.0 added cloud connector architecture with identity-based access control:
 
-- **Cloud identity linking**: Users link cloud provider identities (AWS IAM Identity Center, Azure AD) to their Connapse profile
-- **AWS IAM Identity Center**: Device authorization flow — admin configures Issuer URL + Region, users authenticate via browser-based device code flow. No stored AWS access keys.
+- **Cloud identity linking**: Users link a cloud provider identity (Azure AD) to their Connapse profile
 - **Azure AD OAuth2+PKCE**: Authorization code flow with PKCE and client secret (defense in depth). CSRF protection via state cookies (HttpOnly, Secure, SameSite=Lax, 10-min TTL).
-- **IAM-derived scope enforcement**: Cloud permissions are the source of truth — Connapse checks the user's linked identity against the cloud provider's IAM before granting access to S3/Azure Blob containers
 - **Encrypted cloud identities**: Cloud identity data encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`)
-- **Scope caching**: 15-minute allow TTL, 5-minute deny TTL — deny results expire faster so users see access changes quickly
 - **Multi-provider AI support**: Embedding (Ollama, OpenAI, Azure OpenAI) and LLM (Ollama, OpenAI, Azure OpenAI, Anthropic) providers with API key management via runtime settings
 - **Connection testing**: All cloud connectors and AI providers can be validated before saving credentials
-- **S3 connector security**: Uses `DefaultAWSCredentials` (IAM roles, instance profiles) — no stored access keys
+- **S3 connector security**: Prefers a configured Connapse IAM credential, falling back to the ambient AWS chain (IAM roles, instance profiles) when none is set. A configured access key is encrypted at rest via DataProtection under its own purpose (`ProviderCredential.v1`)
 - **Azure Blob connector security**: Uses `DefaultAzureCredential` (managed identity) — no stored connection strings
+
+### Corrections since v0.3.0
+
+Two capabilities the v0.3.0 notes originally claimed do not hold in the current build. Both have been
+removed from the list above and are recorded here instead, because each one changes what an operator
+can rely on:
+
+- **AWS IAM Identity Center linking was removed** ([#435](https://github.com/Destrayon/Connapse/issues/435)).
+  v0.3.0 shipped a device authorization flow for AWS. It could not carry a per-user identity through
+  to a usable token, so it stored data nothing could read. There is no AWS sign-in in the product
+  today. Per-user AWS permissions are being rebuilt on an Amazon Cognito identity link
+  ([#436](https://github.com/Destrayon/Connapse/issues/436)); until that lands, AWS access is not
+  user-specific.
+- **IAM-derived scope enforcement was never wired into search** ([#422](https://github.com/Destrayon/Connapse/issues/422)).
+  `CloudScopeService` exists and is unit-tested, but it has no production caller. **Every user who
+  can reach a container can search every document indexed in it.** Access is controlled by ASP.NET
+  role authorization (Viewer and above) and by container scoping — both identical for all users of a
+  given role. Do not deploy Connapse on the assumption that a user's cloud permissions limit what
+  they can retrieve.
 
 ### Remaining Limitations
 
@@ -44,8 +60,8 @@ These are known gaps to address before v1.0.0:
 - **Rate limiting is basic**: Built-in ASP.NET Core rate limiting is configured with per-user and per-IP fixed-window policies. For high-traffic public deployments, consider an upstream reverse proxy (nginx, Caddy) or API gateway for more advanced throttling
 - **No encryption at rest**: Database and object storage data is stored unencrypted. Rely on OS/disk-level encryption (e.g., LUKS, BitLocker, encrypted EBS volumes) for sensitive deployments
 - **No MFA**: Multi-factor authentication is not yet implemented
-- **No traditional OIDC / SSO login**: Social login via GitHub, Google, or Microsoft is not yet implemented. OAuth 2.1 with PKCE is used for CLI authentication, and v0.3.0 added cloud identity linking (AWS IAM Identity Center + Azure AD) for cloud container access control, but web UI login is still password-based.
-- **Cloud scope granularity**: AWS `SimulatePrincipalPolicy` not yet implemented (grants full access when identity is linked). Azure RBAC enforcement at container-prefix level only, not per-folder.
+- **No traditional OIDC / SSO login**: Social login via GitHub, Google, or Microsoft is not yet implemented. OAuth 2.1 with PKCE is used for CLI authentication, and v0.3.0 added Azure AD cloud identity linking, but web UI login is still password-based.
+- **No per-user search filtering**: Search results are not filtered by the caller's cloud permissions. See [Corrections since v0.3.0](#corrections-since-v030).
 - **Cloud provider testing**: Cloud connector and AI provider integrations are unit-tested with mocks only — no end-to-end tests against real cloud services
 
 ## Reporting Security Vulnerabilities
@@ -112,12 +128,12 @@ If you are self-hosting Connapse:
 |---------|--------|----------------|------------------|
 | v0.1.0-alpha | Released | None | No |
 | v0.2.0 | Released (Beta) | Password + PATs + JWT | Self-hosted (trusted networks) |
-| v0.3.0 | Released (Beta) | + Cloud identity (AWS SSO + Azure AD) + IAM scope enforcement | Self-hosted (trusted networks) |
+| v0.3.0 | Released (Beta) | + Cloud identity (Azure AD) | Self-hosted (trusted networks) |
 | v0.3.2 | Released (Beta) | + Rate limiting (per-user, per-IP, per-agent) | Self-hosted (trusted networks) |
 | v0.3.x | Current (Beta) | + OAuth 2.1 (PKCE + refresh token rotation) for CLI/MCP auth | Self-hosted (trusted networks) |
 | v1.0.0 | Future | + MFA + OIDC/SSO login + encryption at rest | Yes |
 
 ---
 
-**Last Updated**: 2026-03-02
-**Status**: Beta (v0.3.0)
+**Last Updated**: 2026-08-28
+**Status**: Beta (v0.3.x)

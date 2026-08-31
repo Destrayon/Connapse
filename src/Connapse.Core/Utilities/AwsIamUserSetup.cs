@@ -43,7 +43,8 @@ public static class AwsIamUserSetup
     /// </remarks>
     public static readonly IReadOnlyList<string> RequiredPermissions =
     [
-        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey"
+        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey",
+        "sts:GetCallerIdentity"
     ];
 
     /// <summary>
@@ -69,52 +70,105 @@ public static class AwsIamUserSetup
     {
         string user = SanitiseUserName(userName);
         string policy = S3SetupPolicy.ForManagedIdentity();
+        string placeholder = S3SetupPolicy.AccountPlaceholder;
         string scopeSummary = S3SetupPolicy.ManagedIdentitySummary;
 
         // Single-quoted heredoc so the shell expands nothing inside the policy document.
         return $$"""
-        # Creates an AWS identity for Connapse: one IAM user, one read-only policy, and one access
-        # key. Nothing else is touched, and nothing existing is modified.
+        # Sets up an AWS identity for Connapse: one IAM user, one read-only policy, and one
+        # access key. Run against an identity Connapse already made, it brings the policy up to
+        # date and leaves the key alone.
         #
         # The policy allows: {{scopeSummary}}
 
+        # Set by any step that fails. No `set -e` and no bare `exit`: both end the *session* when
+        # these lines are pasted into an interactive shell, which is how CloudShell disconnects
+        # part-way through rather than reporting a problem.
+        FAILED=""
         USER='{{user}}'
 
-        if aws iam get-user --user-name "$USER" >/dev/null 2>&1; then
-          echo "An IAM user named $USER already exists."
-          echo 'Delete it first, or use a different name in Connapse, then run this again.'
-          exit 1
+        # The grant-read permission is named at this account's Access Grants instances rather
+        # than at every resource, and the account number only exists here, in the session
+        # running this.
+        ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+        [ -n "$ACCOUNT" ] || { echo 'Could not read your AWS account id.'; FAILED=1; }
+
+        EXISTS=""
+        aws iam get-user --user-name "$USER" >/dev/null 2>&1 && EXISTS=1
+
+        # Only an identity Connapse created. One that happens to share the name is somebody else's,
+        # and rewriting its policy would be taking over an account this script cannot reason about.
+        if [ -n "$EXISTS" ]; then
+          OWNER=$(aws iam list-user-tags --user-name "$USER" \
+                    --query "Tags[?Key=='CreatedBy'].Value" --output text 2>/dev/null || true)
+          if [ "$OWNER" != 'Connapse' ]; then
+            echo "An IAM user named $USER already exists, and Connapse did not create it."
+            echo 'Use a different name in Connapse, or remove that user yourself, then run this again.'
+            FAILED=1
+          fi
         fi
 
-        aws iam create-user --user-name "$USER" --tags Key=CreatedBy,Value=Connapse >/dev/null || exit 1
+        if [ -z "$FAILED" ] && [ -z "$EXISTS" ]; then
+          aws iam create-user --user-name "$USER" --tags Key=CreatedBy,Value=Connapse >/dev/null || FAILED=1
+        fi
 
-        # Inline, so the grant is deleted along with the user rather than lingering as an orphan.
-        aws iam put-user-policy --user-name "$USER" \
-          --policy-name ConnapseRead \
-          --policy-document '{{policy}}' || exit 1
+        # Written either way. On a new identity this is the grant; on one that already exists it
+        # replaces an older grant with the current one, which is how permissions added in a later
+        # version reach an installation that already ran this. put-user-policy replaces the document
+        # in full and does not touch access keys.
+        #
+        # Inline rather than managed, so the grant is deleted along with the user rather than
+        # lingering as an orphan.
+        if [ -z "$FAILED" ]; then
+          # Single-quoted so the shell expands nothing inside the document, then the one
+          # placeholder is replaced by hand. Substituted with the shell rather than built
+          # here, because a heredoc puts an interactive shell into continuation mode for the
+          # whole policy -- which is how CloudShell disconnected part-way through an earlier
+          # version of this setup.
+          POLICY='{{policy}}'
+          POLICY=${POLICY//{{placeholder}}/$ACCOUNT}
 
-        # The secret is returned once and never again, which is why the block below is the only
-        # chance to copy it.
-        KEY=$(aws iam create-access-key --user-name "$USER" \
-                --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text) || exit 1
+          aws iam put-user-policy --user-name "$USER" \
+            --policy-name ConnapseRead \
+            --policy-document "$POLICY" || FAILED=1
+        fi
 
-        BLOCK=$(
-          printf '%s\n' '{{BeginMarker}}'
-          printf 'user=%s\n' "$USER"
-          # '%s\n', not '%s'. Command substitution strips the trailing newline, and `read` returns
-          # non-zero at EOF without running the loop body — so the one line of output was silently
-          # dropped and the block came back with no key in it at all.
-          printf '%s\n' "$KEY" | while IFS=$(printf '\t') read -r ID SECRET; do
-            [ -z "$ID" ] && continue
-            printf 'accessKeyId=%s\n' "$ID"
-            printf 'secretAccessKey=%s\n' "$SECRET"
-          done
-          printf '%s\n' '{{EndMarker}}'
-        )
+        # Only for an identity that did not exist a moment ago. Creating a second key for one that
+        # did would leave the running deployment authenticating with the first, and this block
+        # telling you to paste the second.
+        if [ -z "$FAILED" ] && [ -z "$EXISTS" ]; then
+          # The secret is returned once and never again, which is why the block below is the only
+          # chance to copy it.
+          KEY=$(aws iam create-access-key --user-name "$USER" \
+                  --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text) || FAILED=1
 
-        printf '\n%s\n\n' "$BLOCK"
-        echo 'Copy the block above into Connapse. The secret is not recoverable afterwards.'
-        """;
+          BLOCK=$(
+            printf '%s\n' '{{BeginMarker}}'
+            printf 'user=%s\n' "$USER"
+            # '%s\n', not '%s'. Command substitution strips the trailing newline, and `read`
+            # returns non-zero at EOF without running the loop body — so the one line of output was
+            # silently dropped and the block came back with no key in it at all.
+            printf '%s\n' "$KEY" | while IFS=$(printf '\t') read -r ID SECRET; do
+              [ -z "$ID" ] && continue
+              printf 'accessKeyId=%s\n' "$ID"
+              printf 'secretAccessKey=%s\n' "$SECRET"
+            done
+            printf '%s\n' '{{EndMarker}}'
+          )
+
+          printf '\n%s\n\n' "$BLOCK"
+          echo 'Copy the block above into Connapse. The secret is not recoverable afterwards.'
+        fi
+
+        if [ -n "$FAILED" ]; then
+          echo
+          echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
+        elif [ -n "$EXISTS" ]; then
+          echo
+          echo "Permissions for $USER are up to date."
+          echo 'Its access key is unchanged, so there is nothing to paste back into Connapse.'
+        fi
+        """.Replace("\r\n", "\n");
     }
 
     /// <summary>

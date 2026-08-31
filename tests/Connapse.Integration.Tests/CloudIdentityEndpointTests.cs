@@ -61,17 +61,6 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task AwsDeviceAuth_NotConfigured_Returns400()
-    {
-        // AWS SSO is not configured in integration test environment
-        var response = await fixture.AdminClient.PostAsync(
-            "/api/v1/auth/cloud/aws/device-auth", null);
-
-        // Should return 400 since AWS SSO settings are not configured
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-    }
-
-    [Fact]
     public async Task DisconnectIdentity_NoIdentity_Returns404()
     {
         // Act: Try to disconnect AWS identity that doesn't exist
@@ -86,7 +75,6 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
 
     private record IdentitiesResponse(
         List<CloudIdentityDto> Identities,
-        bool AwsSsoConfigured,
         bool AzureAdConfigured);
 
     private record CloudIdentityDto(

@@ -11,15 +11,17 @@ namespace Connapse.Identity.Tests;
 public class UserAwsIdentityLinkEntityTests
 {
     [Fact]
-    public void ProtectedRefreshToken_IsNamedForWhatItHolds()
+    public void Link_HoldsNoCredential()
     {
-        // The name is the guard rail. A property called RefreshToken invites someone to assign a
-        // plaintext one; "Protected" says the value has already been through Data Protection and
-        // that assigning a raw token here is the bug.
-        typeof(UserAwsIdentityLinkEntity).GetProperty("ProtectedRefreshToken")
-            .Should().NotBeNull();
-        typeof(UserAwsIdentityLinkEntity).GetProperty("RefreshToken")
-            .Should().BeNull("a plaintext token must have nowhere to go");
+        // The point of the whole design, pinned so it cannot drift back. IAM Identity Center
+        // attests an identity once and Connapse records who it named; permissions are read later
+        // with Connapse's own IAM identity. A property here that holds a token — protected or not —
+        // means someone reintroduced a per-user credential that expires and is worth stealing.
+        var properties = typeof(UserAwsIdentityLinkEntity).GetProperties().Select(p => p.Name);
+
+        properties.Should().NotContain(
+            name => name.Contains("Token", StringComparison.OrdinalIgnoreCase),
+            "the link records an attested identity, never a credential");
     }
 
     [Fact]
@@ -27,7 +29,8 @@ public class UserAwsIdentityLinkEntityTests
     {
         var link = new UserAwsIdentityLinkEntity();
 
+        link.DirectoryUserId.Should().BeEmpty();
+        link.DirectoryUserName.Should().BeEmpty();
         link.Email.Should().BeEmpty();
-        link.ProtectedRefreshToken.Should().BeEmpty();
     }
 }

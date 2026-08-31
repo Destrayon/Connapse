@@ -1,5 +1,6 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
@@ -209,9 +210,27 @@ public static class ServiceCollectionExtensions
         // rather than holding the store.
         services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
+        services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
+        services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
+
+        // Registered here rather than in Connapse.Search, whose own registration is a TryAdd for
+        // the unrestricted default. This one resolves real grants, and it must win.
+        services.AddMemoryCache();
+        // Starts undetermined, so a host that never runs the startup migration refuses to answer
+        // rather than assuming nothing was being enforced. Connapse.Web completes it from
+        // SamlEnforcementLatch; nothing else resolves this today.
+        services.TryAddSingleton(new EnforcementMigration());
+
+        services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
+
+        // Advisory, and read by pages rather than by a search. Scoped because it is consumed from
+        // a Blazor circuit alongside the connection store.
+        services.AddScoped<IGrantCoverageReporter, CloudScope.GrantCoverageReporter>();
+
+        // Reads the connections, so scoped alongside the store it uses.
+        services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
-        services.AddScoped<AwsSsoConnectionTester>();
         services.AddScoped<AzureAdConnectionTester>();
         services.AddScoped<OpenAiConnectionTester>();
         services.AddScoped<AzureOpenAiConnectionTester>();
@@ -225,12 +244,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<VoyageConnectionTester>();
 
         // Cloud scope discovery
-        services.AddScoped<ICloudIdentityProvider, AwsIdentityProvider>();
         services.AddScoped<ICloudIdentityProvider, AzureIdentityProvider>();
         services.AddSingleton<IConnectorScopeCache, ConnectorScopeCache>();
-
-        // AWS SSO client registration and token exchange
-        services.AddScoped<IAwsSsoClientRegistrar, AwsSsoClientRegistrar>();
 
         return services;
     }

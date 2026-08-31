@@ -19,6 +19,9 @@
 @inject SftpConnectionTester SftpTester
 @inject IS3Discovery S3Discovery
 @inject IProviderSetupReader SetupReader
+@inject IGrantCoverageReporter GrantCoverage
+@inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -402,7 +405,21 @@
                             @foreach (var c in connections)
                             {
                                 <tr>
-                                    <td class="fw-medium">@c.Name</td>
+                                    <td class="fw-medium">
+                                        @c.Name
+                                        @* A connection whose buckets nothing is granted on
+                                           indexes normally and returns nothing to anybody, so
+                                           there is no other symptom to notice. Marked here
+                                           rather than only inside the form, because nobody
+                                           opens a connection that looks fine. *@
+                                        @if (ungrantedConnections.Contains(c.Id))
+                                        {
+                                            <span class="badge text-bg-warning ms-1"
+                                                  title="No access grant covers this connection's buckets, so searches over it return nothing. Open it to see which.">
+                                                <span class="bi-exclamation-triangle me-1"></span>No grants
+                                            </span>
+                                        }
+                                    </td>
                                     <td><span class="badge text-bg-secondary">@c.Provider</span></td>
                                     <td class="small text-muted">@DescribeScope(c)</td>
                                     <td>@c.SourceCount</td>
@@ -727,6 +744,7 @@
                     Allowed locations <span class="text-muted">(one per line, optional)</span>
                 </label>
                 <textarea class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
+                          @bind:after="RefreshCoverageAsync"
                           placeholder="docs-bucket&#10;shared-bucket/team/"></textarea>
                 <div class="form-text">
                     Bounds which buckets or containers a source on this connection may name. One
@@ -735,6 +753,87 @@
                     permits any prefix within it. Leave empty to allow any — currently permitted, with
                     a warning logged.
                 </div>
+
+                @* Per-user filtering hides every document no grant of the searcher's covers, so a
+                   bucket nothing is granted on indexes perfectly and returns nothing to everybody.
+                   Advisory, never blocking: authoring a grant before the connection that names the
+                   bucket is the wrong order to work in, and an AWS outage must not stop anyone
+                   configuring Connapse. *@
+                @if (coverage is { HasWarning: true })
+                {
+                    <div class="alert alert-warning small mt-2 mb-0">
+                        <div class="d-flex align-items-start">
+                            <span class="bi-exclamation-triangle-fill me-2 mt-1 flex-shrink-0"></span>
+                            <div>
+                                <strong>
+                                    No access grant covers
+                                    @string.Join(", ", coverage.Ungranted).
+                                </strong>
+                                <div class="mt-1">
+                                    Per-user permissions are switched on, so a search only returns
+                                    documents the person signing in has been granted. Nobody has been
+                                    granted anything here, so this connection will index normally and
+                                    return nothing to anyone. Save it if you like — then create a
+                                    grant in AWS and it starts working, no change needed here.
+                                </div>
+
+                                @if (RegionMismatch is { } mismatch)
+                                {
+                                    <div class="mt-2">
+                                        <strong>Connapse cannot read access grants in
+                                        @mismatch.Bucket, where this bucket is.</strong>
+                                        A grant is created against the S3 Access Grants instance in
+                                        the bucket's region, and there does not appear to be a
+                                        usable one there — Identity Center is in @mismatch.Directory.
+                                        The simplest fix is a bucket in @mismatch.Directory, where
+                                        the instance already is.
+                                        <div class="mt-1">
+                                            Otherwise you would need an Access Grants instance in
+                                            @mismatch.Bucket. An organisation has only one Identity
+                                            Center instance and its primary region cannot be moved,
+                                            so that means replicating it to @mismatch.Bucket —
+                                            which requires a multi-region customer-managed KMS key.
+                                            Group and user ids stay the same across regions.
+                                        </div>
+                                    </div>
+                                }
+                                else if (GrantCommand is { Length: > 0 } grantCommand)
+                                {
+                                    <div class="mt-2">
+                                        <div class="small mb-1">
+                                            Grants read access to
+                                            <strong>@(GrantGroupLabel)</strong>, for the buckets
+                                            above. Connapse never runs it.
+                                        </div>
+                                        <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:14rem;overflow:auto"><code>@grantCommand</code></pre>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                    @onclick="CopyGrantCommand">
+                                                <span class="bi-clipboard me-1"></span> Copy command
+                                            </button>
+                                            <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                                               href="https://console.aws.amazon.com/cloudshell/home">
+                                                <span class="bi-terminal me-1"></span> Open CloudShell
+                                                <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                            </a>
+                                            <span class="align-self-center small @(grantCopySucceeded ? "text-success" : "text-danger")">
+                                                @grantCopyMessage
+                                            </span>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="small mt-2">
+                                        Choose a group to grant to in
+                                        <a href="/admin/providers/aws">the AWS provider setup</a>,
+                                        and the exact command appears here.
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
 
                 @* The list, rather than a name typed from memory. Connapse's own AWS identity is
                    granted read across the account by default, and this is what that grant buys:
@@ -971,6 +1070,11 @@
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
         loading = false;
+
+        // After the list is on screen rather than before it. This asks AWS, and a connections page
+        // that will not render until AWS answers is worse than one whose warnings arrive a moment
+        // late — particularly when the reason AWS is slow may be the very thing being configured.
+        await RefreshUngrantedAsync();
     }
 
     // ── Guided setup: this computer, or a server ───────────────────────────
@@ -1151,6 +1255,173 @@
         {
             // Left blank on purpose. A region nobody could look up is one somebody can type.
         }
+    }
+
+    /// <summary>
+    /// The command that grants this connection's buckets, or empty when no group has been chosen.
+    /// </summary>
+    /// <remarks>
+    /// Built here rather than on the providers page because a grant names a bucket, and a bucket is
+    /// a property of a connection. The global version could not know it, so it printed a
+    /// placeholder — and was run with the placeholder still in it.
+    /// </remarks>
+    private string GrantCommand
+    {
+        get
+        {
+            var signIn = SamlOptions.CurrentValue;
+
+            if (!signIn.HasGrantGroup || coverage is not { HasWarning: true })
+                return string.Empty;
+
+            // Only the buckets nothing covers. Re-granting one that already works would be noise
+            // in a command whose whole point is that everything in it is needed.
+            // The connection's region, not the directory's. A grant is created against the
+            // Access Grants instance in the region the bucket lives in, and using the Identity
+            // Center region instead fails as InvalidAccessGrant with "The requested S3 Bucket is
+            // in a different region" -- which names the symptom and not the cause.
+            return AccessGrantScript.GenerateScript(
+                form.Region, coverage.Ungranted, signIn.GrantGroupId, isGroup: true);
+        }
+    }
+
+    /// <summary>
+    /// The two regions when a grant could never be created, or null when they agree.
+    /// </summary>
+    /// <remarks>
+    /// AWS requires the bucket, the Access Grants instance and the Identity Center instance to be in
+    /// one region. Offering a command that cannot succeed wastes a trip to CloudShell and returns
+    /// "The requested S3 Bucket is in a different region", which names the symptom rather than the
+    /// cause — and reads as a problem with the grant rather than with the arrangement.
+    /// </remarks>
+    private (string Bucket, string Directory)? RegionMismatch
+    {
+        get
+        {
+            string directory = IdentityCenterOptions.CurrentValue.Region;
+
+            // Nothing to say until both are known, and a blank is not a disagreement.
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(form.Region))
+                return null;
+
+            if (string.Equals(directory, form.Region, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            // Different regions are not automatically a problem. Identity Center can be replicated,
+            // and then the bucket's region has its own Access Grants instance and grants work
+            // normally. Comparing the strings alone refused a command that would have succeeded.
+            //
+            // The reporter asks every region that has buckets, so an outright failure to read this
+            // one is what a missing instance looks like from here.
+            return coverage?.Outcome == CoverageOutcome.Unavailable
+                ? (form.Region, directory)
+                : null;
+        }
+    }
+
+    /// <summary>What to call the group in the sentence above the command.</summary>
+    private string GrantGroupLabel =>
+        SamlOptions.CurrentValue.GrantGroupName is { Length: > 0 } name
+            ? name
+            : "the chosen group";
+
+    private string? grantCopyMessage;
+    private bool grantCopySucceeded;
+
+    private async Task CopyGrantCommand()
+    {
+        grantCopyMessage = null;
+
+        grantCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", GrantCommand);
+
+        grantCopyMessage = grantCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>Line endings an allowed-locations field may arrive with.</summary>
+    private static readonly char[] SplitOn = ['\n', '\r'];
+
+    /// <summary>
+    /// Connections whose buckets no access grant reaches.
+    /// </summary>
+    /// <remarks>
+    /// Only ever holds connections that were actually checked. An unavailable answer leaves this
+    /// empty, so an AWS outage marks nothing rather than marking everything.
+    /// </remarks>
+    private readonly HashSet<Guid> ungrantedConnections = [];
+
+    /// <summary>
+    /// Re-checks every S3 connection in the list.
+    /// </summary>
+    /// <remarks>
+    /// One AWS call for the whole page: the reporter reads every grant scope once and caches it, so
+    /// this loop matches locally however many connections there are.
+    /// </remarks>
+    private async Task RefreshUngrantedAsync()
+    {
+        ungrantedConnections.Clear();
+
+        if (connections is null) return;
+
+        foreach (var connection in connections.Where(c => c.Provider == ConnectionProvider.S3))
+        {
+            var report = await GrantCoverage.CheckAsync(AllowedLocationsOf(connection));
+
+            if (report.HasWarning)
+                ungrantedConnections.Add(connection.Id);
+        }
+    }
+
+    /// <summary>
+    /// What a stored connection allows, read back out of its config.
+    /// </summary>
+    /// <remarks>
+    /// Read from the connection rather than from the form, because this runs over the list where no
+    /// form is open.
+    /// </remarks>
+    private static IReadOnlyList<string> AllowedLocationsOf(Connection connection)
+    {
+        try
+        {
+            var form = ConnectionForm.FromConnection(connection);
+            return (form.AllowedLocations ?? string.Empty)
+                .Split(SplitOn, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
+        catch
+        {
+            // A connection whose config will not parse has a louder problem than this one, and
+            // reporting it here would put a second message on the same fault.
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// What is known about the grants covering the buckets in the form, or null before it is asked.
+    /// </summary>
+    /// <remarks>
+    /// Held rather than computed in the markup: it costs an AWS call, and a property read during
+    /// render would make one per keystroke.
+    /// </remarks>
+    private GrantCoverageReport? coverage;
+
+    /// <summary>
+    /// Refreshes the coverage warning for whatever the form currently allows.
+    /// </summary>
+    /// <remarks>
+    /// Never throws into the caller. The reporter already turns a failure into "unavailable", and a
+    /// warning that cannot be produced must not stop somebody editing a connection.
+    /// </remarks>
+    private async Task RefreshCoverageAsync()
+    {
+        if (form.Provider != ConnectionProvider.S3)
+        {
+            coverage = null;
+            return;
+        }
+
+        coverage = await GrantCoverage.CheckAsync(AllowedList());
     }
 
     /// <summary>The allowed-locations field, one entry per line.</summary>
@@ -1351,16 +1622,17 @@
         testMessage = null;
     }
 
-    private void StartCreate()
+    private async Task StartCreate()
     {
         editing = new Connection(Guid.Empty, "", ConnectionProvider.S3, null, null, DateTime.UtcNow, DateTime.UtcNow);
         isNew = true;
         form = new ConnectionForm();
         probeTarget = null;
         testMessage = null;
+        await RefreshCoverageAsync();
     }
 
-    private void StartEdit(Connection connection)
+    private async Task StartEdit(Connection connection)
     {
         editing = connection;
         isNew = false;
@@ -1369,12 +1641,14 @@
         // connection is meant to be able to reach.
         probeTarget = form.FirstAllowedLocation();
         testMessage = null;
+        await RefreshCoverageAsync();
     }
 
     private void CancelEdit()
     {
         editing = null;
         testMessage = null;
+        coverage = null;
     }
 
     private string ProbePlaceholder() =>

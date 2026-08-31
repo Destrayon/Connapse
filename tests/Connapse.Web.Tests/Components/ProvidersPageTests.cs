@@ -70,7 +70,6 @@ public class ProvidersPageTests
     /// an administrator's configured issuer URL would appear to revert.
     /// </remarks>
     [Theory]
-    [InlineData("awssso")]
     [InlineData("azuread")]
     public void ProvidersPage_KeepsTheSettingsKeysItInherited(string category)
     {
@@ -93,7 +92,6 @@ public class ProvidersPageTests
             "src", "Connapse.Web", "Components", "Pages", "Settings.razor"));
 
         [Theory]
-        [InlineData("awssso")]
         [InlineData("azuread")]
         public void SettingsPage_NoLongerOffersTheIdentityProviderTabs(string tab)
         {
@@ -104,7 +102,6 @@ public class ProvidersPageTests
         }
 
         [Theory]
-        [InlineData("AwsSsoSettingsTab")]
         [InlineData("AzureAdSettingsTab")]
         public void SettingsPage_NoLongerRendersTheIdentityProviderComponents(string component)
         {

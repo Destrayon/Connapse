@@ -14,8 +14,9 @@ namespace Connapse.Web.Services;
 /// the property that stops the page it feeds turning into a place credentials live.
 /// </remarks>
 public class ProviderSetupReader(
-    IOptionsMonitor<AwsSsoSettings> awsSso,
     IOptionsMonitor<AzureAdSettings> azureAd,
+    IOptionsMonitor<SamlSignInSettings> samlSignIn,
+    IOptionsMonitor<IdentityCenterSettings> identityCenter,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
@@ -42,6 +43,14 @@ public class ProviderSetupReader(
     /// </remarks>
     private const string SignInSection = "#signin";
 
+    /// <summary>The AWS sign-in form's section on the AWS provider page.</summary>
+    /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
+    private const string PermissionsSection = "#permissions";
+
+    /// <summary>The Identity Center scan's section on the AWS provider page.</summary>
+    /// <remarks>A fragment, for the same reason as <see cref="SignInSection"/>.</remarks>
+    private const string IdentityCenterSection = "#identity-center";
+
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
@@ -49,8 +58,12 @@ public class ProviderSetupReader(
         return
         [
             new ProviderSetup("aws", "AWS",
-                [SignIn(awsSso.CurrentValue), await Access(ct)],
-                InUse: IsConfigured(awsSso.CurrentValue) || providers.Contains(ConnectionProvider.S3)),
+                [
+                    await Access(ct),
+                    IdentityCentre(identityCenter.CurrentValue),
+                    PerUserPermissions(samlSignIn.CurrentValue)
+                ],
+                InUse: providers.Contains(ConnectionProvider.S3)),
 
             new ProviderSetup("azure", "Azure",
                 [SignIn(azureAd.CurrentValue), AzureAccess()],
@@ -105,29 +118,8 @@ public class ProviderSetupReader(
         }
     }
 
-    private static bool IsConfigured(AwsSsoSettings s) =>
-        !string.IsNullOrEmpty(s.IssuerUrl) && !string.IsNullOrEmpty(s.Region);
-
     private static bool IsConfigured(AzureAdSettings s) =>
         !string.IsNullOrEmpty(s.ClientId) && !string.IsNullOrEmpty(s.TenantId);
-
-    private static ProviderRequirement SignIn(AwsSsoSettings settings)
-    {
-        // Matches CloudIdentityService.IsAwsSsoConfigured: both halves, because a region without an
-        // issuer URL registers no client and an issuer URL without a region reaches no endpoint.
-        bool configured = IsConfigured(settings);
-
-        return new ProviderRequirement(
-            "Sign-in",
-            "Who can sign into Connapse with AWS, and which cloud identity their search is scoped against.",
-            configured ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
-            configured ? $"{settings.IssuerUrl} ({settings.Region})" : null,
-            configured ? "Change" : "Set up",
-            // The section on this page, not the list page. "aws-signin" was an anchor from when
-            // every provider shared one page; it survived the split as a link that left the page
-            // you were configuring and landed on a fragment that no longer exists anywhere.
-            SignInSection);
-    }
 
     private static ProviderRequirement SignIn(AzureAdSettings settings)
     {
@@ -140,6 +132,67 @@ public class ProviderSetupReader(
             configured ? $"Tenant {settings.TenantId}" : null,
             configured ? "Change" : "Set up",
             SignInSection);
+    }
+
+    /// <summary>
+    /// Whether people can connect an AWS identity of their own.
+    /// </summary>
+    /// <remarks>
+    /// Reports on the pool being configured, not on filtering working. Those are different claims,
+    /// and only the first is this page's to make: search is not scoped by cloud permissions yet
+    /// (#421), so a requirement worded around results would be green while every user still sees
+    /// everything.
+    /// <para>
+    /// Plainly <see cref="RequirementStatus.NotConfigured"/> when unset, because that is what it
+    /// is — no part of a pool exists. Reporting it as a Warning to keep the provider's own summary
+    /// out of "Not set up" was solving the rollup's problem on the wrong object, and it put
+    /// "Partly set up" on a card for something that was not partly anything.
+    /// <see cref="ProviderSetup.Overall"/> draws that distinction now.
+    /// </para>
+    /// </remarks>
+    private static ProviderRequirement PerUserPermissions(SamlSignInSettings settings)
+    {
+        const string name = "Per-user permissions";
+        const string description =
+            "The IAM Identity Center application people sign in through, so their results can be "
+            + "scoped to what that identity may read.";
+
+        if (!settings.IsConfigured)
+            return new ProviderRequirement(name, description,
+                RequirementStatus.NotConfigured,
+                "Nobody can connect an AWS identity until this is set up.",
+                "Set up", PermissionsSection);
+
+
+        return new ProviderRequirement(name, description,
+            RequirementStatus.Satisfied, settings.EntityId, "Change", PermissionsSection);
+    }
+
+    /// <summary>
+    /// Whether Connapse knows where the customer's IAM Identity Center instance is.
+    /// </summary>
+    /// <remarks>
+    /// Its own requirement rather than a detail of the one below, because it is answered first and
+    /// separately: the pool does not exist yet when this is found, and the setup script needs the
+    /// region from here to look in the right place. Identity Center lives in exactly one region per
+    /// organisation, and looking in the wrong one reads as there being no instance at all.
+    /// </remarks>
+    private static ProviderRequirement IdentityCentre(IdentityCenterSettings settings)
+    {
+        const string name = "IAM Identity Center";
+        const string description =
+            "The directory a person is resolved into when Connapse checks what they may read.";
+
+        if (!settings.IsConfigured)
+            return new ProviderRequirement(name, description,
+                RequirementStatus.NotConfigured,
+                "Not located yet. The scan is read-only and takes a moment.",
+                "Find it", IdentityCenterSection);
+
+        return new ProviderRequirement(name, description,
+            RequirementStatus.Satisfied,
+            $"{settings.IdentityStoreId} in {settings.Region}",
+            "Scan again", IdentityCenterSection);
     }
 
     /// <summary>

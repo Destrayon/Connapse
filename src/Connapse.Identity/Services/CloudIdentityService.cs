@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Connapse.Core;
-using Connapse.Core.Interfaces;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Stores;
 using Microsoft.AspNetCore.DataProtection;
@@ -16,8 +15,6 @@ public class CloudIdentityService(
     ICloudIdentityStore store,
     IDataProtectionProvider dataProtection,
     IOptionsMonitor<AzureAdSettings> azureAdOptions,
-    IOptionsMonitor<AwsSsoSettings> awsSsoOptions,
-    IAwsSsoClientRegistrar awsSsoRegistrar,
     IHttpClientFactory httpClientFactory,
     ILogger<CloudIdentityService> logger) : ICloudIdentityService
 {
@@ -124,55 +121,6 @@ public class CloudIdentityService(
             DisplayName: displayName);
 
         return await StoreIdentityAsync(userId, CloudProvider.Azure, identityData, ct);
-    }
-
-    // --- AWS SSO (Device Authorization Flow) ---
-
-    public async Task<AwsDeviceAuthStartResult> StartAwsDeviceAuthAsync(CancellationToken ct)
-    {
-        var settings = awsSsoOptions.CurrentValue;
-        settings = await awsSsoRegistrar.EnsureRegisteredAsync(settings, ct);
-
-        var result = await awsSsoRegistrar.StartDeviceAuthorizationAsync(settings, ct);
-
-        return new AwsDeviceAuthStartResult(
-            UserCode: result.UserCode,
-            VerificationUri: result.VerificationUri,
-            VerificationUriComplete: result.VerificationUriComplete,
-            DeviceCode: result.DeviceCode,
-            ExpiresInSeconds: result.ExpiresInSeconds,
-            IntervalSeconds: result.IntervalSeconds);
-    }
-
-    public async Task<CloudIdentityDto?> PollAwsDeviceAuthAsync(
-        Guid userId, string deviceCode, CancellationToken ct)
-    {
-        var settings = awsSsoOptions.CurrentValue;
-        settings = await awsSsoRegistrar.EnsureRegisteredAsync(settings, ct);
-
-        var accessToken = await awsSsoRegistrar.PollForTokenAsync(settings, deviceCode, ct);
-        if (accessToken is null)
-            return null; // Still pending
-
-        var userInfo = await awsSsoRegistrar.ListUserAccountsAsync(settings, accessToken, ct);
-
-        var identityData = new CloudIdentityData(
-            PrincipalArn: userInfo.AccountIds,
-            AccountId: userInfo.PrimaryAccountId,
-            ObjectId: null,
-            TenantId: null,
-            DisplayName: userInfo.DisplayName);
-
-        var dto = await StoreIdentityAsync(userId, CloudProvider.AWS, identityData, ct);
-        logger.LogInformation("AWS SSO identity linked for user {UserId} with {AccountCount} account(s)", userId, userInfo.AccountIds?.Split(',').Length ?? 0);
-
-        return dto;
-    }
-
-    public bool IsAwsSsoConfigured()
-    {
-        var settings = awsSsoOptions.CurrentValue;
-        return !string.IsNullOrEmpty(settings.IssuerUrl) && !string.IsNullOrEmpty(settings.Region);
     }
 
     public bool IsAzureAdConfigured()

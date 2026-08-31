@@ -8,8 +8,13 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// Storing a per-user refresh token so that only this deployment can read it back.
+/// Storing which IAM Identity Center user a Connapse user signed in as, against real PostgreSQL.
 /// </summary>
+/// <remarks>
+/// The encryption round-trip these tests used to cover is gone with the stored refresh token. What
+/// still needs a real database is the concurrency behaviour: the unique index on <c>user_id</c> and
+/// the upsert that races against it cannot be exercised on the InMemory provider.
+/// </remarks>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
@@ -35,56 +40,36 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task SaveAsync_ThenGetRefreshTokenAsync_RoundTripsThePlaintext()
+    public async Task SaveAsync_ThenGetAsync_RoundTripsTheDirectoryIdentity()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
 
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
+        await store.SaveAsync(userId, "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111", "person", "person@example.com");
 
-        (await store.GetRefreshTokenAsync(userId)).Should().Be("the-refresh-token");
-    }
-
-    [Fact]
-    public async Task SaveAsync_DoesNotStoreThePlaintext()
-    {
-        // The point of the whole class. Asserting the round trip alone would pass just as happily
-        // against an implementation that wrote the token straight to the column.
-        await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        Guid userId = await SeedUserAsync(scope.ServiceProvider);
-        var store = Build(scope.ServiceProvider);
-
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
-
-        var factory = scope.ServiceProvider
-            .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>();
-        await using var db = await factory.CreateDbContextAsync();
-        var row = await db.UserAwsIdentityLinks.SingleAsync(x => x.UserId == userId);
-
-        row.ProtectedRefreshToken.Should().NotBe("the-refresh-token");
-        row.ProtectedRefreshToken.Should().NotContain("the-refresh-token");
-        row.Email.Should().Be("person@example.com");
+        var link = await store.GetAsync(userId);
+        link.Should().NotBeNull();
+        link!.DirectoryUserId.Should().Be("a1b2c3d4-5678-90ab-cdef-EXAMPLE11111");
+        link.DirectoryUserName.Should().Be("person");
+        link.Email.Should().Be("person@example.com");
     }
 
     [Fact]
     public async Task SaveAsync_CalledTwice_ReplacesRatherThanAdds()
     {
-        // Connecting again must not leave two rows, or something later has to decide which token
-        // is live and there is no correct way to choose.
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
 
-        await store.SaveAsync(userId, "first@example.com", "first-token");
-        await store.SaveAsync(userId, "second@example.com", "second-token");
+        await store.SaveAsync(userId, "id-one", "person", "person@example.com");
+        await store.SaveAsync(userId, "id-two", "person-renamed", "person@example.com");
 
         var factory = scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>();
         await using var db = await factory.CreateDbContextAsync();
         (await db.UserAwsIdentityLinks.CountAsync(x => x.UserId == userId)).Should().Be(1);
-        (await store.GetRefreshTokenAsync(userId)).Should().Be("second-token");
-        (await store.GetAsync(userId))!.Email.Should().Be("second@example.com");
+        (await store.GetAsync(userId))!.DirectoryUserId.Should().Be("id-two");
     }
 
     [Fact]
@@ -107,7 +92,7 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
             .Select(i => Task.Run(async () =>
             {
                 gate.Wait();
-                await store.SaveAsync(userId, $"user{i}@example.com", $"token-{i}");
+                await store.SaveAsync(userId, $"id-{i}", $"user{i}", $"user{i}@example.com");
             }))
             .ToArray();
 
@@ -121,12 +106,12 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task GetRefreshTokenAsync_ForAnUnconnectedUser_IsNull()
+    public async Task GetAsync_ForAnUnconnectedUser_IsNull()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
 
-        (await Build(scope.ServiceProvider).GetRefreshTokenAsync(userId)).Should().BeNull();
+        (await Build(scope.ServiceProvider).GetAsync(userId)).Should().BeNull();
     }
 
     [Fact]
@@ -135,10 +120,10 @@ public class AwsIdentityLinkStoreTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         Guid userId = await SeedUserAsync(scope.ServiceProvider);
         var store = Build(scope.ServiceProvider);
-        await store.SaveAsync(userId, "person@example.com", "the-refresh-token");
+        await store.SaveAsync(userId, "a-directory-id", "person", "person@example.com");
 
         (await store.DeleteAsync(userId)).Should().BeTrue();
         (await store.DeleteAsync(userId)).Should().BeFalse("nothing was left to delete");
-        (await store.GetRefreshTokenAsync(userId)).Should().BeNull();
+        (await store.GetAsync(userId)).Should().BeNull();
     }
 }

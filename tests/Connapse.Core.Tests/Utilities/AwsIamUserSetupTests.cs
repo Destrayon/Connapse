@@ -27,13 +27,67 @@ public class AwsIamUserSetupTests
     }
 
     [Fact]
-    public void GenerateScript_StopsWhenTheUserAlreadyExists()
+    public void GenerateScript_MintsNoSecondKeyForAnIdentityThatAlreadyExists()
     {
         // Re-running it must not mint a second key for an identity already in use: the operator
-        // would store the new one and leave the old one live, with nothing recording that it exists.
+        // would store the new one and leave the old one live, with nothing recording that it
+        // exists. The script used to guarantee that by refusing outright, which turned out to
+        // strand every installation that needed a permission added after it first ran.
         string script = Script();
 
-        script.Should().Contain("aws iam get-user").And.Contain("exit 1");
+        script.Should().Contain("aws iam get-user");
+        script.Should().Contain("[ -z \"$FAILED\" ] && [ -z \"$EXISTS\" ]",
+            "creating the key is gated on the identity not having existed a moment ago");
+    }
+
+    [Fact]
+    public void GenerateScript_UpdatesThePolicyOnAnIdentityConnapseAlreadyMade()
+    {
+        // How a permission added in a later version reaches an installation that already ran this.
+        // Deleting and recreating the user would work too, and would rotate its access key and
+        // break every configured source until the new one was pasted back.
+        string script = Script();
+
+        script.Should().Contain("aws iam put-user-policy");
+        script.Should().Contain("Permissions for $USER are up to date");
+        script.Should().Contain("access key is unchanged");
+    }
+
+    [Fact]
+    public void GenerateScript_WillNotAdoptAUserConnapseDidNotCreate()
+    {
+        // A user that merely shares the name belongs to somebody else, and rewriting its policy
+        // would be taking over an account this script cannot reason about. The tag is written at
+        // creation, so its absence is the signal.
+        string script = Script();
+
+        script.Should().Contain("list-user-tags");
+        script.Should().Contain("Connapse did not create it");
+    }
+
+    [Fact]
+    public void GenerateScript_SurvivesBeingPastedIntoAnInteractiveShell()
+    {
+        // `set -e` and a bare `exit` end the *session* rather than a script when pasted into an
+        // interactive shell. That is how CloudShell disconnects part-way through a paste instead
+        // of reporting a problem, and it cost two debugging sessions to find.
+        // Comment lines are excluded, because the script explains this rule in a comment that
+        // necessarily quotes the thing it forbids. A check that reads prose as code fails on its
+        // own documentation.
+        var commands = Script().Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Length > 0 && !l.StartsWith('#'))
+            .ToList();
+
+        commands.Should().NotContain(l => l == "set -e" || l.StartsWith("set -e "));
+        commands.Should().NotContain(l => l == "exit 1" || l == "exit");
+
+        // An odd number of quotes leaves the shell waiting for the rest of a string that never
+        // arrives, so the paste appears to hang with no error — which is exactly how this shipped
+        // once, with a stray quote appended after the final `fi`. Comment lines are excluded
+        // because prose legitimately contains an apostrophe.
+        commands.Sum(l => l.Count(c => c == '\''))
+            .Should().Match(n => n % 2 == 0, "every quote in a command must be closed");
     }
 
     [Fact]
@@ -49,7 +103,42 @@ public class AwsIamUserSetupTests
     {
         // Not a policy assembled here. One place decides what Connapse asks AWS for, so the script
         // and the sentence describing it cannot drift apart.
-        Script().Should().Contain(S3SetupPolicy.ForManagedIdentity());
+        //
+        // Compared with the policy's newlines normalised, because the script's are: the whole
+        // script is forced to LF so a saved copy runs under a real Linux bash, and the serializer
+        // writes whatever this platform calls a newline.
+        Script().Should().Contain(S3SetupPolicy.ForManagedIdentity().Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public void GenerateScript_SubstitutesTheAccountIntoThePolicy()
+    {
+        // The grant-read permission names this account's Access Grants instances rather than every
+        // resource, and the account number is not known where the policy is built -- it exists only
+        // in the shell session running this. Left unsubstituted the ARN is malformed and IAM refuses
+        // the whole document, so the placeholder must never reach AWS.
+        string script = Script();
+
+        script.Should().Contain("aws sts get-caller-identity",
+            "the account number has to come from somewhere");
+        script.Should().Contain($"POLICY=${{POLICY//{S3SetupPolicy.AccountPlaceholder}/$ACCOUNT}}");
+
+        // Both halves present: the policy carries the placeholder, and the script replaces it.
+        S3SetupPolicy.ForManagedIdentity().Should().Contain(S3SetupPolicy.AccountPlaceholder);
+    }
+
+    [Fact]
+    public void GenerateScript_ScopesTheGrantReadButNotTheDirectoryReads()
+    {
+        // Split deliberately. The Access Grants read is the call that can enumerate what every
+        // grantee may see, and AWS documents a resource form for it. The Identity Store reads stay
+        // on "*" because the reference does not confirm they accept one, and a wrong ARN there
+        // fails as AccessDenied -- which the resolver reads as an outage and turns into an empty
+        // result set, with nothing anywhere saying why.
+        string policy = S3SetupPolicy.ForManagedIdentity();
+
+        policy.Should().Contain("access-grants/*");
+        policy.Should().Contain("ConnapseReadGrants").And.Contain("ConnapseReadDirectory");
     }
 
     [Theory]

@@ -107,5 +107,4 @@ MinIO and PostgreSQL are only accessible within the internal Docker network.
 
 - [Full project repository](https://github.com/Destrayon/Connapse)
 - [Connectors documentation](https://github.com/Destrayon/Connapse/blob/main/docs/connectors.md)
-- [AWS SSO setup](https://github.com/Destrayon/Connapse/blob/main/docs/aws-sso-setup.md)
 - [Azure identity setup](https://github.com/Destrayon/Connapse/blob/main/docs/azure-identity-setup.md)
