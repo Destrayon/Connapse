@@ -1,0 +1,31 @@
+<div class="provider-reset-action">
+    @if (confirming)
+    {
+        <button type="button" class="btn btn-sm btn-danger" @onclick="ConfirmResetAsync">@ConfirmLabel</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="CancelReset">Cancel</button>
+    }
+    else
+    {
+        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RequestReset">@Label</button>
+    }
+    @if (confirming && !string.IsNullOrWhiteSpace(HelpText))
+    {
+        <div class="form-text">@HelpText</div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Reset this step";
+    [Parameter] public string ConfirmLabel { get; set; } = "Confirm reset";
+    [Parameter] public string? HelpText { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+
+    private bool confirming;
+    private void RequestReset() => confirming = true;
+    private void CancelReset() => confirming = false;
+    private async Task ConfirmResetAsync()
+    {
+        await OnReset.InvokeAsync();
+        confirming = false;
+    }
+}

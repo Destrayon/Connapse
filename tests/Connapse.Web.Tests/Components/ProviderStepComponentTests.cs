@@ -1,6 +1,8 @@
+using System.Reflection;
 using Connapse.Core;
 using Connapse.Web.Components.Providers;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.RenderTree;
 using Xunit;
@@ -37,7 +39,34 @@ public class ProviderStepComponentTests
             return frames.Array.Take(frames.Count).ToArray();
         }
     }
+
+    private sealed class TestProviderResetAction : ProviderResetAction
+    {
+        public IReadOnlyList<RenderTreeFrame> RenderFrames()
+        {
+            var builder = new RenderTreeBuilder();
+            BuildRenderTree(builder);
+            var frames = builder.GetFrames();
+            return frames.Array.Take(frames.Count).ToArray();
+        }
+    }
 #pragma warning restore BL0006
+
+    private static MethodInfo Method(object target, string name)
+    {
+        for (Type? type = target.GetType(); type is not null; type = type.BaseType)
+        {
+            if (type.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic) is { } method)
+                return method;
+        }
+
+        throw new InvalidOperationException($"Method {name} was not found.");
+    }
+
+    private static void Invoke(object target, string name) => Method(target, name).Invoke(target, null);
+
+    private static async Task InvokeAsync(object target, string name) =>
+        await (Task)Method(target, name).Invoke(target, null)!;
 
     private static string Text(IEnumerable<RenderTreeFrame> frames) => string.Concat(
         frames.Where(frame => frame.FrameType is RenderTreeFrameType.Text or RenderTreeFrameType.Markup)
@@ -125,5 +154,48 @@ public class ProviderStepComponentTests
         var expandedFrames = Card(RequirementStatus.Satisfied, expanded: true).RenderFrames();
         Attribute(expandedFrames, "aria-controls").Should().Be("access-setup");
         Attribute(expandedFrames, "aria-expanded").Should().Be("true");
+    }
+
+    [Fact]
+    public void SetupGuide_StartsClosedAndUsesItsTitle()
+    {
+        var guide = new TestProviderSetupGuide
+        {
+            Title = "Easy setup with AWS CloudShell",
+            ChildContent = builder => builder.AddContent(0, "guide-marker"),
+        };
+
+        var frames = guide.RenderFrames();
+        ElementNames(frames).Should().ContainInOrder("details", "summary");
+        AttributeValues(frames, "open").Should().BeEmpty();
+        Text(frames).Should().Contain("Easy setup with AWS CloudShell").And.Contain("guide-marker");
+    }
+
+    [Fact]
+    public async Task Reset_RequiresConfirmationAndCanBeCancelled()
+    {
+        int resets = 0;
+        var reset = new TestProviderResetAction
+        {
+            Label = "Reset this step",
+            ConfirmLabel = "Confirm reset",
+            HelpText = "Clears saved values only.",
+            OnReset = EventCallback.Factory.Create(this, () => { resets++; }),
+        };
+
+        Text(reset.RenderFrames()).Should().Contain("Reset this step")
+            .And.NotContain("Confirm reset")
+            .And.NotContain("Clears saved values only.");
+        Invoke(reset, "RequestReset");
+        Text(reset.RenderFrames()).Should().Contain("Confirm reset")
+            .And.Contain("Cancel")
+            .And.Contain("Clears saved values only.");
+        Invoke(reset, "CancelReset");
+        resets.Should().Be(0);
+
+        Invoke(reset, "RequestReset");
+        await InvokeAsync(reset, "ConfirmResetAsync");
+        resets.Should().Be(1);
+        Text(reset.RenderFrames()).Should().Contain("Reset this step").And.NotContain("Confirm reset");
     }
 }
