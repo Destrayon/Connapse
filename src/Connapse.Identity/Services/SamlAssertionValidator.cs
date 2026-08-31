@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -47,11 +47,17 @@ public static class SamlAssertionValidator
     /// <param name="settings">What this deployment registered in the AWS console, and what came back.</param>
     /// <param name="replayGuard">Records assertion ids so one cannot be posted twice.</param>
     /// <param name="now">Supplied rather than read, so lifetime rejection is testable.</param>
+    /// <param name="expectedInResponseTo">
+    /// The id of the AuthnRequest this deployment sent, or null to accept an unsolicited assertion.
+    /// Required by every caller that started a sign-in, and passed explicitly rather than defaulted
+    /// so that omitting it is a decision somebody wrote down.
+    /// </param>
     public static SamlAssertionResult Validate(
         string samlResponse,
         SamlSignInSettings settings,
         ISamlReplayGuard replayGuard,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? expectedInResponseTo)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(replayGuard);
@@ -119,6 +125,21 @@ public static class SamlAssertionValidator
             !string.Equals(response.Destination.AbsoluteUri, settings.AcsUrl, StringComparison.OrdinalIgnoreCase))
         {
             return SamlAssertionResult.Rejected("destination_mismatch");
+        }
+
+        // Rule: the assertion answers the request this deployment sent. Identity Center echoes the
+        // AuthnRequest id in InResponseTo for a service-provider-initiated sign-in, and an
+        // assertion that names a different one — or names none at all — is not the answer to the
+        // request being consumed here.
+        //
+        // Defence in depth rather than the whole of it. It does not stop the person who started the
+        // sign-in from having somebody else complete it, because they know their own request id;
+        // that is bound at the confirmation step instead. What it does stop is an assertion minted
+        // for some other sign-in, including an unsolicited one, being posted into this one.
+        if (expectedInResponseTo is not null &&
+            !string.Equals(response.InResponseToAsString, expectedInResponseTo, StringComparison.Ordinal))
+        {
+            return SamlAssertionResult.Rejected("response_unsolicited");
         }
 
         // Rule: the assertion is inside its own validity window.

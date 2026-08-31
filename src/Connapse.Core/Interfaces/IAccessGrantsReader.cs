@@ -22,12 +22,34 @@ public readonly record struct AccessGrantee(bool IsGroup, string Id);
 /// <param name="ApplicationArn">
 /// The application the grantee may exercise this grant through, or null when the grant names none.
 /// </param>
+/// <param name="Permission">
+/// What the grant permits, as AWS reports it: <c>READ</c>, <c>WRITE</c> or <c>READWRITE</c>.
+/// </param>
 /// <remarks>
 /// <see cref="ApplicationArn"/> is carried rather than filtered on in the query, and the difference
 /// matters in both directions: filtering by application drops the grants that name none, which are
 /// the common case, and ignoring the field admits grants that AWS would only honour somewhere else.
+/// <para>
+/// <see cref="Permission"/> is carried for a blunter reason: a grant is not automatically
+/// permission to read. Write-only access to a prefix people upload into is an ordinary thing to
+/// grant, and treating it as read would show somebody the contents of a location AWS lets them add
+/// to and nothing more.
+/// </para>
 /// </remarks>
-public record AccessGrantRecord(string GrantScope, bool IsObjectScope, string? ApplicationArn);
+public record AccessGrantRecord(
+    string GrantScope, bool IsObjectScope, string? ApplicationArn, string? Permission = null)
+{
+    /// <summary>Whether this grant permits reading what is at its scope.</summary>
+    /// <remarks>
+    /// <c>READ</c> and <c>READWRITE</c> only. An unrecognised or absent value is not read
+    /// permission: the field is one AWS always populates, so a missing one means the response was
+    /// not what this understands, and guessing in the permissive direction is how a write-only
+    /// grant becomes a disclosure.
+    /// </remarks>
+    public bool PermitsRead =>
+        string.Equals(Permission, "READ", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(Permission, "READWRITE", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// Reads S3 Access Grants using Connapse's own AWS identity.

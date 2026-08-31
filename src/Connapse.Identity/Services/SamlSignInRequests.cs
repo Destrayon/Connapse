@@ -2,6 +2,14 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace Connapse.Identity.Services;
 
+/// <summary>What was recorded when a SAML sign-in was started.</summary>
+/// <remarks>
+/// The AuthnRequest id travels with it so the assertion that comes back can be checked against the
+/// request that asked for it, rather than merely against a nonce anybody holding the redirect URL
+/// could present.
+/// </remarks>
+public readonly record struct StartedSignIn(Guid UserId, string AuthnRequestId);
+
 /// <summary>
 /// Remembers who started a SAML sign-in, so the assertion that comes back can be attributed.
 /// </summary>
@@ -14,6 +22,14 @@ namespace Connapse.Identity.Services;
 /// The nonce is the only thing that travels. It names nothing on its own: a person who obtains one
 /// learns a random string, and the user it belongs to never leaves this process. Consuming is
 /// single-use, so a replayed RelayState resolves to nobody even before the assertion is examined.
+/// </para>
+/// <para>
+/// <b>What this is not.</b> It does not prove the browser completing the sign-in is the browser
+/// that started it, and it never could: anybody who can start a sign-in can send the resulting
+/// Identity Center URL to somebody else, whose genuine assertion then comes back carrying this
+/// nonce. That is why nothing is persisted at the consumer — see
+/// <see cref="SamlLinkConfirmations"/>, which binds the outcome to a real session before it is
+/// saved.
 /// </para>
 /// <para>
 /// Short-lived, because it spans one redirect to AWS and back. Single-process, like
@@ -33,30 +49,47 @@ public sealed class SamlSignInRequests(IMemoryCache cache)
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
 
     /// <summary>Records that <paramref name="userId"/> started a sign-in, and returns the nonce.</summary>
-    public string Start(Guid userId)
+    /// <param name="authnRequestId">
+    /// The id of the AuthnRequest being sent, which the assertion must name in
+    /// <c>InResponseTo</c>.
+    /// </param>
+    public string Start(Guid userId, string authnRequestId)
     {
-        // 32 bytes of cryptographic randomness, url-safe. It travels in a query string and comes
-        // back through AWS, so it must survive that without encoding surprises.
-        string nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
-            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        ArgumentException.ThrowIfNullOrWhiteSpace(authnRequestId);
 
-        cache.Set(KeyPrefix + nonce, userId, Lifetime);
+        string nonce = SamlNonce.Create();
+        cache.Set(KeyPrefix + nonce, new StartedSignIn(userId, authnRequestId), Lifetime);
         return nonce;
     }
 
     /// <summary>
-    /// The user who started the sign-in <paramref name="nonce"/> belongs to, or null. Single use.
+    /// The sign-in <paramref name="nonce"/> belongs to, or null. Single use.
     /// </summary>
-    public Guid? Consume(string? nonce)
+    public StartedSignIn? Consume(string? nonce)
     {
         if (string.IsNullOrWhiteSpace(nonce))
             return null;
 
         string key = KeyPrefix + nonce;
-        if (!cache.TryGetValue(key, out Guid userId))
+        if (!cache.TryGetValue(key, out StartedSignIn started))
             return null;
 
         cache.Remove(key);
-        return userId;
+        return started;
     }
+}
+
+/// <summary>Makes the random, url-safe values this flow passes through a browser.</summary>
+internal static class SamlNonce
+{
+    /// <summary>
+    /// 32 bytes of cryptographic randomness, url-safe.
+    /// </summary>
+    /// <remarks>
+    /// These travel in a query string or a cookie and come back, so they must survive that without
+    /// encoding surprises.
+    /// </remarks>
+    public static string Create() =>
+        Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
 }

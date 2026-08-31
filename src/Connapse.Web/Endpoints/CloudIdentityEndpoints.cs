@@ -14,6 +14,18 @@ public static class CloudIdentityEndpoints
     private const string AzureStateCookieName = "__connapse_az_state";
     private const string AzurePkceCookieName = "__connapse_az_pkce";
 
+    /// <summary>Carries the one-time code that claims a validated assertion.</summary>
+    /// <remarks>
+    /// A cookie rather than a query parameter: it must not be readable by script, must not sit in
+    /// browser history, and must not be in anything a person could paste to somebody else. It is
+    /// set on the response to the cross-site POST from AWS — SameSite governs when a cookie is
+    /// *sent*, not whether it may be stored — and read back on the same-site redirect that follows,
+    /// which is a top-level GET and therefore does carry Lax cookies.
+    /// </remarks>
+    private const string SamlConfirmCookieName = "__connapse_aws_link";
+
+    private const string SamlConfirmCookiePath = "/api/v1/auth/cloud/aws";
+
     public static IEndpointRouteBuilder MapCloudIdentityEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/auth/cloud").WithTags("Cloud Identity");
@@ -135,18 +147,26 @@ public static class CloudIdentityEndpoints
             // It also answers, with one value, what the OIDC flow this replaced needed three
             // cookies for. The nonce names nobody on its own, is single-use, and the user it
             // belongs to never leaves this process.
-            var binding = new Saml2RedirectBinding { RelayState = pending.Start(userId.Value) };
-
             var configuration = new Saml2Configuration
             {
                 Issuer = saml.EntityId,
                 SingleSignOnDestination = new Uri(saml.IdpSingleSignOnUrl),
             };
 
-            binding.Bind(new Saml2AuthnRequest(configuration)
+            // Built before the nonce, because the nonce records the id this request carries. The
+            // assertion has to name it back in InResponseTo, which is what stops one minted for a
+            // different sign-in — or for none at all — being posted into this one.
+            var authnRequest = new Saml2AuthnRequest(configuration)
             {
                 AssertionConsumerServiceUrl = new Uri(saml.AcsUrl),
-            });
+            };
+
+            var binding = new Saml2RedirectBinding
+            {
+                RelayState = pending.Start(userId.Value, authnRequest.Id.Value),
+            };
+
+            binding.Bind(authnRequest);
 
             return Results.Redirect(binding.RedirectLocation.OriginalString);
         }).RequireAuthorization();
@@ -156,12 +176,19 @@ public static class CloudIdentityEndpoints
         // Anonymous, and it has to be: the browser arrives here from AWS, so no session cookie
         // comes with it. Nothing is trusted on that account — the assertion is signed, and
         // RelayState is matched against a sign-in this deployment started.
+        //
+        // This endpoint deliberately saves nothing. It knows which directory user signed the
+        // assertion and which Connapse user started the sign-in, and nothing here ties those two to
+        // the same person: anybody with an account can start a sign-in and send the Identity Center
+        // URL to a colleague, whose genuine assertion then comes back carrying the starter's nonce.
+        // The pairing is what would be forged, not the document, so every check below passes. The
+        // outcome is therefore parked and claimed at /aws/confirm, where a session exists.
         group.MapPost("/aws/acs", async (
             HttpContext http,
             [FromServices] IOptionsMonitor<SamlSignInSettings> settings,
             [FromServices] SamlSignInRequests pending,
+            [FromServices] SamlLinkConfirmations confirmations,
             [FromServices] ISamlReplayGuard replayGuard,
-            [FromServices] AwsIdentityLinkStore linkStore,
             [FromServices] IDirectoryUserLookup directoryUsers,
             [FromServices] TimeProvider timeProvider,
             [FromServices] ILoggerFactory loggerFactory,
@@ -176,8 +203,8 @@ public static class CloudIdentityEndpoints
 
             // Consumed before the assertion is examined, and single-use. A replayed RelayState
             // resolves to nobody here, which is the cheapest of the several places this stops.
-            var userId = pending.Consume(form["RelayState"]);
-            if (userId is null)
+            var started = pending.Consume(form["RelayState"]);
+            if (started is null)
             {
                 logger.LogWarning("A SAML assertion arrived for a sign-in this deployment did not start");
                 return Results.Redirect("/profile/integrations?error=aws_unknown_request");
@@ -187,7 +214,8 @@ public static class CloudIdentityEndpoints
                 form["SAMLResponse"].ToString(),
                 settings.CurrentValue,
                 replayGuard,
-                timeProvider.GetUtcNow());
+                timeProvider.GetUtcNow(),
+                started.Value.AuthnRequestId);
 
             if (!result.Success)
             {
@@ -208,14 +236,74 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect("/profile/integrations?error=aws_no_directory_user");
             }
 
-            // Stored with its case intact: this identifier belongs to a directory Connapse does not
-            // own, and folding its case would record one that may never have existed. The email
+            // Parked, not saved. Case intact: this identifier belongs to a directory Connapse does
+            // not own, and folding its case would record one that may never have existed. The email
             // rides along for display and authorizes nothing.
+            string code = confirmations.Start(new PendingIdentityLink(
+                started.Value.UserId, directoryUserId, result.DirectoryUserName!, result.Email));
+
+            http.Response.Cookies.Append(SamlConfirmCookieName, code, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = http.Request.IsHttps,
+                SameSite = SameSiteMode.Lax,
+                MaxAge = SamlLinkConfirmations.Lifetime,
+                Path = SamlConfirmCookiePath,
+            });
+
+            return Results.Redirect("/api/v1/auth/cloud/aws/confirm");
+        }).AllowAnonymous();
+
+        // GET /api/v1/auth/cloud/aws/confirm — where the link is actually saved.
+        //
+        // Reached by a same-site top-level redirect, so unlike the consumer this one gets the
+        // session cookie. Two things must agree before anything is written: the browser must hold
+        // the confirmation cookie the consumer set, and the signed-in user must be the one who
+        // started the sign-in.
+        //
+        // That is what makes the attack fail. An attacker who starts a sign-in and has a victim
+        // complete it never receives the cookie — it is HttpOnly in the victim's browser — and the
+        // victim, who does hold it, is not the user the sign-in was started by. Neither of them can
+        // save the link, which is the correct outcome for both.
+        group.MapGet("/aws/confirm", async (
+            HttpContext http,
+            [FromServices] SamlLinkConfirmations confirmations,
+            [FromServices] AwsIdentityLinkStore linkStore,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Saml");
+
+            string? code = http.Request.Cookies[SamlConfirmCookieName];
+            http.Response.Cookies.Delete(
+                SamlConfirmCookieName, new CookieOptions { Path = SamlConfirmCookiePath });
+
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            // Single-use, so an interrupted confirmation cannot be retried from history.
+            var link = confirmations.Consume(code);
+            if (link is null)
+            {
+                logger.LogWarning("A SAML link confirmation arrived without a claim this deployment issued");
+                return Results.Redirect("/profile/integrations?error=aws_unknown_request");
+            }
+
+            if (link.StartedByUserId != userId.Value)
+            {
+                // The cross-user case. Worth a warning rather than an information line: the
+                // ordinary flow cannot produce it, so it means somebody completed a sign-in that
+                // somebody else began.
+                logger.LogWarning(
+                    "A SAML sign-in was completed by a different user than the one who started it; refusing to link");
+                return Results.Redirect("/profile/integrations?error=aws_wrong_user");
+            }
+
             await linkStore.SaveAsync(
-                userId.Value, directoryUserId, result.DirectoryUserName!, result.Email, ct);
+                userId.Value, link.DirectoryUserId, link.DirectoryUserName, link.Email, ct);
 
             return Results.Redirect("/profile/integrations");
-        }).AllowAnonymous();
+        }).RequireAuthorization();
 
         group.MapDelete("/{provider}", async (
             string provider,

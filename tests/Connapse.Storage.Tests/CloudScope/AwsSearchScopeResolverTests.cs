@@ -29,6 +29,12 @@ public class AwsSearchScopeResolverTests
     private readonly IAccessGrantsReader grants = Substitute.For<IAccessGrantsReader>();
     private readonly IAwsGrantRegions regions = Substitute.For<IAwsGrantRegions>();
 
+    /// <summary>A deployment that set per-user permissions up and is enforcing them.</summary>
+    /// <remarks>
+    /// Both halves matter. Configuration alone no longer switches filtering on — the latch does —
+    /// so a fixture that set only the five fields would take the unrestricted path and quietly
+    /// stop testing anything below it.
+    /// </remarks>
     private static SamlSignInSettings Configured() => new()
     {
         EntityId = "https://connapse.example.com/saml/connapse",
@@ -36,6 +42,7 @@ public class AwsSearchScopeResolverTests
         IdpEntityId = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
         IdpSingleSignOnUrl = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
         IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
+        EnforcementEnabled = true,
     };
 
     private static IOptionsMonitor<SamlSignInSettings> Monitor(SamlSignInSettings settings)
@@ -62,13 +69,13 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", "jsmith@example.com", Enabled: true));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", "jsmith@example.com", DirectoryUserStatus.Enabled));
         directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
     }
 
     [Fact]
-    public async Task NotConfigured_IsUnrestricted()
+    public async Task NeverConfigured_IsUnrestricted()
     {
         // The one legitimate Unrestricted. Filtering is opt-in, and denying here would leave every
         // installation that upgraded without setting this up unable to search anything.
@@ -76,6 +83,64 @@ public class AwsSearchScopeResolverTests
 
         result.IsUnrestricted.Should().BeTrue();
         result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+    }
+
+    [Fact]
+    public async Task EnforcingWithABlankedField_DeniesRatherThanOpening()
+    {
+        // The case this separation exists for. Clearing the signing certificate to paste a rotated
+        // one is an ordinary maintenance step, and it used to switch filtering off for as long as
+        // the box was empty -- while breaking sign-in at the same moment, so nobody was likely to
+        // be looking at search results when it happened.
+        var midRotation = Configured();
+        midRotation.IdpSigningCertificate = string.Empty;
+
+        var result = await Build(midRotation).ResolveAsync(Guid.NewGuid());
+
+        result.IsUnrestricted.Should().BeFalse();
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task EnforcingWithSettingsThatFailedToLoadEntirely_Denies()
+    {
+        // A settings load that returns defaults is indistinguishable from a wiped configuration.
+        // Enforcement is the only thing that remembers this deployment was filtering.
+        var result = await Build(new SamlSignInSettings { EnforcementEnabled = true })
+            .ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task ConfiguredButNotEnforcing_IsUnrestricted()
+    {
+        // An administrator who deliberately stopped enforcing. The settings are still complete, so
+        // configuration alone must not put filtering back.
+        var stopped = Configured();
+        stopped.EnforcementEnabled = false;
+
+        var result = await Build(stopped).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
+    }
+
+    [Fact]
+    public async Task DirectoryUserOfUnknownStatus_IsRefused()
+    {
+        // DescribeUser does not populate UserStatus for every identity source, and absent used to
+        // be read as enabled. Because the stored link never expires and Connapse holds no
+        // credential that lapses, that made a missing optional attribute into a deprovisioned
+        // person keeping their grants forever.
+        links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(DirectoryUserId);
+        directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Unknown));
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+        result.IsUnrestricted.Should().BeFalse();
     }
 
     [Fact]
@@ -120,7 +185,7 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, Enabled: false));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Disabled));
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
 
@@ -162,7 +227,7 @@ public class AwsSearchScopeResolverTests
         LinkedAndEnabled();
         grants.ListForGranteeAsync(
                 Arg.Is<AccessGrantee>(g => !g.IsGroup), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null)]);
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, "READ")]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
 
@@ -180,9 +245,9 @@ public class AwsSearchScopeResolverTests
         LinkedAndEnabled();
 
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null)]);
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null, "READ")]);
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://east-bucket/*", false, null)]);
+            .Returns([new AccessGrantRecord("s3://east-bucket/*", false, null, "READ")]);
 
         var result = await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
 
@@ -200,7 +265,7 @@ public class AwsSearchScopeResolverTests
         LinkedAndEnabled();
 
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-west-1", Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null)]);
+            .Returns([new AccessGrantRecord("s3://west-bucket/*", false, null, "READ")]);
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<AccessGrantRecord>>(_ => throw new InvalidOperationException("throttled"));
 
@@ -244,7 +309,7 @@ public class AwsSearchScopeResolverTests
         links.GetDirectoryUserIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(DirectoryUserId);
         directory.DescribeAsync(DirectoryUserId, Arg.Any<CancellationToken>())
-            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, Enabled: true));
+            .Returns(new DirectoryUser(DirectoryUserId, "jsmith", null, DirectoryUserStatus.Enabled));
         directory.ListGroupIdsAsync(DirectoryUserId, Arg.Any<CancellationToken>())
             .Returns(new[] { "group-1" });
 
@@ -253,7 +318,7 @@ public class AwsSearchScopeResolverTests
             .Returns([]);
         grants.ListForGranteeAsync(
                 Arg.Is<AccessGrantee>(g => g.IsGroup && g.Id == "group-1"), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://shared/*", false, null)]);
+            .Returns([new AccessGrantRecord("s3://shared/*", false, null, "READ")]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
 
@@ -271,8 +336,8 @@ public class AwsSearchScopeResolverTests
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([
                 new AccessGrantRecord("s3://acme/team/*", false,
-                    "arn:aws:sso::1:application/ssoins-1/apl-other"),
-                new AccessGrantRecord("s3://acme/open/*", false, "ALL"),
+                    "arn:aws:sso::1:application/ssoins-1/apl-other", "READ"),
+                new AccessGrantRecord("s3://acme/open/*", false, "ALL", "READ"),
             ]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
@@ -282,13 +347,74 @@ public class AwsSearchScopeResolverTests
     }
 
     [Fact]
+    public async Task WriteOnlyGrant_IsNotPermissionToRead()
+    {
+        // A write-only grant on a prefix people upload into is an ordinary thing to author. Reading
+        // it as permission to search would show somebody the contents of a location AWS lets them
+        // add to and nothing else -- a disclosure that looks like a correctly configured grant.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/uploads/*", false, null, "WRITE")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoGrants);
+        result.Matches.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ReadWriteGrant_IsHonoured()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, "READWRITE")]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle().Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("SOMETHING_AWS_ADDED_LATER")]
+    public async Task GrantWithAPermissionThisDoesNotUnderstand_Denies(string? permission)
+    {
+        // AWS always populates this field, so an absent or unfamiliar value means the response was
+        // not what this understands. Guessing in the permissive direction is how a write-only grant
+        // becomes a disclosure.
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new AccessGrantRecord("s3://acme/team/*", false, null, permission)]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.NoGrants);
+    }
+
+    [Fact]
+    public async Task WriteOnlyAndReadGrants_KeepOnlyTheReadable()
+    {
+        LinkedAndEnabled();
+        grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([
+                new AccessGrantRecord("s3://acme/uploads/*", false, null, "WRITE"),
+                new AccessGrantRecord("s3://acme/team/*", false, null, "read"),
+            ]);
+
+        var result = await Build().ResolveAsync(Guid.NewGuid());
+
+        result.Matches.Should().ContainSingle().Which.Value.Should().Be("s3://acme/team/");
+    }
+
+    [Fact]
     public async Task ObjectGrant_MatchesExactly()
     {
         // No trailing asterisk, so it names one object. AWS never reports S3PrefixType back, and
         // treating this as a prefix would also admit "report.pdf.bak".
         LinkedAndEnabled();
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns([new AccessGrantRecord("s3://acme/report.pdf", true, null)]);
+            .Returns([new AccessGrantRecord("s3://acme/report.pdf", true, null, "READ")]);
 
         var result = await Build().ResolveAsync(Guid.NewGuid());
 

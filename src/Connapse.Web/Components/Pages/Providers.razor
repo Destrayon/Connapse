@@ -912,7 +912,7 @@
                    like it had done nothing. *@
                 @if (SamlSignIn is null || showSamlManual)
                 {
-                    <SamlSignInSettingsTab Settings="samlSettings" OnSave="SaveSamlSettings" />
+                    <SamlSignInSettingsTab Settings="samlSettings" OnSave="SaveSamlSettingsFromForm" />
                 }
             }
         }
@@ -1273,7 +1273,9 @@
     /// </remarks>
     private async Task ForgetSamlSignIn()
     {
-        await SaveSamlSettings(new SamlSignInSettings());
+        // The one way enforcement is switched off. Everything else that writes these settings
+        // leaves it exactly as it found it.
+        await SaveSamlSettings(new SamlSignInSettings(), stopEnforcing: true);
 
         if (saveSuccess)
         {
@@ -1399,8 +1401,37 @@
         await RefreshSetups();
     }
 
-    private async Task SaveSamlSettings(SamlSignInSettings settings)
+    /// <summary>What the settings form saves. Never stops enforcement.</summary>
+    /// <remarks>
+    /// A named wrapper rather than binding the method below directly: an editing form has no
+    /// business being able to switch permission enforcement off, and this way it cannot express it.
+    /// </remarks>
+    private Task SaveSamlSettingsFromForm(SamlSignInSettings settings) =>
+        SaveSamlSettings(settings);
+
+    /// <summary>
+    /// Stores the sign-in settings, and decides whether permissions are still being enforced.
+    /// </summary>
+    /// <param name="stopEnforcing">
+    /// True only for the deliberate act of forgetting the configuration. Enforcement is never
+    /// switched off as a side effect of an edit.
+    /// </param>
+    /// <remarks>
+    /// The latch lives here rather than on the form because several callers above rebuild this
+    /// object field by field, and every one of them would otherwise clear the flag by omission —
+    /// which is precisely the silent un-enforcement the flag exists to prevent. One choke point,
+    /// so a new caller cannot reintroduce it.
+    /// <para>
+    /// A complete configuration turns enforcement on. An incomplete save leaves an existing one
+    /// alone, so blanking the certificate to paste a rotated one keeps filtering in force — the
+    /// searches deny while it is blank, which is the loud failure rather than the quiet one.
+    /// </para>
+    /// </remarks>
+    private async Task SaveSamlSettings(SamlSignInSettings settings, bool stopEnforcing = false)
     {
+        settings.EnforcementEnabled = !stopEnforcing
+            && (settings.IsConfigured || samlSettings.EnforcementEnabled);
+
         await SaveSettings("samlsignin", settings);
 
         // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is

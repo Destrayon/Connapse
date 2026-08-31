@@ -1,4 +1,4 @@
-namespace Connapse.Core;
+﻿namespace Connapse.Core;
 
 /// <summary>One user in the IAM Identity Center identity store, as Connapse needs to see them.</summary>
 /// <param name="UserId">
@@ -7,15 +7,50 @@ namespace Connapse.Core;
 /// </param>
 /// <param name="UserName">The name an administrator recognises in the console.</param>
 /// <param name="Email">Display data. Nothing may authorize from it.</param>
-/// <param name="Enabled">
-/// False when the directory has suspended them.
+/// <param name="Status">
+/// Whether the directory reports this person as enabled, disabled, or does not say.
 /// </param>
 /// <remarks>
-/// <see cref="Enabled"/> is why this type carries more than an id. Connapse holds no per-user
+/// <see cref="Status"/> is why this type carries more than an id. Connapse holds no per-user
 /// credential any more, so nothing expires on its own when somebody is deprovisioned — the only
 /// thing that stops a disabled person searching is Connapse noticing, which means asking.
+/// <para>
+/// Three states rather than a bool, because the directory genuinely has three answers and the
+/// third one used to be folded into "enabled". <c>UserStatus</c> is not populated for every
+/// identity source, and reading an absent value as permission to continue meant a deprovisioned
+/// person in one of those directories kept their grants indefinitely — the stored link has no
+/// expiry, so nothing else would ever have caught it.
+/// </para>
 /// </remarks>
-public record DirectoryUser(string UserId, string UserName, string? Email, bool Enabled);
+public record DirectoryUser(
+    string UserId, string UserName, string? Email, DirectoryUserStatus Status)
+{
+    /// <summary>True only when the directory said so.</summary>
+    /// <remarks>
+    /// <see cref="DirectoryUserStatus.Unknown"/> is deliberately not enabled. It means the question
+    /// was not answered, and an unanswered question is not a permit.
+    /// </remarks>
+    public bool Enabled => Status is DirectoryUserStatus.Enabled;
+}
+
+/// <summary>What the directory says about whether a person is still active.</summary>
+public enum DirectoryUserStatus
+{
+    /// <summary>The directory did not say. Treated as a denial, not as a yes.</summary>
+    /// <remarks>
+    /// <c>DescribeUser</c> does not populate <c>UserStatus</c> for every identity source. A
+    /// deployment on one of those cannot detect deprovisioning through this call at all, so the
+    /// honest answer is to stop rather than to assume — and an administrator who sees searches
+    /// denied has something to investigate, where the alternative shows nobody anything.
+    /// </remarks>
+    Unknown,
+
+    /// <summary>The directory reports them enabled.</summary>
+    Enabled,
+
+    /// <summary>The directory reports them suspended.</summary>
+    Disabled,
+}
 
 /// <summary>
 /// Reads the IAM Identity Center directory using Connapse's own AWS identity.

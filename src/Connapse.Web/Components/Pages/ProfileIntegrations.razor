@@ -345,6 +345,12 @@
             "destination_mismatch" => "Could not connect your AWS identity: the response was addressed elsewhere. Connapse's address may have changed without the AWS application being updated.",
             "assertion_not_yet_valid" or "assertion_expired" => "Could not connect your AWS identity: the response from AWS was outside its validity window. Check the clock on the Connapse server, then try again.",
             "assertion_replayed" => "Could not connect your AWS identity: that sign-in had already been used. Please start again.",
+            "response_unsolicited" => "Could not connect your AWS identity: AWS sent a response to a different sign-in than the one you started. Please try again.",
+            // Not phrased as an accusation. The ordinary way to reach this is finishing a sign-in
+            // in a browser signed in as somebody else, which is a mistake far more often than it
+            // is an attack — and the person reading it is whoever finished the sign-in, who in the
+            // attack is the victim rather than the attacker.
+            "wrong_user" => "Could not connect your AWS identity: that sign-in was started by a different Connapse account. Sign in as the account you want to connect, then start again.",
             "assertion_id_missing" => "Could not connect your AWS identity: AWS sent a response Connapse cannot safely accept.",
             "no_directory_user" => "Could not connect your AWS identity: AWS did not say which directory user you are. An administrator needs to map the Subject attribute in IAM Identity Center.",
             _ => "Could not connect your AWS identity. Please try again.",

@@ -88,17 +88,28 @@ public sealed class IdentityStoreUserLookup(
                 },
                 ct);
 
-            // UserStatus is ENABLED or DISABLED. Absent is treated as enabled: the field is not
-            // populated for every directory, and refusing everybody in that case would deny a
-            // whole deployment on the strength of a missing optional attribute.
-            bool enabled = response.UserStatus is null
-                           || string.Equals(response.UserStatus, "ENABLED", StringComparison.OrdinalIgnoreCase);
+            // UserStatus is ENABLED or DISABLED, and is not populated for every identity source.
+            // Absent used to be read as enabled, which made a missing optional attribute into
+            // proof that somebody had not been deprovisioned -- and because the stored link never
+            // expires and Connapse holds no credential that lapses, nothing downstream would ever
+            // have caught it. It is now its own answer, and the resolver denies on it.
+            var status = response.UserStatus switch
+            {
+                null => DirectoryUserStatus.Unknown,
+                var v when string.Equals(v, "ENABLED", StringComparison.OrdinalIgnoreCase)
+                    => DirectoryUserStatus.Enabled,
+                var v when string.Equals(v, "DISABLED", StringComparison.OrdinalIgnoreCase)
+                    => DirectoryUserStatus.Disabled,
+
+                // Something AWS added since. Not a permit.
+                _ => DirectoryUserStatus.Unknown,
+            };
 
             string? email = response.Emails?
                 .FirstOrDefault(e => e.Primary ?? false)?.Value
                 ?? response.Emails?.FirstOrDefault()?.Value;
 
-            return new DirectoryUser(response.UserId, response.UserName, email, enabled);
+            return new DirectoryUser(response.UserId, response.UserName, email, status);
         }
         catch (ResourceNotFoundException)
         {

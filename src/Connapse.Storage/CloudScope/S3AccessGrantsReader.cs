@@ -84,7 +84,8 @@ public sealed class S3AccessGrantsReader(
                 grants.Add(new AccessGrantRecord(
                     grant.GrantScope,
                     IsObjectScope: LooksLikeObjectGrant(grant.GrantScope),
-                    ApplicationArn: grant.ApplicationArn));
+                    ApplicationArn: grant.ApplicationArn,
+                    Permission: grant.Permission?.Value));
             }
 
             nextToken = response.NextToken;

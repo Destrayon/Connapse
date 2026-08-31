@@ -76,12 +76,14 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
 
-        // Both are single-process by design and documented as such: one remembers assertion ids so
-        // a signed assertion cannot be posted twice, the other remembers who started a sign-in so
-        // the cross-site POST that returns can be attributed.
+        // All three are single-process by design and documented as such: one remembers assertion
+        // ids so a signed assertion cannot be posted twice, one remembers who started a sign-in so
+        // the cross-site POST that returns can be attributed, and one holds the validated outcome
+        // until a real session claims it.
         services.AddMemoryCache();
         services.AddSingleton<ISamlReplayGuard, MemorySamlReplayGuard>();
         services.AddSingleton<SamlSignInRequests>();
+        services.AddSingleton<SamlLinkConfirmations>();
 
         services.AddHttpContextAccessor();
 

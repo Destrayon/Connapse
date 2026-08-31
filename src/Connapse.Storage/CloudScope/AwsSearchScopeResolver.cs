@@ -49,8 +49,22 @@ public sealed class AwsSearchScopeResolver(
         // A deployment that has not set per-user permissions up is not filtering at all, and
         // denying here would leave every existing installation unable to search anything the moment
         // it upgraded. Filtering is opt-in; this is the opt.
-        if (!samlSignIn.CurrentValue.IsConfigured)
-            return SearchScopes.Unrestricted;
+        //
+        // Read from the latched enforcement state rather than from configuration being complete.
+        // Those were the same test once, which meant clearing the signing certificate to paste a
+        // rotated one switched filtering off for as long as the box was empty -- an ordinary
+        // maintenance step turning into a corpus-wide disclosure, with sign-in broken at the same
+        // moment so nobody was likely to look.
+        switch (samlSignIn.CurrentValue.Enforcement)
+        {
+            case EnforcementState.NotEnforcing:
+                return SearchScopes.Unrestricted;
+
+            case EnforcementState.EnforcingButUnusable:
+                logger.LogError(
+                    "Per-user permissions are enabled but the sign-in settings are incomplete; denying rather than widening");
+                return SearchScopes.Failed;
+        }
 
         // Not a person — an unauthenticated caller, or one this deployment could not name. Nothing
         // to resolve against, and guessing would be the disclosure this class exists to prevent.
@@ -106,9 +120,19 @@ public sealed class AwsSearchScopeResolver(
             return SearchScopes.NoPrincipal;
         }
 
-        if (!user.Enabled)
+        if (user.Status is DirectoryUserStatus.Disabled)
         {
             logger.LogInformation("A linked directory user is disabled; denying");
+            return SearchScopes.NoPrincipal;
+        }
+
+        if (user.Status is DirectoryUserStatus.Unknown)
+        {
+            // The directory did not answer, so deprovisioning cannot be detected here at all. An
+            // unanswered question is not a permit, and this is the only place a revocation would
+            // ever be noticed -- nothing else about the link expires.
+            logger.LogWarning(
+                "The directory did not report whether a linked user is enabled; denying rather than assuming");
             return SearchScopes.NoPrincipal;
         }
 
@@ -139,6 +163,7 @@ public sealed class AwsSearchScopeResolver(
         }
 
         var matches = records
+            .Where(r => r.PermitsRead)
             .Where(IsExercisableHere)
             .Select(r => GrantScope.Parse(r.GrantScope, r.IsObjectScope))
             .DistinctBy(m => (m.Value, m.IsExact))
@@ -151,10 +176,14 @@ public sealed class AwsSearchScopeResolver(
     /// Whether a grant is one Connapse should honour, given it presents no application identity.
     /// </summary>
     /// <remarks>
+    /// Applied after the permission filter above, which is the coarser of the two: a write-only
+    /// grant is not permission to read whatever application it names.
+    /// <para>
     /// A grant carrying an application ARN may only be exercised through that application, and
     /// Connapse is not one — it never calls <c>GetDataAccess</c>, so it has no application identity
     /// to present. Honouring such a grant would show somebody documents AWS would refuse them
     /// everywhere else.
+    /// </para>
     /// <para>
     /// This is a convention Connapse respects by reading the field, not a rule STS enforces on it.
     /// Filtering the query by application instead would be worse in the other direction: it would
