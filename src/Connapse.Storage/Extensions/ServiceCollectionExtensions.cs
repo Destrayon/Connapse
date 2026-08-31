@@ -1,5 +1,6 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
 using Connapse.Storage.Connectors;
@@ -215,6 +216,11 @@ public static class ServiceCollectionExtensions
         // Registered here rather than in Connapse.Search, whose own registration is a TryAdd for
         // the unrestricted default. This one resolves real grants, and it must win.
         services.AddMemoryCache();
+        // Starts undetermined, so a host that never runs the startup migration refuses to answer
+        // rather than assuming nothing was being enforced. Connapse.Web completes it from
+        // SamlEnforcementLatch; nothing else resolves this today.
+        services.TryAddSingleton(new EnforcementMigration());
+
         services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
 
         // Advisory, and read by pages rather than by a search. Scoped because it is consumed from

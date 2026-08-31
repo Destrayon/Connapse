@@ -9,6 +9,8 @@
 @inject ICloudIdentityService CloudIdentityService
 @inject IAwsIdentityLinkService AwsIdentityLinkService
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
+@inject EnforcementMigration Migration
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
@@ -335,7 +337,8 @@
 
         azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
         awsSignInConfigured = SamlOptions.CurrentValue.IsConfigured;
-        awsEnforcement = SamlOptions.CurrentValue.Enforcement;
+        awsEnforcement = EnforcementOptions.CurrentValue.StateFor(
+            SamlOptions.CurrentValue, Migration.Determined);
 
         ApplyAwsErrorFromQuery();
 

@@ -13,6 +13,7 @@
 @inject ISettingsReloader ReloadService
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
@@ -1429,10 +1430,20 @@
     /// </remarks>
     private async Task SaveSamlSettings(SamlSignInSettings settings, bool stopEnforcing = false)
     {
-        settings.EnforcementEnabled = !stopEnforcing
-            && (settings.IsConfigured || samlSettings.EnforcementEnabled);
+        // Written to its own category, so recording enforcement never rewrites a SAML value. That
+        // matters for a deployment configured through environment variables: the database outranks
+        // the environment, so copying those values into a row here would shadow them permanently.
+        bool enforcing = !stopEnforcing
+            && (settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing);
 
         await SaveSettings("samlsignin", settings);
+
+        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
+        {
+            await SaveSettings(
+                PermissionEnforcementSettings.Category,
+                new PermissionEnforcementSettings { IsEnforcing = enforcing });
+        }
 
         // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
         // not guaranteed to have landed by the time this line runs, so a stale read would hand the

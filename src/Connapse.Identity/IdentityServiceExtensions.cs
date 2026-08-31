@@ -94,6 +94,8 @@ public static class IdentityServiceExtensions
             configuration.GetSection(SamlSignInSettings.SectionName));
         services.Configure<IdentityCenterSettings>(
             configuration.GetSection(IdentityCenterSettings.SectionName));
+        services.Configure<PermissionEnforcementSettings>(
+            configuration.GetSection(PermissionEnforcementSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);

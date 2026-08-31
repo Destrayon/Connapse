@@ -23,6 +23,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["azuread"] = "Identity:AzureAd",
         ["samlsignin"] = "Identity:SamlSignIn",
         ["identitycenter"] = "Identity:IdentityCenter",
+        ["permissionenforcement"] = "Identity:PermissionEnforcement",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)

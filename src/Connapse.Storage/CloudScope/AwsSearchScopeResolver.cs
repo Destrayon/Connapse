@@ -27,6 +27,8 @@ public sealed class AwsSearchScopeResolver(
     IAccessGrantsReader accessGrants,
     IAwsGrantRegions grantRegions,
     IOptionsMonitor<SamlSignInSettings> samlSignIn,
+    IOptionsMonitor<PermissionEnforcementSettings> enforcement,
+    EnforcementMigration migration,
     IMemoryCache cache,
     ILogger<AwsSearchScopeResolver> logger) : ISearchScopeResolver
 {
@@ -55,14 +57,14 @@ public sealed class AwsSearchScopeResolver(
         // rotated one switched filtering off for as long as the box was empty -- an ordinary
         // maintenance step turning into a corpus-wide disclosure, with sign-in broken at the same
         // moment so nobody was likely to look.
-        switch (samlSignIn.CurrentValue.Enforcement)
+        switch (enforcement.CurrentValue.StateFor(samlSignIn.CurrentValue, migration.Determined))
         {
             case EnforcementState.NotEnforcing:
                 return SearchScopes.Unrestricted;
 
             case EnforcementState.EnforcingButUnusable:
                 logger.LogError(
-                    "Per-user permissions are enabled but the sign-in settings are incomplete; denying rather than widening");
+                    "Per-user permissions cannot be determined -- either the sign-in settings are incomplete or the startup migration did not complete; denying rather than widening");
                 return SearchScopes.Failed;
         }
 

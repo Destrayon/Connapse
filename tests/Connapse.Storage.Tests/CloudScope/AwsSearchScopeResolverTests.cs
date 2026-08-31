@@ -42,24 +42,39 @@ public class AwsSearchScopeResolverTests
         IdpEntityId = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
         IdpSingleSignOnUrl = "https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE",
         IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
-        EnforcementEnabled = true,
     };
 
-    private static IOptionsMonitor<SamlSignInSettings> Monitor(SamlSignInSettings settings)
+    private static IOptionsMonitor<T> Monitor<T>(T settings) where T : class
     {
-        var monitor = Substitute.For<IOptionsMonitor<SamlSignInSettings>>();
+        var monitor = Substitute.For<IOptionsMonitor<T>>();
         monitor.CurrentValue.Returns(settings);
         return monitor;
     }
 
+    /// <param name="enforcing">
+    /// Whether this deployment has latched enforcement on. Defaults to true, because a fixture that
+    /// left it off would take the unrestricted path and quietly stop testing everything below it.
+    /// </param>
+    /// <param name="migrated">
+    /// Whether the startup migration established the state. False is the deployment whose migration
+    /// threw, which must deny rather than assume nothing was being enforced.
+    /// </param>
     private AwsSearchScopeResolver Build(
-        SamlSignInSettings? settings = null, params string[] inRegions)
+        SamlSignInSettings? settings = null,
+        bool enforcing = true,
+        bool migrated = true,
+        params string[] inRegions)
     {
         regions.ListAsync(Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<string>>(inRegions.Length > 0 ? inRegions : [Region]);
 
+        var migration = new EnforcementMigration();
+        if (migrated) migration.Complete();
+
         return new(links, directory, grants, regions,
             Monitor(settings ?? Configured()),
+            Monitor(new PermissionEnforcementSettings { IsEnforcing = enforcing }),
+            migration,
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AwsSearchScopeResolver>.Instance);
     }
@@ -79,7 +94,8 @@ public class AwsSearchScopeResolverTests
     {
         // The one legitimate Unrestricted. Filtering is opt-in, and denying here would leave every
         // installation that upgraded without setting this up unable to search anything.
-        var result = await Build(new SamlSignInSettings()).ResolveAsync(Guid.NewGuid());
+        var result = await Build(new SamlSignInSettings(), enforcing: false)
+            .ResolveAsync(Guid.NewGuid());
 
         result.IsUnrestricted.Should().BeTrue();
         result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
@@ -106,7 +122,29 @@ public class AwsSearchScopeResolverTests
     {
         // A settings load that returns defaults is indistinguishable from a wiped configuration.
         // Enforcement is the only thing that remembers this deployment was filtering.
-        var result = await Build(new SamlSignInSettings { EnforcementEnabled = true })
+        var result = await Build(new SamlSignInSettings()).ResolveAsync(Guid.NewGuid());
+
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task WhenTheStartupMigrationCouldNotDetermineTheState_Denies()
+    {
+        // The migration threw, so whether this deployment was filtering is unknown. The first
+        // version of it logged and carried on with enforcement off, which turned one transient
+        // database error at boot into the entire corpus being readable.
+        var result = await Build(Configured(), enforcing: false, migrated: false)
+            .ResolveAsync(Guid.NewGuid());
+
+        result.IsUnrestricted.Should().BeFalse();
+        result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
+    }
+
+    [Fact]
+    public async Task AnUndeterminedMigration_DeniesEvenOnAnUnconfiguredDeployment()
+    {
+        // Cannot be distinguished from a deployment that was filtering, so it is treated as one.
+        var result = await Build(new SamlSignInSettings(), enforcing: false, migrated: false)
             .ResolveAsync(Guid.NewGuid());
 
         result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
@@ -117,10 +155,7 @@ public class AwsSearchScopeResolverTests
     {
         // An administrator who deliberately stopped enforcing. The settings are still complete, so
         // configuration alone must not put filtering back.
-        var stopped = Configured();
-        stopped.EnforcementEnabled = false;
-
-        var result = await Build(stopped).ResolveAsync(Guid.NewGuid());
+        var result = await Build(Configured(), enforcing: false).ResolveAsync(Guid.NewGuid());
 
         result.Outcome.Should().Be(ScopeOutcome.Unrestricted);
     }
@@ -249,7 +284,7 @@ public class AwsSearchScopeResolverTests
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
             .Returns([new AccessGrantRecord("s3://east-bucket/*", false, null, "READ")]);
 
-        var result = await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+        var result = await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
 
         result.Outcome.Should().Be(ScopeOutcome.Granted);
         result.Matches.Select(m => m.Value)
@@ -269,7 +304,7 @@ public class AwsSearchScopeResolverTests
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), "us-east-1", Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<AccessGrantRecord>>(_ => throw new InvalidOperationException("throttled"));
 
-        var result = await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+        var result = await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
 
         result.Outcome.Should().Be(ScopeOutcome.ResolverFailed);
         result.Matches.Should().BeEmpty();
@@ -288,7 +323,7 @@ public class AwsSearchScopeResolverTests
         grants.ListForGranteeAsync(Arg.Any<AccessGrantee>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns([]);
 
-        await Build(null, "us-west-1", "us-east-1").ResolveAsync(Guid.NewGuid());
+        await Build(null, inRegions: ["us-west-1", "us-east-1"]).ResolveAsync(Guid.NewGuid());
 
         await grants.Received(1).ListForGranteeAsync(
             Arg.Is<AccessGrantee>(g => !g.IsGroup), "us-west-1", Arg.Any<CancellationToken>());
