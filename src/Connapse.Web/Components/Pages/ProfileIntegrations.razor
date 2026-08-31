@@ -42,9 +42,38 @@
         your storage. Connecting AWS records which IAM Identity Center user you are, so that what
         you may read can be looked up later; nothing that could act as you is kept.
         <br />
-        <strong>Linking does not yet filter your search results.</strong> Per-user search
-        permissions are not implemented, so every Connapse user can currently search everything
-        indexed, whether or not an account is linked. See issue #421.
+        @* What linking actually does here depends on whether this deployment enforces per-user
+           permissions, and saying the wrong one of these is worse than saying nothing: telling
+           somebody their results are unfiltered when they are filtered sends them hunting for a
+           bug, and the reverse tells them they are protected when they are not. *@
+        @switch (awsEnforcement)
+        {
+            case EnforcementState.Enforcing:
+                <strong>Your search results are filtered to what you may read.</strong>
+                <text>
+                    Once your AWS account is linked, searches return only documents covered by an
+                    S3 access grant held by you or a group you belong to. Removing a grant, or
+                    disabling you in the directory, takes effect within a minute.
+                </text>
+                break;
+
+            case EnforcementState.EnforcingButUnusable:
+                <strong>Per-user permissions are enabled but cannot be applied.</strong>
+                <text>
+                    Searches are being refused rather than answered without filtering. An
+                    administrator needs to finish the AWS sign-in settings under Providers.
+                </text>
+                break;
+
+            default:
+                <strong>Linking does not filter your search results on this deployment.</strong>
+                <text>
+                    Per-user search permissions have not been set up, so every Connapse user can
+                    search everything indexed, whether or not an account is linked. An
+                    administrator turns this on under Providers.
+                </text>
+                break;
+        }
     </p>
 
     <div class="row g-3">
@@ -290,6 +319,9 @@
     // AWS permissions identity — a separate link from the Azure card above.
     private AwsIdentityLinkDto? awsIdentity;
     private bool awsSignInConfigured;
+
+    /// <summary>Whether this deployment filters search results, and whether it currently can.</summary>
+    private EnforcementState awsEnforcement;
     private bool confirmDisconnectAws;
 
     protected override async Task OnInitializedAsync()
@@ -303,6 +335,7 @@
 
         azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
         awsSignInConfigured = SamlOptions.CurrentValue.IsConfigured;
+        awsEnforcement = SamlOptions.CurrentValue.Enforcement;
 
         ApplyAwsErrorFromQuery();
 
