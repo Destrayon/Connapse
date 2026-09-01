@@ -57,6 +57,29 @@ public class ConnapseAwsCredentialsTests
         resolved.SecretKey.Should().Be("static-secret");
     }
 
+    [Fact]
+    public void ClampRefreshExpiry_SessionExpiresBeforeWindow_ReturnsSessionExpiry()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        DateTime session = now.AddMinutes(1);
+        ConnapseAwsCredentials.ClampRefreshExpiry(now, TimeSpan.FromMinutes(5), session).Should().Be(session);
+    }
+
+    [Fact]
+    public void ClampRefreshExpiry_SessionExpiresAfterWindow_ReturnsWindowExpiry()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        DateTime session = now.AddHours(1);
+        ConnapseAwsCredentials.ClampRefreshExpiry(now, TimeSpan.FromMinutes(5), session).Should().Be(now.AddMinutes(5));
+    }
+
+    [Fact]
+    public void ClampRefreshExpiry_NoSessionExpiry_ReturnsWindowExpiry()
+    {
+        var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        ConnapseAwsCredentials.ClampRefreshExpiry(now, TimeSpan.FromMinutes(5), null).Should().Be(now.AddMinutes(5));
+    }
+
     private static ConnapseAwsCredentials BuildCredentials(IProviderCredentialStore store, IHttpClientFactory factory)
     {
         var services = new ServiceCollection();

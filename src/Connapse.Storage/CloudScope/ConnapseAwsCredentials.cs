@@ -51,6 +51,18 @@ public class ConnapseAwsCredentials(
     /// </remarks>
     public static readonly TimeSpan RefreshWindow = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// The refresh time for a resolved credential: now + <see cref="RefreshWindow"/>, but never later than
+    /// the credential's own expiry (Roles Anywhere sessions expire; a static key passes null).
+    /// </summary>
+    public static DateTime ClampRefreshExpiry(DateTime nowUtc, TimeSpan window, DateTime? sessionExpirationUtc)
+    {
+        DateTime expiry = nowUtc.Add(window);
+        if (sessionExpirationUtc is DateTime exp && exp < expiry)
+            expiry = exp;
+        return expiry;
+    }
+
     protected override CredentialsRefreshState GenerateNewCredentials()
     {
         // The SDK's refresh hook is synchronous, and there is no async form to override.
@@ -58,11 +70,7 @@ public class ConnapseAwsCredentials(
 
         if (resolved is not null)
         {
-            DateTime expiry = DateTime.UtcNow.Add(RefreshWindow);
-            // For Roles Anywhere, never hand back a credential past its own expiry; otherwise the
-            // RefreshWindow governs, so a rotation still takes effect promptly.
-            if (resolved.Expiration is DateTime exp && exp < expiry)
-                expiry = exp;
+            DateTime expiry = ClampRefreshExpiry(DateTime.UtcNow, RefreshWindow, resolved.Expiration);
             return new CredentialsRefreshState(resolved.Credentials, expiry);
         }
 

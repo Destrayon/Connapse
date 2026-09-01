@@ -90,6 +90,8 @@ redesign. Initial set: `sts:GetCallerIdentity`, `s3:ListAllMyBuckets`, a scoped
 enabled — `s3:ListAccessGrants` plus the `identitystore` reads already required
 by [`AwsSearchScopeResolver`](../../../src/Connapse.Storage/CloudScope/AwsSearchScopeResolver.cs).
 
+**PR 3 precondition:** because a stored Roles Anywhere row leaves the legacy `PublicId` blank, the status UI must check `GetRolesAnywhereAsync` (mode = Roles Anywhere) BEFORE falling back to the access-key `GetAsync`, or it will render a Roles Anywhere credential as an access key with a blank id.
+
 ## §2 Runtime credential resolution
 
 [`ConnapseAwsCredentials`](../../../src/Connapse.Storage/CloudScope/ConnapseAwsCredentials.cs)

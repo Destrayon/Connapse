@@ -56,4 +56,19 @@ public class RolesAnywhereCredentialStoreIntegrationTests(SharedWebAppFixture fi
         (await store.GetSecretAsync(provider)).Should().BeNullOrEmpty(); // access-key secret cleared
         (await store.GetRolesAnywhereAsync(provider)).Should().Be(Config);
     }
+
+    [Fact]
+    public async Task SaveAccessKey_AfterRolesAnywhere_ClearsRolesAnywhereConfig()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+        string provider = $"aws-rev-{Guid.NewGuid():N}"[..16];
+
+        await store.SaveRolesAnywhereAsync(provider, Config, "PRIVATE-KEY-PEM", "connapse-role", null);
+        await store.SaveAsync(provider, "AKIANEW", "new-secret", "connapse-reader", null);
+
+        (await store.GetRolesAnywhereAsync(provider)).Should().BeNull();
+        (await store.GetRolesAnywherePrivateKeyAsync(provider)).Should().BeNullOrEmpty();
+        (await store.GetSecretAsync(provider)).Should().Be("new-secret");
+    }
 }
