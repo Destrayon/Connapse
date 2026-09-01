@@ -1,8 +1,8 @@
 ﻿namespace Connapse.Core.Utilities;
 
 /// <summary>
-/// Builds the command that finds an administrator's Identity Center groups, and optionally makes
-/// one, so grants can be held by a group rather than by each person.
+/// Builds the command that lists Identity Center groups, and optionally makes one, so grants can
+/// be held by a group rather than by each person.
 /// </summary>
 /// <remarks>
 /// It prints no grant command of its own. One would have to name a bucket, and this step
@@ -55,7 +55,7 @@ public static class DirectoryGroupSetup
     /// </remarks>
     public static readonly IReadOnlyList<string> RequiredPermissions =
     [
-        "identitystore:ListGroupMembershipsForMember",
+        "identitystore:ListGroups",
         "identitystore:DescribeGroup",
         "identitystore:GetGroupId",
         "identitystore:CreateGroup",
@@ -66,9 +66,8 @@ public static class DirectoryGroupSetup
     /// <param name="region">Where the Identity Center instance lives.</param>
     /// <param name="identityStoreId">The directory to look in, <c>d-…</c>.</param>
     /// <param name="directoryUserId">
-    /// The connected person's identity store id, which is whose groups are listed and who is added
-    /// to a newly created one. Empty when nobody has connected yet, and the script then only
-    /// creates.
+    /// The connected person's identity store id, when available. It is added to a group created or
+    /// selected by name, but group discovery does not depend on it.
     /// </param>
     /// <param name="groupName">
     /// A group to create, or null to only discover. Created only if no group of that name exists,
@@ -88,13 +87,7 @@ public static class DirectoryGroupSetup
         string name = SanitiseGroupName(groupName);
 
         return $$"""
-        # Finds the Identity Center groups a connected person belongs to, so an access grant can be
-        # held by a group rather than by each individual. Creates a group only if you named one in
-        # Connapse, and adds only that one person to it.
-        #
-        # It creates NO access grant. Who may read what stays yours to decide -- paste the block
-        # this prints back into Connapse, and each S3 connection then shows the exact grant command
-        # for its own buckets, with nothing left to fill in.
+        # Lists Identity Center groups. If GROUP_NAME is set, uses that group or creates it.
 
         FAILED=""
         REGION="{{pinnedRegion}}"
@@ -107,41 +100,32 @@ public static class DirectoryGroupSetup
         [ -n "$REGION" ] || { echo 'No region. Locate your Identity Center instance first.'; FAILED=1; }
         [ -n "$STORE" ] || { echo 'No identity store. Locate your Identity Center instance first.'; FAILED=1; }
 
-        # What the person already belongs to. For most directories these are synchronised from your
-        # identity provider and are the groups you want to grant to.
-        if [ -z "$FAILED" ] && [ -n "$USER_ID" ]; then
-          echo 'Groups this person already belongs to:'
-          if ! MEMBERSHIPS=$(aws identitystore list-group-memberships-for-member --region "$REGION" --identity-store-id "$STORE" --member-id UserId="$USER_ID" --query 'GroupMemberships[].GroupId' --output text 2>&1); then
-            echo "  Could not read them: $MEMBERSHIPS"
+        # List every available group. This works before anyone has connected to Connapse.
+        if [ -z "$FAILED" ] && [ -z "$GROUP_NAME" ]; then
+          echo 'Available groups:'
+          if ! GROUP_IDS=$(aws identitystore list-groups --region "$REGION" --identity-store-id "$STORE" --query 'Groups[].GroupId' --output text 2>&1); then
+            echo "  Could not read them: $GROUP_IDS"
             FAILED=1
-          elif [ -z "$MEMBERSHIPS" ] || [ "$MEMBERSHIPS" = 'None' ]; then
+          elif [ -z "$GROUP_IDS" ] || [ "$GROUP_IDS" = 'None' ]; then
             echo '  (none)'
+            echo 'No groups found. Enter a group name in Connapse to create one, or use the manual fields.'
           else
-            FOUND_COUNT=0
-            for G in $MEMBERSHIPS; do
-              DISPLAY=$(aws identitystore describe-group --region "$REGION" --identity-store-id "$STORE" --group-id "$G" --query DisplayName --output text 2>/dev/null || echo '?')
-              echo "  $DISPLAY  $G"
-              FOUND_COUNT=$((FOUND_COUNT + 1))
-              FOUND_ID="$G"
-              FOUND_NAME="$DISPLAY"
-            done
-
-            # Exactly one, and you did not ask for a group to be created: that one is unambiguous,
-            # so it is recorded without making you retype its name to choose it.
-            if [ -z "$GROUP_NAME" ] && [ "$FOUND_COUNT" -eq 1 ]; then
-              GROUP_ID="$FOUND_ID"
-              RECORD_NAME="$FOUND_NAME"
-            elif [ -z "$GROUP_NAME" ] && [ "$FOUND_COUNT" -gt 1 ]; then
-              echo
-              echo 'More than one, so none is chosen for you. Type the name of the one you want'
-              echo 'into Connapse and run this again.'
-            fi
+            BLOCK=$(
+              printf '%s\n' '{{BeginMarker}}'
+              for G in $GROUP_IDS; do
+                DISPLAY=$(aws identitystore describe-group --region "$REGION" --identity-store-id "$STORE" --group-id "$G" --query DisplayName --output text 2>/dev/null || echo '?')
+                echo "  $DISPLAY  $G" >&2
+                printf 'groupId=%s\n' "$G"
+                printf 'groupName=%s\n' "$DISPLAY"
+              done
+              printf '%s\n' '{{EndMarker}}'
+            )
+            printf '\n%s\n\n' "$BLOCK"
+            echo 'Copy the block above into Connapse and choose the group to use.'
           fi
-          echo
         fi
 
-        # Only when you named one. Looked up first, so running this again finds the group rather
-        # than making a second one with the same name.
+        # Use an existing group by exact name, or create it when it does not exist.
         if [ -z "$FAILED" ] && [ -n "$GROUP_NAME" ]; then
           GROUP_ID=$(aws identitystore get-group-id --region "$REGION" --identity-store-id "$STORE" --alternate-identifier "UniqueAttribute={AttributePath=displayName,AttributeValue=$GROUP_NAME}" --query GroupId --output text 2>/dev/null || true)
 
@@ -152,8 +136,7 @@ public static class DirectoryGroupSetup
             GROUP_ID="$CREATED"
             RECORD_NAME="$GROUP_NAME"
             echo "Created $GROUP_NAME: $GROUP_ID"
-            echo 'Note: a group created here is not known to your identity provider, and a later'
-            echo 'sync will not remove or reconcile it.'
+            echo 'This group is local to Identity Center; your identity provider will not manage it.'
           else
             echo "Could not create $GROUP_NAME: $CREATED"
             case "$CREATED" in
@@ -165,8 +148,7 @@ public static class DirectoryGroupSetup
             FAILED=1
           fi
 
-          # Only the one person who connected. Adding anybody else to a group that carries a grant
-          # is the privilege escalation AWS warns about, and is not a setup script's decision.
+          # Add only the connected administrator when one is available.
           if [ -z "$FAILED" ] && [ -n "$USER_ID" ]; then
             if ADDED=$(aws identitystore create-group-membership --region "$REGION" --identity-store-id "$STORE" --group-id "$GROUP_ID" --member-id UserId="$USER_ID" 2>&1); then
               echo 'Added the connected user to it.'
@@ -179,10 +161,7 @@ public static class DirectoryGroupSetup
           fi
         fi
 
-        # Printed whichever branch ran, so choosing a group that already exists records it just as
-        # creating one does. Built whole and printed once: pasting a script into an interactive
-        # shell echoes every line, and printing piece by piece lets that echo land between the
-        # markers.
+        # Return the selected or created group.
         if [ -z "$FAILED" ] && [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
           BLOCK=$(
             printf '%s\n' '{{BeginMarker}}'
@@ -199,14 +178,7 @@ public static class DirectoryGroupSetup
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
         elif [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
           echo
-          echo 'Paste the block above into Connapse. Every S3 connection then shows the exact'
-          echo 'grant command for its own buckets -- no bucket name or group id to fill in.'
-        else
-          # No block was printed, so telling somebody to paste one sends them looking for output
-          # that does not exist.
-          echo
-          echo 'No group was chosen, so there is nothing to paste. Name a group in Connapse to'
-          echo 'create one, or type the name of an existing group above to record it.'
+          echo 'Paste the block above into Connapse.'
         fi
         """.Replace("\r\n", "\n");
     }
@@ -222,16 +194,34 @@ public static class DirectoryGroupSetup
     /// </remarks>
     public static (string Id, string Name)? ParseResult(string? pasted)
     {
+        var groups = ParseResults(pasted);
+        return groups.Count == 0 ? null : groups[^1];
+    }
+
+    /// <summary>Reads every group from the last result block.</summary>
+    public static IReadOnlyList<(string Id, string Name)> ParseResults(string? pasted)
+    {
         if (string.IsNullOrWhiteSpace(pasted))
-            return null;
+            return [];
 
         int end = pasted.LastIndexOf(EndMarker, StringComparison.Ordinal);
         int start = end < 0 ? -1 : pasted.LastIndexOf(BeginMarker, end, StringComparison.Ordinal);
 
         if (start < 0 || end <= start)
-            return null;
+            return [];
 
+        var groups = new List<(string Id, string Name)>();
         string? id = null, name = null;
+
+        void AddCurrent()
+        {
+            string cleanId = SanitiseId(id);
+            if (cleanId.Length > 0)
+                groups.Add((cleanId, SanitiseDisplayName(name)));
+
+            id = null;
+            name = null;
+        }
 
         foreach (string raw in pasted[(start + BeginMarker.Length)..end]
                      .Split('\n', StringSplitOptions.RemoveEmptyEntries))
@@ -245,15 +235,26 @@ public static class DirectoryGroupSetup
 
             switch (line[..split].Trim())
             {
-                case "groupId": id = value; break;
+                case "groupId":
+                    AddCurrent();
+                    id = value;
+                    break;
                 case "groupName": name = value; break;
             }
         }
 
-        // The id is what a grant names. A block without one records nothing useful, and storing a
-        // name alone would show a group in the UI that no command could reference.
-        string cleanId = SanitiseId(id);
-        return cleanId.Length == 0 ? null : (cleanId, SanitiseGroupName(name));
+        AddCurrent();
+        return groups;
+    }
+
+    /// <summary>Removes terminal control characters without rejecting valid display punctuation.</summary>
+    private static string SanitiseDisplayName(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return string.Empty;
+
+        string clean = new(name.Where(c => !char.IsControl(c)).ToArray());
+        return clean.Trim();
     }
 
     /// <summary>

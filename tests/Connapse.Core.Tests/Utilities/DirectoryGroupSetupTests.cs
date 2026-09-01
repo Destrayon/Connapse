@@ -1,5 +1,6 @@
 ﻿using Connapse.Core.Utilities;
 using FluentAssertions;
+using System.Diagnostics;
 
 namespace Connapse.Core.Tests.Utilities;
 
@@ -16,6 +17,17 @@ public class DirectoryGroupSetupTests
         DirectoryGroupSetup.GenerateScript("us-west-1", Store, User, groupName);
 
     [Fact]
+    public void GenerateScript_FirstRunWithoutAConnectedUser_ListsAllDirectoryGroups()
+    {
+        string script = DirectoryGroupSetup.GenerateScript("us-west-1", Store, null, null);
+
+        script.Should().Contain("identitystore list-groups",
+            "group discovery must work before the first person can connect through the SAML application");
+        script.Should().NotContain("list-group-memberships-for-member",
+            "listing available grant groups must not depend on a connected person's memberships");
+    }
+
+    [Fact]
     public void GenerateScript_WithNoGroupName_OnlyDiscovers()
     {
         // Discovery is the default because most directories synchronise their groups from an
@@ -23,9 +35,47 @@ public class DirectoryGroupSetupTests
         // would add a group the provider does not know about.
         string script = Script();
 
-        script.Should().Contain("list-group-memberships-for-member");
+        script.Should().Contain("identitystore list-groups");
         script.Should().Contain("GROUP_NAME=\"\"",
             "no name given means the create branch never runs");
+    }
+
+    [Fact]
+    public void ParseResults_ReturnsEveryDiscoveredGroupForTheAdministratorToChoose()
+    {
+        string pasted = $$"""
+            {{DirectoryGroupSetup.BeginMarker}}
+            groupId=11111111-1111-1111-1111-111111111111
+            groupName=Finance Readers
+            groupId=22222222-2222-2222-2222-222222222222
+            groupName=Engineering Readers
+            {{DirectoryGroupSetup.EndMarker}}
+            """;
+
+        DirectoryGroupSetup.ParseResults(pasted).Should().Equal(
+            ("11111111-1111-1111-1111-111111111111", "Finance Readers"),
+            ("22222222-2222-2222-2222-222222222222", "Engineering Readers"));
+    }
+
+    [Fact]
+    public void ParseResults_PreservesPunctuationInDiscoveredDisplayNames()
+    {
+        string pasted = $$"""
+            {{DirectoryGroupSetup.BeginMarker}}
+            groupId=11111111-1111-1111-1111-111111111111
+            groupName=Finance's $Readers \ West
+            {{DirectoryGroupSetup.EndMarker}}
+            """;
+
+        DirectoryGroupSetup.ParseResults(pasted).Should().Equal(
+            ("11111111-1111-1111-1111-111111111111", "Finance's $Readers \\ West"));
+    }
+
+    [Fact]
+    public void GenerateScript_ExplainsHowToContinueWhenNoGroupsExist()
+    {
+        DirectoryGroupSetup.GenerateScript("us-west-1", Store, null, null)
+            .Should().Contain("No groups found. Enter a group name in Connapse to create one");
     }
 
     [Fact]
@@ -41,41 +91,32 @@ public class DirectoryGroupSetupTests
         script.Should().NotContain("create-access-grant");
         script.Should().NotContain("YOUR-BUCKET");
 
-        script.Should().Contain("It creates NO access grant");
-        script.Should().Contain("shows the exact",
-            "it points at where the real command is instead of inventing one");
+        script.Should().NotContain("s3control",
+            "this step chooses a grantee; connections create grants for their own buckets");
     }
 
     [Fact]
-    public void GenerateScript_RecordsASingleDiscoveredGroupWithoutBeingAsked()
+    public void GeneratedScript_FirstRunOffersEveryDirectoryGroup()
     {
-        // Someone whose group already exists had to retype its name into the create field before
-        // anything was recorded -- and the script then told them to paste a block it had never
-        // printed. One membership is unambiguous, so it is recorded on sight.
-        string script = Script();
+        const string firstId = "11111111-1111-1111-1111-111111111111";
+        const string secondId = "22222222-2222-2222-2222-222222222222";
+        string fakeAws = $$"""
+            aws() {
+              case "$*" in
+                *"identitystore list-groups"*) printf '%s\n' '{{firstId}} {{secondId}}' ;;
+                *"--group-id {{firstId}}"*) printf '%s\n' 'Finance Readers' ;;
+                *"--group-id {{secondId}}"*) printf '%s\n' 'Engineering Readers' ;;
+                *) printf 'Unexpected AWS call: %s\n' "$*" >&2; return 1 ;;
+              esac
+            }
+            """;
 
-        script.Should().Contain("FOUND_COUNT")
-            .And.Contain("[ -z \"$GROUP_NAME\" ] && [ \"$FOUND_COUNT\" -eq 1 ]");
-    }
+        string output = RunBash(fakeAws + Environment.NewLine
+            + DirectoryGroupSetup.GenerateScript("us-west-1", Store, null, null));
 
-    [Fact]
-    public void GenerateScript_WithSeveralGroups_ChoosesNoneAndSaysWhy()
-    {
-        // Picking one of several would be a coin flip that surfaces as grants against a group
-        // nobody meant.
-        Script().Should().Contain("More than one, so none is chosen for you");
-    }
-
-    [Fact]
-    public void GenerateScript_DoesNotAskForAPasteWhenNoBlockWasPrinted()
-    {
-        // The closing message used to claim a block existed whatever happened, sending somebody
-        // scrolling for output that was never there.
-        string script = Script();
-
-        script.Should().Contain("No group was chosen, so there is nothing to paste");
-        script.Should().Contain("elif [ -n \"$GROUP_ID\" ]",
-            "the paste instruction is gated on a block having been printed");
+        DirectoryGroupSetup.ParseResults(output).Should().Equal(
+            (firstId, "Finance Readers"),
+            (secondId, "Engineering Readers"));
     }
 
     [Fact]
@@ -116,7 +157,7 @@ public class DirectoryGroupSetupTests
     {
         // SCIM reconciles deltas, so a group made here is never corrected by a later sync. The
         // administrator cannot see that from AWS and should meet it at the moment they cause it.
-        Script("Connapse Readers").Should().Contain("not known to your identity provider");
+        Script("Connapse Readers").Should().Contain("identity provider will not manage it");
     }
 
     [Fact]
@@ -180,5 +221,38 @@ public class DirectoryGroupSetupTests
 
         script.Should().Contain("USER_ID=\"\"");
         script.Should().Contain("create-group");
+    }
+
+    private static string RunBash(string script)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"connapse-groups-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "script.sh"), script.Replace("\r\n", "\n"));
+
+        try
+        {
+            string bash = OperatingSystem.IsWindows()
+                ? @"C:\Program Files\Git\bin\bash.exe"
+                : "bash";
+
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = bash,
+                Arguments = "script.sh",
+                WorkingDirectory = directory,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            }) ?? throw new InvalidOperationException("Could not start Bash.");
+
+            string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            process.ExitCode.Should().Be(0, output);
+            return output;
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }
