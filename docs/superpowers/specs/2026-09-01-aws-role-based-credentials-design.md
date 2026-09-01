@@ -143,6 +143,8 @@ than a one-shot paste-back:
 `rolesanywhere:CreateTrustAnchor`, `rolesanywhere:CreateProfile`,
 `rolesanywhere:ListProfiles`, `sts:GetCallerIdentity`.
 
+**PR 3 save-safety requirement:** the setup flow MUST validate the certificate/private-key pair and complete a preflight CreateSession BEFORE persisting, and retain the prior encrypted credential until the new one activates, so a bad cert/ARN/typo never destroys the last working credential (`SaveRolesAnywhereAsync`/`SaveAsync` overwrite irreversibly).
+
 ## §4 Manual values
 
 Same runtime provider, script skipped. Consistent with how every provider card
