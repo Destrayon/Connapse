@@ -1317,11 +1317,11 @@
         // incomplete, which the scope resolver reads as EnforcingButUnusable and denies — searches
         // return nothing for everyone until the application is set up again, rather than silently
         // widening the whole corpus to every user.
-        await SaveSamlSettings(new SamlSignInSettings
-        {
-            GrantGroupId = samlSettings.GrantGroupId,
-            GrantGroupName = samlSettings.GrantGroupName,
-        });
+        //
+        // Built from CurrentValue, not the samlSettings snapshot captured at page load: on a
+        // long-lived page another administrator may have changed the group since, and rebuilding
+        // from the stale copy would write that obsolete value back.
+        await SaveSamlSettings(GrantGroupOnly(SamlOptions.CurrentValue));
 
         if (saveSuccess)
         {
@@ -1332,18 +1332,31 @@
 
     private async Task ClearGrantGroup()
     {
-        await SaveSamlSettings(new SamlSignInSettings
-        {
-            EntityId = samlSettings.EntityId,
-            AcsUrl = samlSettings.AcsUrl,
-            IdpEntityId = samlSettings.IdpEntityId,
-            IdpSingleSignOnUrl = samlSettings.IdpSingleSignOnUrl,
-            IdpSigningCertificate = samlSettings.IdpSigningCertificate,
-        });
+        // CurrentValue, not the page-load snapshot: another administrator may have rotated the
+        // certificate or issuer since this page opened, and rebuilding the SAML fields from the
+        // stale copy would revert that rotation.
+        await SaveSamlSettings(WithoutGrantGroup(SamlOptions.CurrentValue));
 
         if (saveSuccess)
             pastedGroup = null;
     }
+
+    /// <summary>The SAML application settings without the default grant group.</summary>
+    private static SamlSignInSettings WithoutGrantGroup(SamlSignInSettings from) => new()
+    {
+        EntityId = from.EntityId,
+        AcsUrl = from.AcsUrl,
+        IdpEntityId = from.IdpEntityId,
+        IdpSingleSignOnUrl = from.IdpSingleSignOnUrl,
+        IdpSigningCertificate = from.IdpSigningCertificate,
+    };
+
+    /// <summary>Only the default grant group, without the SAML application settings.</summary>
+    private static SamlSignInSettings GrantGroupOnly(SamlSignInSettings from) => new()
+    {
+        GrantGroupId = from.GrantGroupId,
+        GrantGroupName = from.GrantGroupName,
+    };
 
     private async Task CopyIdentityScript()
     {
