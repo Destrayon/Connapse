@@ -1,6 +1,9 @@
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Xunit;
 
 namespace Connapse.Integration.Tests;
@@ -74,5 +77,33 @@ public class RolesAnywhereCredentialStoreIntegrationTests(SharedWebAppFixture fi
         (await store.GetRolesAnywhereAsync(provider)).Should().BeNull();
         (await store.GetRolesAnywhereMaterialAsync(provider)).Should().BeNull();
         (await store.GetSecretAsync(provider)).Should().Be("new-secret");
+    }
+
+    [Fact]
+    public async Task InsertingRow_WithBothAccessKeyAndRolesAnywhereShapes_ViolatesCheckConstraint()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
+
+        string provider = $"aws-mix-{Guid.NewGuid():N}"[..16];
+
+        // A row claiming to be both shapes at once: a non-blank access key alongside a full Roles
+        // Anywhere config. The CHECK must reject this even though nothing in application code would
+        // ever construct it — it is the last line of defense against a bug or a manual write.
+        Func<Task> act = async () => await context.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO provider_credentials (
+                provider, public_id, secret_protected, created_at,
+                trust_anchor_arn, profile_arn, role_arn, region, certificate_pem, private_key_protected)
+            VALUES (
+                {0}, 'AKIAMIXED', 'mixed-secret', now(),
+                'arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta',
+                'arn:aws:rolesanywhere:us-east-1:111:profile/pf',
+                'arn:aws:iam::111:role/connapse', 'us-east-1', 'cert-pem', 'key-ciphertext')
+            """, provider);
+
+        (await act.Should().ThrowAsync<PostgresException>())
+            .Which.SqlState.Should().Be(PostgresErrorCodes.CheckViolation);
     }
 }
