@@ -912,7 +912,7 @@
                     {
                         <ProviderResetAction Label="Reset SAML application"
                                              ConfirmLabel="Confirm SAML reset"
-                                             HelpText="This also turns off per-user filtering. Until you set the application up again, every user can search all AWS content."
+                                             HelpText="Per-user filtering stays on, so AWS searches return nothing for anyone until you set the application up again."
                                              OnReset="ClearSamlApplication" />
                     }
                     @if (samlSettings.HasGrantGroup)
@@ -1313,11 +1313,15 @@
     /// </remarks>
     private async Task ClearSamlApplication()
     {
+        // Enforcement is deliberately left on. Clearing the application makes the sign-in settings
+        // incomplete, which the scope resolver reads as EnforcingButUnusable and denies — searches
+        // return nothing for everyone until the application is set up again, rather than silently
+        // widening the whole corpus to every user.
         await SaveSamlSettings(new SamlSignInSettings
         {
             GrantGroupId = samlSettings.GrantGroupId,
             GrantGroupName = samlSettings.GrantGroupName,
-        }, stopEnforcing: true);
+        });
 
         if (saveSuccess)
         {
@@ -1522,28 +1526,24 @@
     /// <summary>
     /// Stores the sign-in settings, and decides whether permissions are still being enforced.
     /// </summary>
-    /// <param name="stopEnforcing">
-    /// True only for the deliberate act of forgetting the configuration. Enforcement is never
-    /// switched off as a side effect of an edit.
-    /// </param>
     /// <remarks>
     /// The latch lives here rather than on the form because several callers above rebuild this
     /// object field by field, and every one of them would otherwise clear the flag by omission —
-    /// which is precisely the silent un-enforcement the flag exists to prevent. One choke point,
-    /// so a new caller cannot reintroduce it.
+    /// which is precisely the silent un-enforcement this choke point exists to prevent.
     /// <para>
-    /// A complete configuration turns enforcement on. An incomplete save leaves an existing one
-    /// alone, so blanking the certificate to paste a rotated one keeps filtering in force — the
-    /// searches deny while it is blank, which is the loud failure rather than the quiet one.
+    /// A complete configuration turns enforcement on, and nothing here turns it back off: once on,
+    /// it stays on until the application is completely reconfigured. An incomplete save — blanking
+    /// the certificate to paste a rotated one, or resetting the application entirely — leaves the
+    /// flag in force, so the searches deny while the settings are incomplete. That is the loud
+    /// failure rather than the quiet one: no path through this page silently widens the corpus.
     /// </para>
     /// </remarks>
-    private async Task SaveSamlSettings(SamlSignInSettings settings, bool stopEnforcing = false)
+    private async Task SaveSamlSettings(SamlSignInSettings settings)
     {
         // Written to its own category, so recording enforcement never rewrites a SAML value. That
         // matters for a deployment configured through environment variables: the database outranks
         // the environment, so copying those values into a row here would shadow them permanently.
-        bool enforcing = !stopEnforcing
-            && (settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing);
+        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing;
 
         await SaveSettings("samlsignin", settings);
 
