@@ -65,8 +65,7 @@ public static class AccessGrantScript
         string prefixList = string.Join(" ", subPrefixes.Select(l => $"'{l}/*'"));
 
         return $$"""
-        # Grants read access to this connection's buckets. Run it when you are ready — Connapse
-        # never creates a grant itself, and its own identity has no permission to.
+        # Grants this directory user or group READ access to the selected buckets.
 
         FAILED=""
         REGION="{{pinnedRegion}}"
@@ -79,9 +78,7 @@ public static class AccessGrantScript
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
         [ -n "$ACCOUNT" ] || { echo 'Could not read your AWS account id.'; FAILED=1; }
 
-        # Discovered, not assumed. AWS calls the s3:// location "default", but one registered
-        # against a single bucket has a generated id, and naming the wrong one fails as
-        # InvalidAccessGrant -- which reads as a bad grant rather than as a bad location.
+        # Find the registered s3:// location.
         if [ -z "$FAILED" ]; then
           LOCATION=$(aws s3control list-access-grants-locations --region "$REGION" --account-id "$ACCOUNT" --query "AccessGrantsLocationsList[?LocationScope=='s3://'].AccessGrantsLocationId | [0]" --output text 2>/dev/null || true)
           if [ -z "$LOCATION" ] || [ "$LOCATION" = 'None' ]; then
@@ -91,24 +88,15 @@ public static class AccessGrantScript
           fi
         fi
 
-        # An array rather than a bare list: with one entry a quoted word reads as a command being
-        # run, which is both what ShellCheck says and how somebody skimming this would read it.
         SUBPREFIXES=({{prefixList}})
 
-        # What this grantee already has, read once. AWS documents no error for creating a grant
-        # that already exists and says nothing about duplicates, so a second run might conflict --
-        # handled below -- or might quietly make an identical second grant. A duplicate changes
-        # nothing about what anyone can read, because Connapse dedupes scopes, but it doubles what
-        # has to be deleted to revoke. Checking first makes the outcome the same either way.
+        # Read existing scopes once so rerunning does not create duplicates.
         if [ -z "$FAILED" ]; then
           EXISTING=$(aws s3control list-access-grants --region "$REGION" --account-id "$ACCOUNT" --grantee-type "$GRANTEE_TYPE" --grantee-identifier "$GRANTEE" --query 'AccessGrantsList[].GrantScope' --output text 2>/dev/null | tr '\t' ' ' || true)
         fi
 
         if [ -z "$FAILED" ]; then
           for SUBPREFIX in "${SUBPREFIXES[@]}"; do
-            # Compared as whole words rather than by pattern: a grant scope ends in a star, which a
-            # case pattern would read as a wildcard and match buckets nobody granted. Splitting on
-            # whitespace is safe because the allowlist above admits no spaces.
             ALREADY=""
             for SCOPE in $EXISTING; do
               [ "$SCOPE" = "s3://$SUBPREFIX" ] && ALREADY=1
@@ -119,8 +107,7 @@ public static class AccessGrantScript
               continue
             fi
 
-            # One grant per bucket. AWS refuses a grant on the bare s3:// location, which would
-            # reach every bucket in the region, so there is no way to cover them all at once.
+            # Create one grant per bucket or prefix.
             if OUT=$(aws s3control create-access-grant --region "$REGION" --account-id "$ACCOUNT" --access-grants-location-id "$LOCATION" --access-grants-location-configuration S3SubPrefix="$SUBPREFIX" --permission READ --grantee GranteeType="$GRANTEE_TYPE",GranteeIdentifier="$GRANTEE" 2>&1); then
               echo "Granted READ on $SUBPREFIX"
             else

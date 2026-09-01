@@ -43,7 +43,7 @@ public static class AwsIamUserSetup
     /// </remarks>
     public static readonly IReadOnlyList<string> RequiredPermissions =
     [
-        "iam:GetUser", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey",
+        "iam:GetUser", "iam:ListUserTags", "iam:CreateUser", "iam:PutUserPolicy", "iam:CreateAccessKey",
         "sts:GetCallerIdentity"
     ];
 
@@ -75,29 +75,19 @@ public static class AwsIamUserSetup
 
         // Single-quoted heredoc so the shell expands nothing inside the policy document.
         return $$"""
-        # Sets up an AWS identity for Connapse: one IAM user, one read-only policy, and one
-        # access key. Run against an identity Connapse already made, it brings the policy up to
-        # date and leaves the key alone.
-        #
-        # The policy allows: {{scopeSummary}}
-
-        # Set by any step that fails. No `set -e` and no bare `exit`: both end the *session* when
-        # these lines are pasted into an interactive shell, which is how CloudShell disconnects
-        # part-way through rather than reporting a problem.
+        # Creates or updates Connapse's IAM user and read-only policy.
+        # Policy allows: {{scopeSummary}}
         FAILED=""
         USER='{{user}}'
 
-        # The grant-read permission is named at this account's Access Grants instances rather
-        # than at every resource, and the account number only exists here, in the session
-        # running this.
+        # Resolve the account used by the policy resource ARN.
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
         [ -n "$ACCOUNT" ] || { echo 'Could not read your AWS account id.'; FAILED=1; }
 
         EXISTS=""
         aws iam get-user --user-name "$USER" >/dev/null 2>&1 && EXISTS=1
 
-        # Only an identity Connapse created. One that happens to share the name is somebody else's,
-        # and rewriting its policy would be taking over an account this script cannot reason about.
+        # Update only a user tagged as created by Connapse.
         if [ -n "$EXISTS" ]; then
           OWNER=$(aws iam list-user-tags --user-name "$USER" \
                     --query "Tags[?Key=='CreatedBy'].Value" --output text 2>/dev/null || true)
@@ -112,19 +102,9 @@ public static class AwsIamUserSetup
           aws iam create-user --user-name "$USER" --tags Key=CreatedBy,Value=Connapse >/dev/null || FAILED=1
         fi
 
-        # Written either way. On a new identity this is the grant; on one that already exists it
-        # replaces an older grant with the current one, which is how permissions added in a later
-        # version reach an installation that already ran this. put-user-policy replaces the document
-        # in full and does not touch access keys.
-        #
-        # Inline rather than managed, so the grant is deleted along with the user rather than
-        # lingering as an orphan.
+        # Create or replace the inline policy without changing existing keys.
         if [ -z "$FAILED" ]; then
-          # Single-quoted so the shell expands nothing inside the document, then the one
-          # placeholder is replaced by hand. Substituted with the shell rather than built
-          # here, because a heredoc puts an interactive shell into continuation mode for the
-          # whole policy -- which is how CloudShell disconnected part-way through an earlier
-          # version of this setup.
+          # Substitute the account without shell-expanding the policy JSON.
           POLICY='{{policy}}'
           POLICY=${POLICY//{{placeholder}}/$ACCOUNT}
 
@@ -133,21 +113,14 @@ public static class AwsIamUserSetup
             --policy-document "$POLICY" || FAILED=1
         fi
 
-        # Only for an identity that did not exist a moment ago. Creating a second key for one that
-        # did would leave the running deployment authenticating with the first, and this block
-        # telling you to paste the second.
+        # Create one key only for a new user.
         if [ -z "$FAILED" ] && [ -z "$EXISTS" ]; then
-          # The secret is returned once and never again, which is why the block below is the only
-          # chance to copy it.
           KEY=$(aws iam create-access-key --user-name "$USER" \
                   --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text) || FAILED=1
 
           BLOCK=$(
             printf '%s\n' '{{BeginMarker}}'
             printf 'user=%s\n' "$USER"
-            # '%s\n', not '%s'. Command substitution strips the trailing newline, and `read`
-            # returns non-zero at EOF without running the loop body — so the one line of output was
-            # silently dropped and the block came back with no key in it at all.
             printf '%s\n' "$KEY" | while IFS=$(printf '\t') read -r ID SECRET; do
               [ -z "$ID" ] && continue
               printf 'accessKeyId=%s\n' "$ID"
