@@ -271,9 +271,10 @@
                                    @bind:event="oninput"
                                    placeholder="@AwsIamUserSetup.DefaultUserName" />
                             <div class="form-text">
-                                If a user by this name already exists in AWS, the script stops
-                                rather than adding a second key to it. Pick another name, or
-                                delete the old user first.
+                                Reusing an existing name won't hand back a new key: the script
+                                refreshes the policy on a user Connapse created (leaving its key
+                                untouched) and refuses one it did not create. To get fresh
+                                credentials, pick another name — or delete the old user first.
                             </div>
                         </div>
                     </div>
@@ -345,7 +346,7 @@
                 <Actions>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     <ProviderResetAction OnReset="ResetAccessIdentity"
-                                         HelpText="This does not change IAM users or keys in AWS." />
+                                         HelpText="This does not change IAM users or keys in AWS. If the host itself provides AWS credentials (an instance role or a mounted profile), Connapse falls back to those instead of losing access." />
                 </Actions>
             </ProviderStepCard>
 
@@ -911,6 +912,7 @@
                     {
                         <ProviderResetAction Label="Reset SAML application"
                                              ConfirmLabel="Confirm SAML reset"
+                                             HelpText="This also turns off per-user filtering. Until you set the application up again, every user can search all AWS content."
                                              OnReset="ClearSamlApplication" />
                     }
                     @if (samlSettings.HasGrantGroup)
