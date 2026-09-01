@@ -10,6 +10,13 @@ public class AwsIamUserSetupTests
         AwsIamUserSetup.GenerateScript(userName);
 
     [Fact]
+    public void RequiredPermissions_CoversEveryIamReadUsedToUpdateAnExistingUser()
+    {
+        AwsIamUserSetup.RequiredPermissions.Should().Contain("iam:ListUserTags",
+            "the update branch verifies the CreatedBy tag before it changes the user's policy");
+    }
+
+    [Fact]
     public void GenerateScript_CreatesAUserAPolicyAndAKey_AndNothingElse()
     {
         // The script is shown in full so an administrator can read it before running it, which is

@@ -1,0 +1,9 @@
+<details class="provider-setup-guide border rounded p-3 mt-3">
+    <summary class="fw-semibold small">@Title</summary>
+    <div class="pt-3">@ChildContent</div>
+</details>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Easy setup";
+    [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+}

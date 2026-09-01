@@ -58,8 +58,7 @@ public static class AccessGrantsSetup
                   - Effect: Allow
                     Principal: { Service: access-grants.s3.amazonaws.com }
                     Action: [ 'sts:AssumeRole', 'sts:SetSourceIdentity' ]
-                  # Without sts:SetContext the identity never reaches S3 and every lookup comes
-                  # back empty, with nothing anywhere saying why.
+                  # Pass the Identity Center context to S3.
                   - Effect: Allow
                     Principal: { Service: access-grants.s3.amazonaws.com }
                     Action: 'sts:SetContext'
@@ -79,8 +78,7 @@ public static class AccessGrantsSetup
             Type: AWS::S3::AccessGrantsInstance
             Properties:
               IdentityCenterArn: !Ref InstanceArn
-          # Registers s3:// so grants may be written anywhere. Registering a location is not
-          # granting access to it; it is declaring which data Access Grants may govern.
+          # Register the S3 root without granting access to it.
           Location:
             Type: AWS::S3::AccessGrantsLocation
             DependsOn: GrantsInstance
@@ -105,29 +103,18 @@ public static class AccessGrantsSetup
         string pinnedRegion = SanitiseRegion(region);
 
         return FlattenContinuations($$"""
-        # Sets up the S3 Access Grants side of per-user permissions for Connapse. Creates, in your
-        # account: an S3 Access Grants instance, one location covering s3://, and that location's
-        # role.
-        #
-        # It creates NO access grants. Who may read what stays yours to decide, in AWS.
-        # Nothing existing is modified.
-
-        # Set by any check below that fails, so a half-finished run says so rather than looking
-        # like a clean one.
+        # Creates the Access Grants instance, s3:// location, and location role.
+        # Does not create access grants.
         FAILED=""
         PREFIX='{{NamePrefix}}'
         STACK="$PREFIX-permissions"
 
-        # Pinned to where Connapse found the Identity Center instance. There is deliberately no
-        # fallback to the session's region: CloudShell opens wherever the console was last used, and
-        # deploying there rather than failing is the exact mistake the discovery step exists to
-        # prevent — Identity Center lives in one region, and the wrong one reads as no instance.
+        # Use the Identity Center region rather than CloudShell's current region.
         REGION="{{pinnedRegion}}"
         [ -n "$REGION" ] || { echo 'No region. Locate your Identity Center instance first.'; FAILED=1; }
         ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
-        # Checked before anything is created. A missing instance, or the right instance seen from
-        # the wrong account, is the difference between this working and it half-working.
+        # Verify the instance before creating resources.
         INSTANCE=$(aws sso-admin list-instances --region "$REGION" \
                      --query 'Instances[0].InstanceArn' --output text 2>/dev/null || true)
         if [ -z "$INSTANCE" ] || [ "$INSTANCE" = 'None' ]; then
@@ -136,8 +123,7 @@ public static class AccessGrantsSetup
           FAILED=1
         fi
 
-        # The template is a separate file you downloaded from Connapse and can read before
-        # running any of this. Upload it here with Actions -> Upload file.
+        # Deploy the template downloaded from Connapse.
         TEMPLATE_FILE="${TEMPLATE_FILE:-connapse-permissions.yaml}"
         [ -f "$TEMPLATE_FILE" ] || {
           echo "Cannot find $TEMPLATE_FILE in $(pwd)."

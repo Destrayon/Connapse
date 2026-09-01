@@ -64,15 +64,14 @@ public class DirectoryGroupParseTests
     }
 
     [Fact]
-    public void ParseResult_WithAnUnusableName_KeepsTheIdAndDropsTheName()
+    public void ParseResult_WithShellPunctuation_PreservesTheDisplayName()
     {
-        // The id is what a grant needs. A name that cannot be shown safely is not a reason to
-        // discard a working group.
+        // Parsed names are displayed and stored; they are not interpolated into a script.
         var result = DirectoryGroupSetup.ParseResult(Block(name: "back`tick`"));
 
         result.Should().NotBeNull();
         result!.Value.Id.Should().Be(Id);
-        result.Value.Name.Should().BeEmpty();
+        result.Value.Name.Should().Be("back`tick`");
     }
 
     [Theory]

@@ -127,7 +127,7 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
         {
             using var probe = Process.Start(new ProcessStartInfo
             {
-                FileName = tool,
+                FileName = ToolPath(tool),
                 Arguments = "--version",
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
@@ -174,7 +174,7 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
             {
                 // Found on PATH. A missing bash fails the test rather than skipping it: CI runs on
                 // Ubuntu and Windows development uses Git Bash, so both have one.
-                FileName = tool,
+                FileName = ToolPath(tool),
                 Arguments = $"{arguments} {fileName}",
                 WorkingDirectory = Path.GetTempPath(),
                 RedirectStandardError = true,
@@ -191,5 +191,17 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static string ToolPath(string tool)
+    {
+        if (OperatingSystem.IsWindows() && tool == "bash")
+        {
+            const string gitBash = @"C:\Program Files\Git\bin\bash.exe";
+            if (File.Exists(gitBash))
+                return gitBash;
+        }
+
+        return tool;
     }
 }

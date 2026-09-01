@@ -136,21 +136,16 @@ public static class IdentityCenterSetup
         string regions = string.Join(" ", CandidateRegions);
 
         return $$"""
-        # Finds your IAM Identity Center instance. Read-only: it lists instances and prints what it
-        # found. Nothing is created, changed, or sent anywhere.
+        # Finds your IAM Identity Center instance without changing AWS.
 
         FOUND=""
         DENIED=""
 
         probe() {
-          # --output text with an explicit --query, rather than jq: CloudShell ships jq, but
-          # depending on it buys nothing the CLI cannot already do.
           OUT=$(aws sso-admin list-instances --region "$1" --query 'Instances[].[InstanceArn,IdentityStoreId]' --output text 2>&1)
           STATUS=$?
 
           if [ $STATUS -ne 0 ]; then
-            # A denial is worth reporting; anything else is this region simply not being the one,
-            # which is the expected outcome for all but one of them.
             case "$OUT" in
               *AccessDenied*|*UnauthorizedOperation*|*not\ authorized*) DENIED="yes" ;;
             esac
@@ -159,40 +154,28 @@ public static class IdentityCenterSetup
 
           [ -z "$OUT" ] && return
 
-          # Tab-separated, one instance per line. Held rather than printed so the whole result block
-          # comes out together at the end. A herestring rather than a heredoc: same input, one line.
           while IFS=$(printf '\t') read -r ARN STORE; do
             [ -z "$ARN" ] && continue
             FOUND="${FOUND}${1}|${ARN}|${STORE}"$'\n'
           done <<< "$OUT"
         }
 
-        # The session's own region first. For most people this is the answer and the scan below
-        # never runs.
+        # Check CloudShell's current region first.
         HOME_REGION="${AWS_REGION:-$AWS_DEFAULT_REGION}"
         [ -n "$HOME_REGION" ] && probe "$HOME_REGION"
 
-        # A sso:ListInstances denial is a property of the caller's policy, not of the region, so
-        # scanning the other nineteen would be nineteen more calls to be refused the same way.
+        # Scan common regions only when the current region has no instance.
         if [ -z "$FOUND" ] && [ -z "$DENIED" ]; then
           echo 'Not in this session default region; checking the others. This takes a moment.'
           for R in {{regions}}; do
             [ "$R" = "$HOME_REGION" ] && continue
             probe "$R"
             [ -n "$DENIED" ] && break
-            # Identity Center is one region per organisation. The exception is multi-region
-            # replication, which the administrator will know they have -- so stopping at the first
-            # hit is right for everyone else, and a full scan would be 20 sequential calls for
-            # nothing.
             [ -n "$FOUND" ] && break
           done
         fi
 
-        # Where this account sits relative to Organizations. Only consulted when nothing was found,
-        # but probed unconditionally so the answer travels in the same block.
-        #
-        # A denial has to be told apart from "not in an organisation": both leave the query empty,
-        # and treating a denial as standalone would offer a create step that AWS rejects.
+        # Report whether this account can enable Identity Center when none was found.
         ORG_OUT=$(aws organizations describe-organization --query 'Organization.MasterAccountId' --output text 2>&1)
         ORG_STATUS=$?
         CALLER=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null)
@@ -210,15 +193,7 @@ public static class IdentityCenterSetup
           POSTURE="member"
         fi
 
-        # Built whole, then printed once.
-        #
-        # Pasting a multi-line script into an interactive shell makes it echo every line back.
-        # Printing the block piece by piece let that echo land between the markers, so the thing the
-        # administrator is asked to check was half script. Capturing it first puts all the echo
-        # above the BEGIN marker, where it belongs.
-        #
-        # The markers go through %s rather than being the format string themselves. They begin with
-        # dashes, and printf reads a leading '-' as an option.
+        # Print one parseable result block.
         BLOCK=$(
           printf '%s\n' '{{BeginMarker}}'
           printf 'accountType=%s\n' "$POSTURE"
