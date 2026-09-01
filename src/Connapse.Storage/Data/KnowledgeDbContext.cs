@@ -495,6 +495,13 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
             entity.Property(e => e.CreatedByUserId)
                 .HasColumnName("created_by_user_id");
+
+            entity.Property(e => e.CertificatePem).HasColumnName("certificate_pem");
+            entity.Property(e => e.PrivateKeyProtected).HasColumnName("private_key_protected");
+            entity.Property(e => e.TrustAnchorArn).HasColumnName("trust_anchor_arn").HasMaxLength(2048);
+            entity.Property(e => e.ProfileArn).HasColumnName("profile_arn").HasMaxLength(2048);
+            entity.Property(e => e.RoleArn).HasColumnName("role_arn").HasMaxLength(2048);
+            entity.Property(e => e.Region).HasColumnName("region").HasMaxLength(64);
         });
 
         modelBuilder.Entity<ConnectionEntity>(entity =>

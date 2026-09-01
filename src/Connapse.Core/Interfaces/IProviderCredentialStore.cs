@@ -26,6 +26,21 @@ public record ProviderCredentialInfo(
     DateTime? VerifiedAt = null);
 
 /// <summary>
+/// A stored IAM Roles Anywhere configuration (non-secret). The private key is fetched separately via
+/// <see cref="IProviderCredentialStore.GetRolesAnywhereMaterialAsync"/>, so a listing can never
+/// render it.
+/// </summary>
+public record RolesAnywhereConfig(
+    string CertificatePem,
+    string TrustAnchorArn,
+    string ProfileArn,
+    string RoleArn,
+    string Region);
+
+/// <summary>The complete Roles Anywhere material (config + decrypted private key) read from one row snapshot, or null when the provider is not using Roles Anywhere.</summary>
+public record RolesAnywhereCredentialMaterial(RolesAnywhereConfig Config, string PrivateKeyPem);
+
+/// <summary>
 /// The credential Connapse acts as against one cloud, replacing what the SDK would otherwise pick
 /// up from the environment.
 /// </summary>
@@ -68,6 +83,21 @@ public interface IProviderCredentialStore
 
     /// <summary>Removes it, falling back to whatever the environment provides.</summary>
     Task<bool> DeleteAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>The stored Roles Anywhere configuration, or null when the provider is not using one.</summary>
+    Task<RolesAnywhereConfig?> GetRolesAnywhereAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>The complete Roles Anywhere material (config + decrypted private key) read from one row snapshot, or null when the provider is not using Roles Anywhere.</summary>
+    /// <exception cref="ProviderCredentialUnavailableException">Stored but the key cannot be decrypted.</exception>
+    Task<RolesAnywhereCredentialMaterial?> GetRolesAnywhereMaterialAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>
+    /// Stores or replaces the provider's credential with a Roles Anywhere configuration, clearing any
+    /// access-key fields so the runtime's mode choice stays unambiguous.
+    /// </summary>
+    Task<ProviderCredentialInfo> SaveRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
+        Guid? createdByUserId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -84,6 +114,17 @@ public class ProviderCredentialUnavailableException(string provider, Exception i
     : Exception($"The stored credential for '{provider}' could not be decrypted. The DataProtection " +
                 "key ring that encrypted it is unavailable, so the credential must be entered again.",
                 inner)
+{
+    public string Provider { get; } = provider;
+}
+
+/// <summary>
+/// Thrown when a Roles Anywhere credential is configured but cannot be used (missing key, unreadable
+/// certificate/key, or a failed CreateSession). Signals fail-closed: the caller must surface the error,
+/// never silently substitute a different identity such as the ambient chain.
+/// </summary>
+public class RolesAnywhereCredentialException(string provider, Exception inner)
+    : Exception($"The Roles Anywhere credential for '{provider}' is configured but could not be used.", inner)
 {
     public string Provider { get; } = provider;
 }

@@ -90,6 +90,8 @@ redesign. Initial set: `sts:GetCallerIdentity`, `s3:ListAllMyBuckets`, a scoped
 enabled — `s3:ListAccessGrants` plus the `identitystore` reads already required
 by [`AwsSearchScopeResolver`](../../../src/Connapse.Storage/CloudScope/AwsSearchScopeResolver.cs).
 
+**PR 3 precondition:** because a stored Roles Anywhere row leaves the legacy `PublicId` blank, the status UI must check `GetRolesAnywhereAsync` (mode = Roles Anywhere) BEFORE falling back to the access-key `GetAsync`, or it will render a Roles Anywhere credential as an access key with a blank id.
+
 ## §2 Runtime credential resolution
 
 [`ConnapseAwsCredentials`](../../../src/Connapse.Storage/CloudScope/ConnapseAwsCredentials.cs)
@@ -140,6 +142,8 @@ than a one-shot paste-back:
 `iam:GetRole`, `iam:CreateRole`, `iam:PutRolePolicy`, `iam:ListRoleTags`,
 `rolesanywhere:CreateTrustAnchor`, `rolesanywhere:CreateProfile`,
 `rolesanywhere:ListProfiles`, `sts:GetCallerIdentity`.
+
+**PR 3 save-safety requirement:** the setup flow MUST validate the certificate/private-key pair and complete a preflight CreateSession BEFORE persisting, and retain the prior encrypted credential until the new one activates, so a bad cert/ARN/typo never destroys the last working credential (`SaveRolesAnywhereAsync`/`SaveAsync` overwrite irreversibly).
 
 ## §4 Manual values
 
@@ -247,12 +251,16 @@ the project's PR-size limit:
    `AwsIamUserSetup`.
    - **Acceptance requirement (carried from PR 1's final review):** the signing
      engine is proven only self-consistent by unit tests — nothing yet confirms
-     AWS *accepts* its requests. This PR MUST validate one signed `CreateSession`
-     end-to-end against live AWS Roles Anywhere, OR diff the engine's canonical
-     request + string-to-sign against `aws_signing_helper` output for identical
-     inputs. This closes the "internally consistent but AWS-rejected" gap (a
-     canonicalization/encoding detail that passes every self-check yet fails at
-     runtime) before the engine is wired to anything user-facing.
+     AWS *accepts* its requests. Validation is done in **PR 3** (the UI PR): a
+     live-AWS `credential-process` / `CreateSession` smoke test against a real
+     trust anchor, confirming AWS returns temporary credentials. This closes the
+     "internally consistent but AWS-rejected" gap (a canonicalization/encoding
+     detail that passes every self-check yet fails at runtime) before the engine
+     is exposed to users. (The originally-planned offline `aws_signing_helper`
+     diff was dropped during PR 2a: its `sign-string` signs a fixed internal
+     string and requires an OS-store/PKCS#11 certificate, so it can only check
+     the signing primitive — already covered by PR 1's public-key self-verify —
+     not the full canonical request.)
    - **Intermediate cert chain (`X-Amz-X509-Chain`) — required only for the BYO
      path (§4).** The easy self-signed path (§3) registers Connapse's own leaf as
      the trust anchor, so AWS validates it directly and no chain is needed —
