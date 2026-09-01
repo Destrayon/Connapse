@@ -241,6 +241,42 @@ public class RolesAnywhereSignerTests
            .Should().BeTrue();
     }
 
+    [Fact]
+    public void Sign_WithDurationAndRoleSessionName_IncludesBothInBody()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        var parameters = new RolesAnywhereParameters(
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1",
+            DurationSeconds: 3600,
+            RoleSessionName: "connapse-session");
+
+        RolesAnywhereSigner.SignedSessionRequest signed =
+            RolesAnywhereSigner.Sign(cert, parameters, DateTimeOffset.Parse("2026-09-01T12:00:00Z"));
+
+        signed.JsonBody.Should().Contain("\"durationSeconds\":3600");
+        signed.JsonBody.Should().Contain("\"roleSessionName\":\"connapse-session\"");
+    }
+
+    [Fact]
+    public void Sign_WithoutOptionalParams_OmitsThemFromBody()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        var parameters = new RolesAnywhereParameters(
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1");
+
+        RolesAnywhereSigner.SignedSessionRequest signed =
+            RolesAnywhereSigner.Sign(cert, parameters, DateTimeOffset.Parse("2026-09-01T12:00:00Z"));
+
+        signed.JsonBody.Should().NotContain("durationSeconds");
+        signed.JsonBody.Should().NotContain("roleSessionName");
+    }
+
     private static RolesAnywhereSigner.SignedSessionRequest SignSample(X509Certificate2 cert)
     {
         var parameters = new RolesAnywhereParameters(
