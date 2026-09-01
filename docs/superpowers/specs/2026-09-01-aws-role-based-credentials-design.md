@@ -245,6 +245,14 @@ the project's PR-size limit:
    `AwsRolesAnywhereSetup` script generator with local keypair generation and
    ARN parsing. **Removes** the static access-key branch and **deletes**
    `AwsIamUserSetup`.
+   - **Acceptance requirement (carried from PR 1's final review):** the signing
+     engine is proven only self-consistent by unit tests — nothing yet confirms
+     AWS *accepts* its requests. This PR MUST validate one signed `CreateSession`
+     end-to-end against live AWS Roles Anywhere, OR diff the engine's canonical
+     request + string-to-sign against `aws_signing_helper` output for identical
+     inputs. This closes the "internally consistent but AWS-rejected" gap (a
+     canonicalization/encoding detail that passes every self-check yet fails at
+     runtime) before the engine is wired to anything user-facing.
 3. **UI:** adaptive Access card, detection/preflight status, reset behavior,
    manual value entry. **Removes** the old IAM-user setup UI.
 
