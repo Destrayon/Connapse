@@ -164,27 +164,51 @@ public class PostgresProviderCredentialStore(
             row.RoleArn ?? string.Empty, row.Region ?? string.Empty);
     }
 
-    public async Task<string?> GetRolesAnywherePrivateKeyAsync(string provider, CancellationToken ct = default)
+    public async Task<RolesAnywhereCredentialMaterial?> GetRolesAnywhereMaterialAsync(
+        string provider, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
 
-        string? ciphertext = await db.ProviderCredentials
+        // One query, one row snapshot: config and key ciphertext come from the same read, so a
+        // rotation landing between two separate queries can never pair an old cert with a new key.
+        var row = await db.ProviderCredentials
             .AsNoTracking()
             .Where(c => c.Provider == provider)
-            .Select(c => c.PrivateKeyProtected)
+            .Select(c => new
+            {
+                c.CertificatePem, c.TrustAnchorArn, c.ProfileArn, c.RoleArn, c.Region,
+                c.PrivateKeyProtected,
+            })
             .FirstOrDefaultAsync(ct);
 
-        if (string.IsNullOrEmpty(ciphertext))
+        // TrustAnchorArn is the mode signal: absent means this row is not a Roles Anywhere config.
+        if (row is null || string.IsNullOrEmpty(row.TrustAnchorArn))
             return null;
 
+        if (string.IsNullOrEmpty(row.PrivateKeyProtected))
+        {
+            // A Roles Anywhere row with no key ciphertext is corruption, not "nothing configured" —
+            // the mode signal (TrustAnchorArn) says this row is Roles Anywhere.
+            throw new ProviderCredentialUnavailableException(
+                provider, new InvalidOperationException(
+                    "The stored Roles Anywhere row has no private key ciphertext."));
+        }
+
+        string privateKeyPem;
         try
         {
-            return Protector.Unprotect(ciphertext);
+            privateKeyPem = Protector.Unprotect(row.PrivateKeyProtected);
         }
         catch (Exception ex)
         {
             throw new ProviderCredentialUnavailableException(provider, ex);
         }
+
+        var config = new RolesAnywhereConfig(
+            row.CertificatePem ?? string.Empty, row.TrustAnchorArn, row.ProfileArn ?? string.Empty,
+            row.RoleArn ?? string.Empty, row.Region ?? string.Empty);
+
+        return new RolesAnywhereCredentialMaterial(config, privateKeyPem);
     }
 
     public async Task<ProviderCredentialInfo> SaveRolesAnywhereAsync(

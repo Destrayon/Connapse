@@ -20,14 +20,15 @@ public class ConnapseAwsCredentialsTests
     public void GetCredentials_WithStoredRolesAnywhereConfig_ReturnsTemporaryCredentialsFromCreateSession()
     {
         (string certPem, string keyPem) = NewCertAndKeyPem();
-        var store = Substitute.For<IProviderCredentialStore>();
-        store.GetRolesAnywhereAsync("aws").Returns(new RolesAnywhereConfig(
+        var config = new RolesAnywhereConfig(
             certPem,
             "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
             "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
             "arn:aws:iam::111:role/connapse",
-            "us-east-1"));
-        store.GetRolesAnywherePrivateKeyAsync("aws").Returns(keyPem);
+            "us-east-1");
+        var store = Substitute.For<IProviderCredentialStore>();
+        store.GetRolesAnywhereAsync("aws").Returns(config);
+        store.GetRolesAnywhereMaterialAsync("aws").Returns(new RolesAnywhereCredentialMaterial(config, keyPem));
 
         const string sessionJson = """
         {"credentialSet":[{"credentials":{"accessKeyId":"ASIA_RA","secretAccessKey":"ra-secret","sessionToken":"ra-token","expiration":"2999-01-01T00:00:00Z"}}]}
@@ -39,6 +40,57 @@ public class ConnapseAwsCredentialsTests
         ImmutableCredentials resolved = credentials.GetCredentials();
         resolved.AccessKey.Should().Be("ASIA_RA");
         resolved.Token.Should().Be("ra-token");
+    }
+
+    [Fact]
+    public void GetCredentials_WithRolesAnywhereConfigAndFailingCreateSession_ThrowsAndDoesNotFallBackToAmbient()
+    {
+        (string certPem, string keyPem) = NewCertAndKeyPem();
+        var config = new RolesAnywhereConfig(
+            certPem,
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1");
+        var store = Substitute.For<IProviderCredentialStore>();
+        store.GetRolesAnywhereAsync("aws").Returns(config);
+        store.GetRolesAnywhereMaterialAsync("aws").Returns(new RolesAnywhereCredentialMaterial(config, keyPem));
+
+        // CreateSession fails (e.g. IAM Roles Anywhere returns a server error).
+        var factory = HttpClientFactoryReturning(HttpStatusCode.InternalServerError, "server error");
+
+        var credentials = BuildCredentials(store, factory);
+
+        Action act = () => credentials.GetCredentials();
+
+        // Fail closed: a configured Roles Anywhere identity must never silently downgrade to the
+        // ambient (instance-role) chain when it cannot be produced.
+        act.Should().Throw<RolesAnywhereCredentialException>()
+            .Which.Provider.Should().Be("aws");
+    }
+
+    [Fact]
+    public void GetCredentials_WithRolesAnywhereConfigButMissingPrivateKey_ThrowsAndDoesNotFallBackToAmbient()
+    {
+        var config = new RolesAnywhereConfig(
+            "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1");
+        var store = Substitute.For<IProviderCredentialStore>();
+        store.GetRolesAnywhereAsync("aws").Returns(config);
+        // The material read yields no key material at all — corruption or a race with rotation.
+        store.GetRolesAnywhereMaterialAsync("aws").Returns((RolesAnywhereCredentialMaterial?)null);
+
+        var factory = HttpClientFactoryReturning(HttpStatusCode.Created, "{}"); // never called
+
+        var credentials = BuildCredentials(store, factory);
+
+        Action act = () => credentials.GetCredentials();
+
+        act.Should().Throw<RolesAnywhereCredentialException>()
+            .Which.Provider.Should().Be("aws");
     }
 
     [Fact]

@@ -27,7 +27,11 @@ public class RolesAnywhereCredentialStoreIntegrationTests(SharedWebAppFixture fi
 
         RolesAnywhereConfig? read = await store.GetRolesAnywhereAsync(provider);
         read.Should().Be(Config);
-        (await store.GetRolesAnywherePrivateKeyAsync(provider)).Should().Be("PRIVATE-KEY-PEM");
+
+        RolesAnywhereCredentialMaterial? material = await store.GetRolesAnywhereMaterialAsync(provider);
+        material.Should().NotBeNull();
+        material!.Config.Should().Be(Config);
+        material.PrivateKeyPem.Should().Be("PRIVATE-KEY-PEM");
     }
 
     [Fact]
@@ -40,7 +44,7 @@ public class RolesAnywhereCredentialStoreIntegrationTests(SharedWebAppFixture fi
         await store.SaveAsync(provider, "AKIAEXAMPLE", "sekret", "connapse-reader", null);
 
         (await store.GetRolesAnywhereAsync(provider)).Should().BeNull();
-        (await store.GetRolesAnywherePrivateKeyAsync(provider)).Should().BeNull();
+        (await store.GetRolesAnywhereMaterialAsync(provider)).Should().BeNull();
     }
 
     [Fact]
@@ -68,7 +72,7 @@ public class RolesAnywhereCredentialStoreIntegrationTests(SharedWebAppFixture fi
         await store.SaveAsync(provider, "AKIANEW", "new-secret", "connapse-reader", null);
 
         (await store.GetRolesAnywhereAsync(provider)).Should().BeNull();
-        (await store.GetRolesAnywherePrivateKeyAsync(provider)).Should().BeNullOrEmpty();
+        (await store.GetRolesAnywhereMaterialAsync(provider)).Should().BeNull();
         (await store.GetSecretAsync(provider)).Should().Be("new-secret");
     }
 }

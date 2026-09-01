@@ -109,19 +109,37 @@ public class ConnapseAwsCredentials(
         RolesAnywhereConfig? roles = await credentialStore.GetRolesAnywhereAsync(ProviderKey);
         if (roles is not null)
         {
-            string? privateKey = await credentialStore.GetRolesAnywherePrivateKeyAsync(ProviderKey);
-            if (string.IsNullOrEmpty(privateKey)) return null;
+            // Once a Roles Anywhere config exists, this identity is what an administrator asked for.
+            // Any failure producing it — missing key, unreadable cert/key, a failed CreateSession —
+            // must fail closed rather than let the caller silently fall through to the ambient chain
+            // below, so the whole production is wrapped and rethrown as one exception type.
+            try
+            {
+                RolesAnywhereCredentialMaterial? material =
+                    await credentialStore.GetRolesAnywhereMaterialAsync(ProviderKey);
+                if (material is null || string.IsNullOrEmpty(material.PrivateKeyPem))
+                {
+                    throw new InvalidOperationException(
+                        "Roles Anywhere is configured but its private key is missing.");
+                }
 
-            var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-            using X509Certificate2 certificate = X509Certificate2.CreateFromPem(roles.CertificatePem, privateKey);
-            var client = new RolesAnywhereClient(httpClientFactory.CreateClient(RolesAnywhereHttpClientName));
-            var parameters = new RolesAnywhereParameters(
-                roles.TrustAnchorArn, roles.ProfileArn, roles.RoleArn, roles.Region);
+                var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+                using X509Certificate2 certificate = X509Certificate2.CreateFromPem(
+                    material.Config.CertificatePem, material.PrivateKeyPem);
+                var client = new RolesAnywhereClient(httpClientFactory.CreateClient(RolesAnywhereHttpClientName));
+                var parameters = new RolesAnywhereParameters(
+                    material.Config.TrustAnchorArn, material.Config.ProfileArn,
+                    material.Config.RoleArn, material.Config.Region);
 
-            RolesAnywhereSession session = await client.CreateSessionAsync(
-                certificate, parameters, DateTimeOffset.UtcNow);
+                RolesAnywhereSession session = await client.CreateSessionAsync(
+                    certificate, parameters, DateTimeOffset.UtcNow);
 
-            return new ResolvedCredentials(session.Credentials, session.Expiration.UtcDateTime);
+                return new ResolvedCredentials(session.Credentials, session.Expiration.UtcDateTime);
+            }
+            catch (Exception ex)
+            {
+                throw new RolesAnywhereCredentialException(ProviderKey, ex);
+            }
         }
 
         var info = await credentialStore.GetAsync(ProviderKey);
@@ -163,6 +181,15 @@ public class ConnapseAwsCredentials(
             // environment would silently run as a different identity than the one configured, so
             // this stays a hard failure rather than becoming a quiet substitution.
             logger.LogError(ex, "The stored AWS credential could not be decrypted");
+            throw;
+        }
+        catch (RolesAnywhereCredentialException ex)
+        {
+            // A Roles Anywhere config exists but could not be turned into a credential (missing key,
+            // bad cert/key, or CreateSession failed/timed out). Falling back to the ambient chain
+            // would silently run as a different identity than the one configured, so this stays a
+            // hard failure exactly like the decrypt failure above.
+            logger.LogError(ex, "The stored Roles Anywhere credential could not be used");
             throw;
         }
         catch (Exception ex)
