@@ -96,4 +96,64 @@ public class RolesAnywhereSignerTests
         pub.VerifyData(data, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)
            .Should().BeTrue();
     }
+
+    [Fact]
+    public void BuildCanonicalRequest_MatchesAwsExampleLayout_ForEmptyPayload()
+    {
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("content-type", "application/json"),
+            new("host", "rolesanywhere.us-east-1.amazonaws.com"),
+            new("x-amz-date", "20211103T120000Z"),
+            new("x-amz-x509", "BASE64DER"),
+        };
+        string emptyPayloadHash = RolesAnywhereSigner.Sha256Hex(Array.Empty<byte>());
+
+        string canonical = RolesAnywhereSigner.BuildCanonicalRequest(
+            "POST", "/sessions", "", headers,
+            "content-type;host;x-amz-date;x-amz-x509", emptyPayloadHash);
+
+        string expected =
+            "POST\n" +
+            "/sessions\n" +
+            "\n" +
+            "content-type:application/json\n" +
+            "host:rolesanywhere.us-east-1.amazonaws.com\n" +
+            "x-amz-date:20211103T120000Z\n" +
+            "x-amz-x509:BASE64DER\n" +
+            "\n" +
+            "content-type;host;x-amz-date;x-amz-x509\n" +
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        canonical.Should().Be(expected);
+    }
+
+    [Fact]
+    public void BuildCanonicalRequest_TrimsHeaderValues()
+    {
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("host", "  example  "),
+        };
+
+        string canonical = RolesAnywhereSigner.BuildCanonicalRequest(
+            "POST", "/sessions", "", headers, "host", "HASH");
+
+        canonical.Should().Contain("host:example\n");
+    }
+
+    [Fact]
+    public void BuildStringToSign_HasFourLinesInFixedOrder()
+    {
+        string sts = RolesAnywhereSigner.BuildStringToSign(
+            "AWS4-X509-RSA-SHA256",
+            "20211101T121030Z",
+            "20211101/us-east-1/rolesanywhere/aws4_request",
+            "abc123");
+
+        sts.Should().Be(
+            "AWS4-X509-RSA-SHA256\n" +
+            "20211101T121030Z\n" +
+            "20211101/us-east-1/rolesanywhere/aws4_request\n" +
+            "abc123");
+    }
 }

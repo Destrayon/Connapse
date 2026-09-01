@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace Connapse.Storage.CloudScope.RolesAnywhere;
 
@@ -73,4 +74,35 @@ public static class RolesAnywhereSigner
 
         throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm, "Unsupported Roles Anywhere algorithm.");
     }
+
+    /// <summary>
+    /// The SigV4 canonical request. <paramref name="sortedHeaders"/> must already be lowercase-named and
+    /// ordinal-sorted by name; values are whitespace-trimmed here.
+    /// </summary>
+    public static string BuildCanonicalRequest(
+        string httpMethod,
+        string canonicalUri,
+        string canonicalQueryString,
+        IReadOnlyList<KeyValuePair<string, string>> sortedHeaders,
+        string signedHeaders,
+        string payloadHashHex)
+    {
+        var builder = new StringBuilder();
+        builder.Append(httpMethod).Append('\n');
+        builder.Append(canonicalUri).Append('\n');
+        builder.Append(canonicalQueryString).Append('\n');
+        foreach (KeyValuePair<string, string> header in sortedHeaders)
+        {
+            builder.Append(header.Key).Append(':').Append(header.Value.Trim()).Append('\n');
+        }
+        builder.Append('\n');
+        builder.Append(signedHeaders).Append('\n');
+        builder.Append(payloadHashHex);
+        return builder.ToString();
+    }
+
+    /// <summary>The SigV4 string-to-sign: algorithm, timestamp, credential scope, hashed canonical request.</summary>
+    public static string BuildStringToSign(
+        string algorithm, string amzDate, string credentialScope, string canonicalRequestHashHex)
+        => $"{algorithm}\n{amzDate}\n{credentialScope}\n{canonicalRequestHashHex}";
 }
