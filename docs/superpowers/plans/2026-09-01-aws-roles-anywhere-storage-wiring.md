@@ -556,7 +556,16 @@ git commit -m "feat: resolve AWS credentials via Roles Anywhere when configured"
 
 ---
 
-## Task 3: Cross-check the signature against aws_signing_helper (offline)
+## Task 3: Cross-check the signature against aws_signing_helper (offline) — DEFERRED to PR 3
+
+> **Status: not implemented in PR 2a.** During execution, `aws_signing_helper` v1.8.5 was
+> downloaded (checksum-verified) and run. Its `sign-string` signs a *fixed internal string* (not a
+> caller-supplied one) and requires a certificate from the Windows store or PKCS#11 rather than a PEM
+> file — so an offline golden-vector diff is impractical without importing to the OS store and
+> source-diving AWS's fixed string, for a check that validates only the signing *primitive* (already
+> proven by PR 1's public-key self-verify). The signing validation is folded into PR 3's live-AWS
+> `credential-process` smoke test, which validates the full request end-to-end. The task text below is
+> retained for reference.
 
 **Files:**
 - Test: `tests/Connapse.Storage.Tests/CloudScope/RolesAnywhere/RolesAnywhereSignHelperVectorTests.cs`

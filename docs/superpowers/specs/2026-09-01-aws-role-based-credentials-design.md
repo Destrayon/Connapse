@@ -247,12 +247,16 @@ the project's PR-size limit:
    `AwsIamUserSetup`.
    - **Acceptance requirement (carried from PR 1's final review):** the signing
      engine is proven only self-consistent by unit tests — nothing yet confirms
-     AWS *accepts* its requests. This PR MUST validate one signed `CreateSession`
-     end-to-end against live AWS Roles Anywhere, OR diff the engine's canonical
-     request + string-to-sign against `aws_signing_helper` output for identical
-     inputs. This closes the "internally consistent but AWS-rejected" gap (a
-     canonicalization/encoding detail that passes every self-check yet fails at
-     runtime) before the engine is wired to anything user-facing.
+     AWS *accepts* its requests. Validation is done in **PR 3** (the UI PR): a
+     live-AWS `credential-process` / `CreateSession` smoke test against a real
+     trust anchor, confirming AWS returns temporary credentials. This closes the
+     "internally consistent but AWS-rejected" gap (a canonicalization/encoding
+     detail that passes every self-check yet fails at runtime) before the engine
+     is exposed to users. (The originally-planned offline `aws_signing_helper`
+     diff was dropped during PR 2a: its `sign-string` signs a fixed internal
+     string and requires an OS-store/PKCS#11 certificate, so it can only check
+     the signing primitive — already covered by PR 1's public-key self-verify —
+     not the full canonical request.)
    - **Intermediate cert chain (`X-Amz-X509-Chain`) — required only for the BYO
      path (§4).** The easy self-signed path (§3) registers Connapse's own leaf as
      the trust anchor, so AWS validates it directly and no chain is needed —
