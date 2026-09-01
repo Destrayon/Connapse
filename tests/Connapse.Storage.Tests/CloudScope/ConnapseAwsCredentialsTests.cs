@@ -79,9 +79,32 @@ public class ConnapseAwsCredentialsTests
             "arn:aws:iam::111:role/connapse",
             "us-east-1");
         var store = Substitute.For<IProviderCredentialStore>();
-        store.GetRolesAnywhereAsync("aws").Returns(config);
-        // The material read yields no key material at all — corruption or a race with rotation.
-        store.GetRolesAnywhereMaterialAsync("aws").Returns((RolesAnywhereCredentialMaterial?)null);
+        // The config exists but its key material is blank — a defensive belt-and-suspenders case:
+        // the real store's own contract never returns this (it throws instead, covered by
+        // GetCredentials_WhenMaterialReadThrowsProviderCredentialUnavailable... below), but nothing
+        // in IProviderCredentialStore stops a caller from returning it.
+        store.GetRolesAnywhereMaterialAsync("aws").Returns(new RolesAnywhereCredentialMaterial(config, string.Empty));
+
+        var factory = HttpClientFactoryReturning(HttpStatusCode.Created, "{}"); // never called
+
+        var credentials = BuildCredentials(store, factory);
+
+        Action act = () => credentials.GetCredentials();
+
+        act.Should().Throw<RolesAnywhereCredentialException>()
+            .Which.Provider.Should().Be("aws");
+    }
+
+    [Fact]
+    public void GetCredentials_WhenMaterialReadThrowsProviderCredentialUnavailable_ThrowsRolesAnywhereCredentialExceptionAndDoesNotFallBackToAmbient()
+    {
+        var store = Substitute.For<IProviderCredentialStore>();
+        // The real store throws this when a configured Roles Anywhere row's key is empty or
+        // undecryptable (lost DataProtection key ring). ReadStoredAsync's try/catch must convert it
+        // into the fail-closed RA exception rather than let it surface raw or fall back to ambient.
+        Func<NSubstitute.Core.CallInfo, RolesAnywhereCredentialMaterial?> throwUnavailable =
+            _ => throw new ProviderCredentialUnavailableException("aws", new Exception("boom"));
+        store.GetRolesAnywhereMaterialAsync("aws").Returns(throwUnavailable);
 
         var factory = HttpClientFactoryReturning(HttpStatusCode.Created, "{}"); // never called
 

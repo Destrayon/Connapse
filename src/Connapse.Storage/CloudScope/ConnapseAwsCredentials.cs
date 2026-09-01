@@ -105,19 +105,21 @@ public class ConnapseAwsCredentials(
         using var scope = scopeFactory.CreateScope();
         var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
 
-        // A configured role outranks a static key, which outranks the ambient chain.
-        RolesAnywhereConfig? roles = await credentialStore.GetRolesAnywhereAsync(ProviderKey);
-        if (roles is not null)
+        // A configured role outranks a static key, which outranks the ambient chain. A single read
+        // of the material doubles as the presence gate: two separate calls (a presence check, then
+        // the material) left a window where a mode switch between them could resolve a stale answer.
+        try
         {
-            // Once a Roles Anywhere config exists, this identity is what an administrator asked for.
-            // Any failure producing it — missing key, unreadable cert/key, a failed CreateSession —
-            // must fail closed rather than let the caller silently fall through to the ambient chain
-            // below, so the whole production is wrapped and rethrown as one exception type.
-            try
+            RolesAnywhereCredentialMaterial? material =
+                await credentialStore.GetRolesAnywhereMaterialAsync(ProviderKey);
+            if (material is not null)
             {
-                RolesAnywhereCredentialMaterial? material =
-                    await credentialStore.GetRolesAnywhereMaterialAsync(ProviderKey);
-                if (material is null || string.IsNullOrEmpty(material.PrivateKeyPem))
+                // Once a Roles Anywhere config exists, this identity is what an administrator asked
+                // for. Any failure producing it — missing key, unreadable cert/key, a failed
+                // CreateSession — must fail closed rather than let the caller silently fall through
+                // to the ambient chain below, so the whole production is wrapped and rethrown as one
+                // exception type.
+                if (string.IsNullOrEmpty(material.PrivateKeyPem))
                 {
                     throw new InvalidOperationException(
                         "Roles Anywhere is configured but its private key is missing.");
@@ -136,10 +138,10 @@ public class ConnapseAwsCredentials(
 
                 return new ResolvedCredentials(session.Credentials, session.Expiration.UtcDateTime);
             }
-            catch (Exception ex)
-            {
-                throw new RolesAnywhereCredentialException(ProviderKey, ex);
-            }
+        }
+        catch (Exception ex)
+        {
+            throw new RolesAnywhereCredentialException(ProviderKey, ex);
         }
 
         var info = await credentialStore.GetAsync(ProviderKey);
@@ -174,6 +176,14 @@ public class ConnapseAwsCredentials(
             // observed any other way wraps it — caught both ways so the distinction survives.
             logger.LogError(inner, "The stored AWS credential could not be decrypted");
             throw inner;
+        }
+        catch (AggregateException ex) when (ex.InnerException is RolesAnywhereCredentialException raInner)
+        {
+            // Same wrapping hazard as above, mirrored for the Roles Anywhere fail-closed exception:
+            // caught both ways so a wrapped throw can never slip past this into the generic
+            // catch (Exception) below and get treated as "nothing configured" (ambient).
+            logger.LogError(raInner, "The stored Roles Anywhere credential could not be used");
+            throw raInner;
         }
         catch (ProviderCredentialUnavailableException ex)
         {
