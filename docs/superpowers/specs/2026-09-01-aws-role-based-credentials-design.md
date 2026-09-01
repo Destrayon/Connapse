@@ -234,13 +234,23 @@ its current IAM-user reset logic is replaced by the Roles Anywhere reset above.
 Sizable enough to be its **own epic with staged PRs** rather than one PR, given
 the project's PR-size limit:
 
-1. Runtime: native Roles Anywhere provider + mode switch in
-   `ConnapseAwsCredentials` + storage/migration. **Removes** the static
-   access-key branch and reshapes `ProviderCredentialEntity`.
-2. Setup: `AwsRolesAnywhereSetup` script generator (idempotent reuse) + local
-   keypair generation + ARN parsing. **Deletes** `AwsIamUserSetup`.
-3. UI: adaptive Access card, detection/preflight status, reset behavior, manual
-   value entry. **Removes** the old IAM-user setup UI.
+1. **Signing engine (standalone):** the native SigV4-X509 signer + CreateSession
+   HTTP client that turns a cert + key + ARNs into temporary AWS credentials.
+   Touches no existing interface, storage, DI, or UI — pure new component,
+   fully unit-testable. This is the novel, riskiest piece, isolated so it can be
+   reviewed and tested on its own.
+2. **Storage + wiring:** reshape `ProviderCredentialEntity` /
+   `IProviderCredentialStore` to the Roles Anywhere fields (+ migration), wire
+   the engine into `ConnapseAwsCredentials` behind the mode switch, and add the
+   `AwsRolesAnywhereSetup` script generator with local keypair generation and
+   ARN parsing. **Removes** the static access-key branch and **deletes**
+   `AwsIamUserSetup`.
+3. **UI:** adaptive Access card, detection/preflight status, reset behavior,
+   manual value entry. **Removes** the old IAM-user setup UI.
+
+(The engine was split out from storage — originally sketched together — because
+reshaping the store interface pulls the entire access-key-based Access UI along
+with it, which belongs with the UI work in step 3, not with the runtime engine.)
 
 Each PR references its own GitHub issue per the project's issue-first rule
 (issues to be filed once this design lands on `main` and the epic is opened).
