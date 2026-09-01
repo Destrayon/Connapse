@@ -78,7 +78,7 @@ public static class RolesAnywhereSigner
 
     /// <summary>
     /// The SigV4 canonical request. <paramref name="sortedHeaders"/> must already be lowercase-named and
-    /// ordinal-sorted by name; values are whitespace-trimmed here.
+    /// ordinal-sorted by name; values are SigV4-normalised here (trimmed, internal space runs collapsed).
     /// </summary>
     public static string BuildCanonicalRequest(
         string httpMethod,
@@ -94,13 +94,22 @@ public static class RolesAnywhereSigner
         builder.Append(canonicalQueryString).Append('\n');
         foreach (KeyValuePair<string, string> header in sortedHeaders)
         {
-            builder.Append(header.Key).Append(':').Append(header.Value.Trim()).Append('\n');
+            builder.Append(header.Key).Append(':').Append(TrimAll(header.Value)).Append('\n');
         }
         builder.Append('\n');
         builder.Append(signedHeaders).Append('\n');
         builder.Append(payloadHashHex);
         return builder.ToString();
     }
+
+    /// <summary>
+    /// SigV4 header-value normalisation ("Trimall"): trims leading/trailing spaces and collapses runs of
+    /// internal spaces to a single space. AWS re-canonicalises header values this way, so a value with
+    /// repeated spaces that was only <c>Trim()</c>ed would be signed differently from how AWS recomputes
+    /// it and the request would be rejected.
+    /// </summary>
+    private static string TrimAll(string value)
+        => string.Join(' ', value.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>The SigV4 string-to-sign: algorithm, timestamp, credential scope, hashed canonical request.</summary>
     public static string BuildStringToSign(

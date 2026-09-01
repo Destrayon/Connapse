@@ -142,6 +142,20 @@ public class RolesAnywhereSignerTests
     }
 
     [Fact]
+    public void BuildCanonicalRequest_CollapsesInternalWhitespaceInHeaderValues()
+    {
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("host", "a   b  c"),
+        };
+
+        string canonical = RolesAnywhereSigner.BuildCanonicalRequest(
+            "POST", "/sessions", "", headers, "host", "HASH");
+
+        canonical.Should().Contain("host:a b c\n"); // SigV4 Trimall collapses internal space runs
+    }
+
+    [Fact]
     public void BuildStringToSign_HasFourLinesInFixedOrder()
     {
         string sts = RolesAnywhereSigner.BuildStringToSign(

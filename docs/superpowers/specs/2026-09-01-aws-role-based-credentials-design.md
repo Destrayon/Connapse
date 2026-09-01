@@ -253,6 +253,16 @@ the project's PR-size limit:
      inputs. This closes the "internally consistent but AWS-rejected" gap (a
      canonicalization/encoding detail that passes every self-check yet fails at
      runtime) before the engine is wired to anything user-facing.
+   - **Intermediate cert chain (`X-Amz-X509-Chain`) — required only for the BYO
+     path (§4).** The easy self-signed path (§3) registers Connapse's own leaf as
+     the trust anchor, so AWS validates it directly and no chain is needed —
+     which is why the PR 1 engine ships leaf-only. When this PR wires up the BYO
+     manual-values path, where an admin may supply a cert issued by an
+     intermediate CA, the engine MUST also accept an ordered intermediate chain,
+     emit it as comma-joined base64-DER in `x-amz-x509-chain`, and include that
+     header in both the canonical/signed headers and the outgoing request
+     (enforcing AWS's max chain depth). Surfaced by PR 1's Codex adversarial
+     review; deferred here because the BYO path is PR 2's, not PR 1's.
 3. **UI:** adaptive Access card, detection/preflight status, reset behavior,
    manual value entry. **Removes** the old IAM-user setup UI.
 
