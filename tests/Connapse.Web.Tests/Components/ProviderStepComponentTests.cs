@@ -7,6 +7,10 @@ using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.RenderTree;
 using Xunit;
 
+// Tests set component parameters directly and inspect the generated render tree.
+#pragma warning disable BL0005 // Component parameter set outside of its component
+#pragma warning disable BL0006 // Do not use RenderTree types manually
+
 namespace Connapse.Web.Tests.Components;
 
 /// <summary>
@@ -17,7 +21,6 @@ namespace Connapse.Web.Tests.Components;
 [Trait("Category", "Unit")]
 public class ProviderStepComponentTests
 {
-#pragma warning disable BL0006 // Do not use RenderTree types manually
     private sealed class TestProviderStepCard : ProviderStepCard
     {
         public IReadOnlyList<RenderTreeFrame> RenderFrames()
@@ -50,7 +53,6 @@ public class ProviderStepComponentTests
             return frames.Array.Take(frames.Count).ToArray();
         }
     }
-#pragma warning restore BL0006
 
     private static MethodInfo Method(object target, string name)
     {
