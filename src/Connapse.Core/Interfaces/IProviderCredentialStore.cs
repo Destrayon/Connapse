@@ -26,6 +26,18 @@ public record ProviderCredentialInfo(
     DateTime? VerifiedAt = null);
 
 /// <summary>
+/// A stored IAM Roles Anywhere configuration (non-secret). The private key is fetched separately via
+/// <see cref="IProviderCredentialStore.GetRolesAnywherePrivateKeyAsync"/>, so a listing can never
+/// render it.
+/// </summary>
+public record RolesAnywhereConfig(
+    string CertificatePem,
+    string TrustAnchorArn,
+    string ProfileArn,
+    string RoleArn,
+    string Region);
+
+/// <summary>
 /// The credential Connapse acts as against one cloud, replacing what the SDK would otherwise pick
 /// up from the environment.
 /// </summary>
@@ -68,6 +80,21 @@ public interface IProviderCredentialStore
 
     /// <summary>Removes it, falling back to whatever the environment provides.</summary>
     Task<bool> DeleteAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>The stored Roles Anywhere configuration, or null when the provider is not using one.</summary>
+    Task<RolesAnywhereConfig?> GetRolesAnywhereAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>The Roles Anywhere private key, decrypted. Null when none is stored.</summary>
+    /// <exception cref="ProviderCredentialUnavailableException">Stored but undecryptable (lost key ring).</exception>
+    Task<string?> GetRolesAnywherePrivateKeyAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>
+    /// Stores or replaces the provider's credential with a Roles Anywhere configuration, clearing any
+    /// access-key fields so the runtime's mode choice stays unambiguous.
+    /// </summary>
+    Task<ProviderCredentialInfo> SaveRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
+        Guid? createdByUserId, CancellationToken ct = default);
 }
 
 /// <summary>

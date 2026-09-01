@@ -85,6 +85,14 @@ public class PostgresProviderCredentialStore(
         existing.SecretProtected = Protector.Protect(secret);
         existing.PrincipalName = string.IsNullOrWhiteSpace(principalName) ? null : principalName.Trim();
 
+        // Clear any Roles Anywhere config so the two shapes never coexist on one row.
+        existing.CertificatePem = null;
+        existing.PrivateKeyProtected = null;
+        existing.TrustAnchorArn = null;
+        existing.ProfileArn = null;
+        existing.RoleArn = null;
+        existing.Region = null;
+
         // Reset on replacement, not only on first write. The age shown in the UI is the age of the
         // key in use, and a rotated key that reported its predecessor's date would defeat the point
         // of showing it.
@@ -135,5 +143,91 @@ public class PostgresProviderCredentialStore(
         db.ProviderCredentials.Remove(existing);
         await db.SaveChangesAsync(ct);
         return true;
+    }
+
+    public async Task<RolesAnywhereConfig?> GetRolesAnywhereAsync(string provider, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == provider)
+            .Select(c => new { c.CertificatePem, c.TrustAnchorArn, c.ProfileArn, c.RoleArn, c.Region })
+            .FirstOrDefaultAsync(ct);
+
+        // TrustAnchorArn is the mode signal: absent means this row is not a Roles Anywhere config.
+        if (row is null || string.IsNullOrEmpty(row.TrustAnchorArn))
+            return null;
+
+        return new RolesAnywhereConfig(
+            row.CertificatePem ?? string.Empty, row.TrustAnchorArn, row.ProfileArn ?? string.Empty,
+            row.RoleArn ?? string.Empty, row.Region ?? string.Empty);
+    }
+
+    public async Task<string?> GetRolesAnywherePrivateKeyAsync(string provider, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        string? ciphertext = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == provider)
+            .Select(c => c.PrivateKeyProtected)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrEmpty(ciphertext))
+            return null;
+
+        try
+        {
+            return Protector.Unprotect(ciphertext);
+        }
+        catch (Exception ex)
+        {
+            throw new ProviderCredentialUnavailableException(provider, ex);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo> SaveRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
+        Guid? createdByUserId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.CertificatePem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.TrustAnchorArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.ProfileArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.RoleArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.Region);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var existing = await db.ProviderCredentials.FirstOrDefaultAsync(c => c.Provider == provider, ct);
+        var now = DateTime.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new ProviderCredentialEntity { Provider = provider };
+            db.ProviderCredentials.Add(existing);
+        }
+
+        existing.CertificatePem = config.CertificatePem;
+        existing.PrivateKeyProtected = Protector.Protect(privateKeyPem);
+        existing.TrustAnchorArn = config.TrustAnchorArn;
+        existing.ProfileArn = config.ProfileArn;
+        existing.RoleArn = config.RoleArn;
+        existing.Region = config.Region;
+        existing.PrincipalName = string.IsNullOrWhiteSpace(principalName) ? null : principalName.Trim();
+
+        // Clear the access-key shape so GetRolesAnywhereAsync and the access-key reads are mutually exclusive.
+        existing.PublicId = string.Empty;
+        existing.SecretProtected = string.Empty;
+
+        existing.CreatedAt = now;
+        existing.CreatedByUserId = createdByUserId;
+        existing.VerifiedAt = null;
+
+        await db.SaveChangesAsync(ct);
+
+        return new ProviderCredentialInfo(provider, existing.PublicId, existing.PrincipalName, now);
     }
 }
