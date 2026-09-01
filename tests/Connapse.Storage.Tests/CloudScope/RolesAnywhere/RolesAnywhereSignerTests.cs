@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using Connapse.Storage.CloudScope.RolesAnywhere;
 using FluentAssertions;
 using Xunit;
@@ -29,5 +28,19 @@ public class RolesAnywhereSignerTests
             "00" + cert.SerialNumber, System.Globalization.NumberStyles.HexNumber);
         decimalSerial.Should().Be(expected.ToString(System.Globalization.CultureInfo.InvariantCulture));
         decimalSerial.Should().MatchRegex("^[0-9]+$");
+    }
+
+    [Fact]
+    public void SerialDecimal_KnownFixedSerial_ReturnsExactDecimalString()
+    {
+        using RSA rsa = RSA.Create(2048);
+        var name = new X500DistinguishedName("CN=connapse-serial-test");
+        var generator = X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1);
+        byte[] serialNumber = { 0x01, 0x23 }; // big-endian 0x0123 == 291 decimal
+        var request = new CertificateRequest(name, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using X509Certificate2 cert = request.Create(
+            name, generator, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1), serialNumber);
+
+        RolesAnywhereSigner.SerialDecimal(cert).Should().Be("291");
     }
 }
