@@ -110,6 +110,9 @@ public static class ServiceCollectionExtensions
 
         // Embedding providers — resolved at runtime based on EmbeddingSettings.Provider
         services.AddHttpClient<OllamaEmbeddingProvider>();
+
+        // Roles Anywhere CreateSession calls; named so tests can substitute the transport.
+        services.AddHttpClient(CloudScope.ConnapseAwsCredentials.RolesAnywhereHttpClientName);
         services.AddScoped<OpenAiEmbeddingProvider>();
         services.AddScoped<AzureOpenAiEmbeddingProvider>();
         services.AddScoped<IEmbeddingProvider>(sp =>

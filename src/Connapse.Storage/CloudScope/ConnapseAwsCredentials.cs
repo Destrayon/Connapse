@@ -1,5 +1,7 @@
-﻿using Amazon.Runtime;
+﻿using System.Security.Cryptography.X509Certificates;
+using Amazon.Runtime;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope.RolesAnywhere;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -36,6 +38,9 @@ public class ConnapseAwsCredentials(
     /// <summary>Key the AWS credential is stored under.</summary>
     public const string ProviderKey = "aws";
 
+    /// <summary>Name of the named HttpClient used for Roles Anywhere CreateSession calls.</summary>
+    public const string RolesAnywhereHttpClientName = "RolesAnywhere";
+
     /// <summary>
     /// How long a resolved credential is held before the store is consulted again.
     /// </summary>
@@ -49,11 +54,16 @@ public class ConnapseAwsCredentials(
     protected override CredentialsRefreshState GenerateNewCredentials()
     {
         // The SDK's refresh hook is synchronous, and there is no async form to override.
-        var stored = ResolveStored();
+        ResolvedCredentials? resolved = ResolveStored();
 
-        if (stored is not null)
+        if (resolved is not null)
         {
-            return new CredentialsRefreshState(stored, DateTime.UtcNow.Add(RefreshWindow));
+            DateTime expiry = DateTime.UtcNow.Add(RefreshWindow);
+            // For Roles Anywhere, never hand back a credential past its own expiry; otherwise the
+            // RefreshWindow governs, so a rotation still takes effect promptly.
+            if (resolved.Expiration is DateTime exp && exp < expiry)
+                expiry = exp;
+            return new CredentialsRefreshState(resolved.Credentials, expiry);
         }
 
         // Nothing configured: whatever the environment provides — an instance role in production,
@@ -82,10 +92,29 @@ public class ConnapseAwsCredentials(
     /// <c>ConnectorFactory</c> is one and consumes it, while the store reaches the database through
     /// a <c>DbContextFactory</c> that this application registers as scoped.
     /// </remarks>
-    private async Task<ImmutableCredentials?> ReadStoredAsync()
+    private async Task<ResolvedCredentials?> ReadStoredAsync()
     {
         using var scope = scopeFactory.CreateScope();
         var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
+
+        // A configured role outranks a static key, which outranks the ambient chain.
+        RolesAnywhereConfig? roles = await credentialStore.GetRolesAnywhereAsync(ProviderKey);
+        if (roles is not null)
+        {
+            string? privateKey = await credentialStore.GetRolesAnywherePrivateKeyAsync(ProviderKey);
+            if (string.IsNullOrEmpty(privateKey)) return null;
+
+            var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+            using X509Certificate2 certificate = X509Certificate2.CreateFromPem(roles.CertificatePem, privateKey);
+            var client = new RolesAnywhereClient(httpClientFactory.CreateClient(RolesAnywhereHttpClientName));
+            var parameters = new RolesAnywhereParameters(
+                roles.TrustAnchorArn, roles.ProfileArn, roles.RoleArn, roles.Region);
+
+            RolesAnywhereSession session = await client.CreateSessionAsync(
+                certificate, parameters, DateTimeOffset.UtcNow);
+
+            return new ResolvedCredentials(session.Credentials, session.Expiration.UtcDateTime);
+        }
 
         var info = await credentialStore.GetAsync(ProviderKey);
         if (info is null) return null;
@@ -93,10 +122,10 @@ public class ConnapseAwsCredentials(
         string? secret = await credentialStore.GetSecretAsync(ProviderKey);
         if (string.IsNullOrEmpty(secret)) return null;
 
-        return new ImmutableCredentials(info.PublicId, secret, null);
+        return new ResolvedCredentials(new ImmutableCredentials(info.PublicId, secret, null), null);
     }
 
-    private ImmutableCredentials? ResolveStored()
+    private ResolvedCredentials? ResolveStored()
     {
         try
         {
@@ -134,4 +163,7 @@ public class ConnapseAwsCredentials(
             return null;
         }
     }
+
+    /// <summary>A resolved credential and, for Roles Anywhere, when it expires (null for a static key).</summary>
+    private sealed record ResolvedCredentials(ImmutableCredentials Credentials, DateTime? Expiration);
 }
