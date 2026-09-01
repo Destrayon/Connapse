@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 
 namespace Connapse.Storage.CloudScope.RolesAnywhere;
 
@@ -105,4 +106,76 @@ public static class RolesAnywhereSigner
     public static string BuildStringToSign(
         string algorithm, string amzDate, string credentialScope, string canonicalRequestHashHex)
         => $"{algorithm}\n{amzDate}\n{credentialScope}\n{canonicalRequestHashHex}";
+
+    /// <summary>A signed CreateSession request: where to send it, the exact body bytes, and the headers.</summary>
+    public sealed record SignedSessionRequest(
+        string Url, string JsonBody, IReadOnlyList<KeyValuePair<string, string>> Headers);
+
+    /// <summary>
+    /// Builds and signs the CreateSession request. Deterministic given <paramref name="signingTime"/>,
+    /// which is what makes the whole engine unit-testable without live AWS.
+    /// </summary>
+    public static SignedSessionRequest Sign(
+        X509Certificate2 certificate, RolesAnywhereParameters parameters, DateTimeOffset signingTime)
+    {
+        DateTime utc = signingTime.UtcDateTime;
+        string amzDate = utc.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
+        string dateStamp = utc.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        string host = $"rolesanywhere.{parameters.Region}.amazonaws.com";
+
+        string body = BuildBody(parameters);
+        string payloadHash = Sha256Hex(Encoding.UTF8.GetBytes(body));
+        string x509 = Convert.ToBase64String(certificate.RawData);
+
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("content-type", "application/json"),
+            new("host", host),
+            new("x-amz-date", amzDate),
+            new("x-amz-x509", x509),
+        };
+        headers.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+        const string signedHeaders = "content-type;host;x-amz-date;x-amz-x509";
+
+        string canonicalRequest = BuildCanonicalRequest("POST", "/sessions", "", headers, signedHeaders, payloadHash);
+        string credentialScope = $"{dateStamp}/{parameters.Region}/rolesanywhere/aws4_request";
+        string algorithm = SelectAlgorithm(certificate);
+        string stringToSign = BuildStringToSign(
+            algorithm, amzDate, credentialScope, Sha256Hex(Encoding.UTF8.GetBytes(canonicalRequest)));
+
+        string signatureHex = Convert.ToHexStringLower(SignBytes(certificate, algorithm, Encoding.UTF8.GetBytes(stringToSign)));
+        string credential = $"{SerialDecimal(certificate)}/{credentialScope}";
+        string authorization =
+            $"{algorithm} Credential={credential}, SignedHeaders={signedHeaders}, Signature={signatureHex}";
+
+        var outgoing = new List<KeyValuePair<string, string>>
+        {
+            new("content-type", "application/json"),
+            new("host", host),
+            new("x-amz-date", amzDate),
+            new("x-amz-x509", x509),
+            new("authorization", authorization),
+        };
+
+        return new SignedSessionRequest($"https://{host}/sessions", body, outgoing);
+    }
+
+    private static string BuildBody(RolesAnywhereParameters parameters)
+    {
+        var payload = new Dictionary<string, object>
+        {
+            ["profileArn"] = parameters.ProfileArn,
+            ["roleArn"] = parameters.RoleArn,
+            ["trustAnchorArn"] = parameters.TrustAnchorArn,
+        };
+        if (parameters.DurationSeconds is int seconds)
+        {
+            payload["durationSeconds"] = seconds;
+        }
+        if (!string.IsNullOrWhiteSpace(parameters.RoleSessionName))
+        {
+            payload["roleSessionName"] = parameters.RoleSessionName;
+        }
+        return JsonSerializer.Serialize(payload);
+    }
 }

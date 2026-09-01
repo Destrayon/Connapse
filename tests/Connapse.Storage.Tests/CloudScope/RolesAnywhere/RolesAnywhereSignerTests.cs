@@ -156,4 +156,98 @@ public class RolesAnywhereSignerTests
             "20211101/us-east-1/rolesanywhere/aws4_request\n" +
             "abc123");
     }
+
+    [Fact]
+    public void Sign_ProducesRegionalUrlAndJsonBodyWithArns()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        var parameters = new RolesAnywhereParameters(
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1");
+
+        RolesAnywhereSigner.SignedSessionRequest signed =
+            RolesAnywhereSigner.Sign(cert, parameters, DateTimeOffset.Parse("2026-09-01T12:00:00Z"));
+
+        signed.Url.Should().Be("https://rolesanywhere.us-east-1.amazonaws.com/sessions");
+        signed.JsonBody.Should().Contain("\"profileArn\":\"arn:aws:rolesanywhere:us-east-1:111:profile/pf\"");
+        signed.JsonBody.Should().Contain("\"roleArn\":\"arn:aws:iam::111:role/connapse\"");
+        signed.JsonBody.Should().Contain("\"trustAnchorArn\":\"arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta\"");
+    }
+
+    [Fact]
+    public void Sign_ContentTypeHeaderHasNoCharset()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        RolesAnywhereSigner.SignedSessionRequest signed = SignSample(cert);
+
+        string contentType = signed.Headers.Single(h => h.Key == "content-type").Value;
+        contentType.Should().Be("application/json"); // a "; charset=utf-8" here would break the signature
+    }
+
+    [Fact]
+    public void Sign_AuthorizationHeader_UsesDecimalSerialAndRsaAlgorithm()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        RolesAnywhereSigner.SignedSessionRequest signed = SignSample(cert);
+
+        string auth = signed.Headers.Single(h => h.Key == "authorization").Value;
+        string serial = RolesAnywhereSigner.SerialDecimal(cert);
+        auth.Should().StartWith("AWS4-X509-RSA-SHA256 Credential=" + serial + "/20260901/us-east-1/rolesanywhere/aws4_request");
+        auth.Should().Contain("SignedHeaders=content-type;host;x-amz-date;x-amz-x509");
+        auth.Should().Contain("Signature=");
+    }
+
+    [Fact]
+    public void Sign_XAmzX509Header_IsBase64OfCertificateDer()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        RolesAnywhereSigner.SignedSessionRequest signed = SignSample(cert);
+
+        string x509 = signed.Headers.Single(h => h.Key == "x-amz-x509").Value;
+        x509.Should().Be(Convert.ToBase64String(cert.RawData));
+    }
+
+    [Fact]
+    public void Sign_SignatureInAuthorization_VerifiesAgainstCertificatePublicKey()
+    {
+        using X509Certificate2 cert = CertificateTestFactory.CreateRsa();
+        RolesAnywhereSigner.SignedSessionRequest signed = SignSample(cert);
+
+        // Recompute the string-to-sign from the emitted request and confirm the signature is valid.
+        string auth = signed.Headers.Single(h => h.Key == "authorization").Value;
+        string signatureHex = auth.Split("Signature=")[1];
+        byte[] signature = Convert.FromHexString(signatureHex);
+
+        string amzDate = signed.Headers.Single(h => h.Key == "x-amz-date").Value;
+        string x509 = signed.Headers.Single(h => h.Key == "x-amz-x509").Value;
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("content-type", "application/json"),
+            new("host", "rolesanywhere.us-east-1.amazonaws.com"),
+            new("x-amz-date", amzDate),
+            new("x-amz-x509", x509),
+        };
+        string payloadHash = RolesAnywhereSigner.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(signed.JsonBody));
+        string canonical = RolesAnywhereSigner.BuildCanonicalRequest(
+            "POST", "/sessions", "", headers, "content-type;host;x-amz-date;x-amz-x509", payloadHash);
+        string sts = RolesAnywhereSigner.BuildStringToSign(
+            "AWS4-X509-RSA-SHA256", amzDate, "20260901/us-east-1/rolesanywhere/aws4_request",
+            RolesAnywhereSigner.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(canonical)));
+
+        using RSA pub = cert.GetRSAPublicKey()!;
+        pub.VerifyData(System.Text.Encoding.UTF8.GetBytes(sts), signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+           .Should().BeTrue();
+    }
+
+    private static RolesAnywhereSigner.SignedSessionRequest SignSample(X509Certificate2 cert)
+    {
+        var parameters = new RolesAnywhereParameters(
+            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
+            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
+            "arn:aws:iam::111:role/connapse",
+            "us-east-1");
+        return RolesAnywhereSigner.Sign(cert, parameters, DateTimeOffset.Parse("2026-09-01T12:00:00Z"));
+    }
 }
