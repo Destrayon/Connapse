@@ -64,29 +64,43 @@ public class AwsRolesAnywhereSetupTests
         AwsRolesAnywhereSetup.ParseResult(block).Should().BeNull(); // profileArn absent
     }
 
-    private const string SampleCert =
-        "-----BEGIN CERTIFICATE-----\nMIIBExampleExampleExample\n-----END CERTIFICATE-----";
+    private const string SampleCaCert =
+        "-----BEGIN CERTIFICATE-----\nMIIBExampleCaCertExampleCa\n-----END CERTIFICATE-----";
 
-    private static string Script() => AwsRolesAnywhereSetup.GenerateScript(SampleCert, "us-east-1");
+    private static string Script() => AwsRolesAnywhereSetup.GenerateScript(SampleCaCert, "us-east-1");
 
     [Fact]
-    public void GenerateScript_ReusesSharedRoleGuardedByTheConnapseTag()
+    public void GenerateScript_DerivesAPerInstanceNameFromTheCertFingerprint()
     {
         string script = Script();
-        script.Should().Contain("aws iam get-role --role-name");
-        script.Should().Contain("aws iam list-role-tags");
-        script.Should().Contain("CreatedBy"); // reuse guard
-        script.Should().Contain("aws iam create-role");
-        script.Should().Contain("Key=CreatedBy,Value=Connapse"); // tags a newly created role
+        script.Should().Contain("openssl x509 -noout -fingerprint -sha256");
+        script.Should().Contain("connapse-ra-");
     }
 
     [Fact]
-    public void GenerateScript_SharedRoleTrustPolicyAcceptsAnyConnapseTrustAnchorInTheAccount()
+    public void GenerateScript_CreatesTheTrustAnchorBeforeTheRole_WithRegionPinned()
+    {
+        string script = Script();
+        script.Should().Contain("aws rolesanywhere create-trust-anchor");
+        script.Should().Contain("aws iam create-role");
+
+        int trustAnchorIndex = script.IndexOf("aws rolesanywhere create-trust-anchor", StringComparison.Ordinal);
+        int roleIndex = script.IndexOf("aws iam create-role", StringComparison.Ordinal);
+        trustAnchorIndex.Should().BeLessThan(roleIndex);
+
+        script.Should().Contain("create-trust-anchor --region \"$REGION\"");
+    }
+
+    [Fact]
+    public void GenerateScript_RoleTrustPolicyPinsToThisTrustAnchorViaArnEquals()
     {
         string script = Script();
         script.Should().Contain("rolesanywhere.amazonaws.com");
-        script.Should().Contain("ArnLike");
-        script.Should().Contain("arn:aws:rolesanywhere:*:__CONNAPSE_ACCOUNT_ID__:trust-anchor/*"); // not a pinned ARN
+        script.Should().Contain("ArnEquals");
+        script.Should().Contain("aws:SourceArn");
+        script.Should().Contain("//__TA_ARN__/$TA_ARN");
+        script.Should().NotContain("ArnLike");
+        script.Should().NotContain("trust-anchor/*");
         script.Should().Contain("sts:AssumeRole");
         script.Should().Contain("sts:TagSession");
     }
@@ -102,16 +116,25 @@ public class AwsRolesAnywhereSetupTests
     }
 
     [Fact]
-    public void GenerateScript_ReusesTheSharedProfileThenCreatesAPerInstanceTrustAnchor()
+    public void GenerateScript_CreatesAPerInstanceProfileWithRegionPinned()
     {
         string script = Script();
-        script.Should().Contain("aws rolesanywhere list-profiles");
         script.Should().Contain("aws rolesanywhere create-profile");
-        script.Should().Contain("aws rolesanywhere list-trust-anchors");
-        script.Should().Contain("aws rolesanywhere create-trust-anchor");
-        script.Should().Contain("openssl x509 -noout -fingerprint -sha256"); // per-instance name from the cert
-        script.Should().Contain("CERTIFICATE_BUNDLE");
-        script.Should().Contain(SampleCert.Replace("\r\n", "\n")); // the cert is embedded
+        script.Should().Contain("create-profile --region \"$REGION\"");
+    }
+
+    [Fact]
+    public void GenerateScript_UsesMktempNotAFixedSourceFilePath()
+    {
+        string script = Script();
+        script.Should().Contain("mktemp");
+        script.Should().NotContain("connapse-ta-source.json");
+    }
+
+    [Fact]
+    public void GenerateScript_EmbedsTheCaCertificate()
+    {
+        Script().Should().Contain(SampleCaCert.Replace("\r\n", "\n"));
     }
 
     [Fact]
@@ -125,6 +148,14 @@ public class AwsRolesAnywhereSetupTests
         script.Should().Contain("roleArn=");
         script.Should().Contain("region=us-east-1");
         script.Should().NotContain("aws configure get region"); // region pinned, no fallback
+    }
+
+    [Fact]
+    public void GenerateScript_RequiresARegion_AndFailsCleanlyWithoutOne()
+    {
+        string script = AwsRolesAnywhereSetup.GenerateScript(SampleCaCert, "$(id)");
+        script.Should().Contain("no valid AWS region");
+        script.Should().NotContain("rm -rf");
     }
 
     [Fact]
@@ -145,9 +176,15 @@ public class AwsRolesAnywhereSetupTests
     [InlineData("us-west-2", "us-west-2")]
     public void GenerateScript_SanitisesTheRegion(string input, string expectedInBlock)
     {
-        string script = AwsRolesAnywhereSetup.GenerateScript(SampleCert, input);
-        script.Should().Contain($"region={expectedInBlock}".TrimEnd());
+        string script = AwsRolesAnywhereSetup.GenerateScript(SampleCaCert, input);
         if (expectedInBlock.Length == 0)
+        {
             script.Should().NotContain("rm -rf");
+            script.Should().Contain("no valid AWS region");
+        }
+        else
+        {
+            script.Should().Contain($"region={expectedInBlock}");
+        }
     }
 }
