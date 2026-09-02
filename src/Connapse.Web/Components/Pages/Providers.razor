@@ -272,9 +272,16 @@
                                               rows="3" autocomplete="off" @bind="manualCertPem"></textarea>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label small" for="ra-key">Private key (PEM)</label>
+                                    <label class="form-label small" for="ra-key">
+                                        Private key (PEM)
+                                        @if (hasStoredRaCredential)
+                                        {
+                                            <span class="text-muted">— leave blank to keep the current key</span>
+                                        }
+                                    </label>
                                     <textarea id="ra-key" class="form-control form-control-sm font-monospace"
-                                              rows="3" autocomplete="off" @bind="manualPrivateKeyPem"></textarea>
+                                              rows="3" autocomplete="off" @bind="manualPrivateKeyPem"
+                                              placeholder="@(hasStoredRaCredential ? "Kept unless you paste a new key" : null)"></textarea>
                                 </div>
                             </div>
                             <button type="button" class="btn btn-sm btn-primary mt-3"
@@ -283,7 +290,12 @@
                                 <span class="bi-save me-1"></span> Check and save
                             </button>
                             <div class="form-text">
-                                The private key is stored encrypted, the same way SFTP private keys are.
+                                The private key is the only secret here and is never shown back; it is
+                                stored encrypted, the same way SFTP private keys are.
+                                @if (hasStoredRaCredential)
+                                {
+                                    <text>The other values are filled in from the stored credential.</text>
+                                }
                             </div>
                         </div>
                     }
@@ -1251,14 +1263,18 @@
     private bool EnvironmentCredentialResolves =>
         AccessStatus is RequirementStatus.Satisfied or RequirementStatus.Warning;
 
-    /// <summary>Whether the manual (bring-your-own) Roles Anywhere form has every value it needs.</summary>
+    /// <summary>
+    /// Whether the manual (bring-your-own) Roles Anywhere form has every value it needs. The private
+    /// key is required only for a first credential; when one is already stored, a blank key keeps the
+    /// existing one (it cannot be shown back, so requiring it would trap an operator editing an ARN).
+    /// </summary>
     private bool CanSaveManualRa =>
         !string.IsNullOrWhiteSpace(manualTrustAnchorArn)
         && !string.IsNullOrWhiteSpace(manualProfileArn)
         && !string.IsNullOrWhiteSpace(manualRoleArn)
         && !string.IsNullOrWhiteSpace(manualRegion)
         && !string.IsNullOrWhiteSpace(manualCertPem)
-        && !string.IsNullOrWhiteSpace(manualPrivateKeyPem);
+        && (!string.IsNullOrWhiteSpace(manualPrivateKeyPem) || hasStoredRaCredential);
 
     /// <summary>Looks up one of the current provider's requirements by name.</summary>
     private ProviderRequirement? Requirement(string name) =>
@@ -1523,11 +1539,38 @@
     {
         if (!CanSaveManualRa) return;
 
+        string? privateKeyPem = manualPrivateKeyPem?.Trim();
+
+        // A blank key when editing means "keep the current one" — the stored key is fetched and
+        // re-validated against the (possibly edited) config, so an operator can change an ARN without
+        // having a key they were never shown.
+        if (string.IsNullOrWhiteSpace(privateKeyPem))
+        {
+            try
+            {
+                RolesAnywhereCredentialMaterial? material =
+                    await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
+                if (material is null)
+                {
+                    saveSuccess = false;
+                    saveMessage = "Enter the private key — there is no stored credential to keep it from.";
+                    return;
+                }
+                privateKeyPem = material.PrivateKeyPem;
+            }
+            catch (Exception ex)
+            {
+                saveSuccess = false;
+                saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
+                return;
+            }
+        }
+
         var config = new RolesAnywhereConfig(
             manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
             manualRoleArn!.Trim(), manualRegion!.Trim());
 
-        await SaveValidatedRolesAnywhere(config, manualPrivateKeyPem!.Trim(), null);
+        await SaveValidatedRolesAnywhere(config, privateKeyPem, null);
     }
 
     /// <summary>
@@ -1636,7 +1679,22 @@
 
         try
         {
-            hasStoredRaCredential = await CredentialStore.GetRolesAnywhereAsync("aws") is not null;
+            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            hasStoredRaCredential = config is not null;
+
+            // Pre-fill the manual (bring-your-own) fields from the stored, non-secret configuration so
+            // editing a configured credential shows its current values rather than blank boxes. Only
+            // the private key is secret; it is never rendered, so it stays blank and a blank key on
+            // save means "keep the current one". Filled only when the fields are still untouched
+            // (null), so a Recheck mid-edit never clobbers what the operator is typing.
+            if (config is not null && manualTrustAnchorArn is null)
+            {
+                manualTrustAnchorArn = config.TrustAnchorArn;
+                manualProfileArn = config.ProfileArn;
+                manualRoleArn = config.RoleArn;
+                manualRegion = config.Region;
+                manualCertPem = config.CertificatePem;
+            }
         }
         catch (Exception ex)
         {
