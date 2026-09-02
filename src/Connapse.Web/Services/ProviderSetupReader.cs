@@ -290,7 +290,7 @@ public class ProviderSetupReader(
     /// there sends someone to redo work that was about to succeed on its own.
     /// </remarks>
     private ProviderRequirement NotWorkingYet(
-        string name, string description, ProviderCredentialInfo stored, string reason)
+        string name, string description, ProviderCredentialStatus stored, string reason)
     {
         const string action = "Set up access";
 
@@ -334,17 +334,19 @@ public class ProviderSetupReader(
         }
     }
 
-    /// <summary>The credential Connapse stores for AWS, or null when it is using the environment's.</summary>
+    /// <summary>The status of the credential Connapse stores for AWS, or null when it uses the environment's.</summary>
     /// <remarks>
-    /// Absence is a legitimate state, and so is a key ring that can no longer decrypt one. Neither
-    /// should take the whole status page down, so both come back as "there is no stored key" and the
-    /// probe results speak for themselves.
+    /// Existence and timestamps only — the reader judges a stored credential by whether it exists and
+    /// whether a call made with it has ever been honoured, not by how it authenticates. Absence is a
+    /// legitimate state, and so is a key ring that can no longer decrypt one; neither should take the
+    /// whole status page down, so both come back as "there is no stored credential" and the probe
+    /// results speak for themselves.
     /// </remarks>
-    private async Task<ProviderCredentialInfo?> StoredCredentialAsync(CancellationToken ct)
+    private async Task<ProviderCredentialStatus?> StoredCredentialAsync(CancellationToken ct)
     {
         try
         {
-            return await credentials.GetAsync("aws", ct);
+            return await credentials.GetStatusAsync("aws", ct);
         }
         catch (Exception ex)
         {

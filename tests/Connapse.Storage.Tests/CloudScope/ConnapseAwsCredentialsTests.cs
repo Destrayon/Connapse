@@ -117,22 +117,6 @@ public class ConnapseAwsCredentialsTests
     }
 
     [Fact]
-    public void GetCredentials_WithStoredAccessKeyAndNoRolesAnywhere_ReturnsTheAccessKey()
-    {
-        var store = Substitute.For<IProviderCredentialStore>();
-        store.GetRolesAnywhereAsync("aws").Returns((RolesAnywhereConfig?)null);
-        store.GetAsync("aws").Returns(new ProviderCredentialInfo("aws", "AKIAEXAMPLE", "connapse-reader", DateTime.UtcNow));
-        store.GetSecretAsync("aws").Returns("static-secret");
-        var factory = HttpClientFactoryReturning(HttpStatusCode.Created, "{}"); // never called
-
-        var credentials = BuildCredentials(store, factory);
-
-        ImmutableCredentials resolved = credentials.GetCredentials();
-        resolved.AccessKey.Should().Be("AKIAEXAMPLE");
-        resolved.SecretKey.Should().Be("static-secret");
-    }
-
-    [Fact]
     public void ClampRefreshExpiry_SessionExpiresBeforeWindow_ReturnsSessionExpiry()
     {
         var now = new DateTime(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);

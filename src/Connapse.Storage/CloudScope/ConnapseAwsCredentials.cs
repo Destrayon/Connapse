@@ -144,13 +144,10 @@ public class ConnapseAwsCredentials(
             throw new RolesAnywhereCredentialException(ProviderKey, ex);
         }
 
-        var info = await credentialStore.GetAsync(ProviderKey);
-        if (info is null) return null;
-
-        string? secret = await credentialStore.GetSecretAsync(ProviderKey);
-        if (string.IsNullOrEmpty(secret)) return null;
-
-        return new ResolvedCredentials(new ImmutableCredentials(info.PublicId, secret, null), null);
+        // Roles Anywhere is the only stored shape. No stored configuration means Connapse has no
+        // identity of its own, so it falls back to whatever the environment provides (the ambient
+        // chain, resolved by the caller when this returns null).
+        return null;
     }
 
     private ResolvedCredentials? ResolveStored()

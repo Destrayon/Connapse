@@ -58,11 +58,10 @@ public class SourceConnectorFactoryTests
         monitor.CurrentValue.Returns(settings);
 
         // A credential provider over an empty container: nothing is configured, so it falls back to
-        // the SDK chain exactly as an unconfigured deployment does. These tests are about scope and
-        // allowlist rules, and none of them reaches AWS.
+        // the SDK chain exactly as an unconfigured deployment does. The substitute returns null for
+        // every read (including GetRolesAnywhereMaterialAsync), which is that unconfigured state.
+        // These tests are about scope and allowlist rules, and none of them reaches AWS.
         var credentialStore = Substitute.For<IProviderCredentialStore>();
-        credentialStore.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((ProviderCredentialInfo?)null);
 
         var services = new ServiceCollection();
         services.AddSingleton(credentialStore);

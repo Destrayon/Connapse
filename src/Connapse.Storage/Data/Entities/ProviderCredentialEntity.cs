@@ -24,19 +24,7 @@ public class ProviderCredentialEntity
     /// <summary>Provider key — "aws", "azure". One credential each.</summary>
     public string Provider { get; set; } = string.Empty;
 
-    /// <summary>
-    /// The public half, stored in the clear so it can be displayed.
-    /// </summary>
-    /// <remarks>
-    /// An access key id identifies a credential without authenticating anything, and showing it is
-    /// how an administrator confirms which one is in use before replacing it.
-    /// </remarks>
-    public string PublicId { get; set; } = string.Empty;
-
-    /// <summary>DataProtection ciphertext, purpose "ProviderCredential.v1".</summary>
-    public string SecretProtected { get; set; } = string.Empty;
-
-    /// <summary>The IAM user or principal this belongs to, for display.</summary>
+    /// <summary>The IAM principal this belongs to, for display.</summary>
     public string? PrincipalName { get; set; }
 
     /// <summary>

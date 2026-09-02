@@ -4,23 +4,20 @@ namespace Connapse.Core.Interfaces;
 /// A stored credential, without its secret.
 /// </summary>
 /// <param name="Provider">Which cloud — "aws", "azure".</param>
-/// <param name="PublicId">The access key id, or the equivalent identifier.</param>
-/// <param name="PrincipalName">The IAM user or principal it belongs to.</param>
+/// <param name="PrincipalName">The IAM principal it belongs to.</param>
 /// <param name="CreatedAt">
-/// When it was stored. Shown so an administrator can see a key's age: guidance on static keys is to
-/// rotate them, and a key whose age is invisible is one nobody rotates.
+/// When it was stored. Shown so an administrator can see a credential's age.
 /// </param>
 /// <param name="VerifiedAt">
 /// The last time a call made with it was honoured, or null if that has never happened.
 /// <para>
-/// What separates "not working yet" from "not working any more". A new key is refused for a while
-/// because IAM is eventually consistent; one that worked and then stopped has been deleted or
-/// revoked, and waiting will not bring it back.
+/// What separates "not working yet" from "not working any more". A new credential is refused for a
+/// while because IAM is eventually consistent; one that worked and then stopped has been revoked, and
+/// waiting will not bring it back.
 /// </para>
 /// </param>
 public record ProviderCredentialInfo(
     string Provider,
-    string PublicId,
     string? PrincipalName,
     DateTime CreatedAt,
     DateTime? VerifiedAt = null);
@@ -41,6 +38,17 @@ public record RolesAnywhereConfig(
 public record RolesAnywhereCredentialMaterial(RolesAnywhereConfig Config, string PrivateKeyPem);
 
 /// <summary>
+/// Existence and timing of a stored credential, independent of its shape.
+/// </summary>
+/// <remarks>
+/// All the status page needs to judge a credential without caring how it authenticates: that one
+/// exists, when it was stored, and when a call made with it was last honoured. <see cref="VerifiedAt"/>
+/// is what separates "not working yet" (freshly stored, still propagating) from "not working any more"
+/// (worked once, then revoked). Carries no secret and no identifier.
+/// </remarks>
+public record ProviderCredentialStatus(DateTime CreatedAt, DateTime? VerifiedAt);
+
+/// <summary>
 /// The credential Connapse acts as against one cloud, replacing what the SDK would otherwise pick
 /// up from the environment.
 /// </summary>
@@ -49,27 +57,12 @@ public record RolesAnywhereCredentialMaterial(RolesAnywhereConfig Config, string
 /// a role, it does not bring its own — so storing more than one would be an ambiguity nothing could
 /// resolve.
 /// <para>
-/// The secret never appears on the read model. <see cref="GetSecretAsync"/> is the only way to it,
-/// so a page listing credentials cannot accidentally render one.
+/// The secret never appears on the read model. <see cref="GetRolesAnywhereMaterialAsync"/> is the
+/// only way to it, so a page listing credentials cannot accidentally render one.
 /// </para>
 /// </remarks>
 public interface IProviderCredentialStore
 {
-    Task<ProviderCredentialInfo?> GetAsync(string provider, CancellationToken ct = default);
-
-    /// <summary>The secret half, decrypted. Null when nothing is stored.</summary>
-    /// <exception cref="ProviderCredentialUnavailableException">
-    /// The row exists and cannot be decrypted, which means the DataProtection key ring that wrote
-    /// it is gone. Distinct from "nothing stored": retrying will not help, and the caller should
-    /// ask for the credential again rather than treat it as absent.
-    /// </exception>
-    Task<string?> GetSecretAsync(string provider, CancellationToken ct = default);
-
-    /// <summary>Stores or replaces the credential for a provider.</summary>
-    Task<ProviderCredentialInfo> SaveAsync(
-        string provider, string publicId, string secret, string? principalName,
-        Guid? createdByUserId, CancellationToken ct = default);
-
     /// <summary>
     /// Records that a call made with this credential was honoured.
     /// </summary>
@@ -83,6 +76,9 @@ public interface IProviderCredentialStore
 
     /// <summary>Removes it, falling back to whatever the environment provides.</summary>
     Task<bool> DeleteAsync(string provider, CancellationToken ct = default);
+
+    /// <summary>Existence and timestamps of the stored credential, whatever its shape. Null when nothing is stored.</summary>
+    Task<ProviderCredentialStatus?> GetStatusAsync(string provider, CancellationToken ct = default);
 
     /// <summary>The stored Roles Anywhere configuration, or null when the provider is not using one.</summary>
     Task<RolesAnywhereConfig?> GetRolesAnywhereAsync(string provider, CancellationToken ct = default);

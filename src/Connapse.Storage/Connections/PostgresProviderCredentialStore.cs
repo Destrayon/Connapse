@@ -24,89 +24,15 @@ public class PostgresProviderCredentialStore(
 {
     private IDataProtector Protector => dataProtection.CreateProtector("ProviderCredential.v1");
 
-    public async Task<ProviderCredentialInfo?> GetAsync(string provider, CancellationToken ct = default)
+    public async Task<ProviderCredentialStatus?> GetStatusAsync(string provider, CancellationToken ct = default)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
 
         return await db.ProviderCredentials
             .AsNoTracking()
             .Where(c => c.Provider == provider)
-            .Select(c => new ProviderCredentialInfo(
-                c.Provider, c.PublicId, c.PrincipalName, c.CreatedAt, c.VerifiedAt))
+            .Select(c => new ProviderCredentialStatus(c.CreatedAt, c.VerifiedAt))
             .FirstOrDefaultAsync(ct);
-    }
-
-    public async Task<string?> GetSecretAsync(string provider, CancellationToken ct = default)
-    {
-        await using var db = await factory.CreateDbContextAsync(ct);
-
-        string? ciphertext = await db.ProviderCredentials
-            .AsNoTracking()
-            .Where(c => c.Provider == provider)
-            .Select(c => c.SecretProtected)
-            .FirstOrDefaultAsync(ct);
-
-        if (string.IsNullOrEmpty(ciphertext))
-            return null;
-
-        try
-        {
-            return Protector.Unprotect(ciphertext);
-        }
-        catch (Exception ex)
-        {
-            // Not swallowed into null. "Nothing stored" and "stored but unreadable" send an
-            // administrator to different places, and the second needs saying out loud — otherwise
-            // a lost key ring looks like a credential that was never set up.
-            throw new ProviderCredentialUnavailableException(provider, ex);
-        }
-    }
-
-    public async Task<ProviderCredentialInfo> SaveAsync(
-        string provider, string publicId, string secret, string? principalName,
-        Guid? createdByUserId, CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
-        ArgumentException.ThrowIfNullOrWhiteSpace(publicId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(secret);
-
-        await using var db = await factory.CreateDbContextAsync(ct);
-
-        var existing = await db.ProviderCredentials.FirstOrDefaultAsync(c => c.Provider == provider, ct);
-        var now = DateTime.UtcNow;
-
-        if (existing is null)
-        {
-            existing = new ProviderCredentialEntity { Provider = provider };
-            db.ProviderCredentials.Add(existing);
-        }
-
-        existing.PublicId = publicId.Trim();
-        existing.SecretProtected = Protector.Protect(secret);
-        existing.PrincipalName = string.IsNullOrWhiteSpace(principalName) ? null : principalName.Trim();
-
-        // Clear any Roles Anywhere config so the two shapes never coexist on one row.
-        existing.CertificatePem = null;
-        existing.PrivateKeyProtected = null;
-        existing.TrustAnchorArn = null;
-        existing.ProfileArn = null;
-        existing.RoleArn = null;
-        existing.Region = null;
-
-        // Reset on replacement, not only on first write. The age shown in the UI is the age of the
-        // key in use, and a rotated key that reported its predecessor's date would defeat the point
-        // of showing it.
-        existing.CreatedAt = now;
-        existing.CreatedByUserId = createdByUserId;
-
-        // Cleared on replacement. A new key has proved nothing, whatever its predecessor did, and
-        // carrying the old timestamp over would make the page report a fresh key as deleted the
-        // moment IAM's propagation delay refused its first call.
-        existing.VerifiedAt = null;
-
-        await db.SaveChangesAsync(ct);
-
-        return new ProviderCredentialInfo(provider, existing.PublicId, existing.PrincipalName, now);
     }
 
     public async Task<bool> MarkVerifiedAsync(
@@ -242,16 +168,12 @@ public class PostgresProviderCredentialStore(
         existing.Region = config.Region;
         existing.PrincipalName = string.IsNullOrWhiteSpace(principalName) ? null : principalName.Trim();
 
-        // Clear the access-key shape so GetRolesAnywhereAsync and the access-key reads are mutually exclusive.
-        existing.PublicId = string.Empty;
-        existing.SecretProtected = string.Empty;
-
         existing.CreatedAt = now;
         existing.CreatedByUserId = createdByUserId;
         existing.VerifiedAt = null;
 
         await db.SaveChangesAsync(ct);
 
-        return new ProviderCredentialInfo(provider, existing.PublicId, existing.PrincipalName, now);
+        return new ProviderCredentialInfo(provider, existing.PrincipalName, now);
     }
 }
