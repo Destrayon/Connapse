@@ -7,6 +7,7 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @using Connapse.Web.Components.Settings
+@using Connapse.Web.Services
 @using Connapse.Storage.Settings
 @using Connapse.Storage.CloudScope.RolesAnywhere
 @using Microsoft.Extensions.Options
@@ -213,20 +214,23 @@
                     {
                         <div class="text-body-secondary font-monospace text-break">@detail</div>
                     }
-                    @if (AccessMode == AwsAccessMode.Ambient)
+                    @if (AccessMode == AwsAccessMode.NotStored && EnvironmentCredentialResolves)
                     {
+                        @* Says a credential resolves, not what kind: the default chain cannot tell an
+                           instance role from environment keys, so it must not claim one — and it keeps
+                           the Roles Anywhere setup below reachable rather than hiding it. *@
                         <div class="small text-body-secondary mt-1">
-                            Using the host's own AWS credentials — an instance role, task role, or
-                            mounted profile. Nothing is stored in Connapse.
+                            Connapse is currently reading S3 with credentials from its environment (an
+                            instance or task role, or ambient AWS credentials). Set up IAM Roles
+                            Anywhere below to give it its own dedicated identity.
                         </div>
                     }
                 </Summary>
                 <ManualContent>
                     @* Bring-your-own: an administrator who provisioned Roles Anywhere themselves
-                       enters their own ARNs and the certificate + key they registered. Not shown
-                       when the host already supplies ambient credentials — there is nothing to set
-                       up there. *@
-                    @if (AccessMode != AwsAccessMode.Ambient)
+                       enters their own ARNs and the certificate + key they registered. Hidden only
+                       while the requirements are still loading. *@
+                    @if (AccessMode is AwsAccessMode.RolesAnywhere or AwsAccessMode.NotStored)
                     {
                         <div class="border rounded p-3 mb-3">
                             <h3 class="h6 mb-1">Manual values</h3>
@@ -234,6 +238,12 @@
                                 Already set up IAM Roles Anywhere yourself? Enter the trust-anchor,
                                 profile, and role ARNs, the region, and the certificate + private key
                                 you registered. Connapse verifies them with AWS before saving.
+                            </p>
+                            <p class="small text-muted mb-3">
+                                <span class="bi-info-circle me-1"></span>
+                                The certificate must be the one registered as your trust anchor, or a
+                                leaf issued directly by it. Certificates issued through an intermediate
+                                CA are not supported yet.
                             </p>
                             <div class="row g-2">
                                 <div class="col-md-6">
@@ -279,15 +289,18 @@
                     }
                 </ManualContent>
                 <EasyContent>
-                    @* Shown regardless of mode: a reset can flip the card to ambient if the host also
-                       supplies credentials, and the operator still needs the AWS-side cleanup. *@
+                    @* Shown after any reset, whatever the resulting mode: removing the stored
+                       credential leaves the AWS trust anchor and profile in place, and the operator
+                       still needs the cleanup command to take them down. *@
                     @if (raResetCleanup is { Length: > 0 } cleanup)
                     {
-                        <div class="alert alert-info py-2 small">
+                        <div class="alert alert-warning py-2 small">
                             <div class="mb-2">
-                                This instance's stored credential was cleared, so it has stopped
-                                authenticating. To also remove the AWS-side resources it created,
-                                run this in CloudShell:
+                                <span class="bi-exclamation-triangle me-1"></span>
+                                Connapse's stored copy is gone, but <strong>AWS access is still
+                                live</strong>: the trust anchor and profile remain enabled, so the
+                                certificate keeps working until it expires. Run this in CloudShell to
+                                revoke it now:
                             </div>
                             <pre class="bg-body-tertiary border rounded p-2 mb-2" style="overflow:auto"><code>@cleanup</code></pre>
                             <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyResetCleanup">
@@ -296,13 +309,9 @@
                         </div>
                     }
 
-                    @if (AccessMode == AwsAccessMode.Ambient)
+                    @if (AccessMode == AwsAccessMode.Loading)
                     {
-                        <p class="small mb-0">
-                            Connapse is reading S3 with the credentials its host provides, so there is
-                            nothing to set up here. To change what it can reach, adjust that instance or
-                            task role in AWS.
-                        </p>
+                        <p class="small text-body-secondary mb-0">Checking AWS access…</p>
                     }
                     else
                     {
@@ -350,6 +359,16 @@
 
                             @if (raKeypair is not null)
                             {
+                                @* The generated key lives only in this page until you paste back and
+                                   save. Leaving mid-flow loses it; the command is safe to re-run. *@
+                                <div class="alert alert-secondary py-2 small mb-2">
+                                    <span class="bi-info-circle me-1"></span>
+                                    Keep this page open until you have pasted the result back. If you
+                                    leave or refresh first, generate a new command and run it again —
+                                    an abandoned run only leaves an unused trust anchor in AWS, which a
+                                    fresh run replaces.
+                                </div>
+
                                 <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsRolesAnywhereSetup.GenerateScript(raKeypair.CaCertificatePem, raRegion)</code></pre>
 
                                 <div class="d-flex flex-wrap gap-2 mb-2">
@@ -405,8 +424,14 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     @if (AccessMode == AwsAccessMode.RolesAnywhere)
                     {
+                        @* Named for what it does. It removes only Connapse's local copy; the AWS trust
+                           anchor and profile stay enabled, so the certificate keeps authenticating
+                           until it expires or the cleanup snippet is run. The confirm label states
+                           that outright, so it is not mistaken for a revoke. *@
                         <ProviderResetAction OnReset="ResetAccessIdentity"
-                                             HelpText="Clears the Roles Anywhere certificate and ARNs stored in Connapse, so this instance stops authenticating. It does not delete the AWS trust anchor or role — a CloudShell snippet to remove those is shown afterwards." />
+                                             Label="Remove stored credential"
+                                             ConfirmLabel="Remove — AWS access stays live"
+                                             HelpText="Deletes the Roles Anywhere certificate and ARNs stored in Connapse. It does NOT revoke access in AWS: the trust anchor and profile stay enabled and the certificate keeps working until it expires. A CloudShell command to revoke it is shown afterwards — run it now if you are removing a credential you believe is compromised." />
                     }
                 </Actions>
             </ProviderStepCard>
@@ -1212,22 +1237,19 @@
     /// <summary>Whether a Roles Anywhere credential is stored — loaded on refresh, drives mode and reset visibility.</summary>
     private bool hasStoredRaCredential;
 
-    /// <summary>Which credential the AWS Access card is describing.</summary>
-    private enum AwsAccessMode { Ambient, RolesAnywhere, Unconfigured }
+    /// <summary>Which credential the AWS Access card is describing — see <see cref="AwsAccessCard"/>.</summary>
+    private AwsAccessMode AccessMode =>
+        AwsAccessCard.ResolveMode(AccessRequirement is not null, hasStoredRaCredential);
 
     /// <summary>
-    /// Which AWS credential the Access card is describing.
+    /// Whether some credential currently resolves from the environment.
     /// </summary>
     /// <remarks>
-    /// A stored Roles Anywhere row is authoritative — that is what an administrator configured, and
-    /// the only thing Connapse can reset. With no row, an identity that resolves is the host's ambient
-    /// credential (an instance or task role Connapse did not create and cannot reset); nothing
-    /// resolving means it is unconfigured and the setup path is shown.
+    /// Only ever an informational note in the not-stored state: it says a credential exists, not what
+    /// kind, and it never hides the Roles Anywhere setup path behind that fact.
     /// </remarks>
-    private AwsAccessMode AccessMode =>
-        hasStoredRaCredential ? AwsAccessMode.RolesAnywhere
-        : AccessStatus is RequirementStatus.Satisfied or RequirementStatus.Warning ? AwsAccessMode.Ambient
-        : AwsAccessMode.Unconfigured;
+    private bool EnvironmentCredentialResolves =>
+        AccessStatus is RequirementStatus.Satisfied or RequirementStatus.Warning;
 
     /// <summary>Whether the manual (bring-your-own) Roles Anywhere form has every value it needs.</summary>
     private bool CanSaveManualRa =>
@@ -1590,7 +1612,10 @@
             raPasted = null;
             showSetup = true;
             saveSuccess = true;
-            saveMessage = "The AWS credential stored in Connapse was cleared.";
+            saveMessage = raResetCleanup is null
+                ? "Connapse's stored AWS credential was removed."
+                : "Connapse's stored AWS credential was removed. It is still valid in AWS until you "
+                  + "run the cleanup command shown below, or it expires.";
             await RefreshSetups();
         }
         catch (Exception ex)
