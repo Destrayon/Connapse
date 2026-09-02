@@ -4,16 +4,16 @@ namespace Connapse.Core.Utilities;
 public sealed record AwsRolesAnywhereArns(string TrustAnchorArn, string ProfileArn, string RoleArn, string Region);
 
 /// <summary>
-/// Generates the CloudShell script that provisions Connapse's Roles Anywhere access — reusing the shared
-/// role/policy/profile and creating this instance's own trust anchor — and parses the ARN block it prints
-/// back. A pure string utility, mirroring <see cref="AwsIamUserSetup"/>.
+/// Generates the CloudShell script that provisions Connapse's Roles Anywhere access — creating fully
+/// per-instance trust anchor, role, policy, and profile, all fingerprint-named — and parses the ARN
+/// block it prints back. A pure string utility, mirroring <see cref="AwsIamUserSetup"/>.
 /// </summary>
 public static class AwsRolesAnywhereSetup
 {
     public const string BeginMarker = "----- BEGIN CONNAPSE AWS ROLE -----";
     public const string EndMarker = "----- END CONNAPSE AWS ROLE -----";
 
-    /// <summary>Shared-resource name prefix. A constant, deliberately not a parameter, so every instance shares them.</summary>
+    /// <summary>Per-instance name prefix; the script suffixes it with the certificate fingerprint (connapse-ra-&lt;fp&gt;) so each instance's role, policy, profile, and trust anchor are unique and never collide.</summary>
     public const string NamePrefix = "connapse";
 
     /// <summary>The CloudShell (admin) permissions the setup script needs — not the runtime identity's.</summary>
