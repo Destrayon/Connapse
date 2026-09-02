@@ -1243,6 +1243,17 @@
     private string? manualCertPem;
     private string? manualPrivateKeyPem;
 
+    /// <summary>
+    /// The stored config the manual form was last loaded from — the concurrency token.
+    /// </summary>
+    /// <remarks>
+    /// Two jobs. On load it tells an untouched field (still equal to what was loaded) apart from one
+    /// the operator edited, so a re-check refreshes the former without clobbering the latter. On a
+    /// blank-key save it is compared against a fresh read: if the stored credential changed since the
+    /// form loaded, the save is rejected and reloaded rather than silently overwriting the newer one.
+    /// </remarks>
+    private RolesAnywhereConfig? _lastLoadedConfig;
+
     /// <summary>Whether the replace-identity form is open over a working credential.</summary>
     private bool showSetup;
 
@@ -1526,51 +1537,84 @@
     /// <summary>Saves the credential from the script's ARN block, pairing them with the generated leaf.</summary>
     private async Task SaveRolesAnywhereFromScript(AwsRolesAnywhereArns arns)
     {
-        if (raKeypair is null) return;
+        // Guard acquired synchronously, before any await, so a second click cannot enter this handler
+        // while the first is suspended.
+        if (awsBusy || raKeypair is null) return;
+        awsBusy = true;
+        try
+        {
+            var config = new RolesAnywhereConfig(
+                raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
 
-        var config = new RolesAnywhereConfig(
-            raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
-
-        await SaveValidatedRolesAnywhere(config, raKeypair.LeafPrivateKeyPem, null);
+            await SaveValidatedRolesAnywhereCore(config, raKeypair.LeafPrivateKeyPem, null);
+        }
+        finally
+        {
+            awsBusy = false;
+        }
     }
 
     /// <summary>Saves a bring-your-own credential typed into the manual-values form.</summary>
     private async Task SaveManualRolesAnywhere()
     {
-        if (!CanSaveManualRa) return;
-
-        string? privateKeyPem = manualPrivateKeyPem?.Trim();
-
-        // A blank key when editing means "keep the current one" — the stored key is fetched and
-        // re-validated against the (possibly edited) config, so an operator can change an ARN without
-        // having a key they were never shown.
-        if (string.IsNullOrWhiteSpace(privateKeyPem))
+        // Guard acquired synchronously, before any await (the blank-key read below yields), so two
+        // fast clicks cannot both proceed and have the second dereference fields the first has cleared.
+        if (awsBusy || !CanSaveManualRa) return;
+        awsBusy = true;
+        try
         {
-            try
+            // Snapshot the form before any await, so a concurrent reset can never null these mid-flight.
+            var config = new RolesAnywhereConfig(
+                manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
+                manualRoleArn!.Trim(), manualRegion!.Trim());
+            string? privateKeyPem = manualPrivateKeyPem?.Trim();
+
+            // A blank key when editing means "keep the current one" — the stored key is fetched and
+            // re-validated against the (possibly edited) config, so an operator can change an ARN
+            // without having a key they were never shown.
+            if (string.IsNullOrWhiteSpace(privateKeyPem))
             {
-                RolesAnywhereCredentialMaterial? material =
-                    await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
+                RolesAnywhereCredentialMaterial? material;
+                try
+                {
+                    material = await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
+                }
+                catch (Exception ex)
+                {
+                    saveSuccess = false;
+                    saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
+                    return;
+                }
+
                 if (material is null)
                 {
                     saveSuccess = false;
                     saveMessage = "Enter the private key — there is no stored credential to keep it from.";
                     return;
                 }
+
+                // Optimistic concurrency: if the stored credential changed since this form loaded,
+                // reusing the current key with the form's older ARNs could silently reinstate a config
+                // another administrator just replaced (e.g. undo a narrowed role). Reject and reload
+                // instead, so the operator reviews the newer values before overwriting.
+                if (_lastLoadedConfig is not null && material.Config != _lastLoadedConfig)
+                {
+                    saveSuccess = false;
+                    saveMessage = "This credential was changed elsewhere since you opened the form. It has "
+                        + "been reloaded — review the values and save again.";
+                    await RefreshSetups();
+                    return;
+                }
+
                 privateKeyPem = material.PrivateKeyPem;
             }
-            catch (Exception ex)
-            {
-                saveSuccess = false;
-                saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
-                return;
-            }
+
+            await SaveValidatedRolesAnywhereCore(config, privateKeyPem, null);
         }
-
-        var config = new RolesAnywhereConfig(
-            manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
-            manualRoleArn!.Trim(), manualRegion!.Trim());
-
-        await SaveValidatedRolesAnywhere(config, privateKeyPem, null);
+        finally
+        {
+            awsBusy = false;
+        }
     }
 
     /// <summary>
@@ -1581,10 +1625,10 @@
     /// first (a real <c>CreateSession</c>) and stored only if that succeeds. A bad cert, ARN, or
     /// region therefore never destroys the last working credential — nothing is written on failure,
     /// and the form is left intact so the operator can fix and retry without regenerating.
+    /// <para>The caller holds the <c>awsBusy</c> guard; this core never touches it.</para>
     /// </remarks>
-    private async Task SaveValidatedRolesAnywhere(RolesAnywhereConfig config, string privateKeyPem, string? principal)
+    private async Task SaveValidatedRolesAnywhereCore(RolesAnywhereConfig config, string privateKeyPem, string? principal)
     {
-        awsBusy = true;
         try
         {
             RolesAnywhereValidationResult result = await RaValidator.ValidateAsync(config, privateKeyPem);
@@ -1597,13 +1641,16 @@
 
             await CredentialStore.SaveRolesAnywhereAsync("aws", config, privateKeyPem, principal, null);
 
-            // The secret material is not kept around once stored; the whole handshake resets.
+            // The secret material is not kept around once stored; the whole handshake resets. Clearing
+            // the loaded-config token forces the next load to re-fill the form from the newly stored
+            // configuration.
             raKeypair = null;
             raPasted = null;
             raRegion = null;
             raResetCleanup = null;
             manualTrustAnchorArn = manualProfileArn = manualRoleArn = manualRegion = null;
             manualCertPem = manualPrivateKeyPem = null;
+            _lastLoadedConfig = null;
             showSetup = false;
             copyMessage = null;
 
@@ -1619,10 +1666,6 @@
             saveSuccess = false;
             saveMessage = $"Could not store the AWS credential: {ex.Message} " +
                           "Your entries are still below — try again.";
-        }
-        finally
-        {
-            awsBusy = false;
         }
     }
 
@@ -1682,19 +1725,22 @@
             RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
             hasStoredRaCredential = config is not null;
 
-            // Pre-fill the manual (bring-your-own) fields from the stored, non-secret configuration so
+            // Fill the manual (bring-your-own) fields from the stored, non-secret configuration so
             // editing a configured credential shows its current values rather than blank boxes. Only
             // the private key is secret; it is never rendered, so it stays blank and a blank key on
-            // save means "keep the current one". Filled only when the fields are still untouched
-            // (null), so a Recheck mid-edit never clobbers what the operator is typing.
-            if (config is not null && manualTrustAnchorArn is null)
+            // save means "keep the current one". Each field is refreshed only when it still equals what
+            // was last loaded — an untouched field — so a re-check picks up a concurrent change while an
+            // in-progress edit is never overwritten. (Initially both sides are null, so the first load
+            // fills every field.)
+            if (config is not null)
             {
-                manualTrustAnchorArn = config.TrustAnchorArn;
-                manualProfileArn = config.ProfileArn;
-                manualRoleArn = config.RoleArn;
-                manualRegion = config.Region;
-                manualCertPem = config.CertificatePem;
+                manualTrustAnchorArn = AwsAccessCard.RefreshManualField(manualTrustAnchorArn, _lastLoadedConfig?.TrustAnchorArn, config.TrustAnchorArn);
+                manualProfileArn = AwsAccessCard.RefreshManualField(manualProfileArn, _lastLoadedConfig?.ProfileArn, config.ProfileArn);
+                manualRoleArn = AwsAccessCard.RefreshManualField(manualRoleArn, _lastLoadedConfig?.RoleArn, config.RoleArn);
+                manualRegion = AwsAccessCard.RefreshManualField(manualRegion, _lastLoadedConfig?.Region, config.Region);
+                manualCertPem = AwsAccessCard.RefreshManualField(manualCertPem, _lastLoadedConfig?.CertificatePem, config.CertificatePem);
             }
+            _lastLoadedConfig = config;
         }
         catch (Exception ex)
         {

@@ -41,4 +41,13 @@ public class AwsAccessCardTests
         // whether a probe happens to resolve. That resolving probe is surfaced only as a note.
         AwsAccessCard.ResolveMode(requirementsLoaded: true, hasStoredRolesAnywhere: false)
             .Should().Be(AwsAccessMode.NotStored);
+
+    [Theory]
+    [InlineData(null, null, "v1", "v1")]          // first load: both null → the field fills
+    [InlineData("v1", "v1", "v2", "v2")]          // untouched field picks up a change made elsewhere
+    [InlineData("edited", "v1", "v2", "edited")]  // an edited field is preserved, never clobbered
+    [InlineData("v1", "v1", "v1", "v1")]          // an unchanged store is a no-op
+    public void RefreshManualField_RefreshesUntouched_ButPreservesEdits(
+        string? current, string? lastLoaded, string? loaded, string? expected) =>
+        AwsAccessCard.RefreshManualField(current, lastLoaded, loaded).Should().Be(expected);
 }
