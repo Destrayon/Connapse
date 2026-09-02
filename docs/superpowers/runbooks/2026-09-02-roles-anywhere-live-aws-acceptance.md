@@ -55,9 +55,11 @@ region=us-east-1
 
 ### 3. Run the verify test
 
-Export the leaf files and the printed ARNs, then run the gated verify test:
+Export the leaf files and the printed ARNs, set the explicit opt-in
+`CONNAPSE_LIVE_AWS_RUN=1`, then run the gated verify test:
 
 ```bash
+CONNAPSE_LIVE_AWS_RUN=1 \
 CONNAPSE_LIVE_AWS_RA_CERT_FILE=/tmp/ra-live/leaf-cert.pem \
 CONNAPSE_LIVE_AWS_RA_KEY_FILE=/tmp/ra-live/leaf-key.pem \
 CONNAPSE_LIVE_AWS_RA_TRUST_ANCHOR_ARN=arn:aws:rolesanywhere:us-east-1:...:trust-anchor/... \
@@ -68,8 +70,14 @@ dotnet test tests/Connapse.Integration.Tests \
   --filter "FullyQualifiedName~RolesAnywhereLiveAwsTests.CreateSession"
 ```
 
-**Pass** = AWS accepted the leaf-signed `CreateSession` and returned temporary
-credentials (the test prints the expiry). That is the acceptance gate met.
+`CONNAPSE_LIVE_AWS_RUN=1` is the opt-in that makes a misconfiguration a **failure**
+rather than a green no-op: with it set, any missing variable or file fails the test,
+so a typo can never be recorded as a satisfied gate.
+
+**Acceptance = one passed, zero skipped, zero failed.** A passing result means AWS
+accepted the leaf-signed `CreateSession` and returned temporary credentials (the test
+prints the expiry). A skipped/no-op result does **not** count — it means the opt-in or
+a variable was missing.
 
 **Failure to read:**
 - `CreateSession failed with HTTP 403` mentioning the trust anchor → AWS rejected the
