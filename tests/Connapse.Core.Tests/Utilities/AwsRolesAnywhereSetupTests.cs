@@ -17,20 +17,18 @@ public class AwsRolesAnywhereSetupTests
         {AwsRolesAnywhereSetup.EndMarker}
         """;
 
+    private const string TrustAnchorArn = "arn:aws:rolesanywhere:us-east-1:111111111111:trust-anchor/ta";
+    private const string ProfileArn = "arn:aws:rolesanywhere:us-east-1:111111111111:profile/pf";
+    private const string RoleArn = "arn:aws:iam::111111111111:role/connapse-ra-x";
+    private const string Region = "us-east-1";
+
     [Fact]
     public void ParseResult_ReadsAllFourArnsFromTheBlock()
     {
         AwsRolesAnywhereArns? result = AwsRolesAnywhereSetup.ParseResult(Block(
-            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
-            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
-            "arn:aws:iam::111:role/connapse-rolesanywhere",
-            "us-east-1"));
+            TrustAnchorArn, ProfileArn, RoleArn, Region));
 
-        result.Should().Be(new AwsRolesAnywhereArns(
-            "arn:aws:rolesanywhere:us-east-1:111:trust-anchor/ta",
-            "arn:aws:rolesanywhere:us-east-1:111:profile/pf",
-            "arn:aws:iam::111:role/connapse-rolesanywhere",
-            "us-east-1"));
+        result.Should().Be(new AwsRolesAnywhereArns(TrustAnchorArn, ProfileArn, RoleArn, Region));
     }
 
     [Fact]
@@ -39,12 +37,10 @@ public class AwsRolesAnywhereSetupTests
         string echoedThenReal =
             Block("arn:ta:echoed", "arn:pf:echoed", "arn:role:echoed", "us-west-2")
             + "\n"
-            + Block("arn:aws:rolesanywhere:us-east-1:111:trust-anchor/real",
-                    "arn:aws:rolesanywhere:us-east-1:111:profile/real",
-                    "arn:aws:iam::111:role/real", "us-east-1");
+            + Block(TrustAnchorArn, ProfileArn, RoleArn, Region);
 
         AwsRolesAnywhereSetup.ParseResult(echoedThenReal)!.TrustAnchorArn
-            .Should().Be("arn:aws:rolesanywhere:us-east-1:111:trust-anchor/real");
+            .Should().Be(TrustAnchorArn);
     }
 
     [Theory]
@@ -62,6 +58,55 @@ public class AwsRolesAnywhereSetupTests
         string block =
             $"{AwsRolesAnywhereSetup.BeginMarker}\ntrustAnchorArn=arn:ta\nroleArn=arn:role\nregion=us-east-1\n{AwsRolesAnywhereSetup.EndMarker}";
         AwsRolesAnywhereSetup.ParseResult(block).Should().BeNull(); // profileArn absent
+    }
+
+    [Fact]
+    public void ParseResult_TrustAnchorArnWithWrongService_ReturnsNull()
+    {
+        string badTrustAnchor = "arn:aws:iam:us-east-1:111111111111:trust-anchor/ta";
+        AwsRolesAnywhereSetup.ParseResult(Block(badTrustAnchor, ProfileArn, RoleArn, Region))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseResult_ProfileArnInADifferentRegionThanTheRegionField_ReturnsNull()
+    {
+        string wrongRegionProfile = "arn:aws:rolesanywhere:us-west-2:111111111111:profile/pf";
+        AwsRolesAnywhereSetup.ParseResult(Block(TrustAnchorArn, wrongRegionProfile, RoleArn, Region))
+            .Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("us-east-1/evil")]
+    [InlineData("us-east-1;x")]
+    public void ParseResult_RegionFieldWithAnInjectionCharacter_ReturnsNull(string dirtyRegion)
+    {
+        AwsRolesAnywhereSetup.ParseResult(Block(TrustAnchorArn, ProfileArn, RoleArn, dirtyRegion))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseResult_CrossAccountArns_ReturnsNull()
+    {
+        string otherAccountRole = "arn:aws:iam::222222222222:role/connapse-ra-x";
+        AwsRolesAnywhereSetup.ParseResult(Block(TrustAnchorArn, ProfileArn, otherAccountRole, Region))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseResult_RoleArnWithANonEmptyRegionSegment_ReturnsNull()
+    {
+        string regionedRole = "arn:aws:iam:us-east-1:111111111111:role/connapse-ra-x";
+        AwsRolesAnywhereSetup.ParseResult(Block(TrustAnchorArn, ProfileArn, regionedRole, Region))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseResult_RoleArnWithANonNumericAccount_ReturnsNull()
+    {
+        string badAccountRole = "arn:aws:iam::not-an-account:role/connapse-ra-x";
+        AwsRolesAnywhereSetup.ParseResult(Block(TrustAnchorArn, ProfileArn, badAccountRole, Region))
+            .Should().BeNull();
     }
 
     private const string SampleCaCert =

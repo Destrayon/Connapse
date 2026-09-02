@@ -60,7 +60,44 @@ public static class AwsRolesAnywhereSetup
             || string.IsNullOrEmpty(role) || string.IsNullOrEmpty(region))
             return null;
 
+        if (!TryParseArn(trustAnchor, "rolesanywhere", "trust-anchor", out string taRegion, out string taAccount))
+            return null;
+        if (!TryParseArn(profile, "rolesanywhere", "profile", out string profileRegion, out string profileAccount))
+            return null;
+        // IAM is global: the role ARN has an empty region segment.
+        if (!TryParseArn(role, "iam", "role", out string roleRegion, out string roleAccount))
+            return null;
+        if (roleRegion.Length != 0)
+            return null;
+
+        // The region field itself must be a clean AWS region (it builds the runtime endpoint host).
+        if (region != SanitiseRegion(region))
+            return null;
+        // The trust anchor and profile must live in that same region, and all three in one account.
+        if (taRegion != region || profileRegion != region)
+            return null;
+        if (taAccount != profileAccount || taAccount != roleAccount)
+            return null;
+
         return new AwsRolesAnywhereArns(trustAnchor, profile, role, region);
+    }
+
+    // arn:partition:service:region:account:resourcetype/resource-id
+    private static bool TryParseArn(string arn, string expectedService, string expectedResourceType,
+        out string region, out string account)
+    {
+        region = string.Empty;
+        account = string.Empty;
+        string[] parts = arn.Split(':', 6);
+        if (parts.Length < 6) return false;
+        if (parts[0] != "arn") return false;
+        if (parts[1] is not ("aws" or "aws-us-gov" or "aws-cn")) return false;
+        if (parts[2] != expectedService) return false;
+        region = parts[3];
+        account = parts[4];
+        if (account.Length > 0 && !account.All(char.IsAsciiDigit)) return false;
+        return parts[5].StartsWith(expectedResourceType + "/", StringComparison.Ordinal)
+            && parts[5].Length > expectedResourceType.Length + 1;
     }
 
     /// <summary>
