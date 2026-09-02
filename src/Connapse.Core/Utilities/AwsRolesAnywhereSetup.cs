@@ -81,7 +81,6 @@ public static class AwsRolesAnywhereSetup
             # Provisions Connapse's IAM Roles Anywhere access. Safe to re-run and to run from a
             # second Connapse instance: the role, policy, and profile are shared and reused.
             FAILED=""
-            REGION="{{pinnedRegion}}"
             ROLE="{{role}}"
             PROFILE="{{profile}}"
 
@@ -89,14 +88,16 @@ public static class AwsRolesAnywhereSetup
 
             # --- Shared role (reuse the Connapse-tagged one, else create) ---
             ROLE_ARN=""
-            if aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
-              OWNER=$(aws iam list-role-tags --role-name "$ROLE" --query "Tags[?Key=='CreatedBy'].Value" --output text)
-              if [ "$OWNER" != "Connapse" ]; then FAILED="a role named $ROLE already exists and Connapse did not create it"; fi
-              ROLE_ARN=$(aws iam get-role --role-name "$ROLE" --query 'Role.Arn' --output text)
-            else
-              TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"rolesanywhere.amazonaws.com"},"Action":["sts:AssumeRole","sts:SetSourceIdentity"],"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:rolesanywhere:*:{{account}}:trust-anchor/*"} } }]}'
-              TRUST=${TRUST//{{account}}/$ACCOUNT}
-              ROLE_ARN=$(aws iam create-role --role-name "$ROLE" --assume-role-policy-document "$TRUST" --tags Key=CreatedBy,Value=Connapse --query 'Role.Arn' --output text) || FAILED="could not create the role"
+            if [ -z "$FAILED" ]; then
+              if aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
+                OWNER=$(aws iam list-role-tags --role-name "$ROLE" --query "Tags[?Key=='CreatedBy'].Value" --output text)
+                if [ "$OWNER" != "Connapse" ]; then FAILED="a role named $ROLE already exists and Connapse did not create it"; fi
+                ROLE_ARN=$(aws iam get-role --role-name "$ROLE" --query 'Role.Arn' --output text)
+              else
+                TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"rolesanywhere.amazonaws.com"},"Action":["sts:AssumeRole","sts:SetSourceIdentity"],"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:rolesanywhere:*:{{account}}:trust-anchor/*"} } }]}'
+                TRUST=${TRUST//{{account}}/$ACCOUNT}
+                ROLE_ARN=$(aws iam create-role --role-name "$ROLE" --assume-role-policy-document "$TRUST" --tags Key=CreatedBy,Value=Connapse --query 'Role.Arn' --output text) || FAILED="could not create the role"
+              fi
             fi
 
             # --- ConnapseRead policy (apply/update on the shared role) ---
