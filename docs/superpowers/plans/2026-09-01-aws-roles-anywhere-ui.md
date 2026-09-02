@@ -66,3 +66,14 @@ Delete `AwsIamUserSetup.cs` + its tests; remove legacy store methods + entity ac
 
 ## Verification
 `dotnet build`; `dotnet test --filter "Category=Unit"`. Then Codex adversarial review → receiving-code-review → Push + PR against the epic branch.
+
+## Progress
+
+- **Phase 1 done.** Reader status logic already resolves RA/ambient/legacy through `s3Discovery`, so the change was correctness of wording: three user-facing strings in `ProviderSetupReader.cs` (`Access`/`NotWorkingYet`) reworded from "access key"/"key" to credential-neutral. Mode detection moved to the razor (keeps the Core model generic) — noted deviation from the plan's "surface mode on the reader model".
+- **Phase 3b done first** (both save paths depend on it): `RolesAnywhereSetupValidator` (`IRolesAnywhereSetupValidator`) in `Connapse.Storage/CloudScope/RolesAnywhere` — `CreateFromPem` catches a mismatched cert/key pair, then a real `CreateSession` via the existing `RolesAnywhereClient`; returns `(Ok, Error)` and writes nothing. Registered in Storage DI.
+- **Phases 2, 3, 4, 5 done** in `Providers.razor`: mode-aware Access card (`AwsAccessMode` Ambient/RolesAnywhere/Unconfigured computed from `hasStoredRaCredential` + status); ambient = status-only + reset hidden; off-AWS = RA handshake (region-gated `IsValidRegion` → `PrepareRolesAnywhereScript` generates+caches the CA/leaf pair once → `GenerateScript(CA, region)` → paste-back `ParseResult` → `SaveValidatedRolesAnywhere` validates then persists); manual (BYO) values = 4 ARNs + region + cert + key through the same validator; reset wipes local first then shows `GenerateResetScript` cleanup snippet. Cleanup snippet hoisted above the mode branch so an ambient-fallback after reset still shows it.
+- **Helpers added** to `AwsRolesAnywhereSetup`: `IsValidRegion` (region shape gate) and `GenerateResetScript` (per-instance CloudShell cleanup, rejects shell-metachar ids).
+- **Files touched:** `Providers.razor`, `ProviderSetupReader.cs`, `AwsRolesAnywhereSetup.cs`, `RolesAnywhereSetupValidator.cs` (new), Storage `ServiceCollectionExtensions.cs`, `AwsRolesAnywhereSetupTests.cs` (+10 cases), `RolesAnywhereSetupValidatorTests.cs` (new, 3 cases).
+- **Verified:** `dotnet build` clean (0 warnings); full unit suite green (Core 1120, Storage 96, Web 111).
+- **Scope note for review:** the spec §8 "attempt a direct `DeleteTrustAnchor` then degrade" is implemented as wipe-local-first + always-show-cleanup-snippet. The direct-revoke attempt is deferred — it needs an AWS RolesAnywhere client (SDK or native signed request) and the runtime identity to hold `rolesanywhere:DeleteTrustAnchor`, which the read-only `ConnapseRead` policy does not grant, so the attempt would almost always `AccessDenied` into exactly this snippet. **BYO intermediate cert chain (`X-Amz-X509-Chain`) deferred** (BYO cert must chain directly to the registered trust anchor).
+- **Next:** Codex adversarial review of the branch.

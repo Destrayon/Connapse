@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Connapse.Core.Utilities;
 
 /// <summary>The non-secret identifiers a completed Roles Anywhere setup returns.</summary>
@@ -199,5 +201,76 @@ public static class AwsRolesAnywhereSetup
             if (!(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')) return string.Empty;
         }
         return trimmed;
+    }
+
+    // Shapes like us-east-1, eu-west-2, us-gov-west-1, cn-northwest-1: two-letter geo, one or more
+    // hyphen-separated words, then a trailing hyphen-number. Covers every current AWS region.
+    private static readonly Regex RegionShape =
+        new("^[a-z]{2}(-[a-z]+)+-[0-9]+$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Whether a string is usable as an AWS region for the setup script.
+    /// </summary>
+    /// <remarks>
+    /// The UI gate the spec requires before generating the script: <see cref="GenerateScript"/>
+    /// sanitises an empty or malformed region to empty, which produces an unparseable ARN block, so
+    /// the region must be checked before it reaches the script rather than after a failed round-trip.
+    /// </remarks>
+    public static bool IsValidRegion(string? region)
+    {
+        string clean = SanitiseRegion(region);
+        return clean.Length > 0 && RegionShape.IsMatch(clean);
+    }
+
+    /// <summary>
+    /// A CloudShell snippet that removes this instance's own Roles Anywhere resources.
+    /// </summary>
+    /// <remarks>
+    /// Every resource the setup script created is per-instance and fingerprint-named, so this deletes
+    /// exactly this instance's trust anchor, profile, role policy, and role — nothing shared, because
+    /// nothing is shared. Reset wipes the local credential first (that is what stops this instance
+    /// authenticating); this is the tidy-up for the AWS side, shown for the operator to run when
+    /// Connapse's own identity cannot delete these directly. Returns null when the ARNs are not the
+    /// expected shape, since a malformed delete command is worse than none.
+    /// </remarks>
+    public static string? GenerateResetScript(
+        string trustAnchorArn, string profileArn, string roleArn, string region)
+    {
+        string cleanRegion = SanitiseRegion(region);
+        string? trustAnchorId = LastSegment(trustAnchorArn, "trust-anchor/");
+        string? profileId = LastSegment(profileArn, "profile/");
+        string? roleName = LastSegment(roleArn, "role/");
+
+        if (cleanRegion.Length == 0 || trustAnchorId is null || profileId is null || roleName is null)
+            return null;
+
+        return $"""
+            # Removes THIS Connapse instance's Roles Anywhere resources. Run in AWS CloudShell.
+            aws rolesanywhere delete-trust-anchor --region "{cleanRegion}" --trust-anchor-id "{trustAnchorId}"
+            aws rolesanywhere delete-profile --region "{cleanRegion}" --profile-id "{profileId}"
+            aws iam delete-role-policy --role-name "{roleName}" --policy-name ConnapseRead
+            aws iam delete-role --role-name "{roleName}"
+            """.Replace("\r\n", "\n");
+    }
+
+    /// <summary>The resource id after an ARN's <paramref name="resourcePrefix"/>, or null if absent/unsafe.</summary>
+    /// <remarks>
+    /// Guards against shell-metacharacter injection: the extracted id is interpolated into a command,
+    /// so anything but the AWS id/name character set is rejected rather than quoted-and-hoped.
+    /// </remarks>
+    private static string? LastSegment(string? arn, string resourcePrefix)
+    {
+        if (string.IsNullOrEmpty(arn)) return null;
+        int at = arn.IndexOf(resourcePrefix, StringComparison.Ordinal);
+        if (at < 0) return null;
+        string id = arn[(at + resourcePrefix.Length)..].Trim();
+        if (id.Length == 0) return null;
+        // AWS trust-anchor/profile ids are UUIDs; role names allow [\w+=,.@-]. Reject anything else.
+        foreach (char c in id)
+        {
+            if (!(char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '+' or '=' or ',' or '.' or '@'))
+                return null;
+        }
+        return id;
     }
 }
