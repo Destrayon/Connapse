@@ -232,4 +232,59 @@ public class AwsRolesAnywhereSetupTests
             script.Should().Contain($"region={expectedInBlock}");
         }
     }
+
+    [Theory]
+    [InlineData("us-east-1")]
+    [InlineData("eu-west-2")]
+    [InlineData("ap-southeast-1")]
+    [InlineData("us-gov-west-1")]
+    [InlineData("cn-northwest-1")]
+    [InlineData("ca-central-1")]
+    public void IsValidRegion_AcceptsRealAwsRegions(string region) =>
+        AwsRolesAnywhereSetup.IsValidRegion(region).Should().BeTrue();
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("useast1")]           // no hyphens
+    [InlineData("us-east")]           // no trailing number
+    [InlineData("US-EAST-1")]         // uppercase
+    [InlineData("us-east-1\"; rm -rf /")] // injection attempt
+    [InlineData("$(id)")]
+    public void IsValidRegion_RejectsEmptyMalformedOrUnsafe(string? region) =>
+        AwsRolesAnywhereSetup.IsValidRegion(region).Should().BeFalse();
+
+    [Fact]
+    public void GenerateResetScript_EmitsDeletesForThisInstancesResources()
+    {
+        string? script = AwsRolesAnywhereSetup.GenerateResetScript(
+            TrustAnchorArn, ProfileArn, RoleArn, Region);
+
+        script.Should().NotBeNull();
+        script!.Should().Contain("delete-trust-anchor --region \"us-east-1\" --trust-anchor-id \"ta\"");
+        script.Should().Contain("delete-profile --region \"us-east-1\" --profile-id \"pf\"");
+        script.Should().Contain("delete-role-policy --role-name \"connapse-ra-x\" --policy-name ConnapseRead");
+        script.Should().Contain("delete-role --role-name \"connapse-ra-x\"");
+    }
+
+    [Theory]
+    [InlineData("not-an-arn", ProfileArn, RoleArn, Region)]          // trust anchor unparseable
+    [InlineData(TrustAnchorArn, "not-an-arn", RoleArn, Region)]      // profile unparseable
+    [InlineData(TrustAnchorArn, ProfileArn, "not-an-arn", Region)]   // role unparseable
+    [InlineData(TrustAnchorArn, ProfileArn, RoleArn, "")]            // no region
+    public void GenerateResetScript_ReturnsNullForMalformedInput(
+        string ta, string profile, string role, string region) =>
+        AwsRolesAnywhereSetup.GenerateResetScript(ta, profile, role, region).Should().BeNull();
+
+    [Fact]
+    public void GenerateResetScript_RejectsShellMetacharactersInResourceIds()
+    {
+        // An id carrying shell metacharacters would be interpolated into a command; reject the whole
+        // ARN rather than emit an injectable delete.
+        string malicious = "arn:aws:rolesanywhere:us-east-1:111111111111:trust-anchor/ta\"; rm -rf /";
+
+        AwsRolesAnywhereSetup.GenerateResetScript(malicious, ProfileArn, RoleArn, Region)
+            .Should().BeNull();
+    }
 }

@@ -207,6 +207,8 @@ public static class ServiceCollectionExtensions
         // The store stays scoped: it reaches the database through IDbContextFactory, which this
         // application registers as scoped, so nothing consuming it directly can be a singleton.
         services.AddScoped<IProviderCredentialStore, Connections.PostgresProviderCredentialStore>();
+        services.AddScoped<CloudScope.RolesAnywhere.IRolesAnywhereSetupValidator,
+            CloudScope.RolesAnywhere.RolesAnywhereSetupValidator>();
 
         // These two must be singletons, because ConnectorFactory is one and consumes them. The
         // credential provider therefore takes IServiceScopeFactory and opens a scope per refresh

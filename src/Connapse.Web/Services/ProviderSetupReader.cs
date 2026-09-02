@@ -260,7 +260,7 @@ public class ProviderSetupReader(
             // earlier: AWS has not started honouring the key yet.
             if (stored is not null)
                 return NotWorkingYet(name, description, stored,
-                    "The stored access key is not being accepted by AWS.");
+                    "The stored credential is not being accepted by AWS.");
 
             return new ProviderRequirement(
                 name, description,
@@ -305,15 +305,15 @@ public class ProviderSetupReader(
         // page telling someone to sit still while nothing happens.
         if (stored.VerifiedAt is not null)
             return new ProviderRequirement(name, description, RequirementStatus.Failed,
-                "This key worked before and no longer does. It has most likely been deleted or "
-                + "deactivated in AWS. Create the identity again.", action, href);
+                "This credential worked before and no longer does. It has most likely been revoked "
+                + "or deleted in AWS. Set up access again.", action, href);
 
         TimeSpan age = clock.GetUtcNow() - new DateTimeOffset(
             DateTime.SpecifyKind(stored.CreatedAt, DateTimeKind.Utc));
 
         if (age < ProvisioningWindow)
             return new ProviderRequirement(name, description, RequirementStatus.Provisioning,
-                "AWS has not finished issuing this key. This usually takes seconds.");
+                "AWS has not finished activating this credential. This usually takes seconds.");
 
         return new ProviderRequirement(name, description, RequirementStatus.Failed,
             $"{reason} Create the identity again.", action, href);
