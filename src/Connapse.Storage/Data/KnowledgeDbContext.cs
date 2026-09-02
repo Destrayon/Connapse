@@ -474,15 +474,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("provider")
                 .HasMaxLength(32);
 
-            entity.Property(e => e.PublicId)
-                .HasColumnName("public_id")
-                .HasMaxLength(256)
-                .IsRequired();
-
-            entity.Property(e => e.SecretProtected)
-                .HasColumnName("secret_protected")
-                .IsRequired();
-
             entity.Property(e => e.PrincipalName)
                 .HasColumnName("principal_name")
                 .HasMaxLength(256);

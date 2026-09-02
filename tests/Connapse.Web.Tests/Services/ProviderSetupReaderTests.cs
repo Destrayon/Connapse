@@ -34,7 +34,7 @@ public class ProviderSetupReaderTests
     private static ProviderSetupReader Build(
         AwsProbe<AwsCallerIdentity> identity,
         AwsProbe<IReadOnlyList<string>> buckets,
-        ProviderCredentialInfo? stored = null,
+        ProviderCredentialStatus? stored = null,
         TimeSpan? sinceCreated = null,
         IProviderCredentialStore? credentials = null,
         SamlSignInSettings? samlSignIn = null,
@@ -47,7 +47,7 @@ public class ProviderSetupReaderTests
         if (credentials is null)
         {
             credentials = Substitute.For<IProviderCredentialStore>();
-            credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(stored);
+            credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns(stored);
         }
 
         var connections = Substitute.For<IConnectionStore>();
@@ -65,11 +65,12 @@ public class ProviderSetupReaderTests
             NullLogger<ProviderSetupReader>.Instance);
     }
 
-    private static ProviderCredentialInfo StoredKey(DateTime? verifiedAt = null) =>
-        new("aws", "AKIAEXAMPLE", "connapse-reader", Created, verifiedAt);
+    /// <summary>A stored credential's status: created at <see cref="Created"/>, verified when asked.</summary>
+    private static ProviderCredentialStatus StoredKey(DateTime? verifiedAt = null) =>
+        new(Created, verifiedAt);
 
-    /// <summary>A key that has been seen working, which is what rules propagation delay out.</summary>
-    private static ProviderCredentialInfo VerifiedKey() => StoredKey(Created.AddMinutes(1));
+    /// <summary>A credential that has been seen working, which is what rules propagation delay out.</summary>
+    private static ProviderCredentialStatus VerifiedKey() => StoredKey(Created.AddMinutes(1));
 
     private static async Task<ProviderRequirement> AccessAsync(ProviderSetupReader reader) =>
         (await reader.ReadAsync()).Single(p => p.Key == "aws")
@@ -203,7 +204,7 @@ public class ProviderSetupReaderTests
         // Nothing else is positioned to notice. Without this the distinction above has no input,
         // and every failure looks like a slow start.
         var credentials = Substitute.For<IProviderCredentialStore>();
-        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
+        credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
 
         await AccessAsync(Build(
             Authenticated(AwsCredentialKind.StoredKey), Buckets("docs"), StoredKey(),
@@ -218,7 +219,7 @@ public class ProviderSetupReaderTests
     {
         // There is no row to mark, and an ambient credential is not Connapse's to track.
         var credentials = Substitute.For<IProviderCredentialStore>();
-        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns((ProviderCredentialInfo?)null);
+        credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns((ProviderCredentialStatus?)null);
 
         await AccessAsync(Build(
             Authenticated(AwsCredentialKind.InstanceOrTaskRole), Buckets("docs"),
@@ -234,7 +235,7 @@ public class ProviderSetupReaderTests
         // Losing the timestamp costs a wrong message on some later failure. Losing the status page
         // costs every message on it.
         var credentials = Substitute.For<IProviderCredentialStore>();
-        credentials.GetAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
+        credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns(StoredKey());
         credentials.MarkVerifiedAsync("aws", Arg.Any<DateTime>(), Arg.Any<CancellationToken>())
             .Returns<bool>(_ => throw new InvalidOperationException("database is down"));
 

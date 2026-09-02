@@ -33,4 +33,17 @@ public static class AwsAccessCard
         !requirementsLoaded ? AwsAccessMode.Loading
         : hasStoredRolesAnywhere ? AwsAccessMode.RolesAnywhere
         : AwsAccessMode.NotStored;
+
+    /// <summary>
+    /// Recomputes one manual-entry field when the stored credential is (re)loaded.
+    /// </summary>
+    /// <remarks>
+    /// A field the operator has not touched still equals what was last loaded into it, so it takes the
+    /// freshly loaded value — picking up a change made elsewhere since the form opened. A field they
+    /// edited differs from the last-loaded value and is preserved, so a re-check never discards work in
+    /// progress. On the first load both the current value and the last-loaded value are null, so every
+    /// field fills.
+    /// </remarks>
+    public static string? RefreshManualField(string? current, string? lastLoaded, string? loaded) =>
+        current == lastLoaded ? loaded : current;
 }

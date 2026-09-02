@@ -43,12 +43,6 @@ public class GeneratedScriptLintTests(ITestOutputHelper output)
     /// </summary>
     public static TheoryData<string, string> Scripts() => new()
     {
-        { "aws-iam-user/default-name", AwsIamUserSetup.GenerateScript(null) },
-
-        // The name is an allowlist away from arbitrary text, and the allowlist keeps the characters
-        // that survive IAM. This asserts the ones it keeps are also ones a shell is happy with.
-        { "aws-iam-user/awkward-name", AwsIamUserSetup.GenerateScript("Team+Reader=1,dev.ops@x-y") },
-
         { "access-grants/region", AccessGrantsSetup.GenerateScript("eu-central-1") },
 
         // The branch where discovery has not run yet, so the script must still parse in order to
