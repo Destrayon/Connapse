@@ -145,6 +145,10 @@ than a one-shot paste-back:
 
 **PR 3 save-safety requirement:** the setup flow MUST validate the certificate/private-key pair and complete a preflight CreateSession BEFORE persisting, and retain the prior encrypted credential until the new one activates, so a bad cert/ARN/typo never destroys the last working credential (`SaveRolesAnywhereAsync`/`SaveAsync` overwrite irreversibly).
 
+**PR 3 live-AWS acceptance gate (from PR 2b review):** the PR 3 live-AWS smoke test MUST confirm AWS accepts the locally-generated *self-signed* certificate as both the trust anchor AND the `CreateSession` signing certificate (the current one-cert design flags the cert `CA:true` + `KeyCertSign` + `DigitalSignature`). If AWS rejects a self-signed CA cert as its own leaf, the design must split into a separate CA cert and end-entity leaf cert before wiring.
+
+**PR 3 region requirement:** the setup UI MUST require a valid region before generating the script — `AwsRolesAnywhereSetup.GenerateScript` sanitises an invalid/empty region to empty, which yields an unparseable ARN block (`ParseResult` returns null), so the UI must not let an empty region reach it.
+
 ## §4 Manual values
 
 Same runtime provider, script skipped. Consistent with how every provider card

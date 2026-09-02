@@ -94,7 +94,7 @@ public static class AwsRolesAnywhereSetup
                 if [ "$OWNER" != "Connapse" ]; then FAILED="a role named $ROLE already exists and Connapse did not create it"; fi
                 ROLE_ARN=$(aws iam get-role --role-name "$ROLE" --query 'Role.Arn' --output text)
               else
-                TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"rolesanywhere.amazonaws.com"},"Action":["sts:AssumeRole","sts:SetSourceIdentity"],"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:rolesanywhere:*:{{account}}:trust-anchor/*"} } }]}'
+                TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"rolesanywhere.amazonaws.com"},"Action":["sts:AssumeRole","sts:TagSession","sts:SetSourceIdentity"],"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:rolesanywhere:*:{{account}}:trust-anchor/*"} } }]}'
                 TRUST=${TRUST//{{account}}/$ACCOUNT}
                 ROLE_ARN=$(aws iam create-role --role-name "$ROLE" --assume-role-policy-document "$TRUST" --tags Key=CreatedBy,Value=Connapse --query 'Role.Arn' --output text) || FAILED="could not create the role"
               fi

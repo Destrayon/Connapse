@@ -88,6 +88,7 @@ public class AwsRolesAnywhereSetupTests
         script.Should().Contain("ArnLike");
         script.Should().Contain("arn:aws:rolesanywhere:*:__CONNAPSE_ACCOUNT_ID__:trust-anchor/*"); // not a pinned ARN
         script.Should().Contain("sts:AssumeRole");
+        script.Should().Contain("sts:TagSession");
     }
 
     [Fact]
