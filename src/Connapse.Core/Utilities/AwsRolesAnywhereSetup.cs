@@ -62,4 +62,94 @@ public static class AwsRolesAnywhereSetup
 
         return new AwsRolesAnywhereArns(trustAnchor, profile, role, region);
     }
+
+    /// <summary>
+    /// The CloudShell script that provisions Roles Anywhere access for this instance. The shared role,
+    /// ConnapseRead policy, and profile are reused if a Connapse-tagged copy already exists (so a second
+    /// instance does not clobber them); this instance's own trust anchor is created from the embedded cert.
+    /// </summary>
+    public static string GenerateScript(string certificatePem, string? region)
+    {
+        string cert = certificatePem.Replace("\r\n", "\n").Trim();
+        string pinnedRegion = SanitiseRegion(region);
+        string policy = S3SetupPolicy.ForManagedIdentity().Replace("\r\n", "\n");
+        string account = S3SetupPolicy.AccountPlaceholder;
+        string role = $"{NamePrefix}-rolesanywhere";
+        string profile = $"{NamePrefix}-rolesanywhere";
+
+        string script = $$"""
+            # Provisions Connapse's IAM Roles Anywhere access. Safe to re-run and to run from a
+            # second Connapse instance: the role, policy, and profile are shared and reused.
+            FAILED=""
+            REGION="{{pinnedRegion}}"
+            ROLE="{{role}}"
+            PROFILE="{{profile}}"
+
+            ACCOUNT=$(aws sts get-caller-identity --query Account --output text) || FAILED="could not resolve the AWS account"
+
+            # --- Shared role (reuse the Connapse-tagged one, else create) ---
+            ROLE_ARN=""
+            if aws iam get-role --role-name "$ROLE" >/dev/null 2>&1; then
+              OWNER=$(aws iam list-role-tags --role-name "$ROLE" --query "Tags[?Key=='CreatedBy'].Value" --output text)
+              if [ "$OWNER" != "Connapse" ]; then FAILED="a role named $ROLE already exists and Connapse did not create it"; fi
+              ROLE_ARN=$(aws iam get-role --role-name "$ROLE" --query 'Role.Arn' --output text)
+            else
+              TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"rolesanywhere.amazonaws.com"},"Action":["sts:AssumeRole","sts:SetSourceIdentity"],"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:rolesanywhere:*:{{account}}:trust-anchor/*"} } }]}'
+              TRUST=${TRUST//{{account}}/$ACCOUNT}
+              ROLE_ARN=$(aws iam create-role --role-name "$ROLE" --assume-role-policy-document "$TRUST" --tags Key=CreatedBy,Value=Connapse --query 'Role.Arn' --output text) || FAILED="could not create the role"
+            fi
+
+            # --- ConnapseRead policy (apply/update on the shared role) ---
+            if [ -z "$FAILED" ]; then
+              POLICY='{{policy}}'
+              POLICY=${POLICY//{{account}}/$ACCOUNT}
+              aws iam put-role-policy --role-name "$ROLE" --policy-name ConnapseRead --policy-document "$POLICY" || FAILED="could not apply the ConnapseRead policy"
+            fi
+
+            # --- Shared profile (reuse by name, else create) ---
+            PROFILE_ARN=""
+            if [ -z "$FAILED" ]; then
+              PROFILE_ARN=$(aws rolesanywhere list-profiles --query "profiles[?name=='$PROFILE'].profileArn | [0]" --output text)
+              if [ "$PROFILE_ARN" = "None" ] || [ -z "$PROFILE_ARN" ]; then
+                PROFILE_ARN=$(aws rolesanywhere create-profile --name "$PROFILE" --role-arns "$ROLE_ARN" --enabled --query 'profile.profileArn' --output text) || FAILED="could not create the profile"
+              fi
+            fi
+
+            # --- Per-instance trust anchor from this instance's certificate ---
+            TA_ARN=""
+            if [ -z "$FAILED" ]; then
+              CERT='{{cert}}'
+              FP=$(printf '%s' "$CERT" | openssl x509 -noout -fingerprint -sha256 | sed 's/.*=//; s/://g' | cut -c1-16 | tr 'A-Z' 'a-z')
+              TA_NAME="{{NamePrefix}}-ra-$FP"
+              TA_ARN=$(aws rolesanywhere list-trust-anchors --query "trustAnchors[?name=='$TA_NAME'].trustAnchorArn | [0]" --output text)
+              if [ "$TA_ARN" = "None" ] || [ -z "$TA_ARN" ]; then
+                jq -n --arg cert "$CERT" '{sourceData:{x509CertificateData:$cert},sourceType:"CERTIFICATE_BUNDLE"}' > "$HOME/connapse-ta-source.json"
+                TA_ARN=$(aws rolesanywhere create-trust-anchor --name "$TA_NAME" --source "file://$HOME/connapse-ta-source.json" --enabled --query 'trustAnchor.trustAnchorArn' --output text) || FAILED="could not create the trust anchor"
+                rm -f "$HOME/connapse-ta-source.json"
+              fi
+            fi
+
+            # --- Report ---
+            if [ -z "$FAILED" ]; then
+              printf '%s\ntrustAnchorArn=%s\nprofileArn=%s\nroleArn=%s\nregion={{pinnedRegion}}\n%s\n' "{{BeginMarker}}" "$TA_ARN" "$PROFILE_ARN" "$ROLE_ARN" "{{EndMarker}}"
+              echo "Paste the block above back into Connapse."
+            else
+              echo "Setup did not complete: $FAILED"
+            fi
+            """;
+
+        return script.Replace("\r\n", "\n");
+    }
+
+    private static string SanitiseRegion(string? region)
+    {
+        if (string.IsNullOrWhiteSpace(region)) return string.Empty;
+        string trimmed = region.Trim();
+        if (trimmed.Length is 0 or > 32) return string.Empty;
+        foreach (char c in trimmed)
+        {
+            if (!(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-')) return string.Empty;
+        }
+        return trimmed;
+    }
 }
