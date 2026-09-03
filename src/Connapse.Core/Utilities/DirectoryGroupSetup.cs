@@ -96,6 +96,8 @@ public static class DirectoryGroupSetup
         GROUP_NAME="{{name}}"
         GROUP_ID=""
         RECORD_NAME=""
+        BLOCK=""
+        BLOCK_HINT=""
 
         [ -n "$REGION" ] || { echo 'No region. Locate your Identity Center instance first.'; FAILED=1; }
         [ -n "$STORE" ] || { echo 'No identity store. Locate your Identity Center instance first.'; FAILED=1; }
@@ -110,6 +112,8 @@ public static class DirectoryGroupSetup
             echo '  (none)'
             echo 'No groups found. Enter a group name in Connapse to create one, or use the manual fields.'
           else
+            # The block is built now but printed at the very end, so the group listing above is
+            # not split from the thing to copy by everything the create branch would print between.
             BLOCK=$(
               printf '%s\n' '{{BeginMarker}}'
               for G in $GROUP_IDS; do
@@ -120,8 +124,7 @@ public static class DirectoryGroupSetup
               done
               printf '%s\n' '{{EndMarker}}'
             )
-            printf '\n%s\n\n' "$BLOCK"
-            echo 'Copy the block above into Connapse and choose the group to use.'
+            BLOCK_HINT='Copy the block above into Connapse and choose the group to use.'
           fi
         fi
 
@@ -161,7 +164,8 @@ public static class DirectoryGroupSetup
           fi
         fi
 
-        # Return the selected or created group.
+        # Build the block for the selected or created group. Printed with the discovery block below,
+        # at the end, so both paths leave the thing to copy as the last thing on screen.
         if [ -z "$FAILED" ] && [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
           BLOCK=$(
             printf '%s\n' '{{BeginMarker}}'
@@ -169,16 +173,17 @@ public static class DirectoryGroupSetup
             printf 'groupName=%s\n' "$RECORD_NAME"
             printf '%s\n' '{{EndMarker}}'
           )
-          printf '\n%s\n\n' "$BLOCK"
-          echo 'Copy the block above into Connapse so it can name this group for you.'
+          BLOCK_HINT='Copy the block above into Connapse so it can name this group for you.'
         fi
 
+        # Whichever path ran, the block to paste comes last — after the listing, after any create
+        # messages — so it never scrolls off in the middle of the output.
         if [ -n "$FAILED" ]; then
           echo
           echo 'Something above failed. Nothing was recorded in Connapse; fix it and run this again.'
-        elif [ -n "$GROUP_ID" ] && [ "$GROUP_ID" != 'None' ]; then
-          echo
-          echo 'Paste the block above into Connapse.'
+        elif [ -n "$BLOCK" ]; then
+          printf '\n%s\n\n' "$BLOCK"
+          echo "$BLOCK_HINT"
         fi
         """.Replace("\r\n", "\n");
     }
