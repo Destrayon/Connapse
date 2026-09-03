@@ -56,6 +56,27 @@ public static class GrantCoverage
     }
 
     /// <summary>
+    /// Whether <paramref name="grantScope"/> still reaches any of <paramref name="allowedLocations"/>.
+    /// </summary>
+    /// <remarks>
+    /// The reverse of <see cref="Ungranted"/>: that asks which locations no grant reaches; this asks
+    /// whether one grant reaches any location — the question cleanup asks to decide a grant is
+    /// orphaned. Same boundary-aware overlap, one source of truth, so "granted" and "orphaned"
+    /// cannot disagree. A scope no location covers is orphaned.
+    /// </remarks>
+    public static bool IsScopeCovered(string? grantScope, IEnumerable<string>? allowedLocations)
+    {
+        string scope = Normalise(grantScope);
+        if (scope.Length == 0)
+            return false;
+
+        return (allowedLocations ?? [])
+            .Select(l => l?.Trim())
+            .Where(l => !string.IsNullOrEmpty(l))
+            .Any(l => Overlaps(scope, Normalise(Scheme + l!)));
+    }
+
+    /// <summary>
     /// Reduces a scope or location to the URI prefix it stands for.
     /// </summary>
     /// <remarks>
