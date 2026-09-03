@@ -446,6 +446,58 @@
                                              ConfirmLabel="Remove — AWS access stays live"
                                              HelpText="Deletes the Roles Anywhere certificate and ARNs stored in Connapse. It does NOT revoke access in AWS: the trust anchor and profile stay enabled and the certificate keeps working until it expires. A CloudShell command to revoke it is shown afterwards — run it now if you are removing a credential you believe is compromised." />
                     }
+
+                    @* Bring the role's ConnapseRead policy up to date after a Connapse update adds a
+                       permission. iam:PutRolePolicy replaces it in place, so this is safe to re-run.
+                       Connapse never runs it: a runtime identity that could rewrite its own policy
+                       could grant itself anything, so IAM editing stays with the administrator. *@
+                    @if (AccessMode is AwsAccessMode.RolesAnywhere or AwsAccessMode.NotStored)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => showRolePolicyUpdate = !showRolePolicyUpdate">
+                            <span class="bi-arrow-repeat me-1"></span> Update role permissions
+                        </button>
+                        @if (showRolePolicyUpdate)
+                        {
+                            <div class="w-100 mt-2">
+                                @if (RolePolicyUpdateCommand is { Length: > 0 } updateCmd)
+                                {
+                                    <div class="small mb-1">
+                                        Run this if a feature reports Connapse is not allowed to do
+                                        something in AWS — it re-applies the current
+                                        <code>ConnapseRead</code> policy to the role. Safe to re-run;
+                                        it changes nothing else. Connapse never runs it.
+                                    </div>
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:16rem;overflow:auto"><code>@updateCmd</code></pre>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="CopyRolePolicyUpdate">
+                                            <span class="bi-clipboard me-1"></span> Copy command
+                                        </button>
+                                        <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                                           href="https://console.aws.amazon.com/cloudshell/home">
+                                            <span class="bi-terminal me-1"></span> Open CloudShell
+                                        </a>
+                                        <span class="align-self-center small @(rolePolicyCopyOk ? "text-success" : "text-danger")">
+                                            @rolePolicyCopyMessage
+                                        </span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @* Ambient / bring-your-own role: Connapse did not create it and does
+                                       not know its name, so it shows the policy to apply rather than a
+                                       ready command. *@
+                                    <div class="small mb-1">
+                                        Connapse uses a role from its environment here. Apply this
+                                        <code>ConnapseRead</code> policy to that role (replace the account
+                                        id if the placeholder is shown):
+                                    </div>
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-0" style="max-height:16rem;overflow:auto"><code>@AwsRolePolicyUpdate.PolicyDocument(null)</code></pre>
+                                }
+                            </div>
+                        }
+                    }
                 </Actions>
             </ProviderStepCard>
 
@@ -1074,6 +1126,30 @@
     private bool cleaningGrants;
     private string? grantCleanupMessage;
     private bool grantCleanupOk;
+
+    private bool showRolePolicyUpdate;
+    private string? rolePolicyCopyMessage;
+    private bool rolePolicyCopyOk;
+
+    /// <summary>
+    /// The command to re-apply Connapse's role policy, or null when there is no stored Roles Anywhere
+    /// role (the ambient case shows the policy document to apply by hand instead).
+    /// </summary>
+    private string? RolePolicyUpdateCommand =>
+        _lastLoadedConfig?.RoleArn is { Length: > 0 } arn
+            ? AwsRolePolicyUpdate.GenerateCommand(arn)
+            : null;
+
+    private async Task CopyRolePolicyUpdate()
+    {
+        if (RolePolicyUpdateCommand is not { Length: > 0 } command)
+            return;
+
+        rolePolicyCopyOk = await JS.InvokeAsync<bool>("connapse.copyToClipboard", command);
+        rolePolicyCopyMessage = rolePolicyCopyOk
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
 
     /// <summary>
     /// Deletes S3 access grants Connapse created that no connection needs any more.

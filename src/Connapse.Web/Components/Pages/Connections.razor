@@ -1420,8 +1420,9 @@
                 grantFellBack = true;
                 grantResultOk = false;
                 grantResultMessage =
-                    "Connapse's AWS identity is not allowed to create access grants. Use the "
-                    + "CloudShell command below instead, or add s3:CreateAccessGrant to its policy.";
+                    "Connapse's AWS identity is not allowed to create access grants. Update its role "
+                    + "permissions on the AWS provider page (Access → Update role permissions), or "
+                    + "use the CloudShell command below.";
             }
             else
             {
