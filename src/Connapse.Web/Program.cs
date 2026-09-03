@@ -356,6 +356,14 @@ using (var scope = app.Services.CreateScope())
         recurringJobId: "summary-sweep-stale-containers",
         methodCall: s => s.SweepStaleContainersAsync(default),
         cronExpression: "*/5 * * * *");
+
+    // Every 30 minutes: delete S3 access grants Connapse created that no connection needs any
+    // more (a bucket removed, a connection deleted, or the grant group changed). Fail-closed and
+    // provenance-gated inside the service — a failed tick just waits for the next.
+    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IGrantReconciliationJobs>(
+        recurringJobId: "grant-reconcile-orphaned",
+        methodCall: j => j.ReconcileAsync(default),
+        cronExpression: "*/30 * * * *");
 }
 
 app.UseAntiforgery();
