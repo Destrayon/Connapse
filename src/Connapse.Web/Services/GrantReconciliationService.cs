@@ -16,6 +16,14 @@ namespace Connapse.Web.Services;
 /// that will not parse, one that declares no allowlist (and so could index any bucket, making no
 /// grant provably orphaned), an unreadable region — makes it hold back rather than guess. This is the
 /// same discipline as <c>AwsSearchScopeResolver</c>: an answer that cannot be trusted is not acted on.
+/// <para>
+/// Single-instance assumption: it deletes any grant tagged <c>connapse:managed</c> whose scope no
+/// connection covers, computed from <b>this</b> deployment's connections. Where two Connapse
+/// deployments share one AWS account and grant group, one could delete a grant the other still
+/// needs. Per-instance scoping (design §6, a <c>connapse:instance</c> tag matched on delete) is a
+/// deferred follow-up — the fingerprint source is unresolved and does not affect the common
+/// single-instance case.
+/// </para>
 /// </remarks>
 public sealed class GrantReconciliationService(
     IConnectionStore connections,

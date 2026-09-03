@@ -676,7 +676,13 @@ git add src/Connapse.Web/Components/Pages/Providers.razor
 git commit -m "feat: admin button to clean up orphaned access grants"
 ```
 
-### Task 3.5: Instance tag (multi-instance scoping, spec §6)
+### Task 3.5: Instance tag (multi-instance scoping, spec §6) — DEFERRED
+
+**Status: deferred.** Not built in the initial epic. Reason: the instance fingerprint has no clean
+universal source in `S3AccessGrantsWriter` (the Roles Anywhere trust-anchor ARN is not wired into
+the writer, and ambient on-AWS deployments hold no cert at all), and the common single-instance case
+is correct without it. Resolving the fingerprint source is a design decision for the owner. The
+single-instance assumption is documented in `GrantReconciliationService`'s remarks. When taken up:
 
 **Files:**
 - Modify: `S3AccessGrantsWriter.CreateAsync` (add `connapse:instance` tag) and `GrantTags` (add `InstanceKey`).
