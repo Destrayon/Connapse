@@ -32,6 +32,13 @@ public class AwsRolePolicyUpdateTests
     }
 
     [Fact]
+    public void GenerateCommand_IsOneLine_SoItPastesIntoAnyShell()
+    {
+        // A multi-line policy inside single quotes breaks in PowerShell; the command must be one line.
+        AwsRolePolicyUpdate.GenerateCommand(RoleArn).Should().NotContain("\n").And.NotContain("\r");
+    }
+
+    [Fact]
     public void GenerateCommand_RoleArnWithAPath_TakesTheLastSegmentAsTheName()
     {
         string cmd = AwsRolePolicyUpdate.GenerateCommand(

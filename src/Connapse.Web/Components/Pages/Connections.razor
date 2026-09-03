@@ -821,28 +821,6 @@
                                                 </span>
                                             }
                                         </div>
-
-                                        @if (grantFellBack && GrantCommand is { Length: > 0 } grantCommand)
-                                        {
-                                            <div class="small mt-2 mb-1">
-                                                Run this in AWS CloudShell with your own credentials instead:
-                                            </div>
-                                            <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:14rem;overflow:auto"><code>@grantCommand</code></pre>
-                                            <div class="d-flex flex-wrap gap-2">
-                                                <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                        @onclick="CopyGrantCommand">
-                                                    <span class="bi-clipboard me-1"></span> Copy command
-                                                </button>
-                                                <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
-                                                   href="https://console.aws.amazon.com/cloudshell/home">
-                                                    <span class="bi-terminal me-1"></span> Open CloudShell
-                                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
-                                                </a>
-                                                <span class="align-self-center small @(grantCopySucceeded ? "text-success" : "text-danger")">
-                                                    @grantCopyMessage
-                                                </span>
-                                            </div>
-                                        }
                                     </div>
                                 }
                                 else
@@ -850,7 +828,7 @@
                                     <div class="small mt-2">
                                         Choose a group to grant to in
                                         <a href="/admin/providers/aws">the AWS provider setup</a>,
-                                        and the exact command appears here.
+                                        and a Grant access button appears here.
                                     </div>
                                 }
                             </div>
@@ -1281,34 +1259,6 @@
     }
 
     /// <summary>
-    /// The command that grants this connection's buckets, or empty when no group has been chosen.
-    /// </summary>
-    /// <remarks>
-    /// Built here rather than on the providers page because a grant names a bucket, and a bucket is
-    /// a property of a connection. The global version could not know it, so it printed a
-    /// placeholder — and was run with the placeholder still in it.
-    /// </remarks>
-    private string GrantCommand
-    {
-        get
-        {
-            var signIn = SamlOptions.CurrentValue;
-
-            if (!signIn.HasGrantGroup || coverage is not { HasWarning: true })
-                return string.Empty;
-
-            // Only the buckets nothing covers. Re-granting one that already works would be noise
-            // in a command whose whole point is that everything in it is needed.
-            // The connection's region, not the directory's. A grant is created against the
-            // Access Grants instance in the region the bucket lives in, and using the Identity
-            // Center region instead fails as InvalidAccessGrant with "The requested S3 Bucket is
-            // in a different region" -- which names the symptom and not the cause.
-            return AccessGrantScript.GenerateScript(
-                form.Region, coverage.Ungranted, signIn.GrantGroupId, isGroup: true);
-        }
-    }
-
-    /// <summary>
     /// The two regions when a grant could never be created, or null when they agree.
     /// </summary>
     /// <remarks>
@@ -1342,37 +1292,20 @@
         }
     }
 
-    /// <summary>What to call the group in the sentence above the command.</summary>
+    /// <summary>What to call the group in the sentence beside the Grant access button.</summary>
     private string GrantGroupLabel =>
         SamlOptions.CurrentValue.GrantGroupName is { Length: > 0 } name
             ? name
             : "the chosen group";
 
-    private string? grantCopyMessage;
-    private bool grantCopySucceeded;
-
-    private async Task CopyGrantCommand()
-    {
-        grantCopyMessage = null;
-
-        grantCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.copyToClipboard", GrantCommand);
-
-        grantCopyMessage = grantCopySucceeded
-            ? "Copied."
-            : "Could not copy — select the command above and copy it manually.";
-    }
-
     private bool granting;
     private string? grantResultMessage;
     private bool grantResultOk;
-    private bool grantFellBack;   // an AccessDenied pushed us back to the CloudShell script
 
     /// <summary>Whether Connapse can offer to create the grants itself.</summary>
     /// <remarks>
-    /// The same conditions the command was shown under: a group is configured, this connection has
-    /// ungranted buckets, and the regions are not mismatched. When true the button is offered; the
-    /// CloudShell script appears only after <see cref="grantFellBack"/> is set by an AccessDenied.
+    /// A group is configured, this connection has ungranted buckets, and the regions are not
+    /// mismatched. When true the Grant access button is offered.
     /// </remarks>
     private bool CanGrant =>
         SamlOptions.CurrentValue.HasGrantGroup
@@ -1390,7 +1323,6 @@
     private async Task GrantAccess()
     {
         grantResultMessage = null;
-        grantFellBack = false;
         granting = true;
 
         try
@@ -1399,7 +1331,7 @@
             var grantee = new AccessGrantee(IsGroup: true, Id: signIn.GrantGroupId);
 
             var result = await GrantsWriter.GrantReadAsync(
-                grantee, form.Region, coverage!.Ungranted, CancellationToken.None);
+                grantee, form.Region ?? string.Empty, coverage!.Ungranted, CancellationToken.None);
 
             if (result.Succeeded)
             {
@@ -1415,14 +1347,12 @@
             }
             else if (result.AccessDenied)
             {
-                // Connapse's identity is not allowed to create grants (a bring-your-own narrow
-                // role, or the policy not applied yet). Fall back to the admin-run CloudShell script.
-                grantFellBack = true;
+                // Connapse's identity is not allowed to create grants (a bring-your-own narrow role,
+                // or the policy not applied yet). The fix lives on the provider page, not here.
                 grantResultOk = false;
                 grantResultMessage =
                     "Connapse's AWS identity is not allowed to create access grants. Update its role "
-                    + "permissions on the AWS provider page (Access → Update role permissions), or "
-                    + "use the CloudShell command below.";
+                    + "permissions on the AWS provider page: Access → Update role permissions.";
             }
             else
             {

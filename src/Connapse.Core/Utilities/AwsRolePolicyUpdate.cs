@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Connapse.Core.Utilities;
 
 /// <summary>
@@ -29,10 +31,20 @@ public static class AwsRolePolicyUpdate
         if (ParseRoleArn(roleArn) is not var (account, roleName))
             return null;
 
-        string policy = PolicyDocument(account).Replace("\r\n", "\n");
+        // Single-line JSON on purpose. A multi-line policy inside single quotes works in CloudShell
+        // (bash) but breaks in PowerShell, where a single-quoted string cannot span lines — so the
+        // command a Windows admin pastes locally would fail. Compacted, it is one safe argument.
+        string policy = Compact(PolicyDocument(account));
 
         return $"aws iam put-role-policy --role-name {roleName} "
              + $"--policy-name {PolicyName} --policy-document '{policy}'";
+    }
+
+    /// <summary>Re-serialises a policy document onto one line.</summary>
+    private static string Compact(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return JsonSerializer.Serialize(document.RootElement);
     }
 
     /// <summary>
