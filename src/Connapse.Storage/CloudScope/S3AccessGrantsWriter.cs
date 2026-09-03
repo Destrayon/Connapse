@@ -90,6 +90,12 @@ public sealed class S3AccessGrantsWriter(
                             : GranteeType.DIRECTORY_USER,
                         GranteeIdentifier = grantee.Id,
                     },
+                    // Provenance: cleanup deletes only grants carrying this tag, so it can never
+                    // remove a grant an administrator authored by hand over the same bucket.
+                    Tags = [new Amazon.S3Control.Model.Tag
+                    {
+                        Key = GrantTags.ManagedKey, Value = GrantTags.ManagedValue,
+                    }],
                 }, ct);
 
                 created.Add(subPrefix);
