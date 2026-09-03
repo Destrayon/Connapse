@@ -126,9 +126,9 @@ public static class S3SetupPolicy
     /// One sentence describing <see cref="ForManagedIdentity"/>, for the operator about to run it.
     /// </summary>
     public const string ManagedIdentitySummary =
-        "reading every S3 bucket in the account and creating S3 access grants, which grant "
-        + "directory groups read access to buckets. The only thing it creates is a grant: it "
-        + "writes no object and deletes nothing.";
+        "reading every S3 bucket in the account and creating and removing S3 access grants, which "
+        + "grant directory groups read access to buckets. The only things it changes are grants: it "
+        + "writes no object and deletes no data.";
 
     /// <summary>
     /// Every statement in the managed identity's policy, one group per AWS storage service.
@@ -191,7 +191,14 @@ public static class S3SetupPolicy
             {
                 "s3:ListAccessGrants",
                 "s3:ListAccessGrantsLocations",
-                "s3:CreateAccessGrant"
+                "s3:CreateAccessGrant",
+                // Delete + tag: Connapse tags every grant it creates and later removes the ones no
+                // connection needs. ListTagsForResource reads a grant's tag back (ListAccessGrants
+                // does not return tags), which is how cleanup proves a grant is Connapse's own
+                // before deleting it.
+                "s3:DeleteAccessGrant",
+                "s3:TagResource",
+                "s3:ListTagsForResource"
             },
             ["Resource"] = $"arn:aws:s3:*:{AccountPlaceholder}:access-grants/*"
         },

@@ -53,23 +53,26 @@ public class S3SetupPolicyTests
 
         actions.Should().BeEquivalentTo([
             "s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject",
-            // Resolving what a person may read, and creating the grants that let them. These are
-            // here rather than in a second policy so one document describes everything the identity
-            // can do.
+            // Resolving what a person may read, creating the grants that let them, and removing the
+            // grants no connection needs. These are here rather than in a second policy so one
+            // document describes everything the identity can do.
             "s3:ListAccessGrants", "s3:ListAccessGrantsLocations", "s3:CreateAccessGrant",
+            "s3:DeleteAccessGrant", "s3:TagResource", "s3:ListTagsForResource",
             "identitystore:GetUserId", "identitystore:DescribeUser",
             "identitystore:ListGroupMembershipsForMember"
         ]);
 
-        // The only write is CreateAccessGrant. Every other action is a Get, List or Describe, and
-        // no wildcard is allowed to smuggle a broader one in.
+        // The only writes are grant management — create, delete, tag. Everything else is a Get,
+        // List or Describe, and no wildcard is allowed to smuggle a broader one in.
+        string[] grantManagementWrites =
+            ["s3:CreateAccessGrant", "s3:DeleteAccessGrant", "s3:TagResource"];
         actions.Should().OnlyContain(a =>
-            a == "s3:CreateAccessGrant"
+            grantManagementWrites.Contains(a)
             || a.Contains(":Get") || a.Contains(":List") || a.Contains(":Describe"));
         actions.Should().NotContain(a => a.Contains("*"));
 
-        // No object-write, ever: the grant is the sole create, and it is on access-grants, not S3
-        // objects.
+        // No object-write, ever: the only delete is DeleteAccessGrant (an access-control record),
+        // never an object or a bucket.
         actions.Should().NotContain(["s3:PutObject", "s3:DeleteObject", "s3:DeleteBucket"]);
     }
 
@@ -82,6 +85,19 @@ public class S3SetupPolicyTests
             .Should().Contain(["s3:CreateAccessGrant", "s3:ListAccessGrantsLocations"]);
 
         // Bounded to access-grants -- creating a grant is not authority over objects.
+        manage.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
+    }
+
+    [Fact]
+    public void ForManagedIdentity_GrantsDeleteAndTagAccessGrant()
+    {
+        // Cleanup needs delete; provenance needs tag-on-create and reading tags back.
+        var manage = Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseManageGrants");
+
+        manage.GetProperty("Action").EnumerateArray().Select(a => a.GetString())
+            .Should().Contain(["s3:DeleteAccessGrant", "s3:TagResource", "s3:ListTagsForResource"]);
+
+        // Still bounded to the access-grants resource -- deletion never reaches an object.
         manage.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
     }
 
