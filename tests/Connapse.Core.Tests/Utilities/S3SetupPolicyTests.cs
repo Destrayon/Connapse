@@ -34,7 +34,7 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(5);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(6);
     }
 
     [Fact]
@@ -59,7 +59,9 @@ public class S3SetupPolicyTests
             "s3:ListAccessGrants", "s3:ListAccessGrantsLocations", "s3:CreateAccessGrant",
             "s3:DeleteAccessGrant", "s3:TagResource", "s3:ListTagsForResource",
             "identitystore:GetUserId", "identitystore:DescribeUser",
-            "identitystore:ListGroupMembershipsForMember"
+            "identitystore:ListGroupMembershipsForMember",
+            // Creating a directory-group grant validates the grantee and the Identity Center instance.
+            "identitystore:DescribeGroup", "sso:DescribeInstance", "sso:DescribeApplication"
         ]);
 
         // The only writes are grant management — create, delete, tag. Everything else is a Get,
@@ -86,6 +88,21 @@ public class S3SetupPolicyTests
 
         // Bounded to access-grants -- creating a grant is not authority over objects.
         manage.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
+    }
+
+    [Fact]
+    public void ForManagedIdentity_CanCreateGrantsForDirectoryGroups()
+    {
+        // Creating a group grant makes S3 Access Grants validate the grantee (DescribeGroup) and the
+        // Identity Center instance (sso). Missing any of these fails the create with an AccessDenied
+        // that names sso/identitystore, not s3 -- the bug this guards against.
+        var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
+            .EnumerateArray()
+            .SelectMany(x => x.GetProperty("Action").EnumerateArray())
+            .Select(a => a.GetString());
+
+        actions.Should().Contain(
+            ["identitystore:DescribeGroup", "sso:DescribeInstance", "sso:DescribeApplication"]);
     }
 
     [Fact]

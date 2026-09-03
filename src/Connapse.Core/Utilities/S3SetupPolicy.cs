@@ -211,7 +211,25 @@ public static class S3SetupPolicy
         {
             ["Sid"] = "ConnapseReadDirectory",
             ["Effect"] = "Allow",
-            ["Action"] = PermissionResolutionActions.Where(a => a.StartsWith("identitystore:")).ToArray(),
+            // The scope-resolution reads, plus DescribeGroup. CreateAccessGrant calls DescribeGroup
+            // internally to validate a directory-group grantee, so without it creating a group grant
+            // fails with an AccessDenied that names identitystore, not s3 -- invisible to anyone
+            // reading only the s3 actions.
+            ["Action"] = PermissionResolutionActions
+                .Where(a => a.StartsWith("identitystore:"))
+                .Append("identitystore:DescribeGroup")
+                .ToArray(),
+            ["Resource"] = "*"
+        },
+        // Creating a grant to a directory user or group makes S3 Access Grants validate the Identity
+        // Center instance and application on the caller's behalf. AWS documents both as required for
+        // any directory grantee; the old CloudShell script never needed them because the administrator
+        // running it already had them, and Connapse creating the grant itself does not.
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseValidateIdentityCenter",
+            ["Effect"] = "Allow",
+            ["Action"] = new[] { "sso:DescribeInstance", "sso:DescribeApplication" },
             ["Resource"] = "*"
         }
     ];
