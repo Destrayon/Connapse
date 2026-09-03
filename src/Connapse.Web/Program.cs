@@ -154,6 +154,10 @@ builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 
+// Deletes S3 access grants Connapse created that no connection needs any more. Fail-closed and
+// provenance-gated; run on a schedule (see the recurring job below) and from the AWS provider page.
+builder.Services.AddScoped<IGrantReconciliationService, GrantReconciliationService>();
+
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
 // without this the MCP surface cannot resolve a principal at all — and #421 will deny what it
 // cannot identify, which would silently turn every MCP search into no results.
