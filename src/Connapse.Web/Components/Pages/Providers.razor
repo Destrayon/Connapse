@@ -25,6 +25,7 @@
 @inject IAwsIdentityLinkReader AwsIdentityLinks
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ILogger<Providers> Logger
+@inject IGrantReconciliationService GrantCleanup
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
@@ -272,9 +273,16 @@
                                               rows="3" autocomplete="off" @bind="manualCertPem"></textarea>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label small" for="ra-key">Private key (PEM)</label>
+                                    <label class="form-label small" for="ra-key">
+                                        Private key (PEM)
+                                        @if (hasStoredRaCredential)
+                                        {
+                                            <span class="text-muted">— leave blank to keep the current key</span>
+                                        }
+                                    </label>
                                     <textarea id="ra-key" class="form-control form-control-sm font-monospace"
-                                              rows="3" autocomplete="off" @bind="manualPrivateKeyPem"></textarea>
+                                              rows="3" autocomplete="off" @bind="manualPrivateKeyPem"
+                                              placeholder="@(hasStoredRaCredential ? "Kept unless you paste a new key" : null)"></textarea>
                                 </div>
                             </div>
                             <button type="button" class="btn btn-sm btn-primary mt-3"
@@ -283,7 +291,12 @@
                                 <span class="bi-save me-1"></span> Check and save
                             </button>
                             <div class="form-text">
-                                The private key is stored encrypted, the same way SFTP private keys are.
+                                The private key is the only secret here and is never shown back; it is
+                                stored encrypted, the same way SFTP private keys are.
+                                @if (hasStoredRaCredential)
+                                {
+                                    <text>The other values are filled in from the stored credential.</text>
+                                }
                             </div>
                         </div>
                     }
@@ -1006,6 +1019,21 @@
                         <ProviderResetAction Label="Reset default group"
                                              ConfirmLabel="Confirm group reset"
                                              OnReset="ClearGrantGroup" />
+
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                @onclick="CleanUpOrphanedGrants" disabled="@cleaningGrants">
+                            @if (cleaningGrants)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi-trash me-1"></span> Clean up orphaned grants
+                        </button>
+                        @if (grantCleanupMessage is { Length: > 0 })
+                        {
+                            <span class="small ms-2 align-self-center @(grantCleanupOk ? "text-success" : "text-danger")">
+                                @grantCleanupMessage
+                            </span>
+                        }
                     }
                 </Actions>
             </ProviderStepCard>
@@ -1042,6 +1070,58 @@
 
     private string? grantsCopyMessage;
     private bool grantsCopySucceeded;
+
+    private bool cleaningGrants;
+    private string? grantCleanupMessage;
+    private bool grantCleanupOk;
+
+    /// <summary>
+    /// Deletes S3 access grants Connapse created that no connection needs any more.
+    /// </summary>
+    /// <remarks>
+    /// The same reconcile the recurring sweep runs, on demand. All the safety — provenance by tag,
+    /// the fail-closed abort on an incomplete connection view, the circuit breaker — lives in the
+    /// service; this only reports what it did or why it held back.
+    /// </remarks>
+    private async Task CleanUpOrphanedGrants()
+    {
+        grantCleanupMessage = null;
+        cleaningGrants = true;
+
+        try
+        {
+            var report = await GrantCleanup.ReconcileAsync(enforce: true);
+
+            if (report.Aborted.Count > 0)
+            {
+                grantCleanupOk = false;
+                grantCleanupMessage = "Held back — " + string.Join(" ", report.Aborted);
+            }
+            else if (report.Failed.Count > 0)
+            {
+                grantCleanupOk = false;
+                grantCleanupMessage =
+                    $"Removed {report.Deleted}, but {report.Failed.Count} could not be deleted.";
+            }
+            else
+            {
+                grantCleanupOk = true;
+                grantCleanupMessage = report.Deleted > 0
+                    ? $"Removed {report.Deleted} orphaned grant(s)."
+                    : "Nothing to clean up — no orphaned grants.";
+            }
+        }
+        catch (Exception ex)
+        {
+            grantCleanupOk = false;
+            grantCleanupMessage = $"Could not run cleanup: {ex.Message}";
+            Logger.LogWarning(ex, "Orphaned grant cleanup from the admin page failed");
+        }
+        finally
+        {
+            cleaningGrants = false;
+        }
+    }
 
     /// <summary>The finished sign-in, or null while any part of it is outstanding.</summary>
     private SamlSignInSettings? SamlSignIn =>
@@ -1231,6 +1311,17 @@
     private string? manualCertPem;
     private string? manualPrivateKeyPem;
 
+    /// <summary>
+    /// The stored config the manual form was last loaded from — the concurrency token.
+    /// </summary>
+    /// <remarks>
+    /// Two jobs. On load it tells an untouched field (still equal to what was loaded) apart from one
+    /// the operator edited, so a re-check refreshes the former without clobbering the latter. On a
+    /// blank-key save it is compared against a fresh read: if the stored credential changed since the
+    /// form loaded, the save is rejected and reloaded rather than silently overwriting the newer one.
+    /// </remarks>
+    private RolesAnywhereConfig? _lastLoadedConfig;
+
     /// <summary>Whether the replace-identity form is open over a working credential.</summary>
     private bool showSetup;
 
@@ -1251,14 +1342,18 @@
     private bool EnvironmentCredentialResolves =>
         AccessStatus is RequirementStatus.Satisfied or RequirementStatus.Warning;
 
-    /// <summary>Whether the manual (bring-your-own) Roles Anywhere form has every value it needs.</summary>
+    /// <summary>
+    /// Whether the manual (bring-your-own) Roles Anywhere form has every value it needs. The private
+    /// key is required only for a first credential; when one is already stored, a blank key keeps the
+    /// existing one (it cannot be shown back, so requiring it would trap an operator editing an ARN).
+    /// </summary>
     private bool CanSaveManualRa =>
         !string.IsNullOrWhiteSpace(manualTrustAnchorArn)
         && !string.IsNullOrWhiteSpace(manualProfileArn)
         && !string.IsNullOrWhiteSpace(manualRoleArn)
         && !string.IsNullOrWhiteSpace(manualRegion)
         && !string.IsNullOrWhiteSpace(manualCertPem)
-        && !string.IsNullOrWhiteSpace(manualPrivateKeyPem);
+        && (!string.IsNullOrWhiteSpace(manualPrivateKeyPem) || hasStoredRaCredential);
 
     /// <summary>Looks up one of the current provider's requirements by name.</summary>
     private ProviderRequirement? Requirement(string name) =>
@@ -1510,24 +1605,84 @@
     /// <summary>Saves the credential from the script's ARN block, pairing them with the generated leaf.</summary>
     private async Task SaveRolesAnywhereFromScript(AwsRolesAnywhereArns arns)
     {
-        if (raKeypair is null) return;
+        // Guard acquired synchronously, before any await, so a second click cannot enter this handler
+        // while the first is suspended.
+        if (awsBusy || raKeypair is null) return;
+        awsBusy = true;
+        try
+        {
+            var config = new RolesAnywhereConfig(
+                raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
 
-        var config = new RolesAnywhereConfig(
-            raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
-
-        await SaveValidatedRolesAnywhere(config, raKeypair.LeafPrivateKeyPem, null);
+            await SaveValidatedRolesAnywhereCore(config, raKeypair.LeafPrivateKeyPem, null);
+        }
+        finally
+        {
+            awsBusy = false;
+        }
     }
 
     /// <summary>Saves a bring-your-own credential typed into the manual-values form.</summary>
     private async Task SaveManualRolesAnywhere()
     {
-        if (!CanSaveManualRa) return;
+        // Guard acquired synchronously, before any await (the blank-key read below yields), so two
+        // fast clicks cannot both proceed and have the second dereference fields the first has cleared.
+        if (awsBusy || !CanSaveManualRa) return;
+        awsBusy = true;
+        try
+        {
+            // Snapshot the form before any await, so a concurrent reset can never null these mid-flight.
+            var config = new RolesAnywhereConfig(
+                manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
+                manualRoleArn!.Trim(), manualRegion!.Trim());
+            string? privateKeyPem = manualPrivateKeyPem?.Trim();
 
-        var config = new RolesAnywhereConfig(
-            manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
-            manualRoleArn!.Trim(), manualRegion!.Trim());
+            // A blank key when editing means "keep the current one" — the stored key is fetched and
+            // re-validated against the (possibly edited) config, so an operator can change an ARN
+            // without having a key they were never shown.
+            if (string.IsNullOrWhiteSpace(privateKeyPem))
+            {
+                RolesAnywhereCredentialMaterial? material;
+                try
+                {
+                    material = await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
+                }
+                catch (Exception ex)
+                {
+                    saveSuccess = false;
+                    saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
+                    return;
+                }
 
-        await SaveValidatedRolesAnywhere(config, manualPrivateKeyPem!.Trim(), null);
+                if (material is null)
+                {
+                    saveSuccess = false;
+                    saveMessage = "Enter the private key — there is no stored credential to keep it from.";
+                    return;
+                }
+
+                // Optimistic concurrency: if the stored credential changed since this form loaded,
+                // reusing the current key with the form's older ARNs could silently reinstate a config
+                // another administrator just replaced (e.g. undo a narrowed role). Reject and reload
+                // instead, so the operator reviews the newer values before overwriting.
+                if (_lastLoadedConfig is not null && material.Config != _lastLoadedConfig)
+                {
+                    saveSuccess = false;
+                    saveMessage = "This credential was changed elsewhere since you opened the form. It has "
+                        + "been reloaded — review the values and save again.";
+                    await RefreshSetups();
+                    return;
+                }
+
+                privateKeyPem = material.PrivateKeyPem;
+            }
+
+            await SaveValidatedRolesAnywhereCore(config, privateKeyPem, null);
+        }
+        finally
+        {
+            awsBusy = false;
+        }
     }
 
     /// <summary>
@@ -1538,10 +1693,10 @@
     /// first (a real <c>CreateSession</c>) and stored only if that succeeds. A bad cert, ARN, or
     /// region therefore never destroys the last working credential — nothing is written on failure,
     /// and the form is left intact so the operator can fix and retry without regenerating.
+    /// <para>The caller holds the <c>awsBusy</c> guard; this core never touches it.</para>
     /// </remarks>
-    private async Task SaveValidatedRolesAnywhere(RolesAnywhereConfig config, string privateKeyPem, string? principal)
+    private async Task SaveValidatedRolesAnywhereCore(RolesAnywhereConfig config, string privateKeyPem, string? principal)
     {
-        awsBusy = true;
         try
         {
             RolesAnywhereValidationResult result = await RaValidator.ValidateAsync(config, privateKeyPem);
@@ -1554,13 +1709,16 @@
 
             await CredentialStore.SaveRolesAnywhereAsync("aws", config, privateKeyPem, principal, null);
 
-            // The secret material is not kept around once stored; the whole handshake resets.
+            // The secret material is not kept around once stored; the whole handshake resets. Clearing
+            // the loaded-config token forces the next load to re-fill the form from the newly stored
+            // configuration.
             raKeypair = null;
             raPasted = null;
             raRegion = null;
             raResetCleanup = null;
             manualTrustAnchorArn = manualProfileArn = manualRoleArn = manualRegion = null;
             manualCertPem = manualPrivateKeyPem = null;
+            _lastLoadedConfig = null;
             showSetup = false;
             copyMessage = null;
 
@@ -1576,10 +1734,6 @@
             saveSuccess = false;
             saveMessage = $"Could not store the AWS credential: {ex.Message} " +
                           "Your entries are still below — try again.";
-        }
-        finally
-        {
-            awsBusy = false;
         }
     }
 
@@ -1636,7 +1790,25 @@
 
         try
         {
-            hasStoredRaCredential = await CredentialStore.GetRolesAnywhereAsync("aws") is not null;
+            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            hasStoredRaCredential = config is not null;
+
+            // Fill the manual (bring-your-own) fields from the stored, non-secret configuration so
+            // editing a configured credential shows its current values rather than blank boxes. Only
+            // the private key is secret; it is never rendered, so it stays blank and a blank key on
+            // save means "keep the current one". Each field is refreshed only when it still equals what
+            // was last loaded — an untouched field — so a re-check picks up a concurrent change while an
+            // in-progress edit is never overwritten. (Initially both sides are null, so the first load
+            // fills every field.)
+            if (config is not null)
+            {
+                manualTrustAnchorArn = AwsAccessCard.RefreshManualField(manualTrustAnchorArn, _lastLoadedConfig?.TrustAnchorArn, config.TrustAnchorArn);
+                manualProfileArn = AwsAccessCard.RefreshManualField(manualProfileArn, _lastLoadedConfig?.ProfileArn, config.ProfileArn);
+                manualRoleArn = AwsAccessCard.RefreshManualField(manualRoleArn, _lastLoadedConfig?.RoleArn, config.RoleArn);
+                manualRegion = AwsAccessCard.RefreshManualField(manualRegion, _lastLoadedConfig?.Region, config.Region);
+                manualCertPem = AwsAccessCard.RefreshManualField(manualCertPem, _lastLoadedConfig?.CertificatePem, config.CertificatePem);
+            }
+            _lastLoadedConfig = config;
         }
         catch (Exception ex)
         {
