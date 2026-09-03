@@ -20,6 +20,7 @@
 @inject IS3Discovery S3Discovery
 @inject IProviderSetupReader SetupReader
 @inject IGrantCoverageReporter GrantCoverage
+@inject IAccessGrantsWriter GrantsWriter
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 
@@ -797,29 +798,51 @@
                                         </div>
                                     </div>
                                 }
-                                else if (GrantCommand is { Length: > 0 } grantCommand)
+                                else if (CanGrant)
                                 {
                                     <div class="mt-2">
                                         <div class="small mb-1">
-                                            Grants read access to
-                                            <strong>@(GrantGroupLabel)</strong>, for the buckets
-                                            above. Connapse never runs it.
+                                            Grant read access to <strong>@(GrantGroupLabel)</strong>
+                                            for the buckets above, using Connapse's AWS identity.
                                         </div>
-                                        <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:14rem;overflow:auto"><code>@grantCommand</code></pre>
-                                        <div class="d-flex flex-wrap gap-2">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                    @onclick="CopyGrantCommand">
-                                                <span class="bi-clipboard me-1"></span> Copy command
+                                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    @onclick="GrantAccess" disabled="@granting">
+                                                @if (granting)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                                }
+                                                <span class="bi-key me-1"></span> Grant access
                                             </button>
-                                            <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
-                                               href="https://console.aws.amazon.com/cloudshell/home">
-                                                <span class="bi-terminal me-1"></span> Open CloudShell
-                                                <span class="bi-box-arrow-up-right ms-1 small"></span>
-                                            </a>
-                                            <span class="align-self-center small @(grantCopySucceeded ? "text-success" : "text-danger")">
-                                                @grantCopyMessage
-                                            </span>
+                                            @if (grantResultMessage is { Length: > 0 })
+                                            {
+                                                <span class="small @(grantResultOk ? "text-success" : "text-danger")">
+                                                    @grantResultMessage
+                                                </span>
+                                            }
                                         </div>
+
+                                        @if (grantFellBack && GrantCommand is { Length: > 0 } grantCommand)
+                                        {
+                                            <div class="small mt-2 mb-1">
+                                                Run this in AWS CloudShell with your own credentials instead:
+                                            </div>
+                                            <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:14rem;overflow:auto"><code>@grantCommand</code></pre>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                        @onclick="CopyGrantCommand">
+                                                    <span class="bi-clipboard me-1"></span> Copy command
+                                                </button>
+                                                <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                                                   href="https://console.aws.amazon.com/cloudshell/home">
+                                                    <span class="bi-terminal me-1"></span> Open CloudShell
+                                                    <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                                </a>
+                                                <span class="align-self-center small @(grantCopySucceeded ? "text-success" : "text-danger")">
+                                                    @grantCopyMessage
+                                                </span>
+                                            </div>
+                                        }
                                     </div>
                                 }
                                 else
@@ -1338,6 +1361,85 @@
         grantCopyMessage = grantCopySucceeded
             ? "Copied."
             : "Could not copy — select the command above and copy it manually.";
+    }
+
+    private bool granting;
+    private string? grantResultMessage;
+    private bool grantResultOk;
+    private bool grantFellBack;   // an AccessDenied pushed us back to the CloudShell script
+
+    /// <summary>Whether Connapse can offer to create the grants itself.</summary>
+    /// <remarks>
+    /// The same conditions the command was shown under: a group is configured, this connection has
+    /// ungranted buckets, and the regions are not mismatched. When true the button is offered; the
+    /// CloudShell script appears only after <see cref="grantFellBack"/> is set by an AccessDenied.
+    /// </remarks>
+    private bool CanGrant =>
+        SamlOptions.CurrentValue.HasGrantGroup
+        && coverage is { HasWarning: true }
+        && RegionMismatch is null;
+
+    /// <summary>
+    /// Creates the missing grants with Connapse's own AWS identity, then clears the warning.
+    /// </summary>
+    /// <remarks>
+    /// The connection's region, not the directory's — a grant is created against the Access Grants
+    /// instance in the bucket's region. On AccessDenied it falls back to the CloudShell script the
+    /// administrator runs themselves, rather than presenting the setup as broken.
+    /// </remarks>
+    private async Task GrantAccess()
+    {
+        grantResultMessage = null;
+        grantFellBack = false;
+        granting = true;
+
+        try
+        {
+            var signIn = SamlOptions.CurrentValue;
+            var grantee = new AccessGrantee(IsGroup: true, Id: signIn.GrantGroupId);
+
+            var result = await GrantsWriter.GrantReadAsync(
+                grantee, form.Region, coverage!.Ungranted, CancellationToken.None);
+
+            if (result.Succeeded)
+            {
+                // Re-check so the warning clears in place, no page reload.
+                await RefreshCoverageAsync();
+                await RefreshUngrantedAsync();
+
+                grantResultOk = true;
+                grantResultMessage = result.Created.Count > 0
+                    ? $"Granted read access to {GrantGroupLabel} on {result.Created.Count} location(s). "
+                      + "Searches start returning these documents within a minute."
+                    : $"{GrantGroupLabel} was already granted everything here.";
+            }
+            else if (result.AccessDenied)
+            {
+                // Connapse's identity is not allowed to create grants (a bring-your-own narrow
+                // role, or the policy not applied yet). Fall back to the admin-run CloudShell script.
+                grantFellBack = true;
+                grantResultOk = false;
+                grantResultMessage =
+                    "Connapse's AWS identity is not allowed to create access grants. Use the "
+                    + "CloudShell command below instead, or add s3:CreateAccessGrant to its policy.";
+            }
+            else
+            {
+                grantResultOk = false;
+                grantResultMessage =
+                    "Could not grant on: "
+                    + string.Join("; ", result.Failed.Select(f => $"{f.Location} ({f.Reason})"));
+            }
+        }
+        catch (Exception ex)
+        {
+            grantResultOk = false;
+            grantResultMessage = $"Could not create the grants: {ex.Message}";
+        }
+        finally
+        {
+            granting = false;
+        }
     }
 
     /// <summary>Line endings an allowed-locations field may arrive with.</summary>
