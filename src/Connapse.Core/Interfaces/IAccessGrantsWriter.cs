@@ -25,6 +25,21 @@ public record GrantWriteResult(
     public static readonly GrantWriteResult Nothing = new([], [], [], AccessDenied: false);
 }
 
+/// <summary>The outcome of deleting grants by id in one region.</summary>
+/// <param name="Deleted">Grant ids removed.</param>
+/// <param name="NotFound">
+/// Grant ids AWS reported as already gone. <c>DeleteAccessGrant</c> is not idempotent, so a
+/// concurrent delete surfaces here rather than as a failure — from the caller's point of view the
+/// grant is gone either way.
+/// </param>
+/// <param name="Failed">Grant ids that could not be deleted, with the AWS reason.</param>
+/// <param name="AccessDenied">True when a failure was AWS <c>AccessDenied</c>.</param>
+public record GrantRevokeResult(
+    IReadOnlyList<string> Deleted,
+    IReadOnlyList<string> NotFound,
+    IReadOnlyList<GrantWriteFailure> Failed,
+    bool AccessDenied);
+
 /// <summary>
 /// Creates S3 Access Grants using Connapse's own AWS identity.
 /// </summary>
@@ -44,4 +59,24 @@ public interface IAccessGrantsWriter
     Task<GrantWriteResult> GrantReadAsync(
         AccessGrantee grantee, string region,
         IReadOnlyList<string> locations, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the named grants in <paramref name="region"/>. A missing id is reported as NotFound,
+    /// never a failure — <c>DeleteAccessGrant</c> is not idempotent, so a concurrent delete must not
+    /// fail the run.
+    /// </summary>
+    Task<GrantRevokeResult> RevokeAsync(
+        string region, IReadOnlyList<string> grantIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// The subset of <paramref name="grantArns"/> tagged as Connapse-managed.
+    /// </summary>
+    /// <remarks>
+    /// Tags are not returned by <c>ListAccessGrants</c>, so this reads them back per grant via
+    /// <c>ListTagsForResource</c>. A grant whose tags cannot be read is treated as not ours (fail
+    /// safe — it is never deleted), because provenance is the one gate that keeps cleanup from
+    /// removing an administrator's own grant.
+    /// </remarks>
+    Task<IReadOnlyList<string>> FilterManagedAsync(
+        string region, IReadOnlyList<string> grantArns, CancellationToken ct = default);
 }

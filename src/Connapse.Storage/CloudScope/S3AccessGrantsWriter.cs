@@ -118,6 +118,93 @@ public sealed class S3AccessGrantsWriter(
         return new GrantWriteResult(created, alreadyGranted, failed, accessDenied);
     }
 
+    /// <inheritdoc />
+    public async Task<GrantRevokeResult> RevokeAsync(
+        string region, IReadOnlyList<string> grantIds, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(region);
+
+        if (!options.CurrentValue.IsConfigured || grantIds.Count == 0)
+            return new GrantRevokeResult([], [], [], AccessDenied: false);
+
+        var endpoint = RegionEndpoint.GetBySystemName(region);
+        string account = await ResolveAccountIdAsync(endpoint, ct);
+
+        using var client = new AmazonS3ControlClient(
+            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
+
+        var deleted = new List<string>();
+        var notFound = new List<string>();
+        var failed = new List<GrantWriteFailure>();
+        bool accessDenied = false;
+
+        foreach (string id in grantIds)
+        {
+            try
+            {
+                await client.DeleteAccessGrantAsync(
+                    new DeleteAccessGrantRequest { AccountId = account, AccessGrantId = id }, ct);
+                deleted.Add(id);
+            }
+            catch (AmazonS3ControlException ex) when (IsNotFound(ex))
+            {
+                // Already gone — success from our point of view, not a failure.
+                notFound.Add(id);
+            }
+            catch (AmazonS3ControlException ex)
+            {
+                if (IsAccessDenied(ex))
+                    accessDenied = true;
+
+                // Keep going: one grant's failure must not hide the rest.
+                failed.Add(new GrantWriteFailure(id, ex.Message));
+            }
+        }
+
+        return new GrantRevokeResult(deleted, notFound, failed, accessDenied);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> FilterManagedAsync(
+        string region, IReadOnlyList<string> grantArns, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(region);
+
+        if (!options.CurrentValue.IsConfigured || grantArns.Count == 0)
+            return [];
+
+        var endpoint = RegionEndpoint.GetBySystemName(region);
+
+        using var client = new AmazonS3ControlClient(
+            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
+
+        var managed = new List<string>();
+
+        foreach (string arn in grantArns)
+        {
+            if (string.IsNullOrWhiteSpace(arn))
+                continue;
+
+            try
+            {
+                var tags = await client.ListTagsForResourceAsync(
+                    new ListTagsForResourceRequest { ResourceArn = arn }, ct);
+
+                bool isManaged = (tags.Tags ?? []).Any(t =>
+                    t.Key == GrantTags.ManagedKey && t.Value == GrantTags.ManagedValue);
+
+                if (isManaged)
+                    managed.Add(arn);
+            }
+            catch (AmazonS3ControlException)
+            {
+                // Provenance unconfirmed -> fail safe, treat as not ours. Never deleted.
+            }
+        }
+
+        return managed;
+    }
+
     private static async Task<string?> FindRootLocationAsync(
         AmazonS3ControlClient client, string account, CancellationToken ct)
     {
@@ -181,6 +268,10 @@ public sealed class S3AccessGrantsWriter(
     private static bool IsAccessDenied(AmazonS3ControlException ex) =>
         ex.StatusCode == HttpStatusCode.Forbidden
         || (ex.ErrorCode?.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private static bool IsNotFound(AmazonS3ControlException ex) =>
+        ex.StatusCode == HttpStatusCode.NotFound
+        || (ex.ErrorCode?.Contains("NotFound", StringComparison.OrdinalIgnoreCase) ?? false);
 
     private static bool IsConflict(AmazonS3ControlException ex) =>
         ex.StatusCode == HttpStatusCode.Conflict
