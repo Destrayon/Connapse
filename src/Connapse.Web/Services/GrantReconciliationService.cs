@@ -41,19 +41,18 @@ public sealed class GrantReconciliationService(
         if (!cfg.Enabled)
             return ReconcileReport.Abort("Grant reconciliation is switched off.");
 
-        // 1. The complete union of allowed-locations across every S3 connection. Any gap aborts —
-        //    an incomplete union makes still-needed grants look orphaned.
-        var (union, unionAbort) = await TryBuildUnionAsync(ct);
-        if (unionAbort is not null)
-            return ReconcileReport.Abort(unionAbort);
+        // 1. The complete union of allowed-locations across every S3 connection. A gap in the read —
+        //    a connection that will not parse, one that declares no allowlist — aborts, because it
+        //    makes still-needed grants look orphaned. An empty union is NOT a gap: a successful read
+        //    that finds no S3 connections (or only deny-all ones) means those grants genuinely have
+        //    nothing to justify them, so they are cleaned up like any other orphan (the circuit
+        //    breaker still guards against an implausibly large sweep). A failed read throws and is
+        //    caught inside the helper as an abort, so it never reaches here as an empty union.
+        var buildResult = await TryBuildUnionAsync(ct);
+        if (buildResult.AbortReason is not null)
+            return ReconcileReport.Abort(buildResult.AbortReason);
 
-        // An empty union is ambiguous — no S3 connections at all, or none with a usable allowlist —
-        // and it makes every grant look orphaned. Fail closed rather than delete the whole set on a
-        // state that is indistinguishable from connections that failed to load.
-        if (union!.Count == 0)
-            return ReconcileReport.Abort(
-                "No S3 connection allowed-locations were found, so every grant would look orphaned. "
-                + "Nothing was deleted.");
+        var union = buildResult.Union!;
 
         // 2. Per region: select orphans, confirm provenance, circuit-break on what would ACTUALLY be
         //    deleted, re-validate against a fresh union, then delete.
@@ -144,14 +143,17 @@ public sealed class GrantReconciliationService(
                 continue;
             }
 
-            // Re-validate against a FRESH union read right before deleting. This closes the window
+            // Re-validate against a FRESH union read right before deleting. This narrows the window
             // where a connection was added or widened after step 1 and now needs one of these grants:
-            // a grant that has become covered is dropped, and if the fresh view cannot be built (or is
-            // now empty) nothing is deleted in this region.
+            // a grant that has become covered is dropped, and the current group is re-read too. A read
+            // failure here (not an empty result) skips deletion in this region. The window between
+            // this read and RevokeAsync below cannot be fully closed without a lock spanning a DB read
+            // and an AWS call; its worst case is a just-added grant deleted and re-granted, which is
+            // recoverable, so it is accepted rather than locked.
             var (freshUnion, freshAbort) = await TryBuildUnionAsync(ct);
-            if (freshAbort is not null || freshUnion is null || freshUnion.Count == 0)
+            if (freshAbort is not null || freshUnion is null)
             {
-                aborts.Add($"The connection view changed while reconciling {region}; skipped deletion there.");
+                aborts.Add($"The connection view could not be re-read while reconciling {region}; skipped deletion there.");
                 continue;
             }
 

@@ -95,21 +95,27 @@ public class GrantReconciliationServiceTests
     }
 
     [Fact]
-    public async Task Reconcile_NoS3Connections_AbortsWithoutDeleting()
+    public async Task Reconcile_NoS3Connections_DeletesManagedGrantsAsOrphaned()
     {
-        // An empty union (no S3 connections) makes every grant look orphaned; fail closed.
+        // A successful read finding no S3 connections means those grants genuinely have nothing to
+        // justify them — they are orphans and get cleaned up (the breaker still caps the volume). A
+        // read *failure* aborts separately (Reconcile_ConnectionListThrows_AbortsWithoutDeleting).
         var h = Build();
         h.Connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<Connection>>(_ => []);
+        h.Reader.ListAllAsync("us-east-1", Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<AccessGrantDetail>>(_ => [GroupGrant("s3://gone-bucket/*", "g1")]);
+        h.Writer.FilterManagedAsync("us-east-1", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<string>>(_ => ["arn:g1"]);
+        h.Writer.RevokeAsync("us-east-1", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new GrantRevokeResult(["g1"], [], [], AccessDenied: false));
 
         var report = await h.Service.ReconcileAsync(enforce: true);
 
-        report.Aborted.Should().NotBeEmpty();
-        report.Deleted.Should().Be(0);
-        // Aborts before it ever reads grants or deletes.
-        await h.Reader.DidNotReceive().ListAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await h.Writer.DidNotReceive().RevokeAsync(
-            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+        report.Deleted.Should().Be(1);
+        await h.Writer.Received().RevokeAsync(
+            "us-east-1", Arg.Is<IReadOnlyList<string>>(ids => ids.Contains("g1")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
