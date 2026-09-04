@@ -37,15 +37,28 @@ public class GrantReconcilerTests
     }
 
     [Fact]
-    public void SelectOrphans_ScopeCoveredByOneOfSeveralConnections_IsNotACandidate()
+    public void SelectOrphans_GrantNarrowerThanAnAllowedLocation_IsNotACandidate()
     {
-        // The union matters: a bucket removed from one connection is not orphaned if another covers it.
+        // Grant is a subtree of what a whole-bucket connection allows -> still fully justified.
+        var sel = GrantReconciler.SelectOrphans(
+            [Grant("s3://shared-bucket/team/*")],
+            unionLocations: ["shared-bucket"],
+            configuredGroupId: "grp-1");
+
+        sel.Candidates.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SelectOrphans_GrantBroaderThanTheNarrowedAllowedLocation_IsACandidate()
+    {
+        // The narrowing fail-open: a whole-bucket grant is NOT justified once the connection is
+        // narrowed to one prefix. Overlap would wrongly keep it; containment revokes it.
         var sel = GrantReconciler.SelectOrphans(
             [Grant("s3://shared-bucket/*")],
             unionLocations: ["other-bucket", "shared-bucket/team"],
             configuredGroupId: "grp-1");
 
-        sel.Candidates.Should().BeEmpty();
+        sel.Candidates.Should().ContainSingle().Which.GrantScope.Should().Be("s3://shared-bucket/*");
     }
 
     [Fact]
@@ -61,14 +74,16 @@ public class GrantReconcilerTests
     }
 
     [Fact]
-    public void SelectOrphans_PreviousGroupButStillCovered_IsLeftAlone()
+    public void SelectOrphans_PreviousGroupGrant_IsACandidate_EvenWhenScopeStillCovered()
     {
+        // Changing the grant group must revoke the old group's grants, even for a still-connected
+        // bucket -- otherwise the old group's members keep seeing the data (stale-authorisation leak).
         var sel = GrantReconciler.SelectOrphans(
             [Grant("s3://my-bucket/docs/*", grp: "grp-OLD")],
             unionLocations: ["my-bucket/docs"],
             configuredGroupId: "grp-1");
 
-        sel.Candidates.Should().BeEmpty();
+        sel.Candidates.Should().ContainSingle();
     }
 
     [Fact]

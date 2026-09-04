@@ -85,6 +85,18 @@ public static class AwsRolePolicyUpdate
         string path = parts[5][prefix.Length..];
         string roleName = path.Contains('/') ? path[(path.LastIndexOf('/') + 1)..] : path;
 
-        return roleName.Length == 0 ? null : (account, roleName);
+        // Enforce IAM's role-name grammar before this name is interpolated, unquoted, into a shell
+        // command an administrator is told to run. AWS allows [\w+=,.@-] up to 64 chars; anything
+        // else (a space, a quote, a semicolon) cannot be a real role name and must not reach a shell.
+        // The normal save path validates the ARN against AWS, but a migrated or tampered stored value
+        // must not be trusted to have done so.
+        if (roleName.Length is 0 or > 64)
+            return null;
+
+        if (!roleName.All(c =>
+                char.IsAsciiLetterOrDigit(c) || c is '_' or '+' or '=' or ',' or '.' or '@' or '-'))
+            return null;
+
+        return (account, roleName);
     }
 }

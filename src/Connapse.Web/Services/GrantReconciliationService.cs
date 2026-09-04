@@ -43,52 +43,20 @@ public sealed class GrantReconciliationService(
 
         // 1. The complete union of allowed-locations across every S3 connection. Any gap aborts —
         //    an incomplete union makes still-needed grants look orphaned.
-        var union = new List<string>();
+        var (union, unionAbort) = await TryBuildUnionAsync(ct);
+        if (unionAbort is not null)
+            return ReconcileReport.Abort(unionAbort);
 
-        IReadOnlyList<Connection> conns;
-        try
-        {
-            conns = await connections.ListAsync(0, int.MaxValue, ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Grant reconcile: could not list connections; deleting nothing");
-            return ReconcileReport.Abort("Could not read the connections, so nothing was deleted.");
-        }
+        // An empty union is ambiguous — no S3 connections at all, or none with a usable allowlist —
+        // and it makes every grant look orphaned. Fail closed rather than delete the whole set on a
+        // state that is indistinguishable from connections that failed to load.
+        if (union!.Count == 0)
+            return ReconcileReport.Abort(
+                "No S3 connection allowed-locations were found, so every grant would look orphaned. "
+                + "Nothing was deleted.");
 
-        foreach (var connection in conns.Where(c => c.Provider == ConnectionProvider.S3))
-        {
-            IReadOnlyList<string>? locations;
-            try
-            {
-                using var document = JsonDocument.Parse(
-                    string.IsNullOrWhiteSpace(connection.ConfigJson) ? "{}" : connection.ConfigJson);
-                locations = StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
-            }
-            catch (JsonException)
-            {
-                return ReconcileReport.Abort(
-                    $"Connection '{connection.Name}' has configuration that will not parse, so no "
-                    + "grant could be proven orphaned. Nothing was deleted.");
-            }
-
-            // Absent allowlist -> the connection may index any bucket, so no grant is provably
-            // orphaned. Fail closed rather than delete against an unbounded connection.
-            if (locations is null)
-                return ReconcileReport.Abort(
-                    $"Connection '{connection.Name}' declares no allowed-locations, so it could reach "
-                    + "any bucket and no grant can be shown orphaned. Nothing was deleted.");
-
-            // Present-but-malformed (StorageLocationPolicy's blank-entry sentinel) is unreadable.
-            if (locations.Any(string.IsNullOrWhiteSpace))
-                return ReconcileReport.Abort(
-                    $"Connection '{connection.Name}' has a malformed allowed-locations list. "
-                    + "Nothing was deleted.");
-
-            union.AddRange(locations);
-        }
-
-        // 2. Per region: select orphans, circuit-break, confirm provenance, delete.
+        // 2. Per region: select orphans, confirm provenance, circuit-break on what would ACTUALLY be
+        //    deleted, re-validate against a fresh union, then delete.
         string groupId = saml.CurrentValue.GrantGroupId ?? string.Empty;
         int scanned = 0, orphaned = 0, deleted = 0;
         var aborts = new List<string>();
@@ -127,28 +95,18 @@ public sealed class GrantReconciliationService(
             if (candidates.Count == 0)
                 continue;
 
-            // Circuit breaker: an implausibly large deletion is the signature of a bad union.
-            if (candidates.Count > cfg.MaxDeletePerTick)
-            {
-                string breaker =
-                    $"Refused to delete {candidates.Count} grants in {region} (limit "
-                    + $"{cfg.MaxDeletePerTick}) — this looks like an incomplete view, not that many "
-                    + "real orphans. Nothing was deleted there.";
-                logger.LogWarning("Grant reconcile circuit breaker: {Reason}", breaker);
-                aborts.Add(breaker);
-                continue;
-            }
-
-            // Provenance: keep only grants Connapse tagged as its own.
-            var arns = candidates
-                .Select(c => c.AccessGrantArn)
-                .Where(a => !string.IsNullOrWhiteSpace(a))
-                .ToList();
-
+            // Provenance FIRST: only grants Connapse tagged are ever deletable. This runs before the
+            // circuit breaker deliberately — an account full of unrelated administrator-authored
+            // orphans must not trip the breaker and permanently block cleanup of Connapse's own stale
+            // grants (nor let an attacker create that condition as a denial of service).
             IReadOnlyList<string> managedArns;
             try
             {
-                managedArns = await writer.FilterManagedAsync(region, arns, ct);
+                managedArns = await writer.FilterManagedAsync(
+                    region,
+                    candidates.Select(c => c.AccessGrantArn)
+                        .Where(a => !string.IsNullOrWhiteSpace(a)).ToList(),
+                    ct);
             }
             catch (Exception ex)
             {
@@ -163,6 +121,19 @@ public sealed class GrantReconciliationService(
             if (toDelete.Count == 0)
                 continue;
 
+            // Circuit breaker on what would actually be deleted — Connapse's own grants — not on
+            // every orphan. Deleting this many of our own at once is the signature of a bad view.
+            if (toDelete.Count > cfg.MaxDeletePerTick)
+            {
+                string breaker =
+                    $"Refused to delete {toDelete.Count} Connapse grants in {region} (limit "
+                    + $"{cfg.MaxDeletePerTick}) — that many at once looks like an incomplete view, not "
+                    + "real orphans. Nothing was deleted there.";
+                logger.LogWarning("Grant reconcile circuit breaker: {Reason}", breaker);
+                aborts.Add(breaker);
+                continue;
+            }
+
             if (!enforce)
             {
                 foreach (var g in toDelete)
@@ -173,15 +144,45 @@ public sealed class GrantReconciliationService(
                 continue;
             }
 
-            var result = await writer.RevokeAsync(
-                region, toDelete.Select(g => g.AccessGrantId).ToList(), ct);
+            // Re-validate against a FRESH union read right before deleting. This closes the window
+            // where a connection was added or widened after step 1 and now needs one of these grants:
+            // a grant that has become covered is dropped, and if the fresh view cannot be built (or is
+            // now empty) nothing is deleted in this region.
+            var (freshUnion, freshAbort) = await TryBuildUnionAsync(ct);
+            if (freshAbort is not null || freshUnion is null || freshUnion.Count == 0)
+            {
+                aborts.Add($"The connection view changed while reconciling {region}; skipped deletion there.");
+                continue;
+            }
+
+            var stillOrphaned = GrantReconciler
+                .SelectOrphans(toDelete, freshUnion, saml.CurrentValue.GrantGroupId ?? string.Empty)
+                .Candidates;
+            if (stillOrphaned.Count == 0)
+                continue;
+
+            GrantRevokeResult result;
+            try
+            {
+                result = await writer.RevokeAsync(
+                    region, stillOrphaned.Select(g => g.AccessGrantId).ToList(), ct);
+            }
+            catch (Exception ex)
+            {
+                // Guard like the reads above: a transient non-AWS failure must skip this region, not
+                // abort the whole sweep and every region after it.
+                logger.LogWarning(ex, "Grant reconcile: delete failed in {Region}; skipping",
+                    LogSanitizer.Sanitize(region));
+                aborts.Add($"Could not delete grants in {region}; skipped it.");
+                continue;
+            }
 
             deleted += result.Deleted.Count;
             failures.AddRange(result.Failed);
 
             foreach (string id in result.Deleted)
             {
-                var g = toDelete.First(x => x.AccessGrantId == id);
+                var g = stillOrphaned.First(x => x.AccessGrantId == id);
                 logger.LogWarning(
                     "Deleted orphaned access grant {Id} (scope {Scope}, group {Group}) in {Region}",
                     LogSanitizer.Sanitize(g.AccessGrantId), LogSanitizer.Sanitize(g.GrantScope),
@@ -190,5 +191,54 @@ public sealed class GrantReconciliationService(
         }
 
         return new ReconcileReport(scanned, orphaned, deleted, aborts, failures);
+    }
+
+    /// <summary>
+    /// Reads the complete allowed-locations union across every S3 connection, or an abort reason when
+    /// the picture is incomplete — a connection whose config will not parse, one that declares no
+    /// allowlist (so it could reach any bucket), or a malformed list. A null reason means the union is
+    /// complete and safe to reconcile against; a non-null reason means delete nothing.
+    /// </summary>
+    private async Task<(List<string>? Union, string? AbortReason)> TryBuildUnionAsync(CancellationToken ct)
+    {
+        IReadOnlyList<Connection> conns;
+        try
+        {
+            conns = await connections.ListAsync(0, int.MaxValue, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Grant reconcile: could not list connections");
+            return (null, "Could not read the connections, so nothing was deleted.");
+        }
+
+        var union = new List<string>();
+        foreach (var connection in conns.Where(c => c.Provider == ConnectionProvider.S3))
+        {
+            IReadOnlyList<string>? locations;
+            try
+            {
+                using var document = JsonDocument.Parse(
+                    string.IsNullOrWhiteSpace(connection.ConfigJson) ? "{}" : connection.ConfigJson);
+                locations = StorageLocationPolicy.ReadAllowedLocations(document.RootElement);
+            }
+            catch (JsonException)
+            {
+                return (null, $"Connection '{connection.Name}' has configuration that will not parse, "
+                    + "so no grant could be proven orphaned. Nothing was deleted.");
+            }
+
+            if (locations is null)
+                return (null, $"Connection '{connection.Name}' declares no allowed-locations, so it "
+                    + "could reach any bucket and no grant can be shown orphaned. Nothing was deleted.");
+
+            if (locations.Any(string.IsNullOrWhiteSpace))
+                return (null, $"Connection '{connection.Name}' has a malformed allowed-locations list. "
+                    + "Nothing was deleted.");
+
+            union.AddRange(locations);
+        }
+
+        return (union, null);
     }
 }

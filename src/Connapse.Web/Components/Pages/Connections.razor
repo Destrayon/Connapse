@@ -1310,7 +1310,8 @@
     private bool CanGrant =>
         SamlOptions.CurrentValue.HasGrantGroup
         && coverage is { HasWarning: true }
-        && RegionMismatch is null;
+        && RegionMismatch is null
+        && !string.IsNullOrWhiteSpace(form.Region);
 
     /// <summary>
     /// Creates the missing grants with Connapse's own AWS identity, then clears the warning.

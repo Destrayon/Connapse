@@ -54,6 +54,11 @@ public class AwsRolePolicyUpdateTests
     [InlineData("not-an-arn")]
     [InlineData("arn:aws:s3:::some-bucket")]
     [InlineData("arn:aws:iam::notanaccount:role/x")]
+    // Role name with shell metacharacters / spaces is not a valid IAM name and must never reach
+    // the generated command (it is interpolated unquoted).
+    [InlineData("arn:aws:iam::086015909943:role/x; Start-Process calc; #")]
+    [InlineData("arn:aws:iam::086015909943:role/has space")]
+    [InlineData("arn:aws:iam::086015909943:role/x'y")]
     public void GenerateCommand_MalformedArn_ReturnsNull(string? arn)
     {
         AwsRolePolicyUpdate.GenerateCommand(arn).Should().BeNull();

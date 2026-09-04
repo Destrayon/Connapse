@@ -208,12 +208,25 @@ public sealed class S3AccessGrantsWriter(
     private static async Task<string?> FindRootLocationAsync(
         AmazonS3ControlClient client, string account, CancellationToken ct)
     {
-        var response = await client.ListAccessGrantsLocationsAsync(
-            new ListAccessGrantsLocationsRequest { AccountId = account }, ct);
+        // Paged: the s3:// location may not be on the first page, and missing it would fail every
+        // grant with a misleading "no s3:// location is registered".
+        string? nextToken = null;
+        do
+        {
+            var response = await client.ListAccessGrantsLocationsAsync(
+                new ListAccessGrantsLocationsRequest { AccountId = account, NextToken = nextToken }, ct);
 
-        return (response.AccessGrantsLocationsList ?? [])
-            .FirstOrDefault(l => l.LocationScope == "s3://")
-            ?.AccessGrantsLocationId;
+            string? root = (response.AccessGrantsLocationsList ?? [])
+                .FirstOrDefault(l => l.LocationScope == "s3://")
+                ?.AccessGrantsLocationId;
+            if (root is not null)
+                return root;
+
+            nextToken = response.NextToken;
+        }
+        while (!string.IsNullOrEmpty(nextToken));
+
+        return null;
     }
 
     private static async Task<IReadOnlyList<string>> ListGranteeScopesAsync(

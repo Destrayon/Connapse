@@ -670,11 +670,13 @@
                        should meet that fact while deciding, not afterwards in IAM. *@
                     <div class="alert alert-secondary small">
                         <span class="bi-info-circle me-1"></span>
-                        Connapse's own AWS identity needs four read-only permissions for this:
-                        <code>s3:ListAccessGrants</code>, <code>identitystore:GetUserId</code>,
-                        <code>identitystore:DescribeUser</code> and
-                        <code>identitystore:ListGroupMembershipsForMember</code>. None of them reads an
-                        object.
+                        Connapse's own AWS identity needs, for this, to read access grants and the
+                        directory (<code>s3:ListAccessGrants</code>, the <code>identitystore</code> reads,
+                        and <code>sso:DescribeInstance</code>/<code>DescribeApplication</code>) and to
+                        create and remove the S3 access grants that scope search
+                        (<code>s3:CreateAccessGrant</code>, <code>s3:DeleteAccessGrant</code>,
+                        <code>s3:TagResource</code>). The only thing it changes is a grant — it never
+                        reads, writes, or deletes an object.
                         <span class="d-block mt-1">
                             <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
                             not scope it to one user, so it lets Connapse enumerate everyone's grants rather

@@ -5,21 +5,23 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 /// <remarks>
 /// Pure: the AWS-touching provenance check (is this grant tagged as ours) and the deletion happen
-/// around it. The scope test is <see cref="GrantCoverage.IsScopeCovered"/>, the same boundary-aware
-/// overlap the coverage reporter uses in the create direction, so "granted" and "orphaned" cannot
-/// disagree.
+/// around it. The scope test is <see cref="GrantCoverage.IsScopeWithinAllowed"/>, a directional
+/// containment — a grant survives only when everything it permits is still within an allowed
+/// location.
 /// <para>
 /// Group-only and tag-blind by design. A user grant is never touched, and provenance requires an AWS
-/// call, so it is applied to the (small) candidate set afterwards rather than here. Both the current
-/// group's orphans and a superseded group's orphans are selected — an orphaned group grant is an
-/// orphaned group grant whichever group holds it; the only question that matters is whether any
-/// connection still reaches its scope.
+/// call, so it is applied to the (small) candidate set afterwards rather than here. A grant is an
+/// orphan when <b>either</b> it belongs to a group that is no longer the configured one (a leftover
+/// after the grant group was changed — Connapse only ever creates grants for the configured group,
+/// so a managed grant to any other group should not exist) <b>or</b> its scope is broader than any
+/// allowed location (a connection was narrowed or removed). Both are stale authorisation.
 /// </para>
 /// </remarks>
 public static class GrantReconciler
 {
     /// <summary>
-    /// The group grants whose scope no location in <paramref name="unionLocations"/> reaches.
+    /// The group grants that should no longer exist: those for a superseded group, or whose scope is
+    /// no longer contained in any location in <paramref name="unionLocations"/>.
     /// </summary>
     /// <param name="grants">Every grant in a region (from <c>IAccessGrantsReader.ListAllAsync</c>).</param>
     /// <param name="unionLocations">
@@ -28,9 +30,8 @@ public static class GrantReconciler
     /// pass a partial one here.
     /// </param>
     /// <param name="configuredGroupId">
-    /// The currently configured grant group. Unused for the orphan decision itself (a superseded
-    /// group's orphans are deleted too), but carried so callers that want to treat the two cases
-    /// differently can.
+    /// The currently configured grant group. A managed grant held by any other group is stale (the
+    /// admin changed the group) and is selected regardless of its scope.
     /// </param>
     public static OrphanSelection SelectOrphans(
         IReadOnlyList<AccessGrantDetail> grants,
@@ -45,8 +46,13 @@ public static class GrantReconciler
             if (!grant.Grantee.IsGroup || string.IsNullOrWhiteSpace(grant.Grantee.Id))
                 continue;
 
-            // Orphaned = its scope overlaps no allowed location across every connection.
-            if (GrantCoverage.IsScopeCovered(grant.GrantScope, unionLocations))
+            bool isConfiguredGroup = string.Equals(
+                grant.Grantee.Id, configuredGroupId, StringComparison.Ordinal);
+
+            // A grant for the configured group whose scope is still fully within an allowed location
+            // is the one thing to keep. Everything else — a previous group's grant, or a scope
+            // broader than anything now allowed — is an orphan.
+            if (isConfiguredGroup && GrantCoverage.IsScopeWithinAllowed(grant.GrantScope, unionLocations))
                 continue;
 
             candidates.Add(grant);
