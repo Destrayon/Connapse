@@ -1,4 +1,9 @@
-# Orphaned S3 Access Grant cleanup — Implementation Plan
+﻿# Orphaned S3 Access Grant cleanup — Implementation Plan
+
+> **Superseded 2026-09-04 (#463).** Reversed: Connapse no longer creates, tags or deletes access
+> grants. In use, the only grant this design could author was the whole configured group on the whole
+> bucket, which gave every member every object. Administrators author grants in the S3 console; the
+> reader is unchanged. Kept for the record of what was tried and why.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

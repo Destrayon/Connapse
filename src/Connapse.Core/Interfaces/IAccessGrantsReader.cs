@@ -51,17 +51,6 @@ public record AccessGrantRecord(
         || string.Equals(Permission, "READWRITE", StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>One S3 access grant, with everything cleanup needs to identify and delete it.</summary>
-/// <remarks>
-/// Distinct from <see cref="AccessGrantRecord"/>, which the search/coverage paths use and which
-/// deliberately drops the id and grantee. Deletion needs the <c>AccessGrantId</c>, the ARN (to read
-/// the provenance tag back, since <c>ListAccessGrants</c> does not return tags), and the grantee (to
-/// tell the configured group from a superseded one).
-/// </remarks>
-public record AccessGrantDetail(
-    string AccessGrantId, string AccessGrantArn, AccessGrantee Grantee,
-    string GrantScope, string? Permission, string AccessGrantsLocationId);
-
 /// <summary>
 /// Reads S3 Access Grants using Connapse's own AWS identity.
 /// </summary>
@@ -107,17 +96,6 @@ public interface IAccessGrantsReader
     /// </para>
     /// </remarks>
     Task<IReadOnlyList<string>> ListAllScopesAsync(string region, CancellationToken ct = default);
-
-    /// <summary>
-    /// Every grant in the instance in <paramref name="region"/>, with id, ARN and grantee — for
-    /// reconciliation.
-    /// </summary>
-    /// <remarks>
-    /// Grantee-blind: the reconciler needs every group's grants, including a group that is no longer
-    /// the configured one, so a superseded group's orphans can be found. Not an authorization answer
-    /// — <see cref="ListForGranteeAsync"/> remains the only thing that decides what a search may read.
-    /// </remarks>
-    Task<IReadOnlyList<AccessGrantDetail>> ListAllAsync(string region, CancellationToken ct = default);
 }
 
 /// <summary>

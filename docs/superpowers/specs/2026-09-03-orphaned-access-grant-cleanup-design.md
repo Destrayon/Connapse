@@ -1,4 +1,9 @@
-# Orphaned S3 Access Grant cleanup
+﻿# Orphaned S3 Access Grant cleanup
+
+> **Superseded 2026-09-04 (#463).** Reversed: Connapse no longer creates, tags or deletes access
+> grants. In use, the only grant this design could author was the whole configured group on the whole
+> bucket, which gave every member every object. Administrators author grants in the S3 console; the
+> reader is unchanged. Kept for the record of what was tried and why.
 
 **Status:** Design — brainstorming decisions captured, pending spec review
 **Date:** 2026-09-03

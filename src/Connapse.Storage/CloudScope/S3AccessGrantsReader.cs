@@ -133,58 +133,6 @@ public sealed class S3AccessGrantsReader(
         return scopes;
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<AccessGrantDetail>> ListAllAsync(
-        string region, CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(region);
-
-        if (!options.CurrentValue.IsConfigured)
-            return [];
-
-        var endpoint = RegionEndpoint.GetBySystemName(region);
-        string account = await ResolveAccountIdAsync(endpoint, ct);
-
-        using var client = new AmazonS3ControlClient(
-            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
-
-        List<AccessGrantDetail> grants = [];
-        string? nextToken = null;
-
-        do
-        {
-            var response = await client.ListAccessGrantsAsync(
-                new ListAccessGrantsRequest { AccountId = account, NextToken = nextToken }, ct);
-
-            // Null, not empty, when the account holds no grants — the AWS SDK leaves response
-            // collections unset rather than initialising them.
-            foreach (var g in response.AccessGrantsList ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(g.AccessGrantId) || string.IsNullOrWhiteSpace(g.GrantScope))
-                    continue;
-
-                var grantee = g.Grantee is { } who
-                    ? new AccessGrantee(
-                        IsGroup: who.GranteeType == GranteeType.DIRECTORY_GROUP,
-                        Id: who.GranteeIdentifier ?? string.Empty)
-                    : new AccessGrantee(IsGroup: false, Id: string.Empty);
-
-                grants.Add(new AccessGrantDetail(
-                    g.AccessGrantId,
-                    g.AccessGrantArn ?? string.Empty,
-                    grantee,
-                    g.GrantScope,
-                    g.Permission?.Value,
-                    g.AccessGrantsLocationId ?? string.Empty));
-            }
-
-            nextToken = response.NextToken;
-        }
-        while (!string.IsNullOrEmpty(nextToken));
-
-        return grants;
-    }
-
     /// <summary>
     /// Whether a grant names one object rather than everything beneath a prefix.
     /// </summary>

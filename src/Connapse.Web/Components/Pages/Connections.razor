@@ -20,7 +20,6 @@
 @inject IS3Discovery S3Discovery
 @inject IProviderSetupReader SetupReader
 @inject IGrantCoverageReporter GrantCoverage
-@inject IAccessGrantsWriter GrantsWriter
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 
@@ -798,37 +797,14 @@
                                         </div>
                                     </div>
                                 }
-                                else if (CanGrant)
-                                {
-                                    <div class="mt-2">
-                                        <div class="small mb-1">
-                                            Grant read access to <strong>@(GrantGroupLabel)</strong>
-                                            for the buckets above, using Connapse's AWS identity.
-                                        </div>
-                                        <div class="d-flex flex-wrap gap-2 align-items-center">
-                                            <button type="button" class="btn btn-sm btn-primary"
-                                                    @onclick="GrantAccess" disabled="@granting">
-                                                @if (granting)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                                }
-                                                <span class="bi-key me-1"></span> Grant access
-                                            </button>
-                                            @if (grantResultMessage is { Length: > 0 })
-                                            {
-                                                <span class="small @(grantResultOk ? "text-success" : "text-danger")">
-                                                    @grantResultMessage
-                                                </span>
-                                            }
-                                        </div>
-                                    </div>
-                                }
                                 else
                                 {
                                     <div class="small mt-2">
-                                        Choose a group to grant to in
-                                        <a href="/admin/providers/aws">the AWS provider setup</a>,
-                                        and a Grant access button appears here.
+                                        Create the grant in the AWS console: open S3, then Access
+                                        Grants, then Create grant, and choose who may read and which
+                                        bucket, prefix or object. Connapse never creates a grant
+                                        itself, so the people you name there, and nobody else, see
+                                        these documents.
                                     </div>
                                 }
                             </div>
@@ -1289,88 +1265,6 @@
             return coverage?.Outcome == CoverageOutcome.Unavailable
                 ? (form.Region, directory)
                 : null;
-        }
-    }
-
-    /// <summary>What to call the group in the sentence beside the Grant access button.</summary>
-    private string GrantGroupLabel =>
-        SamlOptions.CurrentValue.GrantGroupName is { Length: > 0 } name
-            ? name
-            : "the chosen group";
-
-    private bool granting;
-    private string? grantResultMessage;
-    private bool grantResultOk;
-
-    /// <summary>Whether Connapse can offer to create the grants itself.</summary>
-    /// <remarks>
-    /// A group is configured, this connection has ungranted buckets, and the regions are not
-    /// mismatched. When true the Grant access button is offered.
-    /// </remarks>
-    private bool CanGrant =>
-        SamlOptions.CurrentValue.HasGrantGroup
-        && coverage is { HasWarning: true }
-        && RegionMismatch is null
-        && !string.IsNullOrWhiteSpace(form.Region);
-
-    /// <summary>
-    /// Creates the missing grants with Connapse's own AWS identity, then clears the warning.
-    /// </summary>
-    /// <remarks>
-    /// The connection's region, not the directory's — a grant is created against the Access Grants
-    /// instance in the bucket's region. On AccessDenied it falls back to the CloudShell script the
-    /// administrator runs themselves, rather than presenting the setup as broken.
-    /// </remarks>
-    private async Task GrantAccess()
-    {
-        grantResultMessage = null;
-        granting = true;
-
-        try
-        {
-            var signIn = SamlOptions.CurrentValue;
-            var grantee = new AccessGrantee(IsGroup: true, Id: signIn.GrantGroupId);
-
-            var result = await GrantsWriter.GrantReadAsync(
-                grantee, form.Region ?? string.Empty, coverage!.Ungranted, CancellationToken.None);
-
-            if (result.Succeeded)
-            {
-                // Re-check so the warning clears in place, no page reload.
-                await RefreshCoverageAsync();
-                await RefreshUngrantedAsync();
-
-                grantResultOk = true;
-                grantResultMessage = result.Created.Count > 0
-                    ? $"Granted read access to {GrantGroupLabel} on {result.Created.Count} location(s). "
-                      + "Searches start returning these documents within a minute."
-                    : $"{GrantGroupLabel} was already granted everything here.";
-            }
-            else if (result.AccessDenied)
-            {
-                // Connapse's identity is not allowed to create grants (a bring-your-own narrow role,
-                // or the policy not applied yet). The fix lives on the provider page, not here.
-                grantResultOk = false;
-                grantResultMessage =
-                    "Connapse's AWS identity is not allowed to create access grants. Update its role "
-                    + "permissions on the AWS provider page: Access → Update role permissions.";
-            }
-            else
-            {
-                grantResultOk = false;
-                grantResultMessage =
-                    "Could not grant on: "
-                    + string.Join("; ", result.Failed.Select(f => $"{f.Location} ({f.Reason})"));
-            }
-        }
-        catch (Exception ex)
-        {
-            grantResultOk = false;
-            grantResultMessage = $"Could not create the grants: {ex.Message}";
-        }
-        finally
-        {
-            granting = false;
         }
     }
 

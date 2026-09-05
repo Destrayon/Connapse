@@ -5,10 +5,9 @@
 /// be held by a group rather than by each person.
 /// </summary>
 /// <remarks>
-/// It prints no grant command of its own. One would have to name a bucket, and this step
-/// cannot know which buckets exist — that is a property of a connection, and the version that
-/// guessed shipped a placeholder that was duly run unreplaced. <c>AccessGrantScript</c> builds
-/// the real one, on the connection, from the group id this records.
+/// It prints no grant command of its own. Connapse never creates a grant: the administrator
+/// creates each one in the S3 console, naming who may read which bucket, prefix or object, and
+/// the group id this records is the grantee to name there.
 /// <para>
 /// Group-held grants are the shape this feature is meant to be used in. A grant names a grantee,
 /// and when that grantee is a group, adding and removing people becomes a directory operation —

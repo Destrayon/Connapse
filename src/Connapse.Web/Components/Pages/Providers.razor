@@ -25,7 +25,6 @@
 @inject IAwsIdentityLinkReader AwsIdentityLinks
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ILogger<Providers> Logger
-@inject IGrantReconciliationService GrantCleanup
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
@@ -671,12 +670,10 @@
                     <div class="alert alert-secondary small">
                         <span class="bi-info-circle me-1"></span>
                         Connapse's own AWS identity needs, for this, to read access grants and the
-                        directory (<code>s3:ListAccessGrants</code>, the <code>identitystore</code> reads,
-                        and <code>sso:DescribeInstance</code>/<code>DescribeApplication</code>) and to
-                        create and remove the S3 access grants that scope search
-                        (<code>s3:CreateAccessGrant</code>, <code>s3:DeleteAccessGrant</code>,
-                        <code>s3:TagResource</code>). The only thing it changes is a grant — it never
-                        reads, writes, or deletes an object.
+                        directory (<code>s3:ListAccessGrants</code> and the <code>identitystore</code>
+                        reads). It never creates or removes a grant: you create each one in the S3
+                        console, naming who may read which bucket, prefix or object, and Connapse
+                        honours it within a minute.
                         <span class="d-block mt-1">
                             <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
                             not scope it to one user, so it lets Connapse enumerate everyone's grants rather
@@ -951,7 +948,7 @@
                                         {
                                             <div class="alert alert-success small py-2 mb-2">
                                                 <span class="bi-check-circle-fill me-1"></span>
-                                                Grants will be offered for
+                                                Name this group as the grantee when you create grants in the S3 console:
                                                 <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
                                                 <code class="ms-1">@chosen.GrantGroupId</code>
                                             </div>
@@ -1073,21 +1070,6 @@
                         <ProviderResetAction Label="Reset default group"
                                              ConfirmLabel="Confirm group reset"
                                              OnReset="ClearGrantGroup" />
-
-                        <button type="button" class="btn btn-sm btn-outline-danger"
-                                @onclick="CleanUpOrphanedGrants" disabled="@cleaningGrants">
-                            @if (cleaningGrants)
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                            }
-                            <span class="bi-trash me-1"></span> Clean up orphaned grants
-                        </button>
-                        @if (grantCleanupMessage is { Length: > 0 })
-                        {
-                            <span class="small ms-2 align-self-center @(grantCleanupOk ? "text-success" : "text-danger")">
-                                @grantCleanupMessage
-                            </span>
-                        }
                     }
                 </Actions>
             </ProviderStepCard>
@@ -1125,10 +1107,6 @@
     private string? grantsCopyMessage;
     private bool grantsCopySucceeded;
 
-    private bool cleaningGrants;
-    private string? grantCleanupMessage;
-    private bool grantCleanupOk;
-
     private bool showRolePolicyUpdate;
     private string? rolePolicyCopyMessage;
     private bool rolePolicyCopyOk;
@@ -1151,54 +1129,6 @@
         rolePolicyCopyMessage = rolePolicyCopyOk
             ? "Copied."
             : "Could not copy — select the command above and copy it manually.";
-    }
-
-    /// <summary>
-    /// Deletes S3 access grants Connapse created that no connection needs any more.
-    /// </summary>
-    /// <remarks>
-    /// The same reconcile the recurring sweep runs, on demand. All the safety — provenance by tag,
-    /// the fail-closed abort on an incomplete connection view, the circuit breaker — lives in the
-    /// service; this only reports what it did or why it held back.
-    /// </remarks>
-    private async Task CleanUpOrphanedGrants()
-    {
-        grantCleanupMessage = null;
-        cleaningGrants = true;
-
-        try
-        {
-            var report = await GrantCleanup.ReconcileAsync(enforce: true);
-
-            if (report.Aborted.Count > 0)
-            {
-                grantCleanupOk = false;
-                grantCleanupMessage = "Held back — " + string.Join(" ", report.Aborted);
-            }
-            else if (report.Failed.Count > 0)
-            {
-                grantCleanupOk = false;
-                grantCleanupMessage =
-                    $"Removed {report.Deleted}, but {report.Failed.Count} could not be deleted.";
-            }
-            else
-            {
-                grantCleanupOk = true;
-                grantCleanupMessage = report.Deleted > 0
-                    ? $"Removed {report.Deleted} orphaned grant(s)."
-                    : "Nothing to clean up — no orphaned grants.";
-            }
-        }
-        catch (Exception ex)
-        {
-            grantCleanupOk = false;
-            grantCleanupMessage = $"Could not run cleanup: {ex.Message}";
-            Logger.LogWarning(ex, "Orphaned grant cleanup from the admin page failed");
-        }
-        finally
-        {
-            cleaningGrants = false;
-        }
     }
 
     /// <summary>The finished sign-in, or null while any part of it is outstanding.</summary>

@@ -26,9 +26,11 @@ public class AwsRolePolicyUpdateTests
 
         cmd.Should().Contain("086015909943");
         cmd.Should().NotContain(S3SetupPolicy.AccountPlaceholder);
-        // The whole point: an old role gets the actions added since it was created.
-        cmd.Should().Contain("s3:CreateAccessGrant");
-        cmd.Should().Contain("s3:DeleteAccessGrant");
+        // The whole point: an old role is brought to the current policy -- here that also strips
+        // the grant-writing actions a role minted on an earlier build carried.
+        cmd.Should().Contain("s3:ListAccessGrants");
+        cmd.Should().NotContain("s3:CreateAccessGrant");
+        cmd.Should().NotContain("s3:DeleteAccessGrant");
     }
 
     [Fact]
