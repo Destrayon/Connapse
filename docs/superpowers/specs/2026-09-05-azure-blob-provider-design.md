@@ -65,9 +65,13 @@ identity must gather and combine three separate authorization sources itself:
   compute effective access (named-user / named-group entries, the mask, and traverse-`X` on
   every parent directory).
 
-All three are **grant-only / union** semantics — nothing denies — so an unparseable ABAC
-condition or an unreadable ACL can be safely treated as "no additional grant" and failed
-closed without risking a false allow.
+All three are **grant-only / union** semantics — none of them can *deny* — so an unparseable
+ABAC condition or an unreadable ACL can be safely treated as "no additional grant" and failed
+closed without risking a false allow. **Azure deny assignments are the exception and a separate,
+higher-priority input:** a deny assignment overrides any grant, so the effective decision is
+`grants − denies` (see §C step 2). An implementation that reads only the three grant sources
+and ignores deny assignments would authorize access Azure itself denies — the resolver MUST
+subtract denies before granting.
 
 Two ways to enforce this were considered. Microsoft's own first-party analog — Azure AI
 Search's "ingest ADLS Gen2 permission metadata" feature — captures each document's allowed

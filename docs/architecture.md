@@ -772,7 +772,7 @@ AWS previously linked via an IAM Identity Center device authorization flow. It w
 removed (#435): the device flow cannot carry a per-user identity through to a token
 (`sso-oidc:CreateToken` has no `awsAdditionalDetails` field, and `PutApplicationGrant` excludes
 `device_code`), so it stored data nothing could ever read. Per-user AWS permissions instead arrive
-through the Cognito link on the Integrations page.
+through the IAM Identity Center SAML link on the Integrations page.
 
 Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`).
 

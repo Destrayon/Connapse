@@ -50,7 +50,7 @@ can rely on:
 - **Azure Blob Storage connector and Azure AD cloud identity linking were removed**
   ([#476](https://github.com/Destrayon/Connapse/issues/476)). Both were unverified and torn down for
   a clean rebuild; the dead `CloudScopeService`/`ICloudIdentityService` scaffolding they shared was
-  removed with them. Only the S3 and Filesystem connectors remain, and the only cloud identity link
+  removed with them. The S3, SFTP, and Filesystem connectors remain, and the only cloud identity link
   today is the AWS IAM Identity Center (SAML) link on the Integrations page.
 
 ### Remaining Limitations

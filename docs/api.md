@@ -1184,7 +1184,7 @@ All API errors follow RFC 7807 Problem Details format.
 
 Base path: `/api/sources`
 
-A **source** is an external system Connapse mirrors read-only — an S3 bucket or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
+A **source** is an external system Connapse mirrors read-only — an S3 bucket, an SFTP directory, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
 **Connections have no REST surface.** They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
@@ -1216,6 +1216,7 @@ Scope keys by provider:
 | Provider | Keys |
 |----------|------|
 | S3 | `bucketName`, `prefix` |
+| SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.

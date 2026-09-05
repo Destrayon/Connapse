@@ -11,7 +11,7 @@ Connapse keeps two kinds of storage apart, because they answer to different owne
 | Writable | Yes — upload, delete, create folders | Never |
 | Searchable | Yes | Yes |
 | Created by | Any editor | Administrators only |
-| Backed by | Managed storage | A **connection** to S3 or a filesystem |
+| Backed by | Managed storage | A **connection** to S3, SFTP, or a filesystem |
 
 A **connection** is the third piece: an administrator registers one credential and endpoint, and any number of sources point at scopes within it. One connection to an AWS account, many sources naming different buckets.
 
@@ -48,7 +48,7 @@ There is no secret field on a connection form, because Connapse does not accept 
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
 - **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
 
-The consequence worth internalising: **rotating credentials is an operation you perform in AWS, and Connapse needs no involvement.** There is nothing stored here to rotate.
+The consequence worth internalising: for **S3**, **rotating credentials is an operation you perform in AWS, and Connapse needs no involvement** — there is nothing stored here to rotate. **SFTP is the exception:** its SSH private key is stored (encrypted) in Connapse, so rotating it means replacing that key here.
 
 ### Configuration by provider
 

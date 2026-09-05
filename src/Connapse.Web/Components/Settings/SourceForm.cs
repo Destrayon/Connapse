@@ -24,7 +24,7 @@ public sealed record SourceForm
     /// <summary>S3 bucket.</summary>
     public string? Container { get; set; }
 
-    /// <summary>Cloud only. Narrows the source to a subtree of the bucket or container.</summary>
+    /// <summary>Cloud only. Narrows the source to a subtree of the bucket.</summary>
     public string? Prefix { get; set; }
 
     /// <summary>Filesystem only. Resolved beneath the connection's allowed root.</summary>
