@@ -64,23 +64,24 @@ public class SamlSignInSettings
     /// fail late or trust an unverified assertion.
     /// </remarks>
     /// <summary>
-    /// A directory group to grant S3 access to, or empty when none has been chosen.
+    /// The directory group an administrator intends to name as grantee when creating S3 access
+    /// grants in the AWS console, or empty when none has been chosen.
     /// </summary>
     /// <remarks>
     /// Here rather than with the Identity Center instance, which is only "where is the directory".
     /// A group is not a directory fact Connapse happens to hold — it exists solely to be the
-    /// grantee on an access grant, which is what per-user permissions are made of. Its setup step
-    /// is in this feature and connections read it to print a grant command, so it belongs to the
-    /// thing being configured rather than to AWS's own taxonomy.
+    /// grantee on an access grant, which is what per-user permissions are made of, so it belongs
+    /// to the thing being configured rather than to AWS's own taxonomy.
     /// <para>
-    /// Held so a connection can print a grant command with nothing left to fill in. Group discovery
-    /// happens in CloudShell, so without this the id is on an administrator's screen for a moment
-    /// and then gone — which is why the first version of that command shipped with a placeholder
-    /// where the grantee belonged, and got run with the placeholder still in it.
+    /// A reminder for the administrator, nothing more. Connapse never creates a grant and nothing
+    /// that decides what a search may read consults this value: the resolver reads the grants held
+    /// by the searcher and by every group they actually belong to. Group discovery happens in
+    /// CloudShell, so without this the id is on an administrator's screen for a moment and then
+    /// gone.
     /// </para>
     /// <para>
     /// A convenience, not a constraint. Granting different teams different buckets is the point of
-    /// groups, so this is the offered default rather than the only grantee a command may name.
+    /// groups, so this is a suggestion rather than the only grantee a grant may name.
     /// </para>
     /// <para>
     /// Deliberately outside <see cref="IsConfigured"/>. Sign-in works perfectly without a group;

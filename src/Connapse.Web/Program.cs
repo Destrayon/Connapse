@@ -352,6 +352,11 @@ using (var scope = app.Services.CreateScope())
         recurringJobId: "summary-sweep-stale-containers",
         methodCall: s => s.SweepStaleContainersAsync(default),
         cronExpression: "*/5 * * * *");
+
+    // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
+    // in the database independently of the code that registered them. Left in place, the old
+    // entry would fire every half hour into a job type that no longer exists.
+    recurringJobManager.RemoveIfExists("grant-reconcile-orphaned");
 }
 
 app.UseAntiforgery();

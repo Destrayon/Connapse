@@ -462,10 +462,13 @@
                                 @if (RolePolicyUpdateCommand is { Length: > 0 } updateCmd)
                                 {
                                     <div class="small mb-1">
-                                        Run this if a feature reports Connapse is not allowed to do
-                                        something in AWS — it re-applies the current
-                                        <code>ConnapseRead</code> policy to the role. Safe to re-run;
-                                        it changes nothing else. Connapse never runs it.
+                                        <strong>Run this once after upgrading.</strong> A role created
+                                        by an earlier version was allowed to create and delete S3
+                                        access grants; this re-applies the current
+                                        <code>ConnapseRead</code> policy to the role, which removes
+                                        that. Also run it if a feature reports Connapse is not allowed
+                                        to do something in AWS. Safe to re-run; it changes nothing
+                                        else. Connapse never runs it.
                                     </div>
                                     <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:16rem;overflow:auto"><code>@updateCmd</code></pre>
                                     <div class="d-flex flex-wrap gap-2">
@@ -912,11 +915,12 @@
                                 </li>
 
                                 <li class="mb-2">
-                                    Decide which group grants are offered for. Grants are held by a
-                                    grantee, and a group is the grantee worth using: adding and removing
-                                    people then happens in the directory, where joining and leaving
-                                    already happens, instead of as an edit to S3. Paste the block back
-                                    and every connection can print its own grant command.
+                                    Choose the group you will name as grantee when you create grants
+                                    in the S3 console. Grants are held by a grantee, and a group is the
+                                    grantee worth using: adding and removing people then happens in the
+                                    directory, where joining and leaving already happens, instead of as
+                                    an edit to S3. Paste the block back so Connapse can show you the
+                                    group's id when you need it. Connapse never creates a grant itself.
 
                                     <div class="border rounded p-3 mb-3">
                                         <p class="small mb-2">
@@ -1069,6 +1073,7 @@
                     {
                         <ProviderResetAction Label="Reset default group"
                                              ConfirmLabel="Confirm group reset"
+                                             HelpText="Clears only which group Connapse suggests. Grants already created for this group in AWS stay in force, and its members keep seeing what those grants cover, until you delete the grants in the S3 console."
                                              OnReset="ClearGrantGroup" />
                     }
                 </Actions>
