@@ -13,7 +13,6 @@
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
-@inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
@@ -1065,20 +1064,6 @@
             </ProviderStepCard>
         }
 
-        @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. AWS has no sign-in *into Connapse* — what it
-           has instead is the Identity Center application above, which establishes which directory
-           user somebody is so their results can be scoped, without being a way to log in here. *@
-        @if (Key == "azure")
-        {
-            <h2 class="h5" id="signin">Sign-in</h2>
-            <p class="text-muted small">
-                Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
-                search results are scoped against.
-            </p>
-
-            <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
-        }
     }
 </div>
 
@@ -1090,7 +1075,6 @@
     private string? saveMessage;
     private bool saveSuccess;
 
-    private AzureAdSettings azureAdSettings = new();
     private SamlSignInSettings samlSettings = new();
     private bool showSamlManual;
 
@@ -1256,7 +1240,6 @@
     {
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
-        azureAdSettings = AzureAdOptions.CurrentValue;
         samlSettings = SamlOptions.CurrentValue;
         identityCenterSettings = IdentityCenterOptions.CurrentValue;
     }
@@ -1797,7 +1780,6 @@
     private static string Offer(ProviderSetup provider) => provider.Key switch
     {
         "aws" => "Read files from S3.",
-        "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
         _ => $"Set up {provider.DisplayName}."
     };
 
@@ -1816,13 +1798,6 @@
         return outstanding.Count == 0
             ? "Everything Connapse needs is set up."
             : $"Needs attention: {string.Join(", ", outstanding)}";
-    }
-
-    private async Task SaveAzureAdSettings(AzureAdSettings settings)
-    {
-        azureAdSettings = settings;
-        await SaveSettings("azuread", settings);
-        await RefreshSetups();
     }
 
     /// <summary>What the settings form saves. Never stops enforcement.</summary>

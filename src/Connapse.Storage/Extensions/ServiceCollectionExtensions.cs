@@ -232,7 +232,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
         services.AddScoped<SftpConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
-        services.AddScoped<AzureAdConnectionTester>();
         services.AddScoped<OpenAiConnectionTester>();
         services.AddScoped<AzureOpenAiConnectionTester>();
         services.AddScoped<OpenAiLlmConnectionTester>();

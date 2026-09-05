@@ -11,7 +11,7 @@ namespace Connapse.Integration.Tests;
 /// <summary>
 /// Integration tests for CloudIdentity endpoints (/api/v1/auth/cloud/).
 /// Tests basic endpoint availability and auth requirements.
-/// External OAuth flows (Azure, AWS) require mocked providers and are not covered here.
+/// The external AWS SAML flow requires a mocked identity provider and is not covered here.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
@@ -48,19 +48,6 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-    }
-
-    [Fact]
-    public async Task AzureConnect_NotConfigured_Returns400()
-    {
-        // Azure AD is not configured in integration test environment
-        var response = await fixture.AdminClient.GetAsync("/api/v1/auth/cloud/azure/connect");
-
-        // Should return 400 since Azure AD settings are not configured
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-
-        var content = await response.Content.ReadAsStringAsync();
-        content.Should().Contain("azure_ad_not_configured");
     }
 
     [Fact]
@@ -126,8 +113,7 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
     // ── DTOs ──────────────────────────────────────────────────────────
 
     private record IdentitiesResponse(
-        List<CloudIdentityDto> Identities,
-        bool AzureAdConfigured);
+        List<CloudIdentityDto> Identities);
 
     private record CloudIdentityDto(
         string Provider,

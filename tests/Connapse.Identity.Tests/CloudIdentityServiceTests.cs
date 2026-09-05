@@ -1,13 +1,11 @@
 using System.Text.Json;
 using Connapse.Core;
-using Connapse.Core.Interfaces;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
 using Connapse.Identity.Stores;
 using FluentAssertions;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Identity.Tests;
@@ -17,110 +15,14 @@ public class CloudIdentityServiceTests
 {
     private readonly ICloudIdentityStore _store = Substitute.For<ICloudIdentityStore>();
     private readonly IDataProtectionProvider _dpProvider;
-    private readonly IOptionsMonitor<AzureAdSettings> _azureAdOptions;
-    private readonly IHttpClientFactory _httpClientFactory = Substitute.For<IHttpClientFactory>();
-
-    private readonly AzureAdSettings _azureAdSettings = new()
-    {
-        ClientId = "test-client-id",
-        TenantId = "test-tenant-id",
-        ClientSecret = "test-client-secret"
-    };
 
     public CloudIdentityServiceTests()
     {
         _dpProvider = new EphemeralDataProtectionProvider();
-
-        _azureAdOptions = Substitute.For<IOptionsMonitor<AzureAdSettings>>();
-        _azureAdOptions.CurrentValue.Returns(_azureAdSettings);
     }
 
     private ICloudIdentityService CreateService() =>
-        new CloudIdentityService(_store, _dpProvider, _azureAdOptions,
-            _httpClientFactory, NullLogger<CloudIdentityService>.Instance);
-
-    // ── IsAzureAdConfigured ───────────────────────────────────────────────
-
-    [Fact]
-    public void IsAzureAdConfigured_WithClientIdAndTenantId_ReturnsTrue()
-    {
-        var sut = CreateService();
-        sut.IsAzureAdConfigured().Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsAzureAdConfigured_EmptyClientId_ReturnsFalse()
-    {
-        _azureAdSettings.ClientId = "";
-        var sut = CreateService();
-        sut.IsAzureAdConfigured().Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsAzureAdConfigured_EmptyTenantId_ReturnsFalse()
-    {
-        _azureAdSettings.TenantId = "";
-        var sut = CreateService();
-        sut.IsAzureAdConfigured().Should().BeFalse();
-    }
-
-    // ── GetAzureConnectUrl ────────────────────────────────────────────────
-
-    [Fact]
-    public void GetAzureConnectUrl_ReturnsValidUrl_WithCorrectParameters()
-    {
-        var sut = CreateService();
-        var result = sut.GetAzureConnectUrl("https://connapse.local");
-
-        result.AuthorizeUrl.Should().Contain("login.microsoftonline.com");
-        result.AuthorizeUrl.Should().Contain(_azureAdSettings.TenantId);
-        result.AuthorizeUrl.Should().Contain("client_id=test-client-id");
-        result.AuthorizeUrl.Should().Contain("response_type=code");
-        result.AuthorizeUrl.Should().Contain("scope=openid");
-        result.AuthorizeUrl.Should().Contain("redirect_uri=");
-        result.State.Should().NotBeNullOrEmpty();
-    }
-
-    [Fact]
-    public void GetAzureConnectUrl_AutoDerivesRedirectUri()
-    {
-        var sut = CreateService();
-        var result = sut.GetAzureConnectUrl("https://connapse.local");
-
-        result.AuthorizeUrl.Should().Contain("connapse.local%2Fapi%2Fv1%2Fauth%2Fcloud%2Fazure%2Fcallback");
-    }
-
-    [Fact]
-    public void GetAzureConnectUrl_IncludesPkceParameters()
-    {
-        var sut = CreateService();
-        var result = sut.GetAzureConnectUrl("https://connapse.local");
-
-        result.AuthorizeUrl.Should().Contain("code_challenge=");
-        result.AuthorizeUrl.Should().Contain("code_challenge_method=S256");
-        result.CodeVerifier.Should().NotBeNullOrEmpty();
-        result.CodeVerifier.Length.Should().BeGreaterThanOrEqualTo(43);
-    }
-
-    [Fact]
-    public void GetAzureConnectUrl_GeneratesUniqueState_EachCall()
-    {
-        var sut = CreateService();
-        var result1 = sut.GetAzureConnectUrl("https://connapse.local");
-        var result2 = sut.GetAzureConnectUrl("https://connapse.local");
-
-        result1.State.Should().NotBe(result2.State);
-    }
-
-    [Fact]
-    public void GetAzureConnectUrl_GeneratesUniqueCodeVerifier_EachCall()
-    {
-        var sut = CreateService();
-        var result1 = sut.GetAzureConnectUrl("https://connapse.local");
-        var result2 = sut.GetAzureConnectUrl("https://connapse.local");
-
-        result1.CodeVerifier.Should().NotBe(result2.CodeVerifier);
-    }
+        new CloudIdentityService(_store, _dpProvider, NullLogger<CloudIdentityService>.Instance);
 
     // ── Disconnect ────────────────────────────────────────────────────────
 

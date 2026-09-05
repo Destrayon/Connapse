@@ -62,27 +62,6 @@ public class ProvidersPageTests
     }
 
     /// <summary>
-    /// The settings-table keys the two tabs save under.
-    /// </summary>
-    /// <remarks>
-    /// The one change here that would fail silently rather than loudly. Settings are stored by
-    /// category string in PostgreSQL; renaming a key on the way out of Settings.razor would not
-    /// break the build or lose the tab, it would just start writing to a row nothing reads, and
-    /// an administrator's configured issuer URL would appear to revert.
-    /// </remarks>
-    [Theory]
-    [InlineData("azuread")]
-    public void ProvidersPage_KeepsTheSettingsKeysItInherited(string category)
-    {
-        string markup = File.ReadAllText(Path.Combine(
-            PageTestPaths.RepositoryRoot(),
-            "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
-
-        markup.Should().Contain($"SaveSettings(\"{category}\"",
-            "renaming the category orphans whatever is already stored under the old one");
-    }
-
-    /// <summary>
     /// Settings must not keep a tab whose body was removed.
     /// </summary>
     [Trait("Category", "Unit")]

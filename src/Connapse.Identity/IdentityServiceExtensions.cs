@@ -89,7 +89,6 @@ public static class IdentityServiceExtensions
 
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
-        services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
         services.Configure<SamlSignInSettings>(
             configuration.GetSection(SamlSignInSettings.SectionName));
         services.Configure<IdentityCenterSettings>(
