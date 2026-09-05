@@ -23,11 +23,6 @@
     epic rather than an omission: the file tree exposed every synced object to any Connapse
     user regardless of what they could see in the source system.
 
-    An earlier version of this comment justified that by saying search already passes through
-    CloudScopeService. It does not — CloudScopeService has no production caller, and search
-    returns every document to every user (#421). Removing the file tree is still right, but it
-    narrows one surface rather than leaving the other one guarded.
-
     The aggregate document count is the one exception, accepted during design as a weak signal
     in exchange for the page being useful at all.
 *@
@@ -142,9 +137,9 @@
                                 @source.DocumentCount
                                 @if (source.FailedDocumentCount > 0)
                                 {
-                                    @* The count alone reported work that produced nothing as though it
-                                       had succeeded: the sync did list and enqueue correctly, and the
-                                       failure downstream had no way back to this page. *@
+                                    @* Shown beside the count: the sync lists and enqueues correctly
+                                       even when indexing later fails, and the count alone would read
+                                       as success. *@
                                     <span class="badge text-bg-danger ms-1"
                                           title="These files were found and queued, but could not be indexed. They are retried on the next sync.">
                                         @source.FailedDocumentCount failed
@@ -242,18 +237,19 @@
 
 @if (form is not null)
 {
-    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="new-source-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">New source</h5>
-                    <button type="button" class="btn-close" @onclick="CancelCreate"></button>
+                    <h5 class="modal-title" id="new-source-title">New source</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)
                     {
-                        <div class="alert alert-danger py-2 small">
-                            <span class="bi-x-circle me-1"></span> @createError
+                        <div class="alert alert-danger py-2 small" role="alert">
+                            <span class="bi-x-circle me-1" aria-hidden="true"></span> @createError
                         </div>
                     }
                     @if (createWarning is not null)
@@ -261,33 +257,37 @@
                         @* Accepted but worth seeing. The allowlists are permissive when empty
                            today and refuse later, and this is the one moment an operator is
                            looking at the connection and could narrow it. *@
-                        <div class="alert alert-warning py-2 small">
-                            <span class="bi-exclamation-triangle me-1"></span> @createWarning
+                        <div class="alert alert-warning py-2 small" role="status">
+                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span> @createWarning
                         </div>
                     }
 
                     <div class="mb-3">
-                        <label class="form-label">Connection</label>
-                        <select class="form-select" value="@form.ConnectionId"
-                                @onchange="OnConnectionChanged">
+                        <label class="form-label" for="source-connection">Connection</label>
+                        <select id="source-connection" class="form-select" value="@form.ConnectionId"
+                                aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
                                 <option value="@connection.Id">@connection.Name (@connection.Provider)</option>
                             }
                         </select>
-                        <div class="form-text">
+                        <div id="source-connection-help" class="form-text">
                             The connection holds the credential. This source picks a scope inside it.
                         </div>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">Name</label>
-                        <input class="form-control" @bind="form.Name" placeholder="company-docs" />
+                        <label class="form-label" for="source-name">Name</label>
+                        <input id="source-name" class="form-control" @bind="form.Name" placeholder="company-docs"
+                               aria-describedby="source-name-help" />
+                        <div id="source-name-help" class="form-text">
+                            Filled in from the bucket or container you choose below if left blank.
+                        </div>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">Description (optional)</label>
-                        <input class="form-control" @bind="form.Description"
+                        <label class="form-label" for="source-description">Description <span class="text-muted">(optional)</span></label>
+                        <input id="source-description" class="form-control" @bind="form.Description"
                                placeholder="What is in here, and who it is for" />
                     </div>
 
@@ -301,7 +301,7 @@
                            and a name typed from memory saves cleanly, then fails at the first
                            sync or is refused by the scope preflight afterwards. *@
                         <div class="mb-3">
-                            <label class="form-label">
+                            <label class="form-label" for="source-container">
                                 @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
                             </label>
 
@@ -329,7 +329,8 @@
                                    Container puts "bucket/team" in bucketName, which the S3 and Azure
                                    connectors use as a literal bucket or container name. The source
                                    passes preflight and then never syncs. *@
-                                <select class="form-select font-monospace"
+                                <select id="source-container" class="form-select font-monospace"
+                                        aria-describedby="source-container-help"
                                         value="@selectedScope" @onchange="SelectScope">
                                     <option value="">Choose one…</option>
                                     @foreach (string scope in allowed)
@@ -343,7 +344,7 @@
                                    is an indirect guarantee the test cannot see, and weakening the
                                    count to accommodate two help links would cost more than the
                                    links are worth. *@
-                                <div class="form-text">
+                                <div id="source-container-help" class="form-text">
                                     @(selectedProvider == ConnectionProvider.S3 ? "Buckets" : "Containers")
                                     this connection is allowed to read. To use another, add it to
                                     that connection's allowed locations on the Connections page.
@@ -351,9 +352,10 @@
                             }
                             else
                             {
-                                <input class="form-control font-monospace" @bind="form.Container"
+                                <input id="source-container" class="form-control font-monospace" @bind="form.Container"
+                                       aria-describedby="source-container-help"
                                        placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
-                                <div class="form-text">
+                                <div id="source-container-help" class="form-text">
                                     Which
                                     @(selectedProvider == ConnectionProvider.S3 ? "bucket" : "container")
                                     inside this connection the source reads. This connection lists
@@ -364,9 +366,10 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Prefix (optional)</label>
-                            <input class="form-control font-monospace" @bind="form.Prefix" placeholder="docs/" />
-                            <div class="form-text">Narrows the source to a subtree. Everything below it is indexed.</div>
+                            <label class="form-label" for="source-prefix">Prefix <span class="text-muted">(optional)</span></label>
+                            <input id="source-prefix" class="form-control font-monospace" @bind="form.Prefix" placeholder="docs/"
+                                   aria-describedby="source-prefix-help" />
+                            <div id="source-prefix-help" class="form-text">Narrows the source to a subtree. Everything below it is indexed.</div>
                         </div>
                     }
                     @* SFTP shares this branch rather than getting its own. Its scope is the same
@@ -408,10 +411,10 @@
                     }
 
                     <div class="mb-0">
-                        <label class="form-label">Sync interval in seconds (optional)</label>
-                        <input type="number" class="form-control" min="60" @bind="form.SyncIntervalSeconds"
-                               placeholder="300" />
-                        <div class="form-text">Leave empty to use the configured default.</div>
+                        <label class="form-label" for="source-interval">Sync interval in seconds <span class="text-muted">(optional)</span></label>
+                        <input id="source-interval" type="number" class="form-control" min="60" @bind="form.SyncIntervalSeconds"
+                               placeholder="300" aria-describedby="source-interval-help" />
+                        <div id="source-interval-help" class="form-text">Leave empty to use the configured default. The minimum is 60.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -431,12 +434,13 @@
 
 @if (pendingDelete is not null)
 {
-    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="delete-source-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Delete source</h5>
-                    <button type="button" class="btn-close" @onclick="() => pendingDelete = null"></button>
+                    <h5 class="modal-title" id="delete-source-title">Delete source</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="() => pendingDelete = null"></button>
                 </div>
                 <div class="modal-body">
                     <p>
@@ -568,6 +572,11 @@
         var (container, prefix) = StorageLocationPolicy.SplitEntry(selectedScope);
         form!.Container = container;
         form.Prefix = prefix;
+
+        // A name the operator has not typed is derived from what was chosen, so the common case
+        // of one source per bucket needs nothing typed twice.
+        if (string.IsNullOrWhiteSpace(form.Name))
+            form.Name = container;
     }
 
 

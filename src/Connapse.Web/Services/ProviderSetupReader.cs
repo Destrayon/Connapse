@@ -138,16 +138,12 @@ public class ProviderSetupReader(
     /// Whether people can connect an AWS identity of their own.
     /// </summary>
     /// <remarks>
-    /// Reports on the pool being configured, not on filtering working. Those are different claims,
-    /// and only the first is this page's to make: search is not scoped by cloud permissions yet
-    /// (#421), so a requirement worded around results would be green while every user still sees
-    /// everything.
+    /// Reports on the application being configured, not on filtering working. Those are different
+    /// claims, and only the first is this page's to make.
     /// <para>
     /// Plainly <see cref="RequirementStatus.NotConfigured"/> when unset, because that is what it
-    /// is — no part of a pool exists. Reporting it as a Warning to keep the provider's own summary
-    /// out of "Not set up" was solving the rollup's problem on the wrong object, and it put
-    /// "Partly set up" on a card for something that was not partly anything.
-    /// <see cref="ProviderSetup.Overall"/> draws that distinction now.
+    /// is — no part of the application exists. <see cref="ProviderSetup.Overall"/> decides how that
+    /// rolls up into the provider's own badge.
     /// </para>
     /// </remarks>
     private static ProviderRequirement PerUserPermissions(SamlSignInSettings settings)

@@ -41,7 +41,7 @@
                 @ManualContent
                 @if (EasyContent is not null)
                 {
-                    <ProviderSetupGuide Title="@EasyTitle">@EasyContent</ProviderSetupGuide>
+                    <ProviderSetupGuide Title="@EasyTitle" Open="@EasyOpen">@EasyContent</ProviderSetupGuide>
                 }
             </div>
         }
@@ -58,6 +58,9 @@
     [Parameter] public EventCallback<bool> ExpandedChanged { get; set; }
     [Parameter] public string EditLabel { get; set; } = "Edit setup";
     [Parameter] public string EasyTitle { get; set; } = "Easy setup";
+
+    /// <summary>Whether the easy-setup guide starts expanded. Set it where the guide is the main route.</summary>
+    [Parameter] public bool EasyOpen { get; set; }
     [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public RenderFragment? ManualContent { get; set; }
     [Parameter] public RenderFragment? EasyContent { get; set; }

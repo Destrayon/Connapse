@@ -44,7 +44,7 @@ Connections are created and edited on the **Connections** page, by administrator
 
 There is no secret field on a connection form, because Connapse does not accept pasted cloud keys.
 
-- **S3** authenticates through the AWS default credential chain — an instance profile, an IRSA role, or an SSO session. `roleArn` optionally names a role to assume on top of that.
+- **S3** authenticates as the identity set up on the AWS provider page (IAM Roles Anywhere, short-lived credentials from a locally generated certificate), or through the AWS default credential chain when nothing is stored there. `roleArn` optionally names a role to assume on top of that. See [AWS Setup](aws-setup.md).
 - **Azure Blob** authenticates through `DefaultAzureCredential` — a managed identity, a workload identity, or a developer sign-in. `managedIdentityClientId` optionally selects a specific user-assigned identity.
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
 - **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key or an Azure secret is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
