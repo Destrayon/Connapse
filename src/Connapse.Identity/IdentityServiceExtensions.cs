@@ -8,7 +8,6 @@ using Connapse.Identity.Authorization;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
-using Connapse.Identity.Stores;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -70,8 +69,6 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<OAuthAuthCodeService>();
         services.AddHttpClient<OAuthClientService>();
-        services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
-        services.AddScoped<ICloudIdentityService, CloudIdentityService>();
         services.AddScoped<AwsIdentityLinkStore>();
         services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();

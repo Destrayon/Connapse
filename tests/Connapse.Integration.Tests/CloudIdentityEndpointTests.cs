@@ -1,7 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,39 +15,6 @@ namespace Connapse.Integration.Tests;
 [Collection("Integration Tests")]
 public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
-    [Fact]
-    public async Task ListIdentities_Authenticated_Returns200WithEmptyList()
-    {
-        // Act
-        var response = await fixture.AdminClient.GetAsync("/api/v1/auth/cloud/identities");
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var result = await response.Content.ReadFromJsonAsync<IdentitiesResponse>(JsonOptions);
-        result.Should().NotBeNull();
-        result!.Identities.Should().NotBeNull();
-        result.Identities.Should().BeEmpty("admin user has no linked cloud identities");
-    }
-
-    [Fact]
-    public async Task ListIdentities_Unauthenticated_Returns401()
-    {
-        // Arrange
-        using var anonClient = fixture.Factory.CreateClient();
-
-        // Act
-        var response = await anonClient.GetAsync("/api/v1/auth/cloud/identities");
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-    }
-
     [Fact]
     public async Task DisconnectIdentity_NoIdentity_Returns404()
     {
@@ -109,14 +74,4 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
         var store = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
         return await store.GetDirectoryUserIdAsync(userId);
     }
-
-    // ── DTOs ──────────────────────────────────────────────────────────
-
-    private record IdentitiesResponse(
-        List<CloudIdentityDto> Identities);
-
-    private record CloudIdentityDto(
-        string Provider,
-        string DisplayName,
-        DateTime LinkedAt);
 }

@@ -146,7 +146,6 @@ if (allowAnonDiscovery)
 }
 
 builder.Services.AddMemoryCache();
-builder.Services.AddScoped<ICloudScopeService, CloudScopeService>();
 
 // Pre-flight for the Sources create form. Not an enforcement point — ConnectorFactory
 // re-checks the same policy on every sync cycle, which is what catches an allowlist narrowed

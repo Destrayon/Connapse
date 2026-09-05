@@ -27,27 +27,14 @@ public static class CloudIdentityEndpoints
     {
         var group = app.MapGroup("/api/v1/auth/cloud").WithTags("Cloud Identity");
 
-        // GET /api/v1/auth/cloud/identities — list current user's linked cloud identities
-        group.MapGet("/identities", async (
-            HttpContext httpContext,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            var identities = await service.ListAsync(userId.Value, ct);
-            return Results.Ok(new { identities });
-        }).RequireAuthorization();
-
         // --- AWS (per-user identity link) ---
         //
-        // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from
-        // UserCloudIdentityEntity / ICloudIdentityService. This link exists so per-user AWS
-        // permissions can be resolved for search — it is not a connector credential, and it holds
-        // no credential of its own. It shares the same versioned route group as the identities
-        // route above: the assertion consumer URL is registered in the customer's Identity Center
-        // application, so it must not need to change again after ship.
+        // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the now-removed
+        // generic cloud-identity scaffolding. This link exists so per-user AWS permissions can be
+        // resolved for search — it is not a connector credential, and it holds no credential of its
+        // own. It shares the same versioned route group below: the assertion consumer URL is
+        // registered in the customer's Identity Center application, so it must not need to change
+        // again after ship.
 
         // GET /api/v1/auth/cloud/aws/connect — send the browser to IAM Identity Center.
         group.MapGet("/aws/connect", (
