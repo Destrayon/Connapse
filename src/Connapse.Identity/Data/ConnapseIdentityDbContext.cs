@@ -19,7 +19,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<AgentApiKeyEntity> AgentApiKeys => Set<AgentApiKeyEntity>();
     public DbSet<OAuthClientEntity> OAuthClients => Set<OAuthClientEntity>();
     public DbSet<OAuthAuthCodeEntity> OAuthAuthCodes => Set<OAuthAuthCodeEntity>();
-    public DbSet<UserCloudIdentityEntity> UserCloudIdentities => Set<UserCloudIdentityEntity>();
     public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -35,7 +34,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureAgentApiKeys(modelBuilder);
         ConfigureOAuthClients(modelBuilder);
         ConfigureOAuthAuthCodes(modelBuilder);
-        ConfigureUserCloudIdentities(modelBuilder);
         ConfigureUserAwsIdentityLinks(modelBuilder);
     }
 
@@ -585,47 +583,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany()
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-    }
-
-    private static void ConfigureUserCloudIdentities(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<UserCloudIdentityEntity>(entity =>
-        {
-            entity.ToTable("user_cloud_identities");
-            entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.Id)
-                .HasColumnName("id")
-                .HasDefaultValueSql("gen_random_uuid()");
-
-            entity.Property(e => e.UserId)
-                .HasColumnName("user_id")
-                .IsRequired();
-
-            entity.Property(e => e.Provider)
-                .HasColumnName("provider")
-                .IsRequired();
-
-            entity.Property(e => e.IdentityDataJson)
-                .HasColumnName("identity_data_json")
-                .IsRequired();
-
-            entity.Property(e => e.CreatedAt)
-                .HasColumnName("created_at")
-                .HasDefaultValueSql("now()");
-
-            entity.Property(e => e.LastUsedAt)
-                .HasColumnName("last_used_at");
-
-            entity.HasIndex(e => new { e.UserId, e.Provider })
-                .HasDatabaseName("ix_user_cloud_identities_user_provider")
-                .IsUnique();
-
-            entity.HasOne(e => e.User)
-                .WithMany(u => u.CloudIdentities)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

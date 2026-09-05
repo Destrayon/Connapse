@@ -28,17 +28,4 @@ public static class ResourceUri
         ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
         return $"s3://{bucket}/{key}";
     }
-
-    /// <summary>An Azure blob, as <c>azblob://account/container/blob</c>.</summary>
-    /// <remarks>
-    /// The account is part of the address, not context. Container names are unique only within an
-    /// account, so omitting it would give two connections holding a container of the same name one
-    /// identical URI — and a rule granting one would reach the other's documents.
-    /// </remarks>
-    public static string ForAzureBlob(string storageAccount, string container, string blob)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(storageAccount);
-        ArgumentException.ThrowIfNullOrWhiteSpace(container);
-        return $"azblob://{storageAccount}/{container}/{blob}";
-    }
 }

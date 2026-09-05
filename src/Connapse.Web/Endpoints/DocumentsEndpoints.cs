@@ -299,7 +299,7 @@ public static class DocumentsEndpoints
             {
                 using var rawStream = await connector.ReadFileAsync(document.Path, ct);
 
-                // Buffer non-seekable streams (MinIO, S3, AzureBlob) for parsers
+                // Buffer non-seekable streams (MinIO, S3) for parsers
                 MemoryStream? buffered = null;
                 Stream stream;
                 if (!rawStream.CanSeek)

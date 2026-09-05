@@ -267,7 +267,7 @@ public static class ContainersEndpoints
 
             // Managed storage directly, rather than through IConnectorFactory. A container has
             // no connector type to dispatch on any more, and the cloud-scope check that used to
-            // guard this route only ever fired for S3 and AzureBlob containers — which are
+            // guard this route only ever fired for S3 containers — which are
             // sources now, synced by SourceSyncService. Kept because objects can still land in
             // the bucket out of band, and this is the only route that picks them up.
             var connector = managedStorage.CreateConnector(container.Id);

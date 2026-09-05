@@ -112,28 +112,6 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
-    public void Create_AzureBlobSource_RecombinesCredentialAndScope()
-    {
-        var connection = MakeConnection(ConnectionProvider.AzureBlob, """{"storageAccountName":"acct","managedIdentityClientId":"mi-1"}""");
-        var source = MakeSource(connection.Id, """{"containerName":"blobs","prefix":"p/"}""");
-
-        var connector = (AzureBlobConnector)_factory.Create(source, connection);
-
-        connector.Type.Should().Be(ConnectorType.AzureBlob);
-
-        // This is the only coverage of the Azure recombination. Unlike S3 — which LocalStack
-        // serves, so SourceSyncS3IntegrationTests exercises the mapping against a live
-        // remote — Azurite cannot authenticate DefaultAzureCredential, and redirecting the
-        // connector to it would mean supporting shared-key auth: precisely the stored cloud
-        // credential this project does not accept.
-        connector.Config.StorageAccountName.Should().Be("acct", "the account comes from the connection");
-        connector.Config.ManagedIdentityClientId.Should().Be("mi-1",
-            "dropping this silently falls back to the default identity, which may have wider access");
-        connector.Config.ContainerName.Should().Be("blobs", "the container comes from the source scope");
-        connector.Config.Prefix.Should().Be("p/");
-    }
-
-    [Fact]
     public void Create_FilesystemSource_CombinesRootAndSubPath()
     {
         var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
@@ -212,19 +190,6 @@ public class SourceConnectorFactoryTests
         var connector = (S3Connector)_factory.Create(source, connection);
 
         connector.Config.BucketName.Should().Be("docs-bucket");
-    }
-
-    [Fact]
-    public void Create_AzureSourceNamingAContainerOutsideAllowedLocations_Throws()
-    {
-        var connection = MakeConnection(ConnectionProvider.AzureBlob,
-            """{"storageAccountName":"acct","allowedLocations":["public-docs"]}""");
-        var source = MakeSource(connection.Id, """{"containerName":"hr-private"}""");
-
-        Action act = () => _factory.Create(source, connection);
-
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*allowedLocations*");
     }
 
     [Fact]
@@ -426,18 +391,6 @@ public class SourceConnectorFactoryTests
         act.Should().Throw<InvalidOperationException>();
     }
 
-    [Fact]
-    public void Create_AzureMalformedAllowedLocations_IsRefused()
-    {
-        var connection = MakeConnection(ConnectionProvider.AzureBlob,
-            """{"storageAccountName":"acct","allowedLocations":[42]}""");
-        var source = MakeSource(connection.Id, """{"containerName":"anything"}""");
-
-        Action act = () => _factory.Create(source, connection);
-
-        act.Should().Throw<InvalidOperationException>();
-    }
-
     /// <summary>
     /// The grace path has to survive all of this: #350 backfilled connections that declare no
     /// allowlist, and refusing those would break every upgrade.
@@ -630,7 +583,6 @@ public class SourceConnectorFactoryTests
     /// </summary>
     [Theory]
     [InlineData(ConnectionProvider.S3, """{"region":"eu-west-1"}""", """{"bucketName":"b"}""")]
-    [InlineData(ConnectionProvider.AzureBlob, """{"storageAccountName":"a"}""", """{"containerName":"c"}""")]
     public void Create_CloudProviders_IgnoreASuppliedSecret(
         ConnectionProvider provider, string config, string scope)
     {

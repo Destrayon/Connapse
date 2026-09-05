@@ -6,7 +6,7 @@ namespace Connapse.Core;
 /// ManagedStorage is deliberately absent: it is Connapse's own backend, not an
 /// external system requiring credentials.
 /// </summary>
-public enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5 }
+public enum ConnectionProvider { Filesystem = 1, S3 = 3, Sftp = 5 }
 
 public record Connection(
     Guid Id,

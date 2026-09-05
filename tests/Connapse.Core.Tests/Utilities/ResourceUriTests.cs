@@ -35,29 +35,11 @@ public class ResourceUriTests
     }
 
     [Fact]
-    public void ForAzureBlob_NamesTheStorageAccount()
-    {
-        // The finding this pins: the first version was azblob://container/blob. Container names
-        // are unique only within an account, so two connections to different accounts each with a
-        // "docs" container produced one identical URI.
-        ResourceUri.ForAzureBlob("contoso", "docs", "team/q3.pdf")
-            .Should().Be("azblob://contoso/docs/team/q3.pdf");
-    }
-
-    [Fact]
-    public void ForAzureBlob_ForSameContainerInDifferentAccounts_DoesNotCollide()
-    {
-        ResourceUri.ForAzureBlob("contoso", "docs", "a.md")
-            .Should().NotBe(ResourceUri.ForAzureBlob("fabrikam", "docs", "a.md"));
-    }
-
-    [Fact]
     public void Schemes_AreDistinctPerProvider()
     {
-        // A resolver reads these back. A shared scheme would make an S3 rule and an Azure rule
-        // indistinguishable by prefix, which is how the filter will compare them.
+        // A resolver reads these back. A shared scheme would make rules from two different
+        // providers indistinguishable by prefix, which is how the filter will compare them.
         ResourceUri.ForS3("a", "k").Should().StartWith("s3://");
-        ResourceUri.ForAzureBlob("a", "c", "k").Should().StartWith("azblob://");
     }
 
     [Theory]
@@ -72,14 +54,4 @@ public class ResourceUriTests
             .Should().Throw<ArgumentException>();
     }
 
-    [Theory]
-    [InlineData(null, "docs")]
-    [InlineData("contoso", null)]
-    [InlineData("", "docs")]
-    [InlineData("contoso", "")]
-    public void ForAzureBlob_WithoutBothAuthorityParts_Throws(string? account, string? container)
-    {
-        FluentActions.Invoking(() => ResourceUri.ForAzureBlob(account!, container!, "k"))
-            .Should().Throw<ArgumentException>();
-    }
 }

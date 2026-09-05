@@ -11,9 +11,6 @@ namespace Connapse.Web.Endpoints;
 
 public static class CloudIdentityEndpoints
 {
-    private const string AzureStateCookieName = "__connapse_az_state";
-    private const string AzurePkceCookieName = "__connapse_az_pkce";
-
     /// <summary>Carries the one-time code that claims a validated assertion.</summary>
     /// <remarks>
     /// A cookie rather than a query parameter: it must not be readable by script, must not sit in
@@ -30,101 +27,16 @@ public static class CloudIdentityEndpoints
     {
         var group = app.MapGroup("/api/v1/auth/cloud").WithTags("Cloud Identity");
 
-        // GET /api/v1/auth/cloud/identities — list current user's linked cloud identities
-        group.MapGet("/identities", async (
-            HttpContext httpContext,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            var identities = await service.ListAsync(userId.Value, ct);
-            return Results.Ok(new
-            {
-                identities,
-                azureAdConfigured = service.IsAzureAdConfigured()
-            });
-        }).RequireAuthorization();
-
-        // --- Azure OAuth2 ---
-
-        // GET /api/v1/auth/cloud/azure/connect — redirect to Azure AD authorize endpoint
-        group.MapGet("/azure/connect", (
-            HttpContext httpContext,
-            [FromServices] ICloudIdentityService service) =>
-        {
-            if (!service.IsAzureAdConfigured())
-                return Results.BadRequest(new { error = "azure_ad_not_configured", message = "Azure AD is not configured. An admin must set ClientId and TenantId in settings." });
-
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
-            var result = service.GetAzureConnectUrl(baseUrl);
-
-            var cookieOptions = new CookieOptions
-            {
-                HttpOnly = true,
-                Secure = httpContext.Request.IsHttps,
-                SameSite = SameSiteMode.Lax,
-                MaxAge = TimeSpan.FromMinutes(10),
-                Path = "/api/v1/auth/cloud/azure"
-            };
-
-            httpContext.Response.Cookies.Append(AzureStateCookieName, result.State, cookieOptions);
-            httpContext.Response.Cookies.Append(AzurePkceCookieName, result.CodeVerifier, cookieOptions);
-
-            return Results.Redirect(result.AuthorizeUrl);
-        }).RequireAuthorization();
-
-        // GET /api/v1/auth/cloud/azure/callback — Azure AD OAuth2 callback
-        group.MapGet("/azure/callback", async (
-            HttpContext httpContext,
-            [FromQuery] string code,
-            [FromQuery] string state,
-            [FromServices] ICloudIdentityService service,
-            CancellationToken ct) =>
-        {
-            var expectedState = httpContext.Request.Cookies[AzureStateCookieName];
-            if (string.IsNullOrEmpty(expectedState) || expectedState != state)
-                return Results.BadRequest(new { error = "invalid_state", message = "Invalid or expired state parameter." });
-
-            var codeVerifier = httpContext.Request.Cookies[AzurePkceCookieName];
-            if (string.IsNullOrEmpty(codeVerifier))
-                return Results.BadRequest(new { error = "invalid_pkce", message = "Missing PKCE code verifier." });
-
-            var deleteCookieOptions = new CookieOptions { Path = "/api/v1/auth/cloud/azure" };
-            httpContext.Response.Cookies.Delete(AzureStateCookieName, deleteCookieOptions);
-            httpContext.Response.Cookies.Delete(AzurePkceCookieName, deleteCookieOptions);
-
-            var userId = GetUserId(httpContext);
-            if (userId is null) return Results.Unauthorized();
-
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
-            var redirectUri = $"{baseUrl}/api/v1/auth/cloud/azure/callback";
-
-            try
-            {
-                await service.HandleAzureCallbackAsync(userId.Value, code, codeVerifier, redirectUri, ct);
-                return Results.Redirect("/profile");
-            }
-            catch (InvalidOperationException ex)
-            {
-                return Results.BadRequest(new { error = "azure_callback_failed", message = ex.Message });
-            }
-        }).RequireAuthorization();
-
         // --- AWS (per-user identity link) ---
         //
-        // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the
-        // Azure connect/callback above, which write to UserCloudIdentityEntity via
-        // ICloudIdentityService. This link exists so per-user AWS permissions can be resolved for
-        // search — it is not a connector credential, and it holds no credential of its own. It
-        // shares the same versioned route group as the Azure endpoints above: the assertion
-        // consumer URL is registered in the customer's Identity Center application, so it must not
-        // need to change again after ship.
+        // A separate table (AwsIdentityLinkStore / UserAwsIdentityLinkEntity) from the now-removed
+        // generic cloud-identity scaffolding. This link exists so per-user AWS permissions can be
+        // resolved for search — it is not a connector credential, and it holds no credential of its
+        // own. It shares the same versioned route group below: the assertion consumer URL is
+        // registered in the customer's Identity Center application, so it must not need to change
+        // again after ship.
 
         // GET /api/v1/auth/cloud/aws/connect — send the browser to IAM Identity Center.
-        // Mirrors /azure/connect deliberately. A second convention for the same job in the same
-        // file costs more than reusing an imperfect one.
         group.MapGet("/aws/connect", (
             HttpContext http,
             [FromServices] IOptionsMonitor<SamlSignInSettings> settings,
@@ -308,7 +220,6 @@ public static class CloudIdentityEndpoints
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
-            [FromServices] ICloudIdentityService service,
             [FromServices] IAwsIdentityLinkService awsLinks,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
@@ -318,31 +229,23 @@ public static class CloudIdentityEndpoints
             var userId = GetUserId(httpContext);
             if (userId is null) return Results.Unauthorized();
 
-            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider))
-                return Results.BadRequest(new { error = "invalid_provider", message = $"Unknown provider: {provider}. Valid values: AWS, Azure." });
+            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider) || cloudProvider != CloudProvider.AWS)
+                return Results.BadRequest(new { error = "invalid_provider", message = $"Unknown provider: {provider}. Valid values: AWS." });
 
-            bool deleted;
-            if (cloudProvider == CloudProvider.AWS)
+            // AWS links live in their own store, the one the integrations page reads and
+            // deletes through; the cloud-identity table this route used to consult never holds
+            // a SAML link, so deleting there answered 404 and left the link in force.
+            var result = await awsLinks.DisconnectAsync(userId.Value, ct);
+            if (result.LinkChangedDuringDisconnect)
             {
-                // AWS links live in their own store, the one the integrations page reads and
-                // deletes through; the cloud-identity table this route used to consult never holds
-                // a SAML link, so deleting there answered 404 and left the link in force.
-                var result = await awsLinks.DisconnectAsync(userId.Value, ct);
-                if (result.LinkChangedDuringDisconnect)
+                return Results.Conflict(new
                 {
-                    return Results.Conflict(new
-                    {
-                        error = "link_changed",
-                        message = "The AWS identity link changed while disconnecting. Try again."
-                    });
-                }
+                    error = "link_changed",
+                    message = "The AWS identity link changed while disconnecting. Try again."
+                });
+            }
 
-                deleted = result.Deleted;
-            }
-            else
-            {
-                deleted = await service.DisconnectAsync(userId.Value, cloudProvider, ct);
-            }
+            bool deleted = result.Deleted;
 
             // Evict cached scope entries for this user + provider
             if (deleted)
@@ -351,15 +254,11 @@ public static class CloudIdentityEndpoints
                 // access was cached, and that is now a source: containers are managed storage
                 // and were never cloud-scoped. A source's provider lives on its connection,
                 // so the match is made there.
-                var targetProvider = cloudProvider == CloudProvider.AWS
-                    ? ConnectionProvider.S3
-                    : ConnectionProvider.AzureBlob;
-
                 try
                 {
                     var connections = await connectionStore.ListAsync(take: int.MaxValue, ct: ct);
                     var matching = connections
-                        .Where(c => c.Provider == targetProvider)
+                        .Where(c => c.Provider == ConnectionProvider.S3)
                         .Select(c => c.Id)
                         .ToHashSet();
 

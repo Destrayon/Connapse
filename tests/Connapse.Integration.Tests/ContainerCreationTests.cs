@@ -32,7 +32,6 @@ public class ContainerCreationTests(SharedWebAppFixture fixture)
 
     [Theory]
     [InlineData("S3")]
-    [InlineData("AzureBlob")]
     [InlineData("Filesystem")]
     public async Task CreateContainer_LegacyBodyNamingAConnector_IgnoresItAndCreatesManagedStorage(string connectorType)
     {

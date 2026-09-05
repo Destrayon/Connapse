@@ -21,10 +21,10 @@ public sealed record SourceForm
     public string? Description { get; set; }
     public Guid ConnectionId { get; set; }
 
-    /// <summary>S3 bucket, or Azure blob container. Which one is decided by the connection.</summary>
+    /// <summary>S3 bucket.</summary>
     public string? Container { get; set; }
 
-    /// <summary>Cloud only. Narrows the source to a subtree of the bucket or container.</summary>
+    /// <summary>Cloud only. Narrows the source to a subtree of the bucket.</summary>
     public string? Prefix { get; set; }
 
     /// <summary>Filesystem only. Resolved beneath the connection's allowed root.</summary>
@@ -52,11 +52,6 @@ public sealed record SourceForm
         {
             case ConnectionProvider.S3:
                 node["bucketName"] = Container?.Trim() ?? "";
-                if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
-                break;
-
-            case ConnectionProvider.AzureBlob:
-                node["containerName"] = Container?.Trim() ?? "";
                 if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
                 break;
 
@@ -98,9 +93,6 @@ public sealed record SourceForm
 
         if (provider is ConnectionProvider.S3 && Blank(Container))
             return "A bucket name is required.";
-
-        if (provider is ConnectionProvider.AzureBlob && Blank(Container))
-            return "A blob container name is required.";
 
         if (SyncIntervalSeconds is { } interval && interval < 60)
             return "Sync interval must be at least 60 seconds.";

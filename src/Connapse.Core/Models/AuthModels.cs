@@ -82,22 +82,6 @@ public record CreateAgentKeyResponse(
     DateTime CreatedAt,
     DateTime? ExpiresAt);
 
-public record CloudIdentityDto(
-    Guid Id,
-    CloudProvider Provider,
-    CloudIdentityData Data,
-    DateTime CreatedAt,
-    DateTime? LastUsedAt);
-
-public record CloudIdentityData(
-    string? PrincipalArn,
-    string? AccountId,
-    string? ObjectId,
-    string? TenantId,
-    string? DisplayName);
-
-public record AzureConnectResult(string AuthorizeUrl, string State, string CodeVerifier);
-
 /// <summary>
 /// A user's connected IAM Identity Center identity, as the integrations page needs to show it.
 /// </summary>

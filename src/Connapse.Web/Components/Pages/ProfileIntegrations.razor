@@ -6,7 +6,6 @@
 @using Connapse.Web.Components.Layout
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.Extensions.Options
-@inject ICloudIdentityService CloudIdentityService
 @inject IAwsIdentityLinkService AwsIdentityLinkService
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
@@ -39,7 +38,7 @@
         <h2 class="h5 mb-0">Cloud Identities</h2>
     </div>
     <p class="text-muted small mb-4">
-        Link your cloud account so Connapse knows who you are. Both cards below store identity
+        Link your cloud account so Connapse knows who you are. This card stores identity
         metadata only — no access keys, no tokens — and linking does not grant Connapse access to
         your storage. Connecting AWS records which IAM Identity Center user you are, so that what
         you may read can be looked up later; nothing that could act as you is kept.
@@ -79,108 +78,6 @@
     </p>
 
     <div class="row g-3">
-        <!-- Azure Card -->
-        <div class="col-md-6">
-            <div class="card h-100 provider-card @(azureIdentity is not null ? "provider-connected" : "")"
-                 style="--provider-color: #38bdf8;">
-                <div class="card-body p-4">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
-                             style="width: 40px; height: 40px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25);">
-                            <span class="bi-cloud" style="font-size: 1.1rem; color: #38bdf8;"></span>
-                        </div>
-                        <div class="ms-3 flex-grow-1">
-                            <strong>Microsoft Azure</strong>
-                        </div>
-                        @if (azureIdentity is not null)
-                        {
-                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
-                                <span class="bi-check-circle-fill me-1"></span>Connected
-                            </span>
-                        }
-                    </div>
-
-                    @if (!azureAdConfigured)
-                    {
-                        <div class="rounded-3 p-3" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2);">
-                            <small class="d-flex align-items-start" style="color: #7dd3fc;">
-                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>Azure AD is not configured. An admin must set the ClientId and TenantId in settings.</span>
-                            </small>
-                        </div>
-                    }
-                    else if (azureIdentity is not null)
-                    {
-                        <div class="d-flex flex-column gap-2 mb-3">
-                            @if (!string.IsNullOrEmpty(azureIdentity.Data.DisplayName))
-                            {
-                                <div>
-                                    <small class="text-muted d-block">Display Name</small>
-                                    <span class="small">@azureIdentity.Data.DisplayName</span>
-                                </div>
-                            }
-                            <div>
-                                <small class="text-muted d-block">Tenant ID</small>
-                                <span class="font-monospace small">@(azureIdentity.Data.TenantId ?? "—")</span>
-                            </div>
-                            <div>
-                                <small class="text-muted d-block">Object ID</small>
-                                <span class="font-monospace small">@(azureIdentity.Data.ObjectId ?? "—")</span>
-                            </div>
-                            <div class="d-flex gap-4">
-                                <div>
-                                    <small class="text-muted d-block">Connected</small>
-                                    <small>@azureIdentity.CreatedAt.ToString("MMM dd, yyyy")</small>
-                                </div>
-                                @if (azureIdentity.LastUsedAt is not null)
-                                {
-                                    <div>
-                                        <small class="text-muted d-block">Last used</small>
-                                        <small>@azureIdentity.LastUsedAt.Value.ToString("MMM dd, yyyy")</small>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <p class="text-muted small mb-0">
-                            Connect your Azure identity so results from Blob Storage sources are limited by your
-                            own RBAC permissions.
-                        </p>
-                    }
-                </div>
-                <div class="card-footer border-top-0 px-4 pb-4 pt-0">
-                    @if (azureIdentity is not null)
-                    {
-                        @if (confirmDisconnectProvider == CloudProvider.Azure)
-                        {
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-danger" @onclick="() => DisconnectAsync(CloudProvider.Azure)" disabled="@isProcessing">
-                                    Confirm Disconnect
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectProvider = null">
-                                    Cancel
-                                </button>
-                            </div>
-                        }
-                        else
-                        {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectProvider = CloudProvider.Azure" disabled="@isProcessing">
-                                <span class="bi-x-circle me-1"></span>Disconnect
-                            </button>
-                        }
-                    }
-                    else if (azureAdConfigured)
-                    {
-                        <button class="btn btn-sm btn-primary" @onclick="ConnectAzureAsync" disabled="@isProcessing">
-                            <span class="bi-link-45deg me-1"></span>Connect Azure
-                        </button>
-                    }
-                </div>
-            </div>
-        </div>
-
         <!-- AWS Permissions Identity Card -->
         <div class="col-md-6">
             <div class="card h-100 provider-card @(awsIdentity is not null ? "provider-connected" : "")"
@@ -312,13 +209,7 @@
     private bool isProcessing;
     private string? statusMessage;
     private bool statusSuccess;
-    private CloudProvider? confirmDisconnectProvider;
 
-    private CloudIdentityDto? azureIdentity;
-    private bool azureAdConfigured;
-
-
-    // AWS permissions identity — a separate link from the Azure card above.
     private AwsIdentityLinkDto? awsIdentity;
     private bool awsSignInConfigured;
 
@@ -335,7 +226,6 @@
         if (userIdStr is not null)
             Guid.TryParse(userIdStr, out currentUserId);
 
-        azureAdConfigured = CloudIdentityService.IsAzureAdConfigured();
         awsSignInConfigured = SamlOptions.CurrentValue.IsConfigured;
         awsEnforcement = EnforcementOptions.CurrentValue.StateFor(
             SamlOptions.CurrentValue, Migration.Determined);
@@ -347,8 +237,6 @@
 
     private async Task LoadIdentitiesAsync()
     {
-        var identities = await CloudIdentityService.ListAsync(currentUserId);
-        azureIdentity = identities.FirstOrDefault(i => i.Provider == CloudProvider.Azure);
         awsIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
     }
 
@@ -394,11 +282,6 @@
         statusSuccess = false;
     }
 
-    private void ConnectAzureAsync()
-    {
-        Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
-    }
-
     private void ConnectAwsAsync()
     {
         Navigation.NavigateTo("/api/v1/auth/cloud/aws/connect", forceLoad: true);
@@ -439,38 +322,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to disconnect AWS identity link for user {UserId}", currentUserId);
-            statusMessage = "Failed to disconnect. Please try again.";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task DisconnectAsync(CloudProvider provider)
-    {
-        isProcessing = true;
-        statusMessage = null;
-        confirmDisconnectProvider = null;
-        try
-        {
-            var deleted = await CloudIdentityService.DisconnectAsync(currentUserId, provider);
-            if (deleted)
-            {
-                statusMessage = $"{provider} identity disconnected.";
-                statusSuccess = true;
-                await LoadIdentitiesAsync();
-            }
-            else
-            {
-                statusMessage = $"No {provider} identity found.";
-                statusSuccess = false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to disconnect {Provider} identity for user {UserId}", provider, currentUserId);
             statusMessage = "Failed to disconnect. Please try again.";
             statusSuccess = false;
         }

@@ -55,7 +55,6 @@ public class ProviderSetupReaderTests
             .Returns([]);
 
         return new ProviderSetupReader(
-            Options.Create(new AzureAdSettings()).AsMonitor(),
             Options.Create(samlSignIn ?? new SamlSignInSettings()).AsMonitor(),
             // Defaults to located, so a test that varies one thing is not also silently varying
             // this one. The tests that care pass an empty instance explicitly.
@@ -298,7 +297,6 @@ public class ProviderSetupReaderTests
             .Returns(call => call.ArgAt<int>(0) == 0 ? filler : secondPage);
 
         var reader = new ProviderSetupReader(
-            Options.Create(new AzureAdSettings()).AsMonitor(),
             Options.Create(new SamlSignInSettings()).AsMonitor(),
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,

@@ -15,7 +15,6 @@ public class SourceModelTests
         // mislabels every migrated connection.
         ((int)ConnectionProvider.Filesystem).Should().Be((int)ConnectorType.Filesystem);
         ((int)ConnectionProvider.S3).Should().Be((int)ConnectorType.S3);
-        ((int)ConnectionProvider.AzureBlob).Should().Be((int)ConnectorType.AzureBlob);
     }
 
     [Fact]

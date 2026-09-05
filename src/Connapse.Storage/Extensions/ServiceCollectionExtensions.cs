@@ -231,8 +231,6 @@ public static class ServiceCollectionExtensions
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
         services.AddScoped<SftpConnectionTester>();
-        services.AddScoped<AzureBlobConnectionTester>();
-        services.AddScoped<AzureAdConnectionTester>();
         services.AddScoped<OpenAiConnectionTester>();
         services.AddScoped<AzureOpenAiConnectionTester>();
         services.AddScoped<OpenAiLlmConnectionTester>();
@@ -245,7 +243,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<VoyageConnectionTester>();
 
         // Cloud scope discovery
-        services.AddScoped<ICloudIdentityProvider, AzureIdentityProvider>();
         services.AddSingleton<IConnectorScopeCache, ConnectorScopeCache>();
 
         return services;

@@ -115,9 +115,9 @@ These shapes were verified in live testing and differ from what you might assume
 | GET | `/api/settings/embedding-models` | Admin | List embedding models |
 | GET | `/api/containers/{id}/search/models` | Admin | Container embedding models |
 
-Categories: `embedding`, `chunking`, `search`, `llm`, `upload`, `azuread`
+Categories: `embedding`, `chunking`, `search`, `llm`, `upload`
 
-Test connection categories: `Embedding`, `Llm`, `AzureAd`, `CrossEncoder`
+Test connection categories: `Embedding`, `Llm`, `CrossEncoder`
 
 ### Connector Endpoints
 | Method | Path | Auth | Purpose |
@@ -140,10 +140,10 @@ Subscribe: `SubscribeToJob(jobId)` → Listen: `IngestionProgress` events
 ### Cloud Identity (`/api/v1/auth/cloud`)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/api/v1/auth/cloud/azure/connect` | Any user | Start Azure OAuth flow |
-| GET | `/api/v1/auth/cloud/azure/callback` | — | Azure OAuth callback |
-| GET | `/api/v1/auth/cloud` | Any user | List cloud identities |
-| DELETE | `/api/v1/auth/cloud/{provider}` | Any user | Disconnect identity |
+| GET | `/api/v1/auth/cloud/aws/connect` | Any user | Start AWS SAML sign-in (IAM Identity Center) |
+| POST | `/api/v1/auth/cloud/aws/acs` | Anonymous | SAML assertion consumer |
+| GET | `/api/v1/auth/cloud/aws/confirm` | Any user | Confirm and save the AWS identity link |
+| DELETE | `/api/v1/auth/cloud/{provider}` | Any user | Disconnect identity (`provider` = `AWS`) |
 
 ---
 
@@ -201,7 +201,7 @@ These are the tools exposed via the MCP server. Test via the MCP endpoint or by 
 | `container_list` | List containers with doc counts | No |
 | `container_delete` | Delete container | No |
 | `container_stats` | Get container statistics | No |
-| `upload_file` | Upload single file | Yes — blocked on S3/AzureBlob |
+| `upload_file` | Upload single file | Yes — blocked on S3 |
 | `bulk_upload` | Upload up to 100 files | Yes |
 | `list_files` | List files at path | No |
 | `get_document` | Get full parsed text | No |

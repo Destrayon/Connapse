@@ -93,7 +93,7 @@
             <div class="card-body text-center py-5">
                 <p class="text-muted mb-2">No sources yet.</p>
                 <p class="text-muted small mb-0">
-                    A source points at a scope inside a connection — a bucket, a blob container, or a
+                    A source points at a scope inside a connection — a bucket or a
                     directory. @(isAdmin ? "Create one to start mirroring it." : "Ask an administrator to add one.")
                 </p>
             </div>
@@ -294,7 +294,7 @@
                     @* Which scope fields exist is decided by the connection's provider, because
                        the keys ConnectorFactory reads differ per provider and writing the wrong
                        one produces a source that silently syncs nothing. *@
-                    @if (selectedProvider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob)
+                    @if (selectedProvider is ConnectionProvider.S3)
                     {
                         @* The connection already names which buckets it permits, so asking for
                            one in free text made the reader supply a fact Connapse was holding —
@@ -302,7 +302,7 @@
                            sync or is refused by the scope preflight afterwards. *@
                         <div class="mb-3">
                             <label class="form-label" for="source-container">
-                                @(selectedProvider == ConnectionProvider.S3 ? "Bucket" : "Blob container")
+                                Bucket
                             </label>
 
                             @{ var choices = AllowedScopes(); }
@@ -317,7 +317,7 @@
                                     <span class="bi-exclamation-triangle me-1"></span>
                                     This connection's allowed locations cannot be read, so Connapse
                                     cannot say which
-                                    @(selectedProvider == ConnectionProvider.S3 ? "buckets" : "containers")
+                                    buckets
                                     it permits. Fix them on the Connections page before adding a
                                     source — a source saved now would be refused at sync time.
                                 </div>
@@ -326,9 +326,9 @@
                             {
                                 @* Bound to the entry, which is then split across two fields. An entry
                                    may name a prefix — bucket/team — and writing that whole string into
-                                   Container puts "bucket/team" in bucketName, which the S3 and Azure
-                                   connectors use as a literal bucket or container name. The source
-                                   passes preflight and then never syncs. *@
+                                   Container puts "bucket/team" in bucketName, which the S3 connector
+                                   uses as a literal bucket name. The source passes preflight and then
+                                   never syncs. *@
                                 <select id="source-container" class="form-select font-monospace"
                                         aria-describedby="source-container-help"
                                         value="@selectedScope" @onchange="SelectScope">
@@ -345,7 +345,7 @@
                                    count to accommodate two help links would cost more than the
                                    links are worth. *@
                                 <div id="source-container-help" class="form-text">
-                                    @(selectedProvider == ConnectionProvider.S3 ? "Buckets" : "Containers")
+                                    Buckets
                                     this connection is allowed to read. To use another, add it to
                                     that connection's allowed locations on the Connections page.
                                 </div>
@@ -354,10 +354,10 @@
                             {
                                 <input id="source-container" class="form-control font-monospace" @bind="form.Container"
                                        aria-describedby="source-container-help"
-                                       placeholder="@(selectedProvider == ConnectionProvider.S3 ? "company-knowledge" : "knowledge")" />
+                                       placeholder="company-knowledge" />
                                 <div id="source-container-help" class="form-text">
                                     Which
-                                    @(selectedProvider == ConnectionProvider.S3 ? "bucket" : "container")
+                                    bucket
                                     inside this connection the source reads. This connection lists
                                     no allowed locations, so it permits any its credential can
                                     reach — naming them on the Connections page bounds that.

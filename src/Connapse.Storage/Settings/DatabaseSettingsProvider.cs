@@ -20,7 +20,6 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     private static readonly Dictionary<string, string> CategoryPrefixMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["security"] = "Identity:Jwt",
-        ["azuread"] = "Identity:AzureAd",
         ["samlsignin"] = "Identity:SamlSignIn",
         ["identitycenter"] = "Identity:IdentityCenter",
         ["permissionenforcement"] = "Identity:PermissionEnforcement",

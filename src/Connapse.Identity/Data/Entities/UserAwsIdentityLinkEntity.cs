@@ -9,8 +9,9 @@ namespace Connapse.Identity.Data.Entities;
 /// with anything belonging to the person. There is nothing here to expire, and nothing here worth
 /// stealing.
 /// <para>
-/// Separate from <see cref="UserCloudIdentityEntity"/> on purpose. That entity records which cloud
-/// account a user signed into, as plaintext metadata in a JSON column, and it predates this feature.
+/// Separate from the now-removed generic cloud-identity scaffolding on purpose. That table recorded
+/// which cloud account a user signed into, as plaintext metadata in a JSON column, and it predates
+/// this feature.
 /// </para>
 /// <para>
 /// One row per user, enforced by a unique index. Connecting again replaces the row rather than

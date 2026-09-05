@@ -85,15 +85,6 @@ public class SourceScopePreflightTests
     }
 
     [Fact]
-    public void Check_AzureContainerOutsideAllowedLocations_IsRefused()
-    {
-        var connection = Conn(ConnectionProvider.AzureBlob,
-            """{"storageAccountName":"acct","allowedLocations":["knowledge"]}""");
-
-        Build().Check(connection, """{"containerName":"secrets"}""").IsRefused.Should().BeTrue();
-    }
-
-    [Fact]
     public void Check_MissingContainerName_IsRefusedBeforeThePolicyRuns()
     {
         // StorageLocationPolicy.Evaluate throws on a blank container, so the guard has to come
@@ -211,7 +202,6 @@ public class SourceScopePreflightTests
     /// </summary>
     [Theory]
     [InlineData(ConnectionProvider.S3, """{"bucketName":"b"}""")]
-    [InlineData(ConnectionProvider.AzureBlob, """{"containerName":"c"}""")]
     [InlineData(ConnectionProvider.Filesystem, """{"subPath":"docs"}""")]
     public void Check_MalformedConnectionConfig_IsRefused(ConnectionProvider provider, string scope)
     {

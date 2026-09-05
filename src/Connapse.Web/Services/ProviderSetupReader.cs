@@ -14,7 +14,6 @@ namespace Connapse.Web.Services;
 /// the property that stops the page it feeds turning into a place credentials live.
 /// </remarks>
 public class ProviderSetupReader(
-    IOptionsMonitor<AzureAdSettings> azureAd,
     IOptionsMonitor<SamlSignInSettings> samlSignIn,
     IOptionsMonitor<IdentityCenterSettings> identityCenter,
     IS3Discovery s3Discovery,
@@ -63,11 +62,7 @@ public class ProviderSetupReader(
                     IdentityCentre(identityCenter.CurrentValue),
                     PerUserPermissions(samlSignIn.CurrentValue)
                 ],
-                InUse: providers.Contains(ConnectionProvider.S3)),
-
-            new ProviderSetup("azure", "Azure",
-                [SignIn(azureAd.CurrentValue), AzureAccess()],
-                InUse: IsConfigured(azureAd.CurrentValue) || providers.Contains(ConnectionProvider.AzureBlob))
+                InUse: providers.Contains(ConnectionProvider.S3))
         ];
     }
 
@@ -116,22 +111,6 @@ public class ProviderSetupReader(
             logger.LogWarning(ex, "Could not list connections while reading provider setup");
             return [];
         }
-    }
-
-    private static bool IsConfigured(AzureAdSettings s) =>
-        !string.IsNullOrEmpty(s.ClientId) && !string.IsNullOrEmpty(s.TenantId);
-
-    private static ProviderRequirement SignIn(AzureAdSettings settings)
-    {
-        bool configured = IsConfigured(settings);
-
-        return new ProviderRequirement(
-            "Sign-in",
-            "Who can sign into Connapse with Azure AD, and which cloud identity their search is scoped against.",
-            configured ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
-            configured ? $"Tenant {settings.TenantId}" : null,
-            configured ? "Change" : "Set up",
-            SignInSection);
     }
 
     /// <summary>
@@ -350,23 +329,5 @@ public class ProviderSetupReader(
             return null;
         }
     }
-
-    /// <summary>
-    /// Azure's equivalent, not yet probed.
-    /// </summary>
-    /// <remarks>
-    /// Reported as Unknown rather than omitted or assumed satisfied. Azure Blob resolves through
-    /// <c>DefaultAzureCredential</c> the same way S3 resolves through the AWS chain, so the same
-    /// check is possible — it simply has no equivalent of <see cref="IS3Discovery"/> yet, and
-    /// claiming either outcome would be a guess.
-    /// </remarks>
-    private static ProviderRequirement AzureAccess() =>
-        new("Access",
-            "What Connapse reads as when it syncs an Azure Blob source. Nothing is stored here — "
-            + "it uses managed identity from the environment it runs in.",
-            RequirementStatus.Unknown,
-            "Connapse does not check this yet. Test an Azure connection to confirm it works.",
-            "Connections", "/connections");
-
 
 }

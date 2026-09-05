@@ -645,14 +645,6 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Embedding__ApiKey` | API key for OpenAI/AzureOpenAI | (optional) |
 | `Knowledge__Embedding__AzureDeploymentName` | Azure OpenAI deployment name | (optional) |
 
-#### Cloud Identity Settings (v0.3.0+)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `Identity__AzureAd__ClientId` | Azure AD app registration client ID | (optional) |
-| `Identity__AzureAd__TenantId` | Azure AD tenant ID | (optional) |
-| `Identity__AzureAd__ClientSecret` | Azure AD client secret (confidential client) | (optional) |
-
 > **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 
 ### appsettings.json Structure
@@ -713,13 +705,6 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
       "AllowedExtensions": [".txt", ".md", ".pdf", ".docx", ".pptx", ".csv", ".json", ".xml", ".yaml"],
       "ConcurrentIngestions": 4,
       "QueueCapacity": 1000
-    }
-  },
-  "Identity": {
-    "AzureAd": {
-      "ClientId": "",
-      "TenantId": "",
-      "ClientSecret": ""
     }
   }
 }
@@ -1032,7 +1017,6 @@ volumes:
 - [architecture.md](architecture.md) — System architecture
 - [api.md](api.md) — API reference
 - [connectors.md](connectors.md) — Connector types and configuration
-- [azure-identity-setup.md](azure-identity-setup.md) — Azure AD OAuth2+PKCE integration
 - [Docker Compose Docs](https://docs.docker.com/compose/)
 - [PostgreSQL Docs](https://www.postgresql.org/docs/)
 - [pgvector GitHub](https://github.com/pgvector/pgvector)
