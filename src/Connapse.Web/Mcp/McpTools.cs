@@ -670,7 +670,7 @@ public class McpTools
         {
             using var rawStream = await connector.ReadFileAsync(document.Path, ct);
 
-            // Connector streams (MinIO, S3, AzureBlob) are non-seekable network streams.
+            // Connector streams (MinIO, S3) are non-seekable network streams.
             // Parsers like PdfPig require seekable streams, so buffer into memory first.
             MemoryStream? buffered = null;
             Stream stream;

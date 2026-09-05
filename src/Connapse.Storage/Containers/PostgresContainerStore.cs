@@ -103,7 +103,7 @@ public class PostgresContainerStore(
             return false;
 
         // Every container is managed storage now, so the "just stop watching" exemption that
-        // used to apply to Filesystem, S3 and AzureBlob rows has nothing left to apply to.
+        // used to apply to Filesystem and S3 rows has nothing left to apply to.
         // Deleting a managed container deletes real bytes, which is why it must be empty first.
         if (entity.Documents.Count > 0)
             throw new InvalidOperationException(

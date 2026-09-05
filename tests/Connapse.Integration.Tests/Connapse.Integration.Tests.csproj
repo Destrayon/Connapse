@@ -27,7 +27,6 @@
     -->
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
     <PackageReference Include="Testcontainers" Version="4.3.0" />
-    <PackageReference Include="Testcontainers.Azurite" Version="4.3.0" />
     <PackageReference Include="Testcontainers.LocalStack" Version="4.3.0" />
     <PackageReference Include="Testcontainers.Minio" Version="4.3.0" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.3.0" />

@@ -15,7 +15,7 @@ namespace Connapse.Web.Services;
 /// Keeps sources in step with their remote systems.
 /// <para>
 /// Replaces ConnectorWatcherService, which enumerated <c>containers</c> and filtered to
-/// Filesystem/S3/AzureBlob. The Phase 2 backfill (#350) moved every one of those rows into
+/// Filesystem/S3. The Phase 2 backfill (#350) moved every one of those rows into
 /// <c>sources</c>, so the watcher found nothing and external sources stopped syncing
 /// altogether. This service is keyed on sources instead.
 /// </para>

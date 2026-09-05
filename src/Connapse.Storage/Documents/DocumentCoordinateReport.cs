@@ -18,10 +18,10 @@ public sealed record UnlocatedSource(Guid SourceId, string SourceName, int Docum
 /// exists so an operator can close that gap by re-syncing the sources involved, where re-syncing
 /// can actually produce a coordinate.
 /// <para>
-/// Only the S3 and Azure Blob connectors ever report a coordinate at sync time — SFTP, filesystem,
+/// Only the S3 connector ever reports a coordinate at sync time — SFTP, filesystem,
 /// and MinIO sources never do, by design, so a null coordinate there is not a defect and re-sync
 /// advice for it would never resolve. The query below is restricted to sources backed by a
-/// connection whose provider is S3 or AzureBlob for that reason.
+/// connection whose provider is S3 for that reason.
 /// </para>
 /// <para>
 /// A SQL backfill is deliberately not offered. Deriving the URI from a source's scope and a
@@ -32,10 +32,10 @@ public sealed record UnlocatedSource(Guid SourceId, string SourceName, int Docum
 public sealed class DocumentCoordinateReport(IDbContextFactory<KnowledgeDbContext> factory)
 {
     private static readonly int[] CoordinateCapableProviders =
-        [(int)ConnectionProvider.S3, (int)ConnectionProvider.AzureBlob];
+        [(int)ConnectionProvider.S3];
 
     /// <summary>
-    /// Sources — backed by a connection that can report a coordinate (S3 or AzureBlob) — with at
+    /// Sources — backed by a connection that can report a coordinate (S3) — with at
     /// least one document that has no recorded coordinate.
     /// </summary>
     public async Task<IReadOnlyList<UnlocatedSource>> UnlocatedBySourceAsync(
