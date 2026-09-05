@@ -412,7 +412,7 @@ public static class SftpHostSetup
         printf 'home=%s\n' "$HOME"
         printf 'fingerprint=%s\n' "$FINGERPRINT"
         # Short name and fully-qualified name both, because they are not interchangeable from
-        # somewhere else on the network. A workstation resolves 'divielserver' only because its
+        # somewhere else on the network. A workstation resolves a bare host name only because its
         # DNS client appends a connection-specific suffix; a container has no search domain and
         # looks up exactly what it is given, so the short name fails there while the FQDN works.
         printf 'host=%s\n' "$(hostname 2>/dev/null)"

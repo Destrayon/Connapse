@@ -20,8 +20,10 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     private static readonly Dictionary<string, string> CategoryPrefixMap = new(StringComparer.OrdinalIgnoreCase)
     {
         ["security"] = "Identity:Jwt",
-        ["awssso"] = "Identity:AwsSso",
         ["azuread"] = "Identity:AzureAd",
+        ["samlsignin"] = "Identity:SamlSignIn",
+        ["identitycenter"] = "Identity:IdentityCenter",
+        ["permissionenforcement"] = "Identity:PermissionEnforcement",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)
@@ -29,8 +31,21 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         _optionsAction = optionsAction;
     }
 
+    /// <summary>
+    /// Whether the most recent <see cref="Load"/> read the settings table.
+    /// </summary>
+    /// <remarks>
+    /// False after a load that could not connect or whose query failed. Those loads leave the
+    /// configuration at whatever it held before — appsettings defaults on the first load — which
+    /// is indistinguishable from "nothing stored" to every reader of IOptionsMonitor. Anything that
+    /// treats "not configured" as a safe answer must check this first.
+    /// </remarks>
+    public bool LastLoadSucceeded { get; private set; }
+
     public override void Load()
     {
+        LastLoadSucceeded = false;
+
         var builder = new DbContextOptionsBuilder<KnowledgeDbContext>();
         _optionsAction(builder);
 
@@ -57,6 +72,8 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                     : $"Knowledge:{setting.Category}";
                 FlattenJsonDocument(prefix, setting.Values);
             }
+
+            LastLoadSucceeded = true;
         }
         catch (Exception)
         {
@@ -117,9 +134,10 @@ public class DatabaseSettingsProvider : ConfigurationProvider
     /// Reloads settings from the database and triggers change tokens.
     /// Call this after updating settings to propagate changes to IOptionsMonitor.
     /// </summary>
-    public void Reload()
+    public bool Reload()
     {
         Load();
         OnReload();
+        return LastLoadSucceeded;
     }
 }

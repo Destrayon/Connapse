@@ -133,6 +133,11 @@ a:hover, .btn-link:hover {
     color: var(--text-muted);
 }
 
+/* Secret fields (SecretTextArea) are masked until revealed. */
+.secret-masked {
+    -webkit-text-security: disc;
+}
+
 .form-control:disabled, .form-select:disabled {
     background-color: var(--bs-tertiary-bg);
     color: var(--text-muted);
@@ -236,4 +241,23 @@ h1:focus {
 
 .border-accent {
     border-color: var(--accent) !important;
+}
+
+/* Compact key/value summary used inside provider step cards. */
+.provider-step-values {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.15rem 0.75rem;
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.provider-step-values dt {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.provider-step-values dd {
+    margin: 0;
+    overflow-wrap: anywhere;
 }

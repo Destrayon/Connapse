@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -38,6 +38,12 @@ public static class IdentityServiceExtensions
             options.UseNpgsql(connectionString, npgsql =>
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Identity")));
 
+        // Factory for short-lived per-operation contexts (required for Blazor Server and background
+        // services to avoid concurrent DbContext access on the same scoped instance).
+        services.AddDbContextFactory<ConnapseIdentityDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Identity")), ServiceLifetime.Scoped);
+
         // Register ASP.NET Core Identity with API endpoint support
         services.AddIdentity<ConnapseUser, ConnapseRole>(options =>
             {
@@ -66,12 +72,30 @@ public static class IdentityServiceExtensions
         services.AddHttpClient<OAuthClientService>();
         services.AddScoped<ICloudIdentityStore, Stores.PostgresCloudIdentityStore>();
         services.AddScoped<ICloudIdentityService, CloudIdentityService>();
+        services.AddScoped<AwsIdentityLinkStore>();
+        services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
+        services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
+
+        // All three are single-process by design and documented as such: one remembers assertion
+        // ids so a signed assertion cannot be posted twice, one remembers who started a sign-in so
+        // the cross-site POST that returns can be attributed, and one holds the validated outcome
+        // until a real session claims it.
+        services.AddMemoryCache();
+        services.AddSingleton<ISamlReplayGuard, MemorySamlReplayGuard>();
+        services.AddSingleton<SamlSignInRequests>();
+        services.AddSingleton<SamlLinkConfirmations>();
+
         services.AddHttpContextAccessor();
 
         // Configure JWT settings
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<AzureAdSettings>(configuration.GetSection(AzureAdSettings.SectionName));
-        services.Configure<AwsSsoSettings>(configuration.GetSection(AwsSsoSettings.SectionName));
+        services.Configure<SamlSignInSettings>(
+            configuration.GetSection(SamlSignInSettings.SectionName));
+        services.Configure<IdentityCenterSettings>(
+            configuration.GetSection(IdentityCenterSettings.SectionName));
+        services.Configure<PermissionEnforcementSettings>(
+            configuration.GetSection(PermissionEnforcementSettings.SectionName));
 
         // Ensure JWT secret is available
         EnsureJwtSecret(configuration);

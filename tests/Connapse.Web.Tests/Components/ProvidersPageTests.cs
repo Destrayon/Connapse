@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using FluentAssertions;
 using Xunit;
@@ -70,7 +71,6 @@ public class ProvidersPageTests
     /// an administrator's configured issuer URL would appear to revert.
     /// </remarks>
     [Theory]
-    [InlineData("awssso")]
     [InlineData("azuread")]
     public void ProvidersPage_KeepsTheSettingsKeysItInherited(string category)
     {
@@ -93,7 +93,6 @@ public class ProvidersPageTests
             "src", "Connapse.Web", "Components", "Pages", "Settings.razor"));
 
         [Theory]
-        [InlineData("awssso")]
         [InlineData("azuread")]
         public void SettingsPage_NoLongerOffersTheIdentityProviderTabs(string tab)
         {
@@ -104,7 +103,6 @@ public class ProvidersPageTests
         }
 
         [Theory]
-        [InlineData("AwsSsoSettingsTab")]
         [InlineData("AzureAdSettingsTab")]
         public void SettingsPage_NoLongerRendersTheIdentityProviderComponents(string component)
         {
@@ -207,6 +205,30 @@ public class ProvidersPageTests
         markup.Should().NotContain("IConnectionStore",
             "connections are managed on the Connections page, not here");
         markup.Should().NotContain("CreateConnectionRequest");
+    }
+
+    /// <summary>
+    /// The three AWS steps compose one reusable step card and one reusable reset control.
+    /// </summary>
+    /// <remarks>
+    /// Read from source rather than a rendered circuit, matching the other tests here. The four
+    /// per-step confirmation booleans this used to look for are gone: confirm state now lives inside
+    /// <c>ProviderResetAction</c>, so the page owning any of them again would be the regression.
+    /// </remarks>
+    [Fact]
+    public void AwsSetup_UsesOneStepCardAndReusableResetPattern()
+    {
+        string markup = File.ReadAllText(Path.Combine(
+            PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
+
+        Regex.Matches(markup, "<ProviderStepCard").Should().HaveCount(3);
+        markup.Should().Contain("Id=\"access\"")
+            .And.Contain("Id=\"identity-center\"")
+            .And.Contain("Id=\"permissions\"");
+        Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(3);
+        markup.Should().NotContain("confirmResetAccess")
+            .And.NotContain("confirmResetIdentityCenter")
+            .And.NotContain("confirmResetSamlApplication");
     }
 
 }

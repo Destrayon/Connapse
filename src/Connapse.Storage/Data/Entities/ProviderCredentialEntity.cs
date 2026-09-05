@@ -24,19 +24,7 @@ public class ProviderCredentialEntity
     /// <summary>Provider key — "aws", "azure". One credential each.</summary>
     public string Provider { get; set; } = string.Empty;
 
-    /// <summary>
-    /// The public half, stored in the clear so it can be displayed.
-    /// </summary>
-    /// <remarks>
-    /// An access key id identifies a credential without authenticating anything, and showing it is
-    /// how an administrator confirms which one is in use before replacing it.
-    /// </remarks>
-    public string PublicId { get; set; } = string.Empty;
-
-    /// <summary>DataProtection ciphertext, purpose "ProviderCredential.v1".</summary>
-    public string SecretProtected { get; set; } = string.Empty;
-
-    /// <summary>The IAM user or principal this belongs to, for display.</summary>
+    /// <summary>The IAM principal this belongs to, for display.</summary>
     public string? PrincipalName { get; set; }
 
     /// <summary>
@@ -64,4 +52,22 @@ public class ProviderCredentialEntity
     public DateTime? VerifiedAt { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
+
+    /// <summary>PEM of the Roles Anywhere end-entity certificate (public; stored in the clear). Null for the access-key shape.</summary>
+    public string? CertificatePem { get; set; }
+
+    /// <summary>DataProtection ciphertext of the Roles Anywhere private key, purpose "ProviderCredential.v1". Null for the access-key shape.</summary>
+    public string? PrivateKeyProtected { get; set; }
+
+    /// <summary>Roles Anywhere trust-anchor ARN. Its presence is the signal that this row is a Roles Anywhere config.</summary>
+    public string? TrustAnchorArn { get; set; }
+
+    /// <summary>Roles Anywhere profile ARN.</summary>
+    public string? ProfileArn { get; set; }
+
+    /// <summary>The role this configuration assumes.</summary>
+    public string? RoleArn { get; set; }
+
+    /// <summary>Region whose rolesanywhere endpoint is called.</summary>
+    public string? Region { get; set; }
 }

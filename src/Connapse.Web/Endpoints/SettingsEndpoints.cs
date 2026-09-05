@@ -50,7 +50,6 @@ public static class SettingsEndpoints
                 "search" => Results.Ok(await GetSettingsAsync<SearchSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "llm" => Results.Ok(await GetSettingsAsync<LlmSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "upload" => Results.Ok(await GetSettingsAsync<UploadSettings>(categoryLower, settingsStore, serviceProvider, ct)),
-                "awssso" => Results.Ok(await GetSettingsAsync<AwsSsoSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 "azuread" => Results.Ok(await GetSettingsAsync<AzureAdSettings>(categoryLower, settingsStore, serviceProvider, ct)),
                 _ => Results.NotFound(new { error = $"Unknown settings category: {category}" })
             };
@@ -96,10 +95,6 @@ public static class SettingsEndpoints
                     case "upload":
                         var upload = JsonSerializer.Deserialize<UploadSettings>(rawJson, JsonOptions);
                         if (upload != null) await settingsStore.SaveAsync(categoryLower, upload, ct);
-                        break;
-                    case "awssso":
-                        var awsSso = JsonSerializer.Deserialize<AwsSsoSettings>(rawJson, JsonOptions);
-                        if (awsSso != null) await settingsStore.SaveAsync(categoryLower, awsSso, ct);
                         break;
                     case "azuread":
                         var azureAd = JsonSerializer.Deserialize<AzureAdSettings>(rawJson, JsonOptions);
@@ -173,7 +168,6 @@ public static class SettingsEndpoints
         group.MapPost("/test-connection", async (
             [FromBody] TestConnectionRequest request,
             [FromServices] OllamaConnectionTester ollamaTester,
-            [FromServices] AwsSsoConnectionTester awsSsoTester,
             [FromServices] AzureAdConnectionTester azureAdTester,
             [FromServices] OpenAiConnectionTester openAiTester,
             [FromServices] AzureOpenAiConnectionTester azureOpenAiTester,
@@ -207,7 +201,6 @@ public static class SettingsEndpoints
                 {
                     "embedding" => await TestEmbeddingConnection(request.Settings, ollamaTester, openAiTester, azureOpenAiTester, request.TimeoutSeconds, ct),
                     "llm" => await TestLlmConnection(request.Settings, ollamaTester, openAiLlmTester, azureOpenAiLlmTester, anthropicTester, request.TimeoutSeconds, ct),
-                    "awssso" => await TestAwsSsoConnection(request.Settings, awsSsoTester, request.TimeoutSeconds, ct),
                     "azuread" => await TestAzureAdConnection(request.Settings, azureAdTester, request.TimeoutSeconds, ct),
                     "crossencoder" => await TestCrossEncoderConnection(request.Settings, teiTester, cohereTester, jinaTester, azureAIFoundryTester, voyageTester, request.TimeoutSeconds, ct),
                     "minio" => await TestMinioConnection(request.Settings, minioTester, request.TimeoutSeconds, ct),
@@ -399,22 +392,6 @@ public static class SettingsEndpoints
             _ => ollamaTester
         };
 
-        return await tester.TestConnectionAsync(settings, timeout, ct);
-    }
-
-    private static async Task<ConnectionTestResult> TestAwsSsoConnection(
-        JsonElement settingsJson,
-        AwsSsoConnectionTester tester,
-        int? timeoutSeconds,
-        CancellationToken ct)
-    {
-        var settings = JsonSerializer.Deserialize<AwsSsoSettings>(settingsJson.GetRawText(), JsonOptions);
-        if (settings == null)
-        {
-            return ConnectionTestResult.CreateFailure("Invalid AwsSsoSettings");
-        }
-
-        var timeout = timeoutSeconds.HasValue ? (TimeSpan?)TimeSpan.FromSeconds(timeoutSeconds.Value) : null;
         return await tester.TestConnectionAsync(settings, timeout, ct);
     }
 

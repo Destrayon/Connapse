@@ -101,6 +101,13 @@ public record ProviderSetup(
     /// Weakest rather than an average or a count. A provider whose sign-in works and whose access
     /// does not is not half ready — it is not ready, and summarising it as "1 of 2" invites the
     /// reader to feel finished.
+    /// <para>
+    /// The one place it is not simply the weakest: an unconfigured requirement alongside a
+    /// satisfied one reports <see cref="RequirementStatus.Warning"/> rather than
+    /// <see cref="RequirementStatus.NotConfigured"/>. Both are true of such a provider, and the
+    /// weaker one is the more misleading — it tells somebody whose syncing works that they have
+    /// set nothing up.
+    /// </para>
     /// </remarks>
     public RequirementStatus Overall
     {
@@ -108,12 +115,22 @@ public record ProviderSetup(
         {
             if (Requirements.Count == 0) return RequirementStatus.Unknown;
 
+            if (Requirements.Any(r => r.Status == RequirementStatus.Failed))
+                return RequirementStatus.Failed;
+
+            // "Nothing is set up" and "some of this is set up" are different things to tell
+            // somebody, and collapsing them was wrong in the direction that matters: a provider
+            // whose access works and whose second requirement is untouched was summarised as
+            // NotConfigured, which reads as a fresh install to a reader whose syncing works.
+            if (Requirements.Any(r => r.Status == RequirementStatus.NotConfigured))
+                return Requirements.Any(r => r.Status == RequirementStatus.Satisfied)
+                    ? RequirementStatus.Warning
+                    : RequirementStatus.NotConfigured;
+
             // Ordered by how much attention each deserves, worst first. Provisioning outranks
             // Warning: one is unfinished, the other is finished and merely imperfect.
             foreach (var worst in new[]
                      {
-                         RequirementStatus.Failed,
-                         RequirementStatus.NotConfigured,
                          RequirementStatus.Unknown,
                          RequirementStatus.Provisioning,
                          RequirementStatus.Warning

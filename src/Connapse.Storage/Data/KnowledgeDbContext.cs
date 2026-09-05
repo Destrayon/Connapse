@@ -474,15 +474,6 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("provider")
                 .HasMaxLength(32);
 
-            entity.Property(e => e.PublicId)
-                .HasColumnName("public_id")
-                .HasMaxLength(256)
-                .IsRequired();
-
-            entity.Property(e => e.SecretProtected)
-                .HasColumnName("secret_protected")
-                .IsRequired();
-
             entity.Property(e => e.PrincipalName)
                 .HasColumnName("principal_name")
                 .HasMaxLength(256);
@@ -495,6 +486,13 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
 
             entity.Property(e => e.CreatedByUserId)
                 .HasColumnName("created_by_user_id");
+
+            entity.Property(e => e.CertificatePem).HasColumnName("certificate_pem");
+            entity.Property(e => e.PrivateKeyProtected).HasColumnName("private_key_protected");
+            entity.Property(e => e.TrustAnchorArn).HasColumnName("trust_anchor_arn").HasMaxLength(2048);
+            entity.Property(e => e.ProfileArn).HasColumnName("profile_arn").HasMaxLength(2048);
+            entity.Property(e => e.RoleArn).HasColumnName("role_arn").HasMaxLength(2048);
+            entity.Property(e => e.Region).HasColumnName("region").HasMaxLength(64);
         });
 
         modelBuilder.Entity<ConnectionEntity>(entity =>

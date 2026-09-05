@@ -32,6 +32,13 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
+    # The unit tests lint every generated CloudShell script with bash -n and ShellCheck. The runner
+    # image ships both, so this is normally a version print; installing it here rather than relying
+    # on that means a future image dropping it costs a few seconds instead of a red build nobody can
+    # explain. GeneratedScriptLintTests fails outright if ShellCheck is missing while CI is set.
+    - name: Ensure ShellCheck is available
+      run: shellcheck --version || sudo apt-get install -y shellcheck
+
     # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
     - name: Cache Ollama models
       uses: actions/cache@v4

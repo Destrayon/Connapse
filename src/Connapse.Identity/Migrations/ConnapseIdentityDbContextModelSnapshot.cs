@@ -17,7 +17,7 @@ namespace Connapse.Identity.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.2")
+                .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -595,6 +595,55 @@ namespace Connapse.Identity.Migrations
                     b.ToTable("refresh_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAwsIdentityLinkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("ConnectedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("connected_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DirectoryUserId")
+                        .IsRequired()
+                        .HasMaxLength(47)
+                        .HasColumnType("character varying(47)")
+                        .HasColumnName("directory_user_id");
+
+                    b.Property<string>("DirectoryUserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("directory_user_name");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_aws_identity_links_user_id");
+
+                    b.ToTable("user_aws_identity_links", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserCloudIdentityEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -875,6 +924,17 @@ namespace Connapse.Identity.Migrations
                 {
                     b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
                         .WithMany("RefreshTokens")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAwsIdentityLinkEntity", b =>
+                {
+                    b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

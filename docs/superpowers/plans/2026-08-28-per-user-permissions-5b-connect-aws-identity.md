@@ -1,5 +1,7 @@
 # Per-user AWS search permissions — 5b-i, connecting an AWS identity
 
+> **Status: complete.** Delivered by [#434](https://github.com/Destrayon/Connapse/pull/434) and kept as the execution record for 5b-i. Do not run it again — the unchecked boxes below are how it was written, not work outstanding. The follow-on (5b-ii, keeping the link alive) gets its own plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A signed-in Connapse user can connect their AWS identity from the integrations page, and Connapse ends up holding an encrypted Cognito refresh token against that user — the durable thing every later permission resolution is built on.
@@ -44,7 +46,7 @@ Refreshing the stored token, the weekly touch job that stops idle expiry, and su
 
 ### Task 1: The pool's coordinates
 
-Connapse needs to know which Cognito pool to talk to before anything else can happen. This mirrors `AwsSsoSettings`, which is the closest existing shape.
+Connapse needs to know which Cognito pool to talk to before anything else can happen. This mirrors `AzureAdSettings`, which is the closest existing shape.
 
 **Files:**
 - Create: `src/Connapse.Core/Models/CognitoSettings.cs`
@@ -158,7 +160,7 @@ namespace Connapse.Core;
 /// account so that Connapse can prove which AWS identity a user is.
 /// </summary>
 /// <remarks>
-/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AwsSsoSettings"/>
+/// A mutable class with a <c>SectionName</c> rather than a record, matching <see cref="AzureAdSettings"/>
 /// and every other settings category: they are bound by the options system and edited by an admin
 /// form, both of which want settable properties.
 /// <para>
@@ -699,7 +701,7 @@ Two endpoints mirroring the `/azure/connect` and `/azure/callback` pair that alr
 
 **Interfaces:**
 - Consumes: `CognitoSettings` (Task 1), `AwsIdentityLinkStore` (Task 3).
-- Produces: `GET /api/cloud-identity/cognito/connect` → 302 to the pool's authorize endpoint; `GET /api/cloud-identity/cognito/callback` → exchanges the code and stores the token.
+- Produces: `GET /api/v1/auth/cloud/cognito/connect` → 302 to the pool's authorize endpoint; `GET /api/v1/auth/cloud/cognito/callback` → exchanges the code and stores the token.
 
 - [ ] **Step 1: Read the Azure pair**
 
@@ -739,7 +741,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             AllowAutoRedirect = false,
         });
 
-        var response = await client.GetAsync("/api/cloud-identity/cognito/connect");
+        var response = await client.GetAsync("/api/v1/auth/cloud/cognito/connect");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.Redirect,
             "there is nowhere valid to redirect to");
@@ -755,7 +757,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
             AllowAutoRedirect = false,
         });
 
-        var response = await client.GetAsync("/api/cloud-identity/cognito/callback?code=abc");
+        var response = await client.GetAsync("/api/v1/auth/cloud/cognito/callback?code=abc");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.OK);
     }
@@ -769,7 +771,7 @@ public class CognitoConnectEndpointTests(SharedWebAppFixture fixture)
         });
 
         var response = await client.GetAsync(
-            "/api/cloud-identity/cognito/callback?code=abc&state=not-a-state-we-issued");
+            "/api/v1/auth/cloud/cognito/callback?code=abc&state=not-a-state-we-issued");
 
         response.StatusCode.Should().NotBe(HttpStatusCode.OK);
     }
@@ -861,7 +863,7 @@ Settings reach `IOptionsMonitor<CognitoSettings>.CurrentValue` only if all three
 
 This is load-bearing and easy to miss. That dictionary's own comment says categories not listed default to `Knowledge:{category}`, so without this line a saved `"cognito"` category lands at `Knowledge:cognito` while `CognitoSettings.SectionName` reads `Identity:Cognito`. The two never meet, `CurrentValue` stays empty, and every symptom points at the endpoint rather than at a missing dictionary entry.
 
-**c. Expose read and write.** In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"awssso"` does at lines 53 and 101 — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`.
+**c. Expose read and write.** In `src/Connapse.Web/Endpoints/SettingsEndpoints.cs`, follow exactly what `"azuread"` does — a read arm and a write arm — adding a `"cognito"` case for `CognitoSettings`. (As written this said to copy the `"awssso"` arms; those were removed with the AWS device flow in [#435](https://github.com/Destrayon/Connapse/issues/435), and the `"cognito"` arms this step created are now the live example.)
 
 - [ ] **Step 5b: Prove the settings path end to end**
 
@@ -992,7 +994,7 @@ Expected: FAIL — the markup contains none of it.
 In the Cloud Identities section of `src/Connapse.Web/Components/Pages/ProfileIntegrations.razor`, add a card beside the existing AWS and Azure ones. It shows one of three states:
 
 - **Not configured** — Cognito settings are absent. Say an administrator sets this up, and do not offer a button that cannot work.
-- **Not connected** — a Connect button that navigates to `/api/cloud-identity/cognito/connect`.
+- **Not connected** — a Connect button that navigates to `/api/v1/auth/cloud/cognito/connect`.
 - **Connected** — the email it is connected as, when, and a Disconnect button.
 
 **Disconnect must revoke, not just forget.** Deleting the local row leaves the refresh token valid at Cognito, so anything that already copied it keeps working — the link is gone from Connapse's point of view and alive from AWS's. Call the pool's `POST {Domain}/oauth2/revoke` with the token and the client credentials **before** deleting the row, and delete the row whether or not revocation succeeded: a user who clicks Disconnect must end up disconnected locally regardless of what AWS says.

@@ -402,10 +402,20 @@ These tests verify that data is consistent regardless of which surface created o
 
 These require real cloud credentials. Skip if unavailable, don't count against score.
 
-### 11.1 AWS SSO
-- [ ] AWS SSO settings configurable in admin
-- [ ] Device auth flow initiates
-- [ ] Identity linking works
+### 11.1 AWS Per-User Permissions (Amazon Cognito)
+
+Requires a Cognito user pool with a hosted domain and an app client. Configure it at
+**Admin → Providers → Amazon Web Services → Per-user permissions** (Issuer URL, Domain, Client ID,
+Client Secret, Region). This is the only way in — the settings API has no `cognito` category.
+
+- [ ] The form saves, and the values come back after a reload
+- [ ] Saving with the secret box left blank keeps the stored secret rather than clearing it
+- [ ] `GET` and `PUT /api/settings/cognito` both return 404
+- [ ] Before configuration, the Integrations page AWS (Permissions) card reads "not configured"
+- [ ] Connect redirects to the pool's `/oauth2/authorize` endpoint
+- [ ] Completing consent returns to Integrations with the identity linked and the email shown
+- [ ] Cancelling consent returns to Integrations with an error and links nothing
+- [ ] Disconnect removes the link and the card returns to its unlinked state
 
 ### 11.2 Azure AD
 - [ ] Azure AD settings configurable in admin

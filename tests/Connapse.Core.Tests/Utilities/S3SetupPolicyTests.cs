@@ -34,27 +34,65 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(3);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(5);
     }
 
     [Fact]
-    public void ForManagedIdentity_ReadsEverythingAndChangesNothing()
+    public void ForManagedIdentity_ReadsEverythingAndWritesNothing()
     {
-        // The whole trade rests on this. A credential that can read every bucket is a real cost,
-        // accepted knowingly; one that can also delete them is a different product. Connapse has no
-        // write surface against a source at all -- IConnector does not expose one -- so a policy
-        // granting more asks for authority the product cannot use.
+        // The trade: the identity reads every bucket -- a real cost accepted knowingly -- and in
+        // exchange it cannot change anything. Connapse has no write surface against a source
+        // (IConnector exposes none), and it never authors an access grant either: those are the
+        // administrator's decisions, made in AWS, which this identity only reads.
         var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
             .EnumerateArray()
             .SelectMany(x => x.GetProperty("Action").EnumerateArray())
             .Select(a => a.GetString()!)
             .ToList();
 
-        actions.Should().BeEquivalentTo(
-            ["s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"]);
+        actions.Should().BeEquivalentTo([
+            "s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject",
+            // Resolving what a person may read. These are here rather than in a second policy so
+            // one document describes everything the identity can do.
+            "s3:ListAccessGrants",
+            "identitystore:GetUserId", "identitystore:DescribeUser",
+            "identitystore:ListGroupMembershipsForMember"
+        ]);
 
-        actions.Should().OnlyContain(a => a.StartsWith("s3:Get") || a.StartsWith("s3:List"));
+        // Every action is a Get, List or Describe, and no wildcard is allowed to smuggle a broader
+        // one in.
+        actions.Should().OnlyContain(a =>
+            a.Contains(":Get") || a.Contains(":List") || a.Contains(":Describe"));
         actions.Should().NotContain(a => a.Contains("*"));
+
+        // No write, ever: not an object, not a bucket, not a grant.
+        actions.Should().NotContain([
+            "s3:PutObject", "s3:DeleteObject", "s3:DeleteBucket",
+            "s3:CreateAccessGrant", "s3:DeleteAccessGrant"
+        ]);
+    }
+
+    [Fact]
+    public void ForManagedIdentity_OnlyReadsAccessGrants_NeverCreatesOrDeletesOne()
+    {
+        // A grant is an access-control decision an administrator makes in AWS. Connapse reads it to
+        // scope search and must never be able to author one: the only grant it could write is
+        // "this whole group may read this whole bucket", which is the opposite of per-user.
+        var read = Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseReadGrants");
+
+        read.GetProperty("Action").EnumerateArray().Select(a => a.GetString())
+            .Should().BeEquivalentTo(["s3:ListAccessGrants"]);
+        read.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
+
+        var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
+            .EnumerateArray()
+            .SelectMany(x => x.GetProperty("Action").EnumerateArray())
+            .Select(a => a.GetString());
+
+        actions.Should().NotContain([
+            "s3:CreateAccessGrant", "s3:DeleteAccessGrant", "s3:TagResource",
+            "s3:ListTagsForResource", "s3:ListAccessGrantsLocations"
+        ]);
     }
 
     [Fact]
@@ -95,12 +133,15 @@ public class S3SetupPolicyTests
     }
 
     [Fact]
-    public void ManagedIdentitySummary_SaysBothWhatItReadsAndWhatItCannotDo()
+    public void ManagedIdentitySummary_SaysItReadsBucketsAndGrantsAndNothingElse()
     {
         // This sentence is what an operator reads before running a script that mints a credential.
-        // "Every bucket" without "cannot write" describes something scarier than what is granted.
+        // It must name the read reach, say that grants are read rather than made, and stand by the
+        // read-only claim -- the policy has no write action, and the sentence must not overstate.
         S3SetupPolicy.ManagedIdentitySummary.Should()
-            .Contain("every S3 bucket").And.Contain("cannot write");
+            .Contain("every S3 bucket")
+            .And.Contain("access grant")
+            .And.Contain("cannot write, delete, or change anything");
     }
 
     [Theory]

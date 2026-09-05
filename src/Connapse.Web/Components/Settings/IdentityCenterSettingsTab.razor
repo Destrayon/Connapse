@@ -1,0 +1,85 @@
+﻿@using Connapse.Core
+
+@*
+    The IAM Identity Center instance an administrator points Connapse at.
+
+    Every value here is an identifier the account owner can read off their own console, so there
+    is no secret to withhold and no field that has to survive a blank submit. The guided scan fills
+    these in; this is for someone who already knows them, or who cannot run the scan because their
+    policy refuses sso:ListInstances.
+*@
+
+<EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="row g-3" style="max-width:44rem">
+        <div class="col-12">
+            <label class="form-label" for="idc-region">Region</label>
+            <InputText id="idc-region" @bind-Value="localSettings.Region" class="form-control"
+                       placeholder="us-west-1" aria-describedby="idc-region-help" />
+            <div id="idc-region-help" class="form-text">
+                The one region the instance lives in. Identity Center exists in exactly one region
+                per organisation, and the wrong one reads everywhere else as having no instance at all.
+            </div>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" for="idc-store">Identity store ID</label>
+            <InputText id="idc-store" @bind-Value="localSettings.IdentityStoreId"
+                       class="form-control font-monospace" placeholder="d-1234567890"
+                       aria-describedby="idc-store-help" />
+            <div id="idc-store-help" class="form-text">
+                Shown on the Settings page of the
+                <a href="https://console.aws.amazon.com/singlesignon/home" target="_blank" rel="noopener">IAM Identity Center console</a>,
+                beside the instance ARN.
+            </div>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label" for="idc-arn">Instance ARN</label>
+            <InputText id="idc-arn" @bind-Value="localSettings.InstanceArn"
+                       class="form-control font-monospace"
+                       placeholder="arn:aws:sso:::instance/ssoins-1234567890abcdef"
+                       aria-describedby="idc-arn-help" />
+            <div id="idc-arn-help" class="form-text">
+                Shown on the Settings page of the IAM Identity Center console, or from
+                <code>aws sso-admin list-instances</code>.
+            </div>
+        </div>
+
+        <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-primary me-2">
+                <span class="bi-save me-1" aria-hidden="true"></span> Save
+            </button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="Reset">
+                <span class="bi-arrow-counterclockwise me-1" aria-hidden="true"></span> Reset
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter]
+    public IdentityCenterSettings Settings { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<IdentityCenterSettings> OnSave { get; set; }
+
+    private IdentityCenterSettings localSettings = new();
+
+    protected override void OnParametersSet()
+    {
+        // A whole copy. Nothing here is a credential, so round-tripping every field costs nothing
+        // and lets an edit to one value leave the other two alone.
+        localSettings = new IdentityCenterSettings
+        {
+            Region = Settings.Region,
+            InstanceArn = Settings.InstanceArn,
+            IdentityStoreId = Settings.IdentityStoreId,
+        };
+    }
+
+    private async Task HandleSubmit() => await OnSave.InvokeAsync(localSettings);
+
+    private void Reset() => OnParametersSet();
+}

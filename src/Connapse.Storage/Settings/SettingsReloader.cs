@@ -13,10 +13,10 @@ public class SettingsReloader : ISettingsReloader
         _provider = provider;
     }
 
-    public void Reload()
+    public bool Reload()
     {
         // Reload database settings and trigger change token
         // This will notify IOptionsMonitor subscribers
-        _provider.Reload();
+        return _provider.Reload();
     }
 }

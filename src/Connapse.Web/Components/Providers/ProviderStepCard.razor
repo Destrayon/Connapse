@@ -1,0 +1,96 @@
+@using Connapse.Core
+
+<section id="@Id" class="provider-step @StatusClass" aria-labelledby="@HeadingId">
+    <span class="provider-step__rail" aria-hidden="true"></span>
+    <div class="provider-step__content">
+        <header class="provider-step__header">
+            <div class="provider-step__heading">
+                <h2 id="@HeadingId" class="h5 mb-1">@Title</h2>
+                <p class="provider-step__description mb-0">@Description</p>
+            </div>
+            <div class="provider-step__status">
+                <span class="@IconClass" aria-hidden="true"></span>
+                <span>@StatusLabel</span>
+            </div>
+        </header>
+
+        @if (Summary is not null)
+        {
+            <div class="provider-step__summary">@Summary</div>
+        }
+
+        @if (HasActions)
+        {
+        <div class="provider-step__actions">
+            @if (Status == RequirementStatus.Satisfied && HasSetupContent)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        aria-expanded="@IsBodyVisible.ToString().ToLowerInvariant()"
+                        aria-controls="@BodyId" @onclick="ToggleExpanded">
+                    <span class="bi-pencil me-1" aria-hidden="true"></span>
+                    @(IsBodyVisible ? "Close setup" : EditLabel)
+                </button>
+            }
+            @Actions
+        </div>
+        }
+
+        @if (IsBodyVisible && HasSetupContent)
+        {
+            <div id="@BodyId" class="provider-step__body">
+                @ManualContent
+                @if (EasyContent is not null)
+                {
+                    <ProviderSetupGuide Title="@EasyTitle" Open="@EasyOpen">@EasyContent</ProviderSetupGuide>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter] public RequirementStatus Status { get; set; }
+    [Parameter, EditorRequired] public string StatusLabel { get; set; } = string.Empty;
+    [Parameter] public bool Expanded { get; set; }
+    [Parameter] public EventCallback<bool> ExpandedChanged { get; set; }
+    [Parameter] public string EditLabel { get; set; } = "Edit setup";
+    [Parameter] public string EasyTitle { get; set; } = "Easy setup";
+
+    /// <summary>Whether the easy-setup guide starts expanded. Set it where the guide is the main route.</summary>
+    [Parameter] public bool EasyOpen { get; set; }
+    [Parameter] public RenderFragment? Summary { get; set; }
+    [Parameter] public RenderFragment? ManualContent { get; set; }
+    [Parameter] public RenderFragment? EasyContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    private string HeadingId => $"{Id}-heading";
+    private string BodyId => $"{Id}-setup";
+    private bool HasSetupContent => ManualContent is not null || EasyContent is not null;
+    private bool HasActions => Actions is not null
+        || (Status == RequirementStatus.Satisfied && HasSetupContent);
+    private bool IsBodyVisible => Status != RequirementStatus.Satisfied || Expanded;
+    private Task ToggleExpanded() => ExpandedChanged.InvokeAsync(!Expanded);
+
+    private string StatusClass => Status switch
+    {
+        RequirementStatus.Satisfied => "provider-step--satisfied",
+        RequirementStatus.Warning => "provider-step--warning",
+        RequirementStatus.Provisioning => "provider-step--provisioning",
+        RequirementStatus.Failed => "provider-step--failed",
+        RequirementStatus.NotConfigured => "provider-step--not-configured",
+        _ => "provider-step--unknown",
+    };
+
+    private string IconClass => Status switch
+    {
+        RequirementStatus.Satisfied => "bi-check-circle-fill text-success",
+        RequirementStatus.Warning => "bi-exclamation-triangle-fill text-warning",
+        RequirementStatus.Provisioning => "bi-hourglass-split text-info",
+        RequirementStatus.Failed => "bi-x-circle-fill text-danger",
+        RequirementStatus.NotConfigured => "bi-circle text-secondary",
+        _ => "bi-question-circle text-secondary",
+    };
+}

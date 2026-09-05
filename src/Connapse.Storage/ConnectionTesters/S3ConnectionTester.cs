@@ -21,12 +21,6 @@ namespace Connapse.Storage.ConnectionTesters;
 /// Through <see cref="ConnapseAwsCredentials"/>, which is the whole point of the test: it has to
 /// run as the thing that will do the work, or a pass means nothing.
 /// <para>
-/// It did not. Both clients were built without credentials, so the SDK fell back to its own default
-/// chain and never saw the key Connapse stores — the bucket picker beside this button listed
-/// buckets happily while the test reported "No AWS credentials found", from the same page, about
-/// the same account.
-/// </para>
-/// <para>
 /// A <c>RoleArn</c> is still assumed via STS when one is given, but from these credentials rather
 /// than from whatever the environment happens to offer.
 /// </para>
@@ -55,14 +49,20 @@ public class S3ConnectionTester : IConnectionTester
         var stopwatch = Stopwatch.StartNew();
         timeout ??= TimeSpan.FromSeconds(15);
 
+        // Named here so a failure message can say which bucket and region it was about.
+        string bucket = "?";
+        string regionName = "?";
+
         try
         {
             var config = ExtractConfig(settings);
+            bucket = config.BucketName;
+            regionName = config.Region;
 
             if (string.IsNullOrWhiteSpace(config.BucketName))
             {
                 return ConnectionTestResult.CreateFailure(
-                    "Bucket name is required",
+                    "Enter a bucket to test against.",
                     new Dictionary<string, object> { ["error"] = "Missing BucketName in config" });
             }
 
@@ -116,10 +116,12 @@ public class S3ConnectionTester : IConnectionTester
 
             var objectCount = listResponse.S3Objects?.Count ?? 0;
             var hasMore = listResponse.IsTruncated == true;
-            var message = $"Connected to S3 bucket '{config.BucketName}' in {config.Region}"
-                + (objectCount > 0
-                    ? $" ({objectCount}{(hasMore ? "+" : "")} object{(objectCount != 1 ? "s" : "")} found{(string.IsNullOrEmpty(config.Prefix) ? "" : $" under prefix '{config.Prefix}'")})"
-                    : $" (empty{(string.IsNullOrEmpty(config.Prefix) ? "" : $" under prefix '{config.Prefix}'")})");
+            // Says which layers passed: reached AWS, authenticated, authorised, and read the bucket.
+            string where = string.IsNullOrEmpty(config.Prefix) ? "" : $" under prefix '{config.Prefix}'";
+            string what = objectCount > 0
+                ? $"{objectCount}{(hasMore ? "+" : "")} object{(objectCount != 1 ? "s" : "")} found{where}"
+                : $"it is empty{where}";
+            var message = $"Reached AWS, authenticated, and listed bucket '{config.BucketName}' in {config.Region}: {what}.";
 
             return ConnectionTestResult.CreateSuccess(
                 message,
@@ -139,12 +141,20 @@ public class S3ConnectionTester : IConnectionTester
             stopwatch.Stop();
             _logger.LogWarning(ex, "S3 connection test failed with S3 error");
 
+            // Each one says which layer failed and what to change. The raw reason travels in the
+            // details, for the operator who wants it.
             var errorMessage = ex.StatusCode switch
             {
-                System.Net.HttpStatusCode.Forbidden => "Access denied: Insufficient permissions on this bucket",
-                System.Net.HttpStatusCode.Unauthorized => "Authentication failed: No valid AWS credentials found",
-                System.Net.HttpStatusCode.NotFound => "Bucket not found: Check the bucket name and region",
-                _ => $"S3 error: {ex.Message}"
+                System.Net.HttpStatusCode.Forbidden =>
+                    $"Authenticated, but not allowed to list bucket '{bucket}'. Give Connapse's identity "
+                    + "s3:ListBucket and s3:GetObject on it (the policy under the allowed locations does "
+                    + "exactly that), or check the Role ARN.",
+                System.Net.HttpStatusCode.Unauthorized =>
+                    "Reached AWS, but it rejected Connapse's credential. Check the Access step on the AWS provider page.",
+                System.Net.HttpStatusCode.NotFound =>
+                    $"Authenticated, but no bucket '{bucket}' exists in {regionName}. Check the name, or clear "
+                    + "the region so it is looked up from the bucket.",
+                _ => $"S3 refused the request ({ex.ErrorCode ?? "unknown code"}): {ex.Message}"
             };
 
             return ConnectionTestResult.CreateFailure(
@@ -163,8 +173,8 @@ public class S3ConnectionTester : IConnectionTester
             _logger.LogWarning(ex, "S3 connection test failed with client error");
 
             var message = ex.Message.Contains("credentials", StringComparison.OrdinalIgnoreCase)
-                ? "No AWS credentials found. Configure IAM role, environment variables (AWS_ACCESS_KEY_ID), or ~/.aws/credentials."
-                : $"AWS client error: {ex.Message}";
+                ? "Connapse has no AWS identity to test with. Set one up under Access on the AWS provider page."
+                : $"Could not reach AWS: {ex.Message}";
 
             return ConnectionTestResult.CreateFailure(
                 message,
@@ -181,7 +191,8 @@ public class S3ConnectionTester : IConnectionTester
             _logger.LogWarning(ex, "S3 connection test timed out");
 
             return ConnectionTestResult.CreateFailure(
-                $"Connection timed out after {timeout.Value.TotalSeconds:F1}s",
+                $"AWS did not answer within {timeout.Value.TotalSeconds:F0} seconds. Check that this server can reach "
+                + $"s3.{regionName}.amazonaws.com, then try again.",
                 new Dictionary<string, object>
                 {
                     ["error"] = "Timeout",

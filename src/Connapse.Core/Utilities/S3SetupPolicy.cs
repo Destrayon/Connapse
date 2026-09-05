@@ -39,8 +39,42 @@ public static class S3SetupPolicy
         ["s3:ListAllMyBuckets", "s3:GetBucketLocation"];
 
     /// <summary>
-    /// The complete grant for the identity Connapse creates for itself: read-only across every
-    /// AWS storage service Connapse can read from.
+    /// What Connapse needs to answer "what may this person read", using its own identity rather
+    /// than theirs.
+    /// </summary>
+    /// <remarks>
+    /// All four are read-only, and none of them reads any object. Together they replace holding a
+    /// per-user credential: rather than acting as somebody to discover their permissions, Connapse
+    /// asks the directory about them and reads the grants held against them.
+    /// <para>
+    /// <b>Worth stating to an administrator rather than leaving in a policy.</b>
+    /// <c>s3:ListAccessGrants</c> is not scoped to one user by the permission itself — it is an
+    /// administrative read over the whole instance, so Connapse can enumerate everyone's grants and
+    /// not only the signed-in caller's. That is a narrower blast radius than a per-user credential
+    /// and a wider reach, and an administrator should meet that fact on the setup page rather than
+    /// discover it in IAM.
+    /// </para>
+    /// <para>
+    /// <c>GetUserId</c> runs once when somebody connects, turning the name an assertion carried
+    /// into the identity store id grants are held against. <c>DescribeUser</c> and
+    /// <c>ListGroupMembershipsForMember</c> run when scopes are resolved: the first is how a
+    /// deleted or suspended person is noticed at all, since no credential remains to expire, and
+    /// the second is the group expansion that <c>ListAccessGrants</c> does not do for a grantee
+    /// filter.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyList<string> PermissionResolutionActions =
+    [
+        "s3:ListAccessGrants",
+        "identitystore:GetUserId",
+        "identitystore:DescribeUser",
+        "identitystore:ListGroupMembershipsForMember"
+    ];
+
+    /// <summary>
+    /// The complete grant for the identity Connapse creates for itself: read across every AWS
+    /// storage service Connapse can read from, plus the reads that resolve what each person may
+    /// search.
     /// </summary>
     /// <remarks>
     /// One policy, not a choice of several. The easy setup exists to remove decisions, and a scope
@@ -56,9 +90,11 @@ public static class S3SetupPolicy
     /// </para>
     /// <para>
     /// What it costs, plainly: a leaked key reads every object in the account, and any Connapse
-    /// administrator can point a source at any bucket, which moves that decision out of IAM and
-    /// into this application. Against that — the identity is read-only, belongs to Connapse alone,
-    /// and revoking it touches nobody else's access. The narrowing lives in each connection's
+    /// administrator can point a source at any bucket. Against that — the identity writes nothing,
+    /// belongs to Connapse alone, and revoking it touches nobody else's access. It cannot create
+    /// an access grant: that was tried and reversed, because the only grant Connapse could author
+    /// on its own was a whole group on a whole bucket, and a compromise of the identity would have
+    /// been able to widen who may read what. The narrowing lives in each connection's
     /// allowed-locations list, which <c>ConnectorFactory</c> enforces on every read.
     /// </para>
     /// <para>
@@ -89,7 +125,9 @@ public static class S3SetupPolicy
     /// One sentence describing <see cref="ForManagedIdentity"/>, for the operator about to run it.
     /// </summary>
     public const string ManagedIdentitySummary =
-        "reading every S3 bucket in the account. It cannot write, delete, or change anything.";
+        "reading every S3 bucket in the account, and reading S3 access grants and the directory to "
+        + "learn what each person may search. It cannot write, delete, or change anything: the grants "
+        + "themselves are created by an administrator in AWS.";
 
     /// <summary>
     /// Every statement in the managed identity's policy, one group per AWS storage service.
@@ -129,8 +167,54 @@ public static class S3SetupPolicy
             // The trailing /* is the whole difference between reading objects and reading nothing:
             // without it this names buckets, and every object read is denied.
             ["Resource"] = "arn:aws:s3:::*/*"
+        },
+        // Named at the Access Grants instances of this account. AWS documents that resource form
+        // for this action, and it is the one worth narrowing: it is where the identity enumerates
+        // what every grantee may read.
+        //
+        // Read only, and deliberately so. A grant is an access-control decision an administrator
+        // makes in the S3 console -- who may read which bucket, prefix or object. Connapse reads
+        // that decision to scope search and must never be able to author one: the only grant it
+        // could ever write on its own is "this whole group may read this whole bucket", which is
+        // the opposite of per-user. No Create, Delete or Tag action belongs here.
+        //
+        // The region is a wildcard because this script runs before the Identity Center region is
+        // known -- it is the step that mints the credential the later steps use. The account is
+        // substituted by the script from sts:GetCallerIdentity.
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseReadGrants",
+            ["Effect"] = "Allow",
+            ["Action"] = new[] { "s3:ListAccessGrants" },
+            ["Resource"] = $"arn:aws:s3:*:{AccountPlaceholder}:access-grants/*"
+        },
+        // Resource "*", and deliberately not narrowed on a guess. AWS's own Identity Store policy
+        // examples use "*" for these, and the service authorization reference does not state
+        // whether they accept a resource. A wrong ARN here does not fail loudly: the calls return
+        // AccessDenied, the resolver treats that as an outage and denies, and every search comes
+        // back empty with nothing saying why. Narrow it once the reference confirms the form.
+        new Dictionary<string, object>
+        {
+            ["Sid"] = "ConnapseReadDirectory",
+            ["Effect"] = "Allow",
+            // The scope-resolution reads only.
+            ["Action"] = PermissionResolutionActions
+                .Where(a => a.StartsWith("identitystore:"))
+                .ToArray(),
+            ["Resource"] = "*"
         }
     ];
+
+    /// <summary>
+    /// Stands in for the AWS account id until the script that runs the policy substitutes it.
+    /// </summary>
+    /// <remarks>
+    /// The account is not known here — this class builds a document, and the only place the number
+    /// exists is the shell session the administrator runs it in. Written as a placeholder rather
+    /// than a wildcard so that a policy which somehow reaches AWS unsubstituted is refused for a
+    /// malformed ARN, rather than quietly attaching as an account-wide grant.
+    /// </remarks>
+    public const string AccountPlaceholder = "__CONNAPSE_ACCOUNT_ID__";
 
     /// <summary>
     /// One policy document covering every allowed location.

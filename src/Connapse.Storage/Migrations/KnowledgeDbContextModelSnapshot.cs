@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -489,6 +489,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("provider");
 
+                    b.Property<string>("CertificatePem")
+                        .HasColumnType("text")
+                        .HasColumnName("certificate_pem");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -502,16 +506,29 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("principal_name");
 
-                    b.Property<string>("PublicId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("public_id");
-
-                    b.Property<string>("SecretProtected")
-                        .IsRequired()
+                    b.Property<string>("PrivateKeyProtected")
                         .HasColumnType("text")
-                        .HasColumnName("secret_protected");
+                        .HasColumnName("private_key_protected");
+
+                    b.Property<string>("ProfileArn")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("profile_arn");
+
+                    b.Property<string>("Region")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("region");
+
+                    b.Property<string>("RoleArn")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("role_arn");
+
+                    b.Property<string>("TrustAnchorArn")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("trust_anchor_arn");
 
                     b.Property<DateTime?>("VerifiedAt")
                         .HasColumnType("timestamp with time zone")

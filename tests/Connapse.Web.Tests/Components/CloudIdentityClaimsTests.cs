@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Xunit;
 
 namespace Connapse.Web.Tests.Components;
@@ -43,11 +43,29 @@ public class CloudIdentityClaimsTests
     }
 
     [Fact]
-    public void Integrations_SaysPlainlyThatLinkingDoesNotFilterYet()
+    public void Integrations_SaysWhatLinkingActuallyDoesOnThisDeployment()
     {
         // A missing false claim is not the same as a true statement. Someone linking an account
         // deserves to be told what it does and does not do, in the place they are deciding.
-        Integrations.Should().Contain("does not yet filter your search results");
+        //
+        // This used to assert one fixed sentence saying filtering was not implemented. That was
+        // true when written and became false in the more dangerous direction once per-user
+        // permissions shipped: a deployment that filters was telling people it did not. The page
+        // now follows the enforcement state, so what is asserted is that all three states are
+        // answered rather than that any one sentence is present.
+        Integrations.Should().Contain("EnforcementState.Enforcing");
+        Integrations.Should().Contain("EnforcementState.EnforcingButUnusable");
+        Integrations.Should().Contain("filtered to what you may read");
+        Integrations.Should().Contain("does not filter your search results on this deployment");
+    }
+
+    [Fact]
+    public void Integrations_DoesNotClaimPermissionsAreUnimplemented()
+    {
+        // The specific stale sentence, and the issue it pointed at. Restoring either would tell an
+        // enforcing deployment's users that nothing is protecting them.
+        Integrations.Should().NotContain("permissions are not implemented");
+        Integrations.Should().NotContain("does not yet filter your search results");
     }
 
     [Fact]

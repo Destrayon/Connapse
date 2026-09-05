@@ -893,7 +893,7 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `GET /api/settings/{category}`
 
-**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `awssso` | `azuread`
+**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `azuread`
 
 **Response** (200 OK) — Example for `embedding`:
 ```json
@@ -930,7 +930,7 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `POST /api/settings/test-connection`
 
-**Categories**: `Embedding` | `Llm` | `AwsSso` | `AzureAd` | `CrossEncoder`
+**Categories**: `Embedding` | `Llm` | `AzureAd` | `CrossEncoder`
 
 **Request Body**:
 ```json
@@ -1379,58 +1379,6 @@ Fire-and-forget reindex with settings change detection.
 Base path: `/api/v1/auth/cloud`
 
 All endpoints require authentication.
-
-### Start AWS Device Authorization
-
-**Endpoint**: `POST /api/v1/auth/cloud/aws/device-auth`
-
-Returns a user code and verification URL for the IAM Identity Center device auth flow.
-
-**Response** (200 OK):
-```json
-{
-  "userCode": "ABCD-EFGH",
-  "verificationUri": "https://device.sso.us-east-1.amazonaws.com/",
-  "verificationUriComplete": "https://device.sso.us-east-1.amazonaws.com/?user_code=ABCD-EFGH",
-  "deviceCode": "...",
-  "expiresInSeconds": 600,
-  "intervalSeconds": 5
-}
-```
-
-**Error** (400): `aws_sso_not_configured` if admin hasn't set Issuer URL + Region.
-
----
-
-### Poll AWS Device Authorization
-
-**Endpoint**: `POST /api/v1/auth/cloud/aws/device-auth/poll`
-
-**Request Body**:
-```json
-{ "deviceCode": "..." }
-```
-
-**Response** (200 OK — pending):
-```json
-{ "status": "pending" }
-```
-
-**Response** (200 OK — complete):
-```json
-{
-  "status": "complete",
-  "identity": {
-    "id": "...",
-    "provider": "AWS",
-    "data": { "principalArn": "123456789012", "accountId": "123456789012", "displayName": "My Account" },
-    "createdAt": "...",
-    "lastUsedAt": null
-  }
-}
-```
-
----
 
 ### Get Azure Connect URL
 

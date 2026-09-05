@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -20,6 +20,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<OAuthClientEntity> OAuthClients => Set<OAuthClientEntity>();
     public DbSet<OAuthAuthCodeEntity> OAuthAuthCodes => Set<OAuthAuthCodeEntity>();
     public DbSet<UserCloudIdentityEntity> UserCloudIdentities => Set<UserCloudIdentityEntity>();
+    public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +36,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureOAuthClients(modelBuilder);
         ConfigureOAuthAuthCodes(modelBuilder);
         ConfigureUserCloudIdentities(modelBuilder);
+        ConfigureUserAwsIdentityLinks(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -624,6 +626,61 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.CloudIdentities)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAwsIdentityLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAwsIdentityLinkEntity>(entity =>
+        {
+            entity.ToTable("user_aws_identity_links");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id")
+                .IsRequired();
+
+            // The identity store's own id for the user — a UUID, or the migrated-store form that
+            // prefixes it with the store id, which is why this is wider than 36.
+            entity.Property(e => e.DirectoryUserId)
+                .HasColumnName("directory_user_id")
+                .HasMaxLength(47)
+                .IsRequired();
+
+            entity.Property(e => e.DirectoryUserName)
+                .HasColumnName("directory_user_name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            // Kept non-null and empty-when-absent rather than nullable: a token may carry no email,
+            // and a column that is sometimes null and sometimes empty invites both checks at every
+            // call site.
+            entity.Property(e => e.Email)
+                .HasColumnName("email")
+                .HasMaxLength(320)
+                .IsRequired();
+
+            entity.Property(e => e.ConnectedAt)
+                .HasColumnName("connected_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.LastUsedAt)
+                .HasColumnName("last_used_at");
+
+            // One link per user: connecting again replaces it, so nothing has to decide which of
+            // two stored identities is the current one.
+            entity.HasIndex(e => e.UserId)
+                .HasDatabaseName("ix_user_aws_identity_links_user_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

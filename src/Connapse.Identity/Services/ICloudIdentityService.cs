@@ -11,9 +11,5 @@ public interface ICloudIdentityService
     AzureConnectResult GetAzureConnectUrl(string baseUrl);
     Task<CloudIdentityDto> HandleAzureCallbackAsync(Guid userId, string code, string codeVerifier, string redirectUri, CancellationToken ct = default);
 
-    Task<AwsDeviceAuthStartResult> StartAwsDeviceAuthAsync(CancellationToken ct = default);
-    Task<CloudIdentityDto?> PollAwsDeviceAuthAsync(Guid userId, string deviceCode, CancellationToken ct = default);
-
-    bool IsAwsSsoConfigured();
     bool IsAzureAdConfigured();
 }

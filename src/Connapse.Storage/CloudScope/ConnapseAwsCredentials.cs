@@ -1,5 +1,7 @@
-﻿using Amazon.Runtime;
+﻿using System.Security.Cryptography.X509Certificates;
+using Amazon.Runtime;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope.RolesAnywhere;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -36,6 +38,9 @@ public class ConnapseAwsCredentials(
     /// <summary>Key the AWS credential is stored under.</summary>
     public const string ProviderKey = "aws";
 
+    /// <summary>Name of the named HttpClient used for Roles Anywhere CreateSession calls.</summary>
+    public const string RolesAnywhereHttpClientName = "RolesAnywhere";
+
     /// <summary>
     /// How long a resolved credential is held before the store is consulted again.
     /// </summary>
@@ -46,14 +51,27 @@ public class ConnapseAwsCredentials(
     /// </remarks>
     public static readonly TimeSpan RefreshWindow = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// The refresh time for a resolved credential: now + <see cref="RefreshWindow"/>, but never later than
+    /// the credential's own expiry (Roles Anywhere sessions expire; a static key passes null).
+    /// </summary>
+    public static DateTime ClampRefreshExpiry(DateTime nowUtc, TimeSpan window, DateTime? sessionExpirationUtc)
+    {
+        DateTime expiry = nowUtc.Add(window);
+        if (sessionExpirationUtc is DateTime exp && exp < expiry)
+            expiry = exp;
+        return expiry;
+    }
+
     protected override CredentialsRefreshState GenerateNewCredentials()
     {
         // The SDK's refresh hook is synchronous, and there is no async form to override.
-        var stored = ResolveStored();
+        ResolvedCredentials? resolved = ResolveStored();
 
-        if (stored is not null)
+        if (resolved is not null)
         {
-            return new CredentialsRefreshState(stored, DateTime.UtcNow.Add(RefreshWindow));
+            DateTime expiry = ClampRefreshExpiry(DateTime.UtcNow, RefreshWindow, resolved.Expiration);
+            return new CredentialsRefreshState(resolved.Credentials, expiry);
         }
 
         // Nothing configured: whatever the environment provides — an instance role in production,
@@ -82,21 +100,57 @@ public class ConnapseAwsCredentials(
     /// <c>ConnectorFactory</c> is one and consumes it, while the store reaches the database through
     /// a <c>DbContextFactory</c> that this application registers as scoped.
     /// </remarks>
-    private async Task<ImmutableCredentials?> ReadStoredAsync()
+    private async Task<ResolvedCredentials?> ReadStoredAsync()
     {
         using var scope = scopeFactory.CreateScope();
         var credentialStore = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
 
-        var info = await credentialStore.GetAsync(ProviderKey);
-        if (info is null) return null;
+        // A configured role outranks a static key, which outranks the ambient chain. A single read
+        // of the material doubles as the presence gate: two separate calls (a presence check, then
+        // the material) left a window where a mode switch between them could resolve a stale answer.
+        try
+        {
+            RolesAnywhereCredentialMaterial? material =
+                await credentialStore.GetRolesAnywhereMaterialAsync(ProviderKey);
+            if (material is not null)
+            {
+                // Once a Roles Anywhere config exists, this identity is what an administrator asked
+                // for. Any failure producing it — missing key, unreadable cert/key, a failed
+                // CreateSession — must fail closed rather than let the caller silently fall through
+                // to the ambient chain below, so the whole production is wrapped and rethrown as one
+                // exception type.
+                if (string.IsNullOrEmpty(material.PrivateKeyPem))
+                {
+                    throw new InvalidOperationException(
+                        "Roles Anywhere is configured but its private key is missing.");
+                }
 
-        string? secret = await credentialStore.GetSecretAsync(ProviderKey);
-        if (string.IsNullOrEmpty(secret)) return null;
+                var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+                using X509Certificate2 certificate = X509Certificate2.CreateFromPem(
+                    material.Config.CertificatePem, material.PrivateKeyPem);
+                var client = new RolesAnywhereClient(httpClientFactory.CreateClient(RolesAnywhereHttpClientName));
+                var parameters = new RolesAnywhereParameters(
+                    material.Config.TrustAnchorArn, material.Config.ProfileArn,
+                    material.Config.RoleArn, material.Config.Region);
 
-        return new ImmutableCredentials(info.PublicId, secret, null);
+                RolesAnywhereSession session = await client.CreateSessionAsync(
+                    certificate, parameters, DateTimeOffset.UtcNow);
+
+                return new ResolvedCredentials(session.Credentials, session.Expiration.UtcDateTime);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new RolesAnywhereCredentialException(ProviderKey, ex);
+        }
+
+        // Roles Anywhere is the only stored shape. No stored configuration means Connapse has no
+        // identity of its own, so it falls back to whatever the environment provides (the ambient
+        // chain, resolved by the caller when this returns null).
+        return null;
     }
 
-    private ImmutableCredentials? ResolveStored()
+    private ResolvedCredentials? ResolveStored()
     {
         try
         {
@@ -120,6 +174,14 @@ public class ConnapseAwsCredentials(
             logger.LogError(inner, "The stored AWS credential could not be decrypted");
             throw inner;
         }
+        catch (AggregateException ex) when (ex.InnerException is RolesAnywhereCredentialException raInner)
+        {
+            // Same wrapping hazard as above, mirrored for the Roles Anywhere fail-closed exception:
+            // caught both ways so a wrapped throw can never slip past this into the generic
+            // catch (Exception) below and get treated as "nothing configured" (ambient).
+            logger.LogError(raInner, "The stored Roles Anywhere credential could not be used");
+            throw raInner;
+        }
         catch (ProviderCredentialUnavailableException ex)
         {
             // Stored and unreadable — the key ring that encrypted it is gone. Falling back to the
@@ -128,10 +190,22 @@ public class ConnapseAwsCredentials(
             logger.LogError(ex, "The stored AWS credential could not be decrypted");
             throw;
         }
+        catch (RolesAnywhereCredentialException ex)
+        {
+            // A Roles Anywhere config exists but could not be turned into a credential (missing key,
+            // bad cert/key, or CreateSession failed/timed out). Falling back to the ambient chain
+            // would silently run as a different identity than the one configured, so this stays a
+            // hard failure exactly like the decrypt failure above.
+            logger.LogError(ex, "The stored Roles Anywhere credential could not be used");
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not read the stored AWS credential; using the environment");
             return null;
         }
     }
+
+    /// <summary>A resolved credential and, for Roles Anywhere, when it expires (null for a static key).</summary>
+    private sealed record ResolvedCredentials(ImmutableCredentials Credentials, DateTime? Expiration);
 }

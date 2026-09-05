@@ -649,8 +649,6 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `Identity__AwsSso__IssuerUrl` | AWS IAM Identity Center issuer URL | (optional) |
-| `Identity__AwsSso__Region` | AWS region for SSO | (optional) |
 | `Identity__AzureAd__ClientId` | Azure AD app registration client ID | (optional) |
 | `Identity__AzureAd__TenantId` | Azure AD tenant ID | (optional) |
 | `Identity__AzureAd__ClientSecret` | Azure AD client secret (confidential client) | (optional) |
@@ -718,10 +716,6 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
     }
   },
   "Identity": {
-    "AwsSso": {
-      "IssuerUrl": "",
-      "Region": "us-east-1"
-    },
     "AzureAd": {
       "ClientId": "",
       "TenantId": "",
@@ -1038,7 +1032,6 @@ volumes:
 - [architecture.md](architecture.md) — System architecture
 - [api.md](api.md) — API reference
 - [connectors.md](connectors.md) — Connector types and configuration
-- [aws-sso-setup.md](aws-sso-setup.md) — AWS IAM Identity Center integration
 - [azure-identity-setup.md](azure-identity-setup.md) — Azure AD OAuth2+PKCE integration
 - [Docker Compose Docs](https://docs.docker.com/compose/)
 - [PostgreSQL Docs](https://www.postgresql.org/docs/)

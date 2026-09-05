@@ -7,15 +7,27 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @using Connapse.Web.Components.Settings
+@using Connapse.Web.Services
 @using Connapse.Storage.Settings
+@using Connapse.Storage.CloudScope.RolesAnywhere
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
-@inject IOptionsMonitor<AwsSsoSettings> AwsSsoOptions
 @inject IOptionsMonitor<AzureAdSettings> AzureAdOptions
+@inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
+@inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
+@inject IRolesAnywhereSetupValidator RaValidator
+@inject Connapse.Storage.CloudScope.ConnapseAwsCredentials AwsCredentials
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ILogger<Providers> Logger
+@inject IAuditLogger AuditLogger
+@using System.Security.Claims
+@using System.Security.Cryptography.X509Certificates
+@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 @*
@@ -75,7 +87,7 @@
                                 <div class="fw-semibold">@provider.DisplayName</div>
                                 <div class="small text-muted">@Summarise(provider)</div>
                             </div>
-                            <span class="badge @BadgeClass(provider.Overall)">@Label(provider.Overall)</span>
+                            <span class="badge @BadgeClass(provider.Overall)">@ProviderLabel(provider.Overall)</span>
                             <span class="bi-chevron-right text-muted" aria-hidden="true"></span>
                         </a>
                     }
@@ -129,6 +141,21 @@
 
         <h1 class="mb-3"><span class="bi-cloud-fill me-2"></span>@Current.DisplayName</h1>
 
+        @if (Key == "aws")
+        {
+            <p class="text-muted">
+                Three steps: the identity Connapse reads S3 with, the directory people are looked up
+                in, and the application they sign into. Every field, where to find its value, and
+                what each error means are in the
+                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md"
+                   target="_blank" rel="noopener">AWS setup guide</a>.
+            </p>
+        }
+
+        @* AWS renders status and setup together below. Repeating these cards above those sections
+           made the page read like two separate checklists for the same work. *@
+        @if (Key != "aws")
+        {
         @* Requirements first: someone arriving here is asking what is left to do, and answering
            that before showing forms is the reason this page exists. *@
         <div class="row g-3 mb-4">
@@ -140,7 +167,7 @@
                             <div class="d-flex align-items-center gap-2 mb-1">
                                 <span class="@IconClass(requirement.Status)" aria-hidden="true"></span>
                                 <strong>@requirement.Name</strong>
-                                <span class="badge @BadgeClass(requirement.Status)">@Label(requirement.Status)</span>
+                                <span class="badge @BadgeClass(requirement.Status)">@RequirementLabel(requirement.Status)</span>
                             </div>
                             <div class="form-text mb-2">@requirement.Description</div>
 
@@ -173,103 +200,216 @@
                 </div>
             }
         </div>
+        }
 
         @if (!string.IsNullOrEmpty(saveMessage))
         {
             <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
+                <span class="@(saveSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
                 @saveMessage
-                <button type="button" class="btn-close" @onclick="() => saveMessage = null"></button>
+                <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => saveMessage = null"></button>
             </div>
         }
 
         @if (Key == "aws")
         {
-            <h2 class="h5" id="access">Access</h2>
-            <p class="text-muted small">
-                What Connapse reads as when it syncs an S3 source. Connections choose a bucket;
-                this decides whether any of them can reach AWS at all.
-            </p>
-
-            <div class="card mb-4">
-                <div class="card-body">
-                    @* Rendered from the probe the page already ran, not a second one. This card
-                       used to do its own, which left it showing a "Check what Connapse can reach"
-                       button until somebody pressed it — so the failed requirement's own
-                       "Set up access" link landed here and appeared to do nothing, and every visit
-                       that did press it cost a duplicate pair of AWS calls. *@
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="@IconClass(AccessStatus)" aria-hidden="true"></span>
-                        <div class="flex-grow-1 small">
-                            @(AccessStatus switch
-                            {
-                                RequirementStatus.Satisfied => "Connapse can read S3.",
-                                RequirementStatus.Provisioning => "AWS is still issuing this key.",
-                                RequirementStatus.NotConfigured => "Connapse has no AWS identity yet.",
-                                RequirementStatus.Failed => "Connapse cannot read S3.",
-                                _ => "Connapse cannot confirm it can read S3."
-                            })
-                            @if (AccessRequirement?.Detail is { Length: > 0 } detail)
-                            {
-                                <span class="text-body-secondary">@detail</span>
-                            }
-                        </div>
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @onclick="RefreshSetups">Recheck</button>
-                    </div>
-
-                    @* Outside the branches, because the setup used to live inside the failure one
-                       and there were two ways to reach a dead end. A key that authenticates but
-                       cannot read S3 lands in the *success* branch, so the page said Connapse
-                       cannot confirm it reads S3 and offered nothing but Recheck — and the failed
-                       requirement's own "Set up access" link pointed straight at it. A working
-                       identity had no way to be replaced at all, so rotating a key meant deleting
-                       it in AWS first and coming back to a broken install. *@
-                    @if (!AccessConfirmed || showSetup)
+            <ProviderStepCard Id="access"
+                              Title="Access"
+                              Description="What Connapse reads as when it syncs an S3 source. Connections choose a bucket; this decides whether any of them can reach AWS at all."
+                              Status="@AccessStatus"
+                              StatusLabel="@RequirementLabel(AccessStatus)"
+                              @bind-Expanded="showSetup"
+                              EditLabel="Update or replace"
+                              EasyTitle="Easy setup with AWS CloudShell"
+                              EasyOpen="true">
+                <Summary>
+                    <div>@AccessSummary</div>
+                    @if (AccessRequirement?.Detail is { Length: > 0 } detail)
                     {
-                        @if (AccessConfirmed)
+                        <div class="text-body-secondary font-monospace text-break">@detail</div>
+                    }
+                    @if (raStatus is { } stored)
+                    {
+                        <dl class="provider-step-values mt-2 mb-0">
+                            <dt>Stored</dt><dd>@stored.CreatedAt.ToString("u")</dd>
+                            <dt>Last confirmed</dt><dd>@(stored.VerifiedAt is { } confirmed ? confirmed.ToString("u") : "Not yet")</dd>
+                            @if (raCertificateExpires is { } expires)
+                            {
+                                <dt>Certificate expires</dt><dd>@expires.ToString("u")</dd>
+                            }
+                        </dl>
+                        @if (raCertificateExpires is { } expired && expired <= DateTime.UtcNow)
                         {
-                            <hr class="my-3" />
+                            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>
+                                The certificate has expired, so AWS refuses this credential and S3
+                                sources no longer sync. Set access up again below: generate a new
+                                command, or paste a new certificate and key.
+                            </div>
                         }
-
-                        @* An identity of its own, not a copy of somebody's. Borrowing an
-                           administrator's credentials makes Connapse's reach depend on whose they
-                           were, and change when that person's permissions do. *@
-                        <p class="small mb-2">
-                            @(AccessConfirmed
-                                ? "Create a replacement identity. The current one keeps working until you paste the new key in."
-                                : "Give Connapse its own AWS user — read-only, separate from yours, and revocable on its own. You will run one command and paste the result back.")
-                        </p>
-
-                        @* Always, not only when the credential works. The script refuses to touch
-                           an existing IAM user rather than minting a second key for one, and the
-                           commonest reason to be on this form is a key that stopped working —
-                           deactivating a key or deleting its policy leaves the user in AWS, so the
-                           default name walks straight into that refusal with no field to change it. *@
-                        <div class="row g-2 mb-2">
-                            <div class="col-md-5">
-                                <label class="form-label small mb-1">
-                                    IAM user name
-                                    @if (AccessConfirmed)
-                                    {
-                                        <span class="text-muted">(must differ from the current one)</span>
-                                    }
-                                </label>
-                                <input class="form-control form-control-sm" @bind="newUserName"
-                                       @bind:event="oninput"
-                                       placeholder="@AwsIamUserSetup.DefaultUserName" />
-                                <div class="form-text">
-                                    If a user by this name already exists in AWS, the script stops
-                                    rather than adding a second key to it. Pick another name, or
-                                    delete the old user first.
+                        else if (raCertificateExpires is { } soon && soon <= DateTime.UtcNow.AddDays(30))
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status">
+                                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                The certificate expires in @((soon - DateTime.UtcNow).Days) days. Generate
+                                a new setup command before then, or S3 sources stop syncing.
+                            </div>
+                        }
+                    }
+                    @if (AccessMode == AwsAccessMode.NotStored && EnvironmentCredentialResolves)
+                    {
+                        @* Says a credential resolves, not what kind: the default chain cannot tell an
+                           instance role from environment keys, so it must not claim one — and it keeps
+                           the Roles Anywhere setup below reachable rather than hiding it. *@
+                        <div class="small text-body-secondary mt-1">
+                            Connapse is currently reading S3 with credentials from its environment (an
+                            instance or task role, or ambient AWS credentials). Set up IAM Roles
+                            Anywhere below to give it its own dedicated identity.
+                        </div>
+                    }
+                </Summary>
+                <ManualContent>
+                    @* Bring-your-own: an administrator who provisioned Roles Anywhere themselves
+                       enters their own ARNs and the certificate + key they registered. Hidden only
+                       while the requirements are still loading. Collapsed until a credential is
+                       stored: the guided setup below is the main route, and this is the edit form
+                       for what it stored. Fields run in the order the values are made in AWS. *@
+                    @if (AccessMode is AwsAccessMode.RolesAnywhere or AwsAccessMode.NotStored)
+                    {
+                        <details class="border rounded p-3 mb-3" open="@hasStoredRaCredential">
+                            <summary class="fw-semibold small">Manual values — a Roles Anywhere setup you made yourself</summary>
+                            <p class="small text-muted mt-3 mb-3">
+                                Enter the region, certificate, ARNs, and private key you registered in
+                                IAM Roles Anywhere. Connapse verifies them with AWS before saving.
+                                @if (hasStoredRaCredential)
+                                {
+                                    <text>Everything except the private key is filled in from the stored credential.</text>
+                                }
+                            </p>
+                            <div class="row g-2" style="max-width:44rem">
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-region">Region</label>
+                                    <input id="ra-region" class="form-control form-control-sm font-monospace"
+                                           placeholder="us-east-1" aria-describedby="ra-region-help"
+                                           @bind="manualRegion" />
+                                    <div id="ra-region-help" class="form-text">
+                                        The region the trust anchor and profile were created in.
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-cert">Certificate (PEM)</label>
+                                    <textarea id="ra-cert" class="form-control form-control-sm font-monospace"
+                                              rows="3" placeholder="-----BEGIN CERTIFICATE-----"
+                                              aria-describedby="ra-cert-help" @bind="manualCertPem"></textarea>
+                                    <div id="ra-cert-help" class="form-text">
+                                        The certificate registered as the trust anchor, or a leaf it issued
+                                        directly. Certificates issued through an intermediate CA are not supported.
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-ta">Trust anchor ARN</label>
+                                    <input id="ra-ta" class="form-control form-control-sm font-monospace"
+                                           placeholder="arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/…"
+                                           aria-describedby="ra-ta-help" @bind="manualTrustAnchorArn" />
+                                    <div id="ra-ta-help" class="form-text">
+                                        Shown on the trust anchor's page in the
+                                        <a href="https://console.aws.amazon.com/rolesanywhere/home#/trust-anchors"
+                                           target="_blank" rel="noopener">IAM Roles Anywhere console</a>.
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-role">Role ARN</label>
+                                    <input id="ra-role" class="form-control form-control-sm font-monospace"
+                                           placeholder="arn:aws:iam::123456789012:role/connapse"
+                                           aria-describedby="ra-role-help" @bind="manualRoleArn" />
+                                    <div id="ra-role-help" class="form-text">
+                                        The role the profile allows. Copy it from the role's summary page in the
+                                        <a href="https://console.aws.amazon.com/iam/home#/roles"
+                                           target="_blank" rel="noopener">IAM console</a>.
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-profile">Profile ARN</label>
+                                    <input id="ra-profile" class="form-control form-control-sm font-monospace"
+                                           placeholder="arn:aws:rolesanywhere:us-east-1:123456789012:profile/…"
+                                           aria-describedby="ra-profile-help" @bind="manualProfileArn" />
+                                    <div id="ra-profile-help" class="form-text">
+                                        Shown on the profile's page in the
+                                        <a href="https://console.aws.amazon.com/rolesanywhere/home#/profiles"
+                                           target="_blank" rel="noopener">IAM Roles Anywhere console</a>.
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small" for="ra-key">
+                                        Private key (PEM)
+                                        @if (hasStoredRaCredential)
+                                        {
+                                            <span class="text-muted">(optional — leave blank to keep the current key)</span>
+                                        }
+                                    </label>
+                                    <SecretTextArea Id="ra-key" Rows="3" CssClass="form-control-sm"
+                                                    Placeholder="@(hasStoredRaCredential ? "Kept unless you paste a new key" : "-----BEGIN PRIVATE KEY-----")"
+                                                    DescribedBy="ra-key-help" @bind-Value="manualPrivateKeyPem" />
+                                    <div id="ra-key-help" class="form-text">
+                                        The key matching the certificate above. Stored encrypted and never shown again.
+                                    </div>
                                 </div>
                             </div>
+                            <button type="button" class="btn btn-sm btn-primary mt-3"
+                                    disabled="@(!CanSaveManualRa || awsBusy)"
+                                    @onclick="SaveManualRolesAnywhere">
+                                @if (awsBusy)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                }
+                                else
+                                {
+                                    <span class="bi-save me-1" aria-hidden="true"></span>
+                                }
+                                Check and save
+                            </button>
+                        </details>
+                    }
+                </ManualContent>
+                <EasyContent>
+                    @* Shown after any reset, whatever the resulting mode: removing the stored
+                       credential leaves the AWS trust anchor and profile in place, and the operator
+                       still needs the cleanup command to take them down. *@
+                    @if (raResetCleanup is { Length: > 0 } cleanup)
+                    {
+                        <div class="alert alert-warning py-2 small">
+                            <div class="mb-2">
+                                <span class="bi-exclamation-triangle me-1"></span>
+                                Connapse's stored copy is gone, but <strong>AWS access is still
+                                live</strong>: the trust anchor and profile remain enabled, so the
+                                certificate keeps working until it expires. Run this in CloudShell to
+                                revoke it now:
+                            </div>
+                            <pre class="bg-body-tertiary border rounded p-2 mb-2" style="overflow:auto"><code>@cleanup</code></pre>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyResetCleanup">
+                                <span class="bi-clipboard me-1"></span> Copy cleanup
+                            </button>
                         </div>
+                    }
 
-                        @* One setup, not a scope picker. The easy path exists to remove
-                           decisions, and asking an operator to size an IAM grant against sources
-                           that do not exist yet is the hardest decision on the page. Anyone who
-                           wants a narrower credential makes one in AWS and points Connapse at it;
-                           that path is supported and untouched. *@
+                    @if (AccessMode == AwsAccessMode.Loading)
+                    {
+                        <p class="small text-body-secondary mb-0">Checking AWS access…</p>
+                    }
+                    else
+                    {
+                        @* Its own identity, via IAM Roles Anywhere: a role and temporary credentials
+                           rather than a long-lived access key. The certificate is generated on this
+                           host and its private key never leaves it. *@
+                        <p class="small mb-2">
+                            Give Connapse its own AWS identity using IAM Roles Anywhere — a role and
+                            temporary credentials, no long-lived access key. Connapse generates a
+                            certificate locally; you run one command in CloudShell and paste back the
+                            ARNs it prints.
+                        </p>
+
+                        @* One setup, not a scope picker. Anyone who wants a narrower credential
+                           provisions it in AWS and uses the manual values above. *@
                         <p class="small mb-2">
                             <span class="bi-shield-check me-1 text-muted"></span>
                             Allows @S3SetupPolicy.ManagedIdentitySummary
@@ -277,89 +417,666 @@
                             buckets its sources may actually name.
                         </p>
 
-                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsIamUserSetup.GenerateScript(newUserName)</code></pre>
+                        <p class="small mb-2">
+                            <span class="bi-person-check me-1 text-muted" aria-hidden="true"></span>
+                            Run the command as someone allowed to create the role, trust anchor, and
+                            profile: it needs
+                            <code>@string.Join("</code>, <code>", AwsRolesAnywhereSetup.RequiredPermissions)</code>.
+                            It creates nothing else and is safe to run again.
+                        </p>
 
-                        <div class="d-flex flex-wrap gap-2 mb-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    @onclick="CopyIdentityScript">
-                                <span class="bi-clipboard me-1"></span> Copy command
-                            </button>
-                            <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                               href="https://console.aws.amazon.com/cloudshell/home">
-                                <span class="bi-terminal me-1"></span> Open CloudShell
-                                <span class="bi-box-arrow-up-right ms-1 small"></span>
-                            </a>
-                            <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")">
-                                @copyMessage
-                            </span>
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-5">
+                                <label class="form-label small mb-1" for="ra-easy-region">AWS region</label>
+                                <input id="ra-easy-region" class="form-control form-control-sm font-monospace"
+                                       placeholder="us-east-1" aria-describedby="ra-easy-region-help"
+                                       @bind="raRegion" @bind:event="oninput" />
+                                <div id="ra-easy-region-help" class="form-text">
+                                    Where the trust anchor and profile are created, for example <code>us-east-1</code>.
+                                </div>
+                            </div>
                         </div>
 
-                        <label class="form-label small mb-1">Paste what it printed</label>
-                        <textarea class="form-control font-monospace" rows="4" @bind="pastedKey"
-                                  @bind:event="oninput"
-                                  placeholder="@AwsIamUserSetup.BeginMarker&#10;accessKeyId=…&#10;@AwsIamUserSetup.EndMarker"></textarea>
-
-                        @if (!string.IsNullOrWhiteSpace(pastedKey))
+                        @if (!AwsRolesAnywhereSetup.IsValidRegion(raRegion))
                         {
-                            var parsed = AwsIamUserSetup.ParseResult(pastedKey);
-                            @if (parsed is null)
+                            <div class="alert alert-secondary py-2 small mb-2">
+                                Enter the AWS region to set up in (for example <code>us-east-1</code>) to generate the command.
+                            </div>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-sm btn-outline-primary mb-2"
+                                    @onclick="PrepareRolesAnywhereScript" disabled="@awsBusy">
+                                <span class="bi-arrow-repeat me-1"></span>
+                                @(raKeypair is null ? "Generate setup command" : "Regenerate (new certificate)")
+                            </button>
+
+                            @if (raKeypair is not null)
                             {
-                                <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                                    <span class="bi-exclamation-triangle me-1"></span>
-                                    No key block found yet. Copy everything the command printed,
-                                    including both <code>-----</code> marker lines.
+                                @* The generated key lives only in this page until you paste back and
+                                   save. Leaving mid-flow loses it; the command is safe to re-run. *@
+                                <div class="alert alert-secondary py-2 small mb-2">
+                                    <span class="bi-info-circle me-1"></span>
+                                    Keep this page open until you have pasted the result back. If you
+                                    leave or refresh first, generate a new command and run it again —
+                                    an abandoned run only leaves an unused trust anchor in AWS, which a
+                                    fresh run replaces.
                                 </div>
-                            }
-                            else
-                            {
-                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-                                    <span class="small flex-grow-1">
-                                        Read key <code>@parsed.AccessKeyId</code> for
-                                        <code>@parsed.UserName</code>.
-                                    </span>
-                                    <button type="button" class="btn btn-sm btn-primary"
-                                            @onclick="() => SaveIdentity(parsed)" disabled="@awsBusy">
-                                        <span class="bi-check-lg me-1"></span> Use this identity
+
+                                <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@AwsRolesAnywhereSetup.GenerateScript(raKeypair.CaCertificatePem, raRegion)</code></pre>
+
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyRolesAnywhereScript">
+                                        <span class="bi-clipboard me-1"></span> Copy command
                                     </button>
+                                    <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                                       href="https://console.aws.amazon.com/cloudshell/home">
+                                        <span class="bi-terminal me-1"></span> Open CloudShell
+                                        <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                    </a>
+                                    <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
                                 </div>
-                                <div class="form-text">
-                                    Stored encrypted, the same way SFTP private keys are. The secret
-                                    is not recoverable from AWS afterwards.
-                                </div>
+
+                                <label class="form-label small mb-1" for="ra-paste">Paste what it printed</label>
+                                <textarea id="ra-paste" class="form-control font-monospace" rows="4" @bind="raPasted" @bind:event="oninput"
+                                          placeholder="@AwsRolesAnywhereSetup.BeginMarker&#10;trustAnchorArn=…&#10;@AwsRolesAnywhereSetup.EndMarker"></textarea>
+
+                                @if (!string.IsNullOrWhiteSpace(raPasted))
+                                {
+                                    var parsed = AwsRolesAnywhereSetup.ParseResult(raPasted);
+                                    @if (parsed is null)
+                                    {
+                                        <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                            <span class="bi-exclamation-triangle me-1"></span>
+                                            No valid ARN block found yet. Copy everything the command
+                                            printed, including both <code>-----</code> marker lines.
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                            <span class="small flex-grow-1">
+                                                Role <code>@parsed.RoleArn</code> in <code>@parsed.Region</code>.
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    @onclick="() => SaveRolesAnywhereFromScript(parsed)" disabled="@awsBusy">
+                                                @if (awsBusy)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="bi-check-lg me-1" aria-hidden="true"></span>
+                                                }
+                                                Check and save
+                                            </button>
+                                        </div>
+                                        <div class="form-text">
+                                            Connapse tests the certificate against AWS before storing
+                                            anything; the current credential is untouched until the new
+                                            one works.
+                                        </div>
+                                    }
+                                }
                             }
                         }
                     }
-                    else
+                </EasyContent>
+                <Actions>
+                    @if (AccessStatus == RequirementStatus.Satisfied)
                     {
-                        <div class="mt-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                    @onclick="() => showSetup = true">
-                                <span class="bi-arrow-repeat me-1"></span> Replace this identity
-                            </button>
-                            <div class="form-text">
-                                Creates a second IAM user and switches to it. Delete the old one in
-                                AWS afterwards — nothing here can, and nothing here should.
+                        <a class="btn btn-sm btn-primary" href="/connections">
+                            <span class="bi-plug me-1" aria-hidden="true"></span> Add a connection
+                        </a>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups" disabled="@awsBusy">Recheck</button>
+                    @if (AccessMode == AwsAccessMode.RolesAnywhere)
+                    {
+                        @* Named for what it does. It removes only Connapse's local copy; the AWS trust
+                           anchor and profile stay enabled, so the certificate keeps authenticating
+                           until it expires or the cleanup snippet is run. The confirm label states
+                           that outright, so it is not mistaken for a revoke. *@
+                        <ProviderResetAction OnReset="ResetAccessIdentity"
+                                             Label="Remove stored credential"
+                                             ConfirmLabel="Remove — AWS access stays live"
+                                             HelpText="Deletes the Roles Anywhere certificate and ARNs stored in Connapse. It does NOT revoke access in AWS: the trust anchor and profile stay enabled and the certificate keeps working until it expires. A CloudShell command to revoke it is shown afterwards — run it now if you are removing a credential you believe is compromised." />
+                    }
+
+                    @* Bring the role's ConnapseRead policy up to date after a Connapse update adds a
+                       permission. iam:PutRolePolicy replaces it in place, so this is safe to re-run.
+                       Connapse never runs it: a runtime identity that could rewrite its own policy
+                       could grant itself anything, so IAM editing stays with the administrator. *@
+                    @if (AccessMode is AwsAccessMode.RolesAnywhere or AwsAccessMode.NotStored)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                aria-expanded="@(showRolePolicyUpdate ? "true" : "false")"
+                                aria-controls="role-policy-update"
+                                @onclick="() => showRolePolicyUpdate = !showRolePolicyUpdate">
+                            <span class="bi-arrow-repeat me-1"></span> Update role permissions
+                        </button>
+                        @if (showRolePolicyUpdate)
+                        {
+                            <div id="role-policy-update" class="w-100 mt-2">
+                                @if (RolePolicyUpdateCommand is { Length: > 0 } updateCmd)
+                                {
+                                    <div class="small mb-1">
+                                        <strong>Run this once after upgrading.</strong> It re-applies
+                                        the current <code>ConnapseRead</code> policy to the role, so
+                                        the role holds exactly the permissions this version needs and
+                                        nothing an earlier version added. Also run it if a feature
+                                        reports Connapse is not allowed to do something in AWS. Safe to
+                                        re-run; it changes nothing else. Connapse never runs it.
+                                    </div>
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-1" style="max-height:16rem;overflow:auto"><code>@updateCmd</code></pre>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                @onclick="CopyRolePolicyUpdate">
+                                            <span class="bi-clipboard me-1"></span> Copy command
+                                        </button>
+                                        <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                                           href="https://console.aws.amazon.com/cloudshell/home">
+                                            <span class="bi-terminal me-1"></span> Open CloudShell
+                                        </a>
+                                        <span class="align-self-center small @(rolePolicyCopyOk ? "text-success" : "text-danger")">
+                                            @rolePolicyCopyMessage
+                                        </span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @* Ambient / bring-your-own role: Connapse did not create it and does
+                                       not know its name, so it shows the policy to apply rather than a
+                                       ready command. *@
+                                    <div class="small mb-1">
+                                        Connapse uses a role from its environment here. Apply this
+                                        <code>ConnapseRead</code> policy to that role (replace the account
+                                        id if the placeholder is shown):
+                                    </div>
+                                    <pre class="bg-body-tertiary border rounded p-2 small mb-0" style="max-height:16rem;overflow:auto"><code>@AwsRolePolicyUpdate.PolicyDocument(null)</code></pre>
+                                }
                             </div>
+                        }
+                    }
+                </Actions>
+            </ProviderStepCard>
+
+            <ProviderStepCard Id="identity-center"
+                              Title="IAM Identity Center"
+                              Description="The directory a person is resolved into when Connapse checks what they may read. This step only finds it; nothing here creates or changes anything in AWS."
+                              Status="@IdentityCenterStatus"
+                              StatusLabel="@RequirementLabel(IdentityCenterStatus)"
+                              @bind-Expanded="showIdentityCenterSetup"
+                              EditLabel="Change or scan again"
+                              EasyTitle="Guided scan">
+                <Summary>
+                    @if (IdentityCentre is { IsConfigured: true } identityCenter)
+                    {
+                        <dl class="provider-step-values mb-0">
+                            <dt>Region</dt><dd><code>@identityCenter.Region</code></dd>
+                            <dt>Instance</dt><dd><code class="user-select-all">@identityCenter.InstanceArn</code></dd>
+                            <dt>Identity store</dt><dd><code class="user-select-all">@identityCenter.IdentityStoreId</code></dd>
+                        </dl>
+                    }
+                </Summary>
+                <ManualContent>
+                    @* Worth doing first because of one field: Identity Center lives in exactly one
+                       region per organisation, nothing else you have tells you which, and the guided
+                       scan looks in whichever region CloudShell happened to open in. *@
+                    <p class="text-muted small">
+                        Worth doing first because of one field: Identity Center lives in exactly one
+                        region per organisation, nothing else you have tells you which, and the guided
+                        scan below looks in whichever region CloudShell happened to open in.
+                    </p>
+
+                    @* The fields, not a link to them. An unfilled step should look like the thing
+                       that fills it, the way Access does — the guided scan is the shortcut for
+                       somebody who does not already know these three values, not the main route. *@
+                    <IdentityCenterSettingsTab Settings="identityCenterSettings"
+                                               OnSave="SaveIdentityCenterSettings" />
+                </ManualContent>
+                <EasyContent>
+                    <p class="small mb-2">
+                        <span class="bi-search me-1 text-muted"></span>
+                        Read-only. It calls <code>@string.Join("</code>, <code>", IdentityCenterSetup.RequiredPermissions)</code>
+                        and prints what it found.
+                    </p>
+
+                    <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@IdentityCenterScript</code></pre>
+
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                @onclick="CopyIdentityCenterScript">
+                            <span class="bi-clipboard me-1"></span> Copy command
+                        </button>
+                        <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener"
+                           href="https://console.aws.amazon.com/cloudshell/home">
+                            <span class="bi-terminal me-1"></span> Open CloudShell
+                            <span class="bi-box-arrow-up-right ms-1 small"></span>
+                        </a>
+                        <span class="align-self-center small @(identityCenterCopySucceeded ? "text-success" : "text-danger")" role="status">
+                            @identityCenterCopyMessage
+                        </span>
+                    </div>
+
+                    <label class="form-label small mb-1" for="idc-paste">Paste what it printed</label>
+                    <textarea id="idc-paste" class="form-control font-monospace" rows="4" @bind="pastedIdentityCenter"
+                              @bind:event="oninput"
+                              placeholder="@IdentityCenterSetup.BeginMarker&#10;region=…&#10;@IdentityCenterSetup.EndMarker"></textarea>
+
+                    @if (!string.IsNullOrWhiteSpace(pastedIdentityCenter))
+                    {
+                        var scan = IdentityCenterSetup.ParseResult(pastedIdentityCenter);
+                        @if (scan is null)
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                <span class="bi-exclamation-triangle me-1"></span>
+                                No block found yet. Copy everything the command printed, including both
+                                <code>-----</code> marker lines.
+                            </div>
+                        }
+                        else if (scan.Instances.Count > 0)
+                        {
+                            @foreach (var found in scan.Instances)
+                            {
+                                <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                    <span class="small">
+                                        Found <code>@found.IdentityStoreId</code> in
+                                        <code>@found.Region</code>.
+                                    </span>
+                                    <button type="button" class="btn btn-sm btn-primary"
+                                            @onclick="() => SaveIdentityCenter(found)">
+                                        <span class="bi-check-lg me-1"></span> Use this instance
+                                    </button>
+                                </div>
+                            }
+                        }
+                        else if (scan.MissingPermissions.Count > 0)
+                        {
+                            @* A refusal, not an absence. Offering to enable an instance here would send
+                               somebody to create a second one they cannot see the first of. *@
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                <span class="bi-shield-exclamation me-1"></span>
+                                The scan was refused, so it cannot say whether an instance exists. Add
+                                <code>@string.Join("</code>, <code>", scan.MissingPermissions)</code>
+                                to whoever ran it, then scan again.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-info py-2 mt-2 mb-0 small">
+                                <span class="bi-info-circle me-1"></span>
+                                @if (scan.CanEnableItself)
+                                {
+                                    <span>
+                                        No instance in any region scanned. This account can enable one
+                                        itself, from the IAM Identity Center console.
+                                    </span>
+                                }
+                                else if (scan.Posture == AwsAccountPosture.Member)
+                                {
+                                    <span>
+                                        No instance in any region scanned, and this is a member account
+                                        of an organisation — enabling one is an organisation-wide act,
+                                        so it has to be done from the management account.
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span>
+                                        No instance in any region scanned, and the scan could not tell
+                                        whether this account belongs to an organisation. If it does, the
+                                        management account enables the instance.
+                                    </span>
+                                }
+                            </div>
+                        }
+                    }
+                </EasyContent>
+                <Actions>
+                    @if (HasIdentityCenterValues)
+                    {
+                        <ProviderResetAction OnReset="ResetIdentityCenter"
+                                             HelpText="Clears only the values saved in Connapse." />
+                    }
+                </Actions>
+            </ProviderStepCard>
+
+            <ProviderStepCard Id="permissions"
+                              Title="Per-user permissions"
+                              Description="The IAM Identity Center application a person signs into to prove which directory user they are. Connapse uses it to filter AWS results to locations they may read."
+                              Status="@PermissionsStatus"
+                              StatusLabel="@RequirementLabel(PermissionsStatus)"
+                              @bind-Expanded="showSamlManual"
+                              EditLabel="Edit setup"
+                              EasyTitle="Guided setup">
+                <Summary>
+                    @if (SamlSignIn is not null)
+                    {
+                        <div class="font-monospace text-break">@samlSettings.EntityId</div>
+                    }
+                </Summary>
+                <ManualContent>
+                    @* Said here rather than left in the policy. Connapse resolves what somebody may read
+                       using its own identity instead of holding a credential belonging to them, and the
+                       read that makes that possible is not scoped to one person — so an administrator
+                       should meet that fact while deciding, not afterwards in IAM. *@
+                    <div class="alert alert-secondary small">
+                        <span class="bi-info-circle me-1"></span>
+                        Connapse reads S3 Access Grants to decide which documents each person may
+                        search, and reads the directory to know who they are. The grants themselves
+                        are created in the S3 console, one per person or group and bucket, folder or
+                        object; until one exists, S3 searches return nothing. Connapse's own AWS
+                        identity needs <code>s3:ListAccessGrants</code> and the
+                        <code>identitystore</code> reads for that, and nothing more.
+                        <span class="d-block mt-1">
+                            <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
+                            not scope it to one user, so it lets Connapse enumerate everyone's grants rather
+                            than only the person signing in. Connapse stores no credential belonging to
+                            anyone; the trade is that its one identity can read every grant, where a
+                            per-user token could read only that person's.
+                        </span>
+                    </div>
+
+                    @* Stated before anything is set up, because it decides whether any of this is usable
+                       and cannot be worked around afterwards. Tested against AWS: an S3 Access Grants
+                       instance can be created in any region, but associating it with Identity Center fails
+                       unless Identity Center is present in that region — the regional endpoint cannot
+                       resolve an instance whose home is elsewhere. *@
+                    <div class="alert alert-warning small">
+                        <span class="bi-exclamation-triangle-fill me-1"></span>
+                        <strong>This covers buckets in your Identity Center region only.</strong>
+                        Permissions are read from the S3 Access Grants instance in the bucket's region,
+                        and that instance can only be associated with an Identity Center instance in the
+                        same region. An organisation has one Identity Center instance and its primary
+                        region cannot be moved.
+                        <span class="d-block mt-1">
+                            Buckets elsewhere are indexed and synced normally, but their permissions
+                            cannot be read — and a region whose permissions cannot be read makes
+                            <strong>every S3 search return nothing to anyone</strong>, not only
+                            searches over that bucket. Filtering hides what it cannot confirm; it does
+                            not fall back to showing it.
+                            <span class="d-block mt-1">
+                                To cover them, replicate Identity Center to their region
+                                (<code>sso-admin add-region</code>, which needs an organization instance and
+                                a multi-region customer-managed KMS key) and set Access Grants up there too.
+                                User and group ids are the same across regions, so nothing recorded here has
+                                to change.
+                            </span>
+                        </span>
+                    </div>
+
+                    <div class="border rounded p-3 mb-3">
+                        <h3 class="h6 mb-1">Manual AWS setup</h3>
+                        <p class="small text-muted mb-2">The guided script is optional. To do every step in the AWS console:</p>
+                        <ol class="small mb-2">
+                            <li class="mb-1">
+                                In IAM, create a role trusted by
+                                <code>access-grants.s3.amazonaws.com</code> for
+                                <code>sts:AssumeRole</code>, <code>sts:SetSourceIdentity</code>, and
+                                <code>sts:SetContext</code>. Restrict <code>sts:SetContext</code> to the
+                                Identity Center context provider. Give the role
+                                <code>s3:GetObject</code> and <code>s3:ListBucket</code> for the buckets it
+                                will cover.
+                            </li>
+                            <li class="mb-1">
+                                In S3 Access Grants, create or reuse the instance in
+                                <code>@(SetupRegion ?? "your Identity Center region")</code> and associate it
+                                with
+                                <code>@(IdentityCentre is { IsConfigured: true } located ? located.InstanceArn : "your Identity Center instance ARN")</code>.
+                            </li>
+                            <li class="mb-1">
+                                Register location <code>s3://</code> on that instance using the role above.
+                            </li>
+                            <li>
+                                In IAM Identity Center, choose <strong>Applications &rarr; Customer managed
+                                &rarr; Add application &rarr; SAML 2.0</strong>. Copy the audience and ACS
+                                values from the form below into AWS, then copy the issuer, sign-in URL, and
+                                signing certificate from AWS back into the form.
+                            </li>
+                        </ol>
+                        <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                           href="@IdentityCenterConsoleUrl">
+                            <span class="bi-box-arrow-up-right me-1"></span> Open Identity Center console
+                        </a>
+                    </div>
+
+                    <SamlSignInSettingsTab Settings="samlSettings" OnSave="SaveSamlSettingsFromForm" />
+                </ManualContent>
+                <EasyContent>
+                    @if (IdentityCentre is not { IsConfigured: true })
+                    {
+                        @* Ordered, because the step below needs the instance ARN and the region, and the
+                           console link is region-qualified. Offering it first would ask an administrator to
+                           run a script that cannot find what it is looking for. *@
+                        <div class="alert alert-secondary small">
+                            Find your IAM Identity Center instance first — the step above. Everything here
+                            is created inside it.
                         </div>
                     }
-                </div>
-            </div>
-        }
+                    else
+                    {
+                        @* One walkthrough rather than two. The halves look separable — a script and a
+                           console visit — but they are one errand: neither is any use alone, and reading
+                           them as separate offers invited doing the second without the first, which fails
+                           at the first sign-in with an error naming neither. Each link sits at the step
+                           that needs it instead of in a row underneath, so nothing has to be scrolled back
+                           to. *@
+                        <p class="small mb-2">
+                            <span class="bi-shield-check me-1 text-muted"></span>
+                            Creates the S3 Access Grants instance and the application people sign in
+                            through, using your own AWS permissions.
+                        </p>
 
-        <h2 class="h5" id="signin">Sign-in</h2>
-        <p class="text-muted small">
-            Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
-            search results are scoped against.
-        </p>
+                        <ol class="small mb-0">
+                            <li class="mb-2">
+                                Download the template and read it. Nothing runs at this point.
+                                <div class="mt-1">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            @onclick="DownloadTemplate">
+                                        <span class="bi-download me-1"></span> Download template
+                                    </button>
+                                </div>
+                            </li>
+
+                            <li class="mb-2">
+                                In CloudShell, choose <strong>Actions &rarr; Upload file</strong> and
+                                upload <code>connapse-permissions.yaml</code>.
+                                <div class="mt-1">
+                                    <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                       href="https://console.aws.amazon.com/cloudshell/home">
+                                        <span class="bi-terminal me-1"></span> Open CloudShell
+                                        <span class="bi-box-arrow-up-right ms-1 small"></span>
+                                    </a>
+                                </div>
+                            </li>
+
+                            <li class="mb-2">
+                                Paste this. It deploys the template and stops.
+                                <pre class="bg-body-tertiary border rounded p-2 small mt-1 mb-1" style="max-height:18rem;overflow:auto"><code>@AccessGrantsScript</code></pre>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        @onclick="CopyAccessGrantsScript">
+                                    <span class="bi-clipboard me-1"></span> Copy command
+                                </button>
+                                <span class="ms-2 small @(grantsCopySucceeded ? "text-success" : "text-danger")">
+                                    @grantsCopyMessage
+                                </span>
+                            </li>
+
+                            @* The application itself, which cannot be scripted at all.
+                               CreateApplication refuses SAML customer-managed applications outright —
+                               "You can create a SAML 2.0 customer managed application in the AWS
+                               Management Console only" — and DeleteApplication refuses them too, so
+                               this stays hand-guided in both directions. *@
+                            <li class="mb-2">
+                                In the Identity Center console, choose <strong>Applications &rarr;
+                                Customer managed &rarr; Add application &rarr; I have an application I
+                                want to set up &rarr; SAML 2.0</strong>. AWS offers no API for this one.
+                                <div class="mt-1">
+                                    <a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener"
+                                       href="@IdentityCenterConsoleUrl">
+                                        <span class="bi-box-arrow-up-right me-1"></span>
+                                        Open Identity Center console
+                                    </a>
+                                </div>
+                            </li>
+
+                            @if (SamlAcsUrl is null)
+                            {
+                                <li class="mb-2">
+                                    <div class="alert alert-warning small mb-0">
+                                        The two values to paste cannot be shown, because you are reading
+                                        this over <code>@Navigation.BaseUri</code>. A SAML assertion is a
+                                        bearer credential, so it may only be posted to an
+                                        <code>https://</code> address, or to <code>localhost</code>,
+                                        <code>127.0.0.1</code> or <code>[::1]</code> over plain HTTP.
+                                        Serve Connapse over HTTPS, or reach it on the machine it runs
+                                        on, and they will appear here.
+                                    </div>
+                                </li>
+                            }
+                            else
+                            {
+                                <li class="mb-2">
+                                    On the application metadata page, paste these two:
+                                    <div class="table-responsive mt-1 mb-0">
+                                        <table class="table table-sm small mb-0">
+                                            <tbody>
+                                                <tr>
+                                                    <td class="text-muted" style="width:14rem">Application ACS URL</td>
+                                                    <td><code class="user-select-all">@SamlAcsUrl</code></td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="text-muted">Application SAML audience</td>
+                                                    <td><code class="user-select-all">@SamlAudience</code></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    @* Mentioned here rather than only at the end. The same page carries
+                                       the exchange in both directions, so downloading it now saves
+                                       coming back to the console for one file after the rest is done. *@
+                                    <span class="d-block text-muted mt-1">
+                                        This page also offers the values travelling the other way, as an
+                                        <strong>IAM Identity Center metadata file</strong>. Download it
+                                        while you are here — the last step below reads it.
+                                    </span>
+                                </li>
+
+                                <li class="mb-2">
+                                    Then <strong>Actions &rarr; Edit attribute mappings</strong>.
+                                    <code>Subject</code> is required and is the one that matters:
+                                    <div class="table-responsive mt-1 mb-1">
+                                        <table class="table table-sm small mb-0">
+                                            <thead>
+                                                <tr><th>Attribute</th><th>Maps to</th><th>Format</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>Subject</code></td>
+                                                    <td><code class="user-select-all">&#36;&#123;user:subject&#125;</code></td>
+                                                    <td><code>unspecified</code></td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>email</code></td>
+                                                    <td><code class="user-select-all">&#36;&#123;user:email&#125;</code></td>
+                                                    <td><code>unspecified</code></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <span class="d-block text-muted">
+                                        <code>&#36;&#123;user:subject&#125;</code> carries the directory
+                                        user name — the short name someone signs in with, such as
+                                        <code>jsmith</code>, not their display name
+                                        <code>Jane Smith</code>. Connapse resolves it into the
+                                        identity store id that permissions are held against, so
+                                        <code>&#36;&#123;user:preferredUsername&#125;</code> is wrong
+                                        here: it gives the display name, which matches nobody.
+                                    </span>
+                                </li>
+
+                                <li class="mb-2">
+                                    Assign whoever should be able to sign in, as users or groups.
+                                    Anyone unassigned is refused — there is no setting that admits
+                                    everyone, because AWS refuses to turn the assignment requirement
+                                    off for a SAML application.
+                                </li>
+
+                                <li>
+                                    Finally, paste the metadata file you downloaded. Connapse reads the
+                                    issuer, sign-in URL and signing certificate out of it — the
+                                    certificate especially, being a long base64 block that is easy to
+                                    truncate by hand. All three stay editable in the form below, so they
+                                    can still be typed in one at a time.
+
+                                    @* Pasted rather than fetched from a URL: handing the server an
+                                       address to retrieve would make it a request-forgery surface, and
+                                       would undo the property the form states — that these are stored so
+                                       a self-hosted deployment needs no outbound access to AWS. *@
+                                    <label class="form-label small mt-2" for="saml-metadata">
+                                        Paste the metadata file
+                                    </label>
+                                    <InputTextArea id="saml-metadata" @bind-Value="pastedMetadata"
+                                                   @bind:event="oninput"
+                                                   class="form-control font-monospace small mb-2" rows="3"
+                                                   placeholder="&lt;EntityDescriptor entityID=&quot;…&quot;&gt;…" />
+
+                                    @if (SamlMetadata.Parse(pastedMetadata) is { } read)
+                                    {
+                                        <div class="border rounded p-2 small mb-2">
+                                            <div class="text-muted">IAM Identity Center SAML issuer URL</div>
+                                            <div class="font-monospace text-break mb-1">@read.EntityId</div>
+                                            <div class="text-muted">IAM Identity Center sign-in URL</div>
+                                            <div class="font-monospace text-break mb-1">@read.SingleSignOnUrl</div>
+                                            <div class="text-muted">IAM Identity Center certificate</div>
+                                            <div class="font-monospace text-break">
+                                                @(read.SigningCertificate.Length > 48
+                                                    ? read.SigningCertificate[..48] + "…"
+                                                    : read.SigningCertificate)
+                                            </div>
+                                        </div>
+
+                                        <button type="button" class="btn btn-sm btn-primary mb-1"
+                                                @onclick="() => SaveSamlMetadata(read)">
+                                            <span class="bi-save me-1"></span> Use these three values
+                                        </button>
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(pastedMetadata))
+                                    {
+                                        <div class="small text-danger mb-1">
+                                            That does not look like the application's metadata. Download
+                                            the file from the console and paste all of it.
+                                        </div>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                    }
+                </EasyContent>
+                <Actions>
+                    @if (HasSamlApplicationValues)
+                    {
+                        <ProviderResetAction Label="Reset SAML application"
+                                             ConfirmLabel="Confirm SAML reset"
+                                             HelpText="Per-user filtering stays on, so AWS searches return nothing for anyone until you set the application up again."
+                                             OnReset="ClearSamlApplication" />
+                    }
+                </Actions>
+            </ProviderStepCard>
+        }
 
         @* Only this provider's form. The tab strip is gone with it: there is nothing to switch
-           between once the page is about one cloud. *@
-        @if (Key == "aws")
+           between once the page is about one cloud. AWS has no sign-in *into Connapse* — what it
+           has instead is the Identity Center application above, which establishes which directory
+           user somebody is so their results can be scoped, without being a way to log in here. *@
+        @if (Key == "azure")
         {
-            <AwsSsoSettingsTab Settings="awsSsoSettings" OnSave="SaveAwsSsoSettings" />
-        }
-        else if (Key == "azure")
-        {
+            <h2 class="h5" id="signin">Sign-in</h2>
+            <p class="text-muted small">
+                Who can sign into Connapse with @Current.DisplayName, and which cloud identity their
+                search results are scoped against.
+            </p>
+
             <AzureAdSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdSettings" />
         }
     }
@@ -373,8 +1090,161 @@
     private string? saveMessage;
     private bool saveSuccess;
 
-    private AwsSsoSettings awsSsoSettings = new();
     private AzureAdSettings azureAdSettings = new();
+    private SamlSignInSettings samlSettings = new();
+    private bool showSamlManual;
+
+    private string? grantsCopyMessage;
+    private bool grantsCopySucceeded;
+
+    private bool showRolePolicyUpdate;
+    private string? rolePolicyCopyMessage;
+    private bool rolePolicyCopyOk;
+
+    /// <summary>
+    /// The command to re-apply Connapse's role policy, or null when there is no stored Roles Anywhere
+    /// role (the ambient case shows the policy document to apply by hand instead).
+    /// </summary>
+    private string? RolePolicyUpdateCommand =>
+        _lastLoadedConfig?.RoleArn is { Length: > 0 } arn
+            ? AwsRolePolicyUpdate.GenerateCommand(arn)
+            : null;
+
+    private async Task CopyRolePolicyUpdate()
+    {
+        if (RolePolicyUpdateCommand is not { Length: > 0 } command)
+            return;
+
+        rolePolicyCopyOk = await JS.InvokeAsync<bool>("connapse.copyToClipboard", command);
+        rolePolicyCopyMessage = rolePolicyCopyOk
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>The finished sign-in, or null while any part of it is outstanding.</summary>
+    private SamlSignInSettings? SamlSignIn =>
+        samlSettings.IsConfigured ? samlSettings : null;
+
+    /// <summary>The region the Identity Center instance was found in, which pins the script.</summary>
+    private string? SetupRegion =>
+        IdentityCentre is { IsConfigured: true } idc ? idc.Region : null;
+
+
+    private string? pastedIdentityCenter;
+    private string? identityCenterCopyMessage;
+    private bool identityCenterCopySucceeded;
+
+    /// <summary>
+    /// Whether the Identity Center card's setup body is open over an instance that is already
+    /// recorded. The card hides its body once the step is satisfied; this reopens it to change or
+    /// scan again.
+    /// </summary>
+    private bool showIdentityCenterSetup;
+
+    /// <summary>Backs the manual Identity Center form.</summary>
+    private IdentityCenterSettings identityCenterSettings = new();
+
+    private async Task SaveIdentityCenterSettings(IdentityCenterSettings settings)
+    {
+        await SaveSettings("identitycenter", settings);
+
+        // What was posted, not a re-read: the options reload behind SaveSettings is not guaranteed
+        // to have landed, and a stale read would hand the form back the previous values.
+        if (saveSuccess)
+        {
+            await AuditIdentityCenterSaved(settings);
+            identityCenterSettings = settings;
+            showIdentityCenterSetup = false;
+        }
+
+        await RefreshSetups();
+    }
+
+    private async Task ResetIdentityCenter()
+    {
+        await SaveIdentityCenterSettings(new IdentityCenterSettings());
+
+        if (saveSuccess)
+        {
+            pastedIdentityCenter = null;
+            showIdentityCenterSetup = true;
+        }
+    }
+
+    /// <summary>Records who changed the Identity Center values, and to what. Blank values mean a reset.</summary>
+    private Task AuditIdentityCenterSaved(IdentityCenterSettings settings) =>
+        AuditLogger.LogAsync("provider.identity_center.saved", "provider", "aws",
+            new { settings.Region, settings.InstanceArn, settings.IdentityStoreId });
+
+    /// <summary>What is recorded about the customer's Identity Center instance, if anything.</summary>
+    private IdentityCenterSettings? IdentityCentre => IdentityCenterOptions.CurrentValue;
+
+    private static string IdentityCenterScript => IdentityCenterSetup.GenerateScript();
+
+    private async Task CopyIdentityCenterScript()
+    {
+        identityCenterCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", IdentityCenterScript);
+        identityCenterCopyMessage = identityCenterCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it.";
+    }
+
+    /// <summary>Records the instance the scan found.</summary>
+    private async Task SaveIdentityCenter(IdentityCenterInstance found)
+    {
+        await SaveSettings("identitycenter", new IdentityCenterSettings
+        {
+            Region = found.Region,
+            InstanceArn = found.InstanceArn,
+            IdentityStoreId = found.IdentityStoreId,
+        });
+
+        // Cleared on success only. Leaving the block in place after a failure means the
+        // administrator can retry without going back to a terminal whose scrollback may be gone.
+        if (saveSuccess)
+        {
+            pastedIdentityCenter = null;
+            showIdentityCenterSetup = false;
+            identityCenterSettings = new IdentityCenterSettings
+            {
+                Region = found.Region,
+                InstanceArn = found.InstanceArn,
+                IdentityStoreId = found.IdentityStoreId,
+            };
+            await AuditIdentityCenterSaved(identityCenterSettings);
+        }
+
+        await RefreshSetups();
+    }
+
+    /// <summary>The Identity Center console, in the region the instance was found in.</summary>
+    /// <remarks>
+    /// Region-qualified deliberately. The console opens wherever it was last used, and Identity
+    /// Center exists in exactly one region — so a link without it lands somebody in a console that
+    /// truthfully reports no instance, which is the single most confusing way this step can fail.
+    /// Falls back to the region-less address when nothing has been located yet.
+    /// </remarks>
+    private string IdentityCenterConsoleUrl =>
+        IdentityCentre is { Region.Length: > 0 } located
+            ? $"https://{located.Region}.console.aws.amazon.com/singlesignon/home?region={located.Region}"
+            : "https://console.aws.amazon.com/singlesignon/home";
+
+    /// <summary>
+    /// Where Identity Center posts the assertion, or null when this address could not receive one
+    /// safely.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the address this administrator reached Connapse on, not from anything stored,
+    /// so it can be shown before anything in AWS exists — it is one half of what creates the
+    /// application rather than something read back from it.
+    /// </remarks>
+    private string? SamlAcsUrl => SamlServiceProvider.AcsFor(Navigation.BaseUri);
+
+    /// <summary>The audience the application must claim. Null for the same reason.</summary>
+    private string? SamlAudience => SamlServiceProvider.EntityIdFor(Navigation.BaseUri);
+
+    private string AccessGrantsScript => AccessGrantsSetup.GenerateScript(SetupRegion);
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
@@ -386,8 +1256,9 @@
     {
         // CurrentValue rather than the injected value: it reflects the PostgreSQL settings
         // table, which overrides appsettings.json, and reloads without a restart.
-        awsSsoSettings = AwsSsoOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
+        samlSettings = SamlOptions.CurrentValue;
+        identityCenterSettings = IdentityCenterOptions.CurrentValue;
     }
 
     /// <summary>
@@ -403,78 +1274,262 @@
         if (!firstRender) return;
 
         setups = await SetupReader.ReadAsync();
+        await LoadAwsCredentialModeAsync();
         StateHasChanged();
     }
 
     private bool awsBusy;
 
+    // Roles Anywhere easy-setup handshake.
+    private string? raRegion;
+    private RolesAnywhereKeyMaterial? raKeypair;
+    private string? raPasted;
+
+    /// <summary>The CloudShell cleanup snippet shown after a reset; null until one has run.</summary>
+    private string? raResetCleanup;
+
+    // Bring-your-own Roles Anywhere values (manual entry).
+    private string? manualTrustAnchorArn;
+    private string? manualProfileArn;
+    private string? manualRoleArn;
+    private string? manualRegion;
+    private string? manualCertPem;
+    private string? manualPrivateKeyPem;
+
+    /// <summary>
+    /// The stored config the manual form was last loaded from — the concurrency token.
+    /// </summary>
+    /// <remarks>
+    /// Two jobs. On load it tells an untouched field (still equal to what was loaded) apart from one
+    /// the operator edited, so a re-check refreshes the former without clobbering the latter. On a
+    /// blank-key save it is compared against a fresh read: if the stored credential changed since the
+    /// form loaded, the save is rejected and reloaded rather than silently overwriting the newer one.
+    /// </remarks>
+    private RolesAnywhereConfig? _lastLoadedConfig;
+
     /// <summary>Whether the replace-identity form is open over a working credential.</summary>
     private bool showSetup;
 
-    /// <summary>IAM user name for a replacement; null uses the default.</summary>
-    private string? newUserName;
+    /// <summary>Whether a Roles Anywhere credential is stored — loaded on refresh, drives mode and reset visibility.</summary>
+    private bool hasStoredRaCredential;
 
-    /// <summary>The Access requirement, once the page has read it.</summary>
-    private ProviderRequirement? AccessRequirement =>
-        Current?.Requirements.FirstOrDefault(r => r.Name == "Access");
+    /// <summary>When the stored credential was saved and last honoured by AWS; null when none is stored.</summary>
+    private ProviderCredentialStatus? raStatus;
 
-    /// <summary>Unknown until the requirements have loaded, which keeps the card honest while it does.</summary>
-    private RequirementStatus AccessStatus => AccessRequirement?.Status ?? RequirementStatus.Unknown;
+    /// <summary>When the stored certificate stops being accepted; null when unknown or none is stored.</summary>
+    private DateTime? raCertificateExpires;
+
+    /// <summary>Reads the expiry out of a certificate, or null when it cannot be parsed.</summary>
+    private static DateTime? CertificateExpiry(string? certificatePem)
+    {
+        if (string.IsNullOrWhiteSpace(certificatePem)) return null;
+
+        try
+        {
+            using var certificate = X509Certificate2.CreateFromPem(certificatePem);
+            return certificate.NotAfter.ToUniversalTime();
+        }
+        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Which credential the AWS Access card is describing — see <see cref="AwsAccessCard"/>.</summary>
+    private AwsAccessMode AccessMode =>
+        AwsAccessCard.ResolveMode(AccessRequirement is not null, hasStoredRaCredential);
 
     /// <summary>
-    /// Whether Connapse is known to read S3, as opposed to merely known to authenticate.
+    /// Whether some credential currently resolves from the environment.
     /// </summary>
     /// <remarks>
-    /// The distinction the whole card turns on. A credential whose policy never attached answers
-    /// <c>GetCallerIdentity</c> perfectly, so treating that as success is what put the setup form
-    /// out of reach for the one person who needed it.
+    /// Only ever an informational note in the not-stored state: it says a credential exists, not what
+    /// kind, and it never hides the Roles Anywhere setup path behind that fact.
     /// </remarks>
-    private bool AccessConfirmed => AccessStatus == RequirementStatus.Satisfied;
+    private bool EnvironmentCredentialResolves =>
+        AccessStatus is RequirementStatus.Satisfied or RequirementStatus.Warning;
 
-    private string? pastedKey;
+    /// <summary>
+    /// Whether the manual (bring-your-own) Roles Anywhere form has every value it needs. The private
+    /// key is required only for a first credential; when one is already stored, a blank key keeps the
+    /// existing one (it cannot be shown back, so requiring it would trap an operator editing an ARN).
+    /// </summary>
+    private bool CanSaveManualRa =>
+        !string.IsNullOrWhiteSpace(manualTrustAnchorArn)
+        && !string.IsNullOrWhiteSpace(manualProfileArn)
+        && !string.IsNullOrWhiteSpace(manualRoleArn)
+        && !string.IsNullOrWhiteSpace(manualRegion)
+        && !string.IsNullOrWhiteSpace(manualCertPem)
+        && (!string.IsNullOrWhiteSpace(manualPrivateKeyPem) || hasStoredRaCredential);
+
+    /// <summary>Looks up one of the current provider's requirements by name.</summary>
+    private ProviderRequirement? Requirement(string name) =>
+        Current?.Requirements.FirstOrDefault(requirement => requirement.Name == name);
+
+    private ProviderRequirement? AccessRequirement => Requirement("Access");
+    private ProviderRequirement? IdentityCenterRequirement => Requirement("IAM Identity Center");
+    private ProviderRequirement? PermissionsRequirement => Requirement("Per-user permissions");
+
+    /// <summary>Unknown until the requirements have loaded, which keeps the cards honest while they do.</summary>
+    private RequirementStatus AccessStatus => AccessRequirement?.Status ?? RequirementStatus.Unknown;
+    private RequirementStatus IdentityCenterStatus => IdentityCenterRequirement?.Status ?? RequirementStatus.Unknown;
+    private RequirementStatus PermissionsStatus => PermissionsRequirement?.Status ?? RequirementStatus.Unknown;
+
+    /// <summary>The one-line answer the Access card leads with, without colour.</summary>
+    private string AccessSummary => AccessStatus switch
+    {
+        RequirementStatus.Satisfied => "Connapse can read S3.",
+        RequirementStatus.Provisioning => "AWS is still activating this credential.",
+        RequirementStatus.NotConfigured => "Connapse has no AWS identity yet.",
+        RequirementStatus.Failed => "Connapse cannot read S3.",
+        _ => "Connapse cannot confirm it can read S3.",
+    };
+
     private string? copyMessage;
     private bool copySucceeded;
 
-    private async Task CopyIdentityScript()
+    private bool HasIdentityCenterValues =>
+        !string.IsNullOrWhiteSpace(identityCenterSettings.Region)
+        || !string.IsNullOrWhiteSpace(identityCenterSettings.InstanceArn)
+        || !string.IsNullOrWhiteSpace(identityCenterSettings.IdentityStoreId);
+
+    private bool HasSamlApplicationValues =>
+        !string.IsNullOrWhiteSpace(samlSettings.EntityId)
+        || !string.IsNullOrWhiteSpace(samlSettings.AcsUrl)
+        || !string.IsNullOrWhiteSpace(samlSettings.IdpEntityId)
+        || !string.IsNullOrWhiteSpace(samlSettings.IdpSingleSignOnUrl)
+        || !string.IsNullOrWhiteSpace(samlSettings.IdpSigningCertificate);
+
+    /// <summary>Hands over the CloudFormation template to read and upload.</summary>
+    private async Task DownloadTemplate()
     {
+        grantsCopyMessage = null;
+
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.downloadText", "connapse-permissions.yaml", AccessGrantsSetup.GenerateTemplate());
+
+        grantsCopyMessage = grantsCopySucceeded
+            ? "Downloaded connapse-permissions.yaml."
+            : "Could not download — check whether the browser blocked it.";
+    }
+
+    /// <summary>The metadata document an administrator pasted, before it is read.</summary>
+    private string? pastedMetadata;
+
+    /// <summary>
+    /// Stores the three values read out of the application's metadata.
+    /// </summary>
+    /// <remarks>
+    /// Shown before it is stored, and stored on a deliberate click, so what was read is visible and
+    /// correctable rather than silently applied.
+    /// </remarks>
+    private async Task SaveSamlMetadata(SamlMetadataValues values)
+    {
+        var updated = new SamlSignInSettings
+        {
+            EntityId = samlSettings.EntityId,
+            AcsUrl = samlSettings.AcsUrl,
+            IdpEntityId = values.EntityId,
+            IdpSingleSignOnUrl = values.SingleSignOnUrl,
+            IdpSigningCertificate = values.SigningCertificate,
+        };
+
+        await SaveSamlSettings(updated);
+
+        if (saveSuccess)
+            pastedMetadata = null;
+    }
+
+    private async Task CopyAccessGrantsScript()
+    {
+        grantsCopyMessage = null;
+
+        grantsCopySucceeded = await JS.InvokeAsync<bool>(
+            "connapse.copyToClipboard", AccessGrantsScript);
+
+        grantsCopyMessage = grantsCopySucceeded
+            ? "Copied."
+            : "Could not copy — select the command above and copy it manually.";
+    }
+
+    /// <summary>
+    /// Clears the recorded application, for an administrator who removed it in AWS.
+    /// </summary>
+    /// <remarks>
+    /// Connapse has no way to notice on its own: the stored values stay valid-looking while naming an
+    /// application that no longer exists, so removal has to be told to it.
+    /// </remarks>
+    private async Task ClearSamlApplication()
+    {
+        // Enforcement is deliberately left on. Clearing the application makes the sign-in settings
+        // incomplete, which the scope resolver reads as EnforcingButUnusable and denies — searches
+        // return nothing for everyone until the application is set up again, rather than silently
+        // widening the whole corpus to every user.
+        await SaveSamlSettings(new SamlSignInSettings());
+
+        if (saveSuccess)
+        {
+            pastedMetadata = null;
+            showSamlManual = true;
+        }
+    }
+
+    /// <summary>Generates a fresh CA + leaf pair and reveals the CloudShell command.</summary>
+    /// <remarks>
+    /// Generated once and cached: the CA cert is embedded in the command and the leaf is what will be
+    /// stored, so the two must stay paired. Regenerating deliberately mints a new pair (the button
+    /// says so), which is why any prior paste-back is discarded — a script from the old CA would
+    /// register a trust anchor the new leaf does not chain to.
+    /// </remarks>
+    private async Task PrepareRolesAnywhereScript()
+    {
+        raKeypair = RolesAnywhereKeyGenerator.Generate();
+        raPasted = null;
+        copyMessage = null;
+
+        // Recorded so the time from starting setup to a verified credential can be read back
+        // out of the audit log, and an abandoned setup is visible as a start with no save.
+        await AuditLogger.LogAsync("provider.credential.setup_started", "provider", "aws",
+            new { Method = "RolesAnywhere", Region = raRegion });
+    }
+
+    private async Task CopyRolesAnywhereScript()
+    {
+        if (raKeypair is null) return;
+
         // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
         // Connapse is routinely served over plain HTTP on a LAN.
         copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard",
-            AwsIamUserSetup.GenerateScript(newUserName));
+            AwsRolesAnywhereSetup.GenerateScript(raKeypair.CaCertificatePem, raRegion));
 
         copyMessage = copySucceeded
             ? "Copied."
             : "Could not copy — select the command above and copy it manually.";
     }
 
-    /// <summary>Stores the key the script produced, and rechecks.</summary>
-    private async Task SaveIdentity(AwsGeneratedKey key)
+    private async Task CopyResetCleanup()
     {
+        if (raResetCleanup is null) return;
+
+        copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", raResetCleanup);
+        copyMessage = copySucceeded
+            ? "Copied."
+            : "Could not copy — select the snippet above and copy it manually.";
+    }
+
+    /// <summary>Saves the credential from the script's ARN block, pairing them with the generated leaf.</summary>
+    private async Task SaveRolesAnywhereFromScript(AwsRolesAnywhereArns arns)
+    {
+        // Guard acquired synchronously, before any await, so a second click cannot enter this handler
+        // while the first is suspended.
+        if (awsBusy || raKeypair is null) return;
         awsBusy = true;
         try
         {
-            await CredentialStore.SaveAsync(
-                "aws", key.AccessKeyId, key.SecretAccessKey, key.UserName, null);
+            var config = new RolesAnywhereConfig(
+                raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
 
-            // Nothing keeps the pasted secret around once it is stored.
-            pastedKey = null;
-
-            // Closed on success, so a replacement does not leave its own form open above the
-            // result. It reopens on demand.
-            showSetup = false;
-            newUserName = null;
-
-            await RefreshSetups();
-        }
-        catch (Exception ex)
-        {
-            // Caught, and the pasted text deliberately left alone. An exception escaping a Blazor
-            // event handler tears down the circuit, which clears the form — and AWS returns a
-            // secret access key exactly once, so the operator would have to delete the IAM user
-            // and start again over a failure that might be a momentary database error.
-            saveSuccess = false;
-            saveMessage = $"Could not store the key: {ex.Message} " +
-                          "The text you pasted is still below — try again.";
+            await SaveValidatedRolesAnywhereCore(config, raKeypair.LeafPrivateKeyPem, null);
         }
         finally
         {
@@ -482,16 +1537,245 @@
         }
     }
 
-    /// <summary>Scrolls to a section of this page, and opens it if it is the setup.</summary>
+    /// <summary>Saves a bring-your-own credential typed into the manual-values form.</summary>
+    private async Task SaveManualRolesAnywhere()
+    {
+        // Guard acquired synchronously, before any await (the blank-key read below yields), so two
+        // fast clicks cannot both proceed and have the second dereference fields the first has cleared.
+        if (awsBusy || !CanSaveManualRa) return;
+        awsBusy = true;
+        try
+        {
+            // Snapshot the form before any await, so a concurrent reset can never null these mid-flight.
+            var config = new RolesAnywhereConfig(
+                manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
+                manualRoleArn!.Trim(), manualRegion!.Trim());
+            string? privateKeyPem = manualPrivateKeyPem?.Trim();
+
+            // A blank key when editing means "keep the current one" — the stored key is fetched and
+            // re-validated against the (possibly edited) config, so an operator can change an ARN
+            // without having a key they were never shown.
+            if (string.IsNullOrWhiteSpace(privateKeyPem))
+            {
+                RolesAnywhereCredentialMaterial? material;
+                try
+                {
+                    material = await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
+                }
+                catch (Exception ex)
+                {
+                    saveSuccess = false;
+                    saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
+                    return;
+                }
+
+                if (material is null)
+                {
+                    saveSuccess = false;
+                    saveMessage = "Enter the private key — there is no stored credential to keep it from.";
+                    return;
+                }
+
+                // Optimistic concurrency: if the stored credential changed since this form loaded,
+                // reusing the current key with the form's older ARNs could silently reinstate a config
+                // another administrator just replaced (e.g. undo a narrowed role). Reject and reload
+                // instead, so the operator reviews the newer values before overwriting.
+                if (_lastLoadedConfig is not null && material.Config != _lastLoadedConfig)
+                {
+                    saveSuccess = false;
+                    saveMessage = "This credential was changed elsewhere since you opened the form. It has "
+                        + "been reloaded — review the values and save again.";
+                    await RefreshSetups();
+                    return;
+                }
+
+                privateKeyPem = material.PrivateKeyPem;
+            }
+
+            await SaveValidatedRolesAnywhereCore(config, privateKeyPem, null);
+        }
+        finally
+        {
+            awsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// The one save path for every Roles Anywhere credential: prove it, then persist it.
+    /// </summary>
     /// <remarks>
-    /// The setup form is already rendered whenever access is not confirmed, so opening it matters
-    /// only for the case where the credential works and somebody wants to replace it — scrolling to
-    /// a collapsed section would be the same dead end in a new place.
+    /// <c>SaveRolesAnywhereAsync</c> overwrites irreversibly, so the credential is checked against AWS
+    /// first (a real <c>CreateSession</c>) and stored only if that succeeds. A bad cert, ARN, or
+    /// region therefore never destroys the last working credential — nothing is written on failure,
+    /// and the form is left intact so the operator can fix and retry without regenerating.
+    /// <para>The caller holds the <c>awsBusy</c> guard; this core never touches it.</para>
+    /// </remarks>
+    private async Task SaveValidatedRolesAnywhereCore(RolesAnywhereConfig config, string privateKeyPem, string? principal)
+    {
+        try
+        {
+            RolesAnywhereValidationResult result = await RaValidator.ValidateAsync(config, privateKeyPem);
+            if (!result.Ok)
+            {
+                saveSuccess = false;
+                saveMessage = $"AWS did not accept this credential, so nothing was changed: {result.Error}";
+                return;
+            }
+
+            await CredentialStore.SaveRolesAnywhereAsync("aws", config, privateKeyPem, principal, null);
+
+            // Drop the session the runtime is holding, so the next AWS call resolves the credential
+            // just stored rather than finishing out the previous one's refresh window.
+            AwsCredentials.ClearCredentials();
+
+            await AuditLogger.LogAsync("provider.credential.saved", "provider", "aws",
+                new { Method = "RolesAnywhere", config.RoleArn, config.Region });
+
+            // The secret material is not kept around once stored; the whole handshake resets. Clearing
+            // the loaded-config token forces the next load to re-fill the form from the newly stored
+            // configuration.
+            raKeypair = null;
+            raPasted = null;
+            raRegion = null;
+            raResetCleanup = null;
+            manualTrustAnchorArn = manualProfileArn = manualRoleArn = manualRegion = null;
+            manualCertPem = manualPrivateKeyPem = null;
+            _lastLoadedConfig = null;
+            showSetup = false;
+            copyMessage = null;
+
+            saveSuccess = true;
+            saveMessage = "AWS Roles Anywhere access saved.";
+            await RefreshSetups();
+        }
+        catch (Exception ex)
+        {
+            // Entries left alone on failure. An exception escaping a Blazor event handler tears down
+            // the circuit and clears the form, and a generated leaf can only be reissued from a fresh
+            // CloudShell run — so a momentary database error must not cost the operator the round-trip.
+            saveSuccess = false;
+            saveMessage = $"Could not store the AWS credential: {ex.Message} " +
+                          "Your entries are still below — try again.";
+        }
+    }
+
+    /// <summary>
+    /// Clears this instance's Roles Anywhere credential, then offers to remove the AWS-side resources.
+    /// </summary>
+    /// <remarks>
+    /// The local wipe comes first: the row goes, and the session the runtime was holding is dropped
+    /// with it, so the next AWS call cannot reuse the removed credential. The AWS trust anchor,
+    /// role, and profile are per-instance, so a CloudShell cleanup snippet is shown afterwards to
+    /// remove them — Connapse's own read-only identity cannot delete them directly. Nothing shared
+    /// is ever touched, because in the per-instance design nothing is shared.
+    /// <para>
+    /// With no stored credential the runtime falls back to whatever the environment provides, by
+    /// design (an instance or task role is the ordinary way to run without one). The outcome says
+    /// so when that is the case, because "removed" would otherwise read as "no longer reading S3".
+    /// </para>
+    /// </remarks>
+    private async Task ResetAccessIdentity()
+    {
+        awsBusy = true;
+        try
+        {
+            // Read the ARNs before wiping so the cleanup snippet can name them.
+            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+
+            await CredentialStore.DeleteAsync("aws");
+            AwsCredentials.ClearCredentials();
+            await AuditLogger.LogAsync("provider.credential.removed", "provider", "aws",
+                new { Method = "RolesAnywhere", config?.RoleArn, config?.Region });
+
+            raResetCleanup = config is null
+                ? null
+                : AwsRolesAnywhereSetup.GenerateResetScript(
+                    config.TrustAnchorArn, config.ProfileArn, config.RoleArn, config.Region);
+
+            raKeypair = null;
+            raPasted = null;
+            showSetup = true;
+            saveSuccess = true;
+            saveMessage = raResetCleanup is null
+                ? "Connapse's stored AWS credential was removed."
+                : "Connapse's stored AWS credential was removed. It is still valid in AWS until you "
+                  + "run the cleanup command shown below, or it expires.";
+            await RefreshSetups();
+
+            if (EnvironmentCredentialResolves)
+            {
+                saveMessage += " Connapse is now reading S3 with credentials from its environment "
+                    + "instead; remove those from the server if that is not what you want.";
+            }
+        }
+        catch (Exception ex)
+        {
+            saveSuccess = false;
+            saveMessage = $"Could not clear the AWS credential: {ex.Message}";
+        }
+        finally
+        {
+            awsBusy = false;
+        }
+    }
+
+    /// <summary>Loads whether a Roles Anywhere credential is stored, which drives the card's mode.</summary>
+    private async Task LoadAwsCredentialModeAsync()
+    {
+        if (Key != "aws") return;
+
+        try
+        {
+            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            hasStoredRaCredential = config is not null;
+            raStatus = config is null ? null : await CredentialStore.GetStatusAsync("aws");
+            raCertificateExpires = CertificateExpiry(config?.CertificatePem);
+
+            // Fill the manual (bring-your-own) fields from the stored, non-secret configuration so
+            // editing a configured credential shows its current values rather than blank boxes. Only
+            // the private key is secret; it is never rendered, so it stays blank and a blank key on
+            // save means "keep the current one". Each field is refreshed only when it still equals what
+            // was last loaded — an untouched field — so a re-check picks up a concurrent change while an
+            // in-progress edit is never overwritten. (Initially both sides are null, so the first load
+            // fills every field.)
+            if (config is not null)
+            {
+                manualTrustAnchorArn = AwsAccessCard.RefreshManualField(manualTrustAnchorArn, _lastLoadedConfig?.TrustAnchorArn, config.TrustAnchorArn);
+                manualProfileArn = AwsAccessCard.RefreshManualField(manualProfileArn, _lastLoadedConfig?.ProfileArn, config.ProfileArn);
+                manualRoleArn = AwsAccessCard.RefreshManualField(manualRoleArn, _lastLoadedConfig?.RoleArn, config.RoleArn);
+                manualRegion = AwsAccessCard.RefreshManualField(manualRegion, _lastLoadedConfig?.Region, config.Region);
+                manualCertPem = AwsAccessCard.RefreshManualField(manualCertPem, _lastLoadedConfig?.CertificatePem, config.CertificatePem);
+            }
+            _lastLoadedConfig = config;
+        }
+        catch (Exception ex)
+        {
+            // A read failure should not strand the card. Treat it as no stored row and let the probe
+            // status speak; the card degrades to the setup path rather than throwing.
+            Logger.LogWarning(ex, "Could not read the stored AWS Roles Anywhere credential");
+            hasStoredRaCredential = false;
+            raStatus = null;
+            raCertificateExpires = null;
+        }
+    }
+
+    /// <summary>Scrolls to a section of this page, and opens whatever it is you came to change.</summary>
+    /// <remarks>
+    /// Each requirement that is already satisfied shows its section as a summary, so scrolling
+    /// alone lands on something with nothing to do on it — and on a tall enough window it does not
+    /// even move, which is indistinguishable from a dead link. Both sections are therefore opened
+    /// before the scroll rather than after somebody hunts for the button that opens them.
+    /// <para>
+    /// Only these three need it. Every other action on a requirement card is a real link
+    /// elsewhere. A section missing from this list scrolls to a card that is collapsed, which
+    /// reads as the button doing nothing at all.
+    /// </para>
     /// </remarks>
     private async Task ScrollTo(string elementId)
     {
-        if (elementId == "access")
-            showSetup = true;
+        showSetup = elementId == "access" || showSetup;
+        showIdentityCenterSetup = elementId == "identity-center" || showIdentityCenterSetup;
+        showSamlManual = elementId == "permissions" || showSamlManual;
 
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
@@ -501,6 +1785,7 @@
         setups = null;
         StateHasChanged();
         setups = await SetupReader.ReadAsync();
+        await LoadAwsCredentialModeAsync();
     }
 
     /// <summary>What a provider would let you do, for one you have not taken up.</summary>
@@ -511,7 +1796,7 @@
     /// </remarks>
     private static string Offer(ProviderSetup provider) => provider.Key switch
     {
-        "aws" => "Sign in with AWS, and read files from S3.",
+        "aws" => "Read files from S3.",
         "azure" => "Sign in with Azure AD, and read files from Blob Storage.",
         _ => $"Set up {provider.DisplayName}."
     };
@@ -533,16 +1818,6 @@
             : $"Needs attention: {string.Join(", ", outstanding)}";
     }
 
-    private async Task SaveAwsSsoSettings(AwsSsoSettings settings)
-    {
-        awsSsoSettings = settings;
-        await SaveSettings("awssso", settings);
-
-        // The cards above report this very setting, so leaving them alone would show the old
-        // answer beside the new form.
-        await RefreshSetups();
-    }
-
     private async Task SaveAzureAdSettings(AzureAdSettings settings)
     {
         azureAdSettings = settings;
@@ -550,12 +1825,86 @@
         await RefreshSetups();
     }
 
+    /// <summary>What the settings form saves. Never stops enforcement.</summary>
+    /// <remarks>
+    /// A named wrapper rather than binding the method below directly: an editing form has no
+    /// business being able to switch permission enforcement off, and this way it cannot express it.
+    /// </remarks>
+    private Task SaveSamlSettingsFromForm(SamlSignInSettings settings) =>
+        SaveSamlSettings(settings);
+
+    /// <summary>
+    /// Stores the sign-in settings, and decides whether permissions are still being enforced.
+    /// </summary>
+    /// <remarks>
+    /// The latch lives here rather than on the form because several callers above rebuild this
+    /// object field by field, and every one of them would otherwise clear the flag by omission —
+    /// which is precisely the silent un-enforcement this choke point exists to prevent.
+    /// <para>
+    /// A complete configuration turns enforcement on, and nothing here turns it back off: once on,
+    /// it stays on until the application is completely reconfigured. An incomplete save — blanking
+    /// the certificate to paste a rotated one, or resetting the application entirely — leaves the
+    /// flag in force, so the searches deny while the settings are incomplete. That is the loud
+    /// failure rather than the quiet one: no path through this page silently widens the corpus.
+    /// </para>
+    /// </remarks>
+    private async Task SaveSamlSettings(SamlSignInSettings settings)
+    {
+        // Written to its own category, so recording enforcement never rewrites a SAML value. That
+        // matters for a deployment configured through environment variables: the database outranks
+        // the environment, so copying those values into a row here would shadow them permanently.
+        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing;
+
+        await SaveSettings("samlsignin", settings);
+
+        if (saveSuccess)
+        {
+            await AuditLogger.LogAsync("provider.saml.saved", "provider", "aws",
+                new { settings.EntityId, settings.IdpEntityId, Configured = settings.IsConfigured });
+        }
+
+        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
+        {
+            await SaveSettings(
+                PermissionEnforcementSettings.Category,
+                new PermissionEnforcementSettings { IsEnforcing = enforcing });
+        }
+
+        // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
+        // not guaranteed to have landed by the time this line runs, so a stale read would hand the
+        // form back the previous values and make a save look as though it had not taken. Guarded on
+        // success so a failed save leaves the form showing what is actually stored.
+        if (saveSuccess) samlSettings = settings;
+
+        await RefreshSetups();
+    }
+
+    @* Two labels, because Warning means two different things depending on what carries it, and one
+       switch serving both put "Partly set up" on a card for something that was not partly anything.
+       Every other status reads the same at either scale, so both switches fall through to Label. *@
+
+    /// <summary>The badge on a whole provider.</summary>
+    private static string ProviderLabel(RequirementStatus status) => status switch
+    {
+        // Some requirements met and some not.
+        RequirementStatus.Warning => "Partly set up",
+        _ => Label(status)
+    };
+
+    /// <summary>The badge on one requirement.</summary>
+    private static string RequirementLabel(RequirementStatus status) => status switch
+    {
+        // A single requirement has no parts to be partly through. Warning here means the one
+        // thing it has ever meant: this works, and Connapse cannot demonstrate that it does.
+        RequirementStatus.Warning => "Unconfirmed",
+        _ => Label(status)
+    };
+
     private static string Label(RequirementStatus status) => status switch
     {
         RequirementStatus.Satisfied => "Ready",
         RequirementStatus.Provisioning => "Provisioning",
         RequirementStatus.Failed => "Failed",
-        RequirementStatus.Warning => "Works, but",
         RequirementStatus.NotConfigured => "Not set up",
         _ => "Unknown"
     };
@@ -590,13 +1939,25 @@
         {
             await SettingsStore.SaveAsync(category, settings);
             ReloadService.Reload();
-            saveMessage = $"{category} settings saved successfully!";
+            saveMessage = $"{SettingsName(category)} settings saved successfully!";
             saveSuccess = true;
         }
         catch (Exception ex)
         {
-            saveMessage = $"Failed to save {category} settings: {ex.Message}";
+            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
             saveSuccess = false;
         }
     }
+
+    /// <summary>What to call a settings category in a sentence.</summary>
+    /// <remarks>
+    /// The category is a storage key — lower-case, no spaces — and reading it back to somebody as
+    /// "samlsignin settings saved successfully" shows them the key rather than a readable name.
+    /// Unlisted categories fall through unchanged, which is what they did before this existed.
+    /// </remarks>
+    private static string SettingsName(string category) => category switch
+    {
+        "samlsignin" => "AWS sign-in",
+        _ => category
+    };
 }

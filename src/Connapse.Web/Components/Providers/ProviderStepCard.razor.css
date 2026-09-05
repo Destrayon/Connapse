@@ -1,0 +1,31 @@
+.provider-step {
+    --provider-step-state: var(--bs-secondary-color);
+    display: grid;
+    grid-template-columns: .25rem minmax(0, 1fr);
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: var(--surface);
+}
+
+.provider-step__rail { background: var(--provider-step-state); }
+.provider-step__content { min-width: 0; padding: 1rem; }
+.provider-step__header { display: flex; align-items: flex-start; gap: 1rem; }
+.provider-step__heading { min-width: 0; flex: 1; }
+.provider-step__description { color: var(--text-muted); font-size: .875rem; }
+.provider-step__status { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; font-size: .875rem; font-weight: 600; }
+.provider-step__summary { margin-top: .75rem; font-size: .875rem; overflow-wrap: anywhere; }
+.provider-step__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+/* The destructive action sits apart from the others, at the far end of the row. */
+.provider-step__actions ::deep .provider-reset-action { margin-left: auto; }
+.provider-step__body { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--bs-border-color); }
+.provider-step--satisfied { --provider-step-state: var(--color-success); }
+.provider-step--failed { --provider-step-state: var(--color-error); }
+.provider-step--warning { --provider-step-state: var(--bs-warning); }
+.provider-step--provisioning { --provider-step-state: var(--bs-info); }
+
+@media (max-width: 575.98px) {
+    .provider-step__header { flex-direction: column; gap: .5rem; }
+    .provider-step__status { white-space: normal; }
+}

@@ -36,3 +36,24 @@ window.connapse.copyToClipboard = async function (text) {
         document.body.removeChild(textarea);
     }
 };
+
+// Hands the browser a file it already has the bytes for. Used for the CloudFormation template,
+// which an administrator downloads to read and then uploads to AWS — so it never travels through
+// a shell, and nothing has to host it.
+window.connapse.downloadText = function (filename, text) {
+    try {
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Revoked on the next tick rather than immediately: Safari has not finished reading the
+        // blob when click() returns, and revoking first gives a silently empty file.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
