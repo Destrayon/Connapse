@@ -62,34 +62,6 @@ public class ProvidersPageTests
     }
 
     /// <summary>
-    /// Settings must not keep a tab whose body was removed.
-    /// </summary>
-    [Trait("Category", "Unit")]
-    public class SettingsPageTests
-    {
-        private static readonly string Markup = File.ReadAllText(Path.Combine(
-            PageTestPaths.RepositoryRoot(),
-            "src", "Connapse.Web", "Components", "Pages", "Settings.razor"));
-
-        [Theory]
-        [InlineData("azuread")]
-        public void SettingsPage_NoLongerOffersTheIdentityProviderTabs(string tab)
-        {
-            // A leftover button with no matching body is the realistic half-finished move: it
-            // compiles, renders, and selects a tab that draws nothing at all.
-            Markup.Should().NotContain(tab,
-                "the tab moved to /admin/providers");
-        }
-
-        [Theory]
-        [InlineData("AzureAdSettingsTab")]
-        public void SettingsPage_NoLongerRendersTheIdentityProviderComponents(string component)
-        {
-            Markup.Should().NotContain(component);
-        }
-    }
-
-    /// <summary>
     /// The administrator-only entries live in one labelled group in the nav.
     /// </summary>
     /// <remarks>

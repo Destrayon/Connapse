@@ -83,7 +83,7 @@ public class GrantScopeTests
     {
         // Rather than silently producing a rule that matches nothing, which would read as a
         // denial and send whoever debugs it looking at permissions instead of at parsing.
-        FluentActions.Invoking(() => GrantScope.Parse("azblob://acct/container/"))
+        FluentActions.Invoking(() => GrantScope.Parse("gcs://acct/container/"))
             .Should().Throw<ArgumentException>();
     }
 
