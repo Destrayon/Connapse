@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Settings;
 using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,9 @@ public class SamlEnforcementLatchTests
 {
     private readonly ISettingsStore store = Substitute.For<ISettingsStore>();
 
+    /// <summary>Reads the database successfully unless a test says otherwise.</summary>
+    private readonly ISettingsReloader reloader = Substitute.For<ISettingsReloader>();
+
     private static SamlSignInSettings Complete() => new()
     {
         EntityId = "https://connapse.example.com/saml/connapse",
@@ -42,18 +46,20 @@ public class SamlEnforcementLatchTests
     }
 
     private (SamlEnforcementLatch Latch, EnforcementMigration Migration) Build(
-        SamlSignInSettings signIn, bool alreadyEnforcing = false)
+        SamlSignInSettings signIn, bool alreadyEnforcing = false, bool settingsReadable = true)
     {
         var services = new ServiceCollection();
         services.AddSingleton(store);
 
         var migration = new EnforcementMigration();
+        reloader.Reload().Returns(settingsReadable);
 
         return (new SamlEnforcementLatch(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             Monitor(signIn),
             Monitor(new PermissionEnforcementSettings { IsEnforcing = alreadyEnforcing }),
             migration,
+            reloader,
             NullLogger<SamlEnforcementLatch>.Instance), migration);
     }
 
@@ -93,6 +99,31 @@ public class SamlEnforcementLatchTests
 
         (await SavedMarker()).Should().BeNull();
         migration.Determined.Should().BeTrue("a fresh install's state is known, not unknown");
+    }
+
+    [Fact]
+    public async Task WhenTheSettingsCannotBeRead_LeavesTheStateUndetermined()
+    {
+        // The configuration is first loaded before the host starts, and a database that is
+        // unreachable at that moment leaves every stored value at its default without an error. A
+        // deployment that had been enforcing then reads as "never configured", which the branch for
+        // fresh installs would have recorded as unrestricted. Undetermined denies instead.
+        var (latch, migration) = Build(new SamlSignInSettings(), settingsReadable: false);
+        await latch.StartAsync(CancellationToken.None);
+
+        migration.Determined.Should().BeFalse();
+        (await SavedMarker()).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ReadsTheStoredSettingsAgainBeforeDeciding()
+    {
+        // Migrations run between the first configuration load and this service, so the values
+        // it decides from must come from a load that happened after them.
+        var (latch, _) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        reloader.Received(1).Reload();
     }
 
     [Fact]
