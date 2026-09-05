@@ -228,9 +228,6 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
 
-        // Advisory, and read by pages rather than by a search. Scoped because it is consumed from
-        // a Blazor circuit alongside the connection store.
-
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
         services.AddScoped<SftpConnectionTester>();

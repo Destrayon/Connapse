@@ -663,9 +663,11 @@
                     <div class="alert alert-secondary small">
                         <span class="bi-info-circle me-1"></span>
                         Connapse reads S3 Access Grants to decide which documents each person may
-                        search, and reads the directory to know who they are. Its own AWS identity
-                        needs <code>s3:ListAccessGrants</code> and the <code>identitystore</code> reads
-                        for that, and nothing more.
+                        search, and reads the directory to know who they are. The grants themselves
+                        are created in the S3 console, one per person or group and bucket, folder or
+                        object; until one exists, S3 searches return nothing. Connapse's own AWS
+                        identity needs <code>s3:ListAccessGrants</code> and the
+                        <code>identitystore</code> reads for that, and nothing more.
                         <span class="d-block mt-1">
                             <code>s3:ListAccessGrants</code> is worth knowing about specifically: AWS does
                             not scope it to one user, so it lets Connapse enumerate everyone's grants rather
@@ -689,9 +691,10 @@
                         region cannot be moved.
                         <span class="d-block mt-1">
                             Buckets elsewhere are indexed and synced normally, but their permissions
-                            cannot be read — so once this is switched on <strong>they return nothing to
-                            anyone</strong>. Filtering hides what it cannot confirm; it does not fall
-                            back to showing it.
+                            cannot be read — and a region whose permissions cannot be read makes
+                            <strong>every S3 search return nothing to anyone</strong>, not only
+                            searches over that bucket. Filtering hides what it cannot confirm; it does
+                            not fall back to showing it.
                             <span class="d-block mt-1">
                                 To cover them, replicate Identity Center to their region
                                 (<code>sso-admin add-region</code>, which needs an organization instance and
