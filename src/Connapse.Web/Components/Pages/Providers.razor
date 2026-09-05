@@ -22,8 +22,6 @@
 @inject IRolesAnywhereSetupValidator RaValidator
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
-@inject IAwsIdentityLinkReader AwsIdentityLinks
-@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject ILogger<Providers> Logger
 @using System.Security.Claims
 @using Microsoft.AspNetCore.Components.Authorization
@@ -656,13 +654,6 @@
                     @if (SamlSignIn is not null)
                     {
                         <div class="font-monospace text-break">@samlSettings.EntityId</div>
-                        @if (samlSettings.HasGrantGroup)
-                        {
-                            <div class="text-body-secondary mt-1">
-                                Default grant group: <strong>@samlSettings.GrantGroupName</strong>
-                                <code>@samlSettings.GrantGroupId</code>
-                            </div>
-                        }
                     }
                 </Summary>
                 <ManualContent>
@@ -914,102 +905,6 @@
                                     assignment requirement off for a SAML application.
                                 </li>
 
-                                <li class="mb-2">
-                                    Choose the group you will name as grantee when you create grants
-                                    in the S3 console. Grants are held by a grantee, and a group is the
-                                    grantee worth using: adding and removing people then happens in the
-                                    directory, where joining and leaving already happens, instead of as
-                                    an edit to S3. Paste the block back so Connapse can show you the
-                                    group's id when you need it. Connapse never creates a grant itself.
-
-                                    <div class="border rounded p-3 mb-3">
-                                        <p class="small mb-2">
-                                            Lists every group in the Identity Center directory so this works
-                                            before anyone has connected to Connapse. Most directories synchronise
-                                            these from your identity provider, and those are the groups to grant to.
-                                        </p>
-
-                                        <label class="form-label small" for="group-name">
-                                            Use or create a group by exact name (optional)
-                                        </label>
-                                        <input id="group-name" class="form-control form-control-sm mb-1"
-                                               placeholder="Connapse Readers"
-                                               @bind="newGroupName" @bind:event="oninput" />
-                                        <div class="form-text mb-2">
-                                            Leave empty to list every available group, then choose one after
-                                            pasting the result. If the name does not exist, the script creates it.
-                                            Groups created here are not managed by Okta, Entra, or another
-                                            identity provider.
-                                        </div>
-
-                                        <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@DirectoryGroupScript</code></pre>
-
-                                        @* Pasted back, like every other step. Without this the group id is on
-                                           screen for a moment and then gone, which is exactly why the grant
-                                           command it feeds shipped with a placeholder where the grantee
-                                           belonged — and got run with the placeholder still in it. *@
-                                        @if (SamlSignIn is { HasGrantGroup: true } chosen)
-                                        {
-                                            <div class="alert alert-success small py-2 mb-2">
-                                                <span class="bi-check-circle-fill me-1"></span>
-                                                Name this group as the grantee when you create grants in the S3 console:
-                                                <strong>@(chosen.GrantGroupName is { Length: > 0 } gn ? gn : "this group")</strong>
-                                                <code class="ms-1">@chosen.GrantGroupId</code>
-                                            </div>
-                                        }
-
-                                        <label class="form-label small" for="group-paste">
-                                            Paste the block the command printed
-                                        </label>
-                                        <textarea id="group-paste" class="form-control font-monospace small mb-2"
-                                                  rows="3" placeholder="@DirectoryGroupSetup.BeginMarker"
-                                                  @bind="pastedGroup" @bind:event="oninput"></textarea>
-
-                                        @{ var parsedGroups = DirectoryGroupSetup.ParseResults(pastedGroup); }
-                                        @if (parsedGroups.Count > 0)
-                                        {
-                                            <div class="list-group mb-2">
-                                                @foreach (var parsedGroup in parsedGroups)
-                                                {
-                                                    <button type="button"
-                                                            class="list-group-item list-group-item-action d-flex align-items-center gap-2 py-2"
-                                                            @onclick="() => SaveGrantGroup(parsedGroup)">
-                                                        <span class="bi-people text-muted"></span>
-                                                        <span class="flex-grow-1 text-start">
-                                                            <strong>@(parsedGroup.Name is { Length: > 0 } pn ? pn : "Unnamed group")</strong>
-                                                            <code class="d-block small">@parsedGroup.Id</code>
-                                                        </span>
-                                                        <span class="small text-primary">Use group</span>
-                                                    </button>
-                                                }
-                                            </div>
-                                        }
-                                        else if (!string.IsNullOrWhiteSpace(pastedGroup))
-                                        {
-                                            <div class="small text-danger mb-2">
-                                                No group block in that text. Copy from
-                                                <code>@DirectoryGroupSetup.BeginMarker</code> to
-                                                <code>@DirectoryGroupSetup.EndMarker</code>.
-                                            </div>
-                                        }
-
-                                        <div class="d-flex flex-wrap gap-2">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                    @onclick="CopyDirectoryGroupScript">
-                                                <span class="bi-clipboard me-1"></span> Copy command
-                                            </button>
-                                            <a class="btn btn-sm btn-primary" target="_blank" rel="noopener"
-                                               href="https://console.aws.amazon.com/cloudshell/home">
-                                                <span class="bi-terminal me-1"></span> Open CloudShell
-                                                <span class="bi-box-arrow-up-right ms-1 small"></span>
-                                            </a>
-                                            <span class="align-self-center small @(groupCopySucceeded ? "text-success" : "text-danger")">
-                                                @groupCopyMessage
-                                            </span>
-                                        </div>
-                                    </div>
-                                </li>
-
                                 <li>
                                     Finally, paste the metadata file you downloaded. Connapse reads the
                                     issuer, sign-in URL and signing certificate out of it — the
@@ -1068,13 +963,6 @@
                                              ConfirmLabel="Confirm SAML reset"
                                              HelpText="Per-user filtering stays on, so AWS searches return nothing for anyone until you set the application up again."
                                              OnReset="ClearSamlApplication" />
-                    }
-                    @if (samlSettings.HasGrantGroup)
-                    {
-                        <ProviderResetAction Label="Reset default group"
-                                             ConfirmLabel="Confirm group reset"
-                                             HelpText="Clears only which group Connapse suggests. Grants already created for this group in AWS stay in force, and its members keep seeing what those grants cover, until you delete the grants in the S3 console."
-                                             OnReset="ClearGrantGroup" />
                     }
                 </Actions>
             </ProviderStepCard>
@@ -1283,27 +1171,7 @@
 
         setups = await SetupReader.ReadAsync();
         await LoadAwsCredentialModeAsync();
-        await LoadConnectedDirectoryUserAsync();
         StateHasChanged();
-    }
-
-    /// <summary>
-    /// The signed-in administrator's own directory user id, for the group script.
-    /// </summary>
-    /// <remarks>
-    /// Theirs rather than anybody's. This page sets Connapse up, so the person running the script
-    /// is the one whose groups are worth listing and the only one it may add to a group. Null until
-    /// they have connected, and the script then only creates.
-    /// </remarks>
-    private string? connectedDirectoryUserId;
-
-    private async Task LoadConnectedDirectoryUserAsync()
-    {
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        string? userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (Guid.TryParse(userIdStr, out Guid userId))
-            connectedDirectoryUserId = await AwsIdentityLinks.GetDirectoryUserIdAsync(userId);
     }
 
     private bool awsBusy;
@@ -1419,22 +1287,6 @@
             : "Could not download — check whether the browser blocked it.";
     }
 
-    /// <summary>A group to create, or empty to only list what already exists.</summary>
-    private string? newGroupName;
-
-    private string? groupCopyMessage;
-    private bool groupCopySucceeded;
-
-    /// <summary>
-    /// The command that lists Identity Center groups, and makes one if a name was given.
-    /// </summary>
-    /// <remarks>
-    /// The directory user id comes from the stored link rather than from anything typed: it is the
-    /// key grants are held against, and the only person this script is allowed to add to a group.
-    /// </remarks>
-    private string DirectoryGroupScript => DirectoryGroupSetup.GenerateScript(
-        SetupRegion, IdentityCentre?.IdentityStoreId, connectedDirectoryUserId, newGroupName);
-
     /// <summary>The metadata document an administrator pasted, before it is read.</summary>
     private string? pastedMetadata;
 
@@ -1443,7 +1295,7 @@
     /// </summary>
     /// <remarks>
     /// Shown before it is stored, and stored on a deliberate click, so what was read is visible and
-    /// correctable rather than silently applied — the same shape as the group step above.
+    /// correctable rather than silently applied.
     /// </remarks>
     private async Task SaveSamlMetadata(SamlMetadataValues values)
     {
@@ -1454,59 +1306,12 @@
             IdpEntityId = values.EntityId,
             IdpSingleSignOnUrl = values.SingleSignOnUrl,
             IdpSigningCertificate = values.SigningCertificate,
-            GrantGroupId = samlSettings.GrantGroupId,
-            GrantGroupName = samlSettings.GrantGroupName,
         };
 
         await SaveSamlSettings(updated);
 
         if (saveSuccess)
             pastedMetadata = null;
-    }
-
-    /// <summary>The block an administrator pasted back from the group command.</summary>
-    private string? pastedGroup;
-
-    /// <summary>
-    /// Records the group so a connection can print a grant command naming it.
-    /// </summary>
-    /// <remarks>
-    /// Written onto the sign-in settings rather than onto the located instance. The instance is
-    /// only "where is the directory"; a group exists solely to be the grantee on an access grant,
-    /// which is what per-user permissions are made of. A connection may still name a different
-    /// grantee, because granting separate teams separate buckets is the point of groups.
-    /// </remarks>
-    private async Task SaveGrantGroup((string Id, string Name) group)
-    {
-        var updated = new SamlSignInSettings
-        {
-            EntityId = samlSettings.EntityId,
-            AcsUrl = samlSettings.AcsUrl,
-            IdpEntityId = samlSettings.IdpEntityId,
-            IdpSingleSignOnUrl = samlSettings.IdpSingleSignOnUrl,
-            IdpSigningCertificate = samlSettings.IdpSigningCertificate,
-            GrantGroupId = group.Id,
-            GrantGroupName = group.Name,
-        };
-
-        await SaveSamlSettings(updated);
-
-        // Cleared only on success, so a failed save leaves the block in the box rather than sending
-        // somebody back to a terminal whose scrollback may be gone.
-        if (saveSuccess)
-            pastedGroup = null;
-    }
-
-    private async Task CopyDirectoryGroupScript()
-    {
-        groupCopyMessage = null;
-
-        groupCopySucceeded = await JS.InvokeAsync<bool>(
-            "connapse.copyToClipboard", DirectoryGroupScript);
-
-        groupCopyMessage = groupCopySucceeded
-            ? "Copied."
-            : "Could not copy — select the command above and copy it manually.";
     }
 
     private async Task CopyAccessGrantsScript()
@@ -1536,11 +1341,7 @@
         // incomplete, which the scope resolver reads as EnforcingButUnusable and denies — searches
         // return nothing for everyone until the application is set up again, rather than silently
         // widening the whole corpus to every user.
-        //
-        // Built from CurrentValue, not the samlSettings snapshot captured at page load: on a
-        // long-lived page another administrator may have changed the group since, and rebuilding
-        // from the stale copy would write that obsolete value back.
-        await SaveSamlSettings(GrantGroupOnly(SamlOptions.CurrentValue));
+        await SaveSamlSettings(new SamlSignInSettings());
 
         if (saveSuccess)
         {
@@ -1548,34 +1349,6 @@
             showSamlManual = true;
         }
     }
-
-    private async Task ClearGrantGroup()
-    {
-        // CurrentValue, not the page-load snapshot: another administrator may have rotated the
-        // certificate or issuer since this page opened, and rebuilding the SAML fields from the
-        // stale copy would revert that rotation.
-        await SaveSamlSettings(WithoutGrantGroup(SamlOptions.CurrentValue));
-
-        if (saveSuccess)
-            pastedGroup = null;
-    }
-
-    /// <summary>The SAML application settings without the default grant group.</summary>
-    private static SamlSignInSettings WithoutGrantGroup(SamlSignInSettings from) => new()
-    {
-        EntityId = from.EntityId,
-        AcsUrl = from.AcsUrl,
-        IdpEntityId = from.IdpEntityId,
-        IdpSingleSignOnUrl = from.IdpSingleSignOnUrl,
-        IdpSigningCertificate = from.IdpSigningCertificate,
-    };
-
-    /// <summary>Only the default grant group, without the SAML application settings.</summary>
-    private static SamlSignInSettings GrantGroupOnly(SamlSignInSettings from) => new()
-    {
-        GrantGroupId = from.GrantGroupId,
-        GrantGroupName = from.GrantGroupName,
-    };
 
     /// <summary>Generates a fresh CA + leaf pair and reveals the CloudShell command.</summary>
     /// <remarks>

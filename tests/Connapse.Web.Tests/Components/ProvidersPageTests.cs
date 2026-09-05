@@ -225,11 +225,10 @@ public class ProvidersPageTests
         markup.Should().Contain("Id=\"access\"")
             .And.Contain("Id=\"identity-center\"")
             .And.Contain("Id=\"permissions\"");
-        Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(4);
+        Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(3);
         markup.Should().NotContain("confirmResetAccess")
             .And.NotContain("confirmResetIdentityCenter")
-            .And.NotContain("confirmResetSamlApplication")
-            .And.NotContain("confirmResetGrantGroup");
+            .And.NotContain("confirmResetSamlApplication");
     }
 
 }
