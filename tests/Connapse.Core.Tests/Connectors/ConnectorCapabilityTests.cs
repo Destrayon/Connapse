@@ -29,7 +29,6 @@ public class ConnectorCapabilityTests
 
     [Theory]
     [InlineData(typeof(S3Connector))]
-    [InlineData(typeof(AzureBlobConnector))]
     [InlineData(typeof(FilesystemConnector))]
     [InlineData(typeof(SftpConnector))]
     public void ExternalConnectors_AreNotWritable(Type connectorType)

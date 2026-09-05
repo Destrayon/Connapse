@@ -15,7 +15,6 @@
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
 @inject S3ConnectionTester S3Tester
-@inject AzureBlobConnectionTester AzureTester
 @inject SftpConnectionTester SftpTester
 @inject IS3Discovery S3Discovery
 @inject IProviderSetupReader SetupReader
@@ -47,10 +46,9 @@
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
             A <strong>connection</strong> names an external system and how to reach it. A
-            <strong>source</strong> names a scope inside one — a bucket, a blob container, or a
-            directory — and is what Connapse actually syncs. Cloud credentials are not entered
-            here: AWS uses the identity on its <a href="/admin/providers/aws">provider page</a>,
-            and Azure managed identity from the environment the server runs in.
+            <strong>source</strong> names a scope inside one — a bucket or a directory — and is
+            what Connapse actually syncs. Cloud credentials are not entered here: AWS uses the
+            identity on its <a href="/admin/providers/aws">provider page</a>.
         </div>
     </div>
 
@@ -477,7 +475,6 @@
             <label class="form-label" for="connection-provider">Provider</label>
             <select id="connection-provider" class="form-select" @bind="form.Provider" disabled="@(!isNew)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
-                <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
                 <option value="@ConnectionProvider.Sftp">SFTP</option>
             </select>
@@ -522,18 +519,6 @@
                 </div>
             }
 
-        }
-        else if (form.Provider == ConnectionProvider.AzureBlob)
-        {
-            <div class="col-md-6">
-                <label class="form-label">Storage account</label>
-                <input class="form-control" @bind="form.StorageAccountName" placeholder="mystorageaccount" />
-            </div>
-            <div class="col-md-6">
-                <label class="form-label">Managed identity client ID <span class="text-muted">(optional)</span></label>
-                <input class="form-control" @bind="form.ManagedIdentityClientId" placeholder="00000000-0000-0000-0000-000000000000" />
-                <div class="form-text">Selects a specific identity. Leave blank to use the default — which may have wider access.</div>
-            </div>
         }
         else if (form.Provider == ConnectionProvider.Sftp)
         {
@@ -614,7 +599,7 @@
                                 @bind-Value="form.PrivateKey" />
                 <div id="sftp-key-help" class="form-text">
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
-                    the rule that Connapse stores no cloud credentials is about AWS and Azure
+                    the rule that Connapse stores no cloud credentials is about AWS
                     identities, which are not stored and are not asked for.
                     @if (!isNew)
                     {
@@ -1685,27 +1670,13 @@
 
             var (container, prefix) = ConnectionForm.SplitLocation(target);
 
-            ConnectionTestResult result;
-            if (form.Provider == ConnectionProvider.S3)
+            ConnectionTestResult result = await S3Tester.TestConnectionAsync(new S3ConnectorConfig
             {
-                result = await S3Tester.TestConnectionAsync(new S3ConnectorConfig
-                {
-                    Region = NullIfBlank(form.Region) ?? "us-east-1",
-                    RoleArn = NullIfBlank(form.RoleArn),
-                    BucketName = container,
-                    Prefix = prefix,
-                }, TimeSpan.FromSeconds(15));
-            }
-            else
-            {
-                result = await AzureTester.TestConnectionAsync(new AzureBlobConnectorConfig
-                {
-                    StorageAccountName = form.StorageAccountName?.Trim() ?? "",
-                    ManagedIdentityClientId = NullIfBlank(form.ManagedIdentityClientId),
-                    ContainerName = container,
-                    Prefix = prefix,
-                }, TimeSpan.FromSeconds(15));
-            }
+                Region = NullIfBlank(form.Region) ?? "us-east-1",
+                RoleArn = NullIfBlank(form.RoleArn),
+                BucketName = container,
+                Prefix = prefix,
+            }, TimeSpan.FromSeconds(15));
 
             testSuccess = result.Success;
             testMessage = result.Message;
@@ -1729,7 +1700,6 @@
         {
             ConnectionProvider.Filesystem => form.AllowedRoot ?? "—",
             ConnectionProvider.S3 => form.Region ?? "—",
-            ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             _ => "—"
         };

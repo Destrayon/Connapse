@@ -23,10 +23,6 @@ public sealed record ConnectionForm
     public string? Region { get; set; }
     public string? RoleArn { get; set; }
 
-    // Azure Blob
-    public string? StorageAccountName { get; set; }
-    public string? ManagedIdentityClientId { get; set; }
-
     // Filesystem and SFTP both bound a source with a root, so this is shared.
     public string? AllowedRoot { get; set; }
 
@@ -70,7 +66,7 @@ public sealed record ConnectionForm
     /// </para>
     /// </summary>
     public bool IsCloudProvider =>
-        Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob;
+        Provider is ConnectionProvider.S3;
 
 
     /// <summary>
@@ -191,8 +187,6 @@ public sealed record ConnectionForm
 
         form.Region = Str(node, "region");
         form.RoleArn = Str(node, "roleArn");
-        form.StorageAccountName = Str(node, "storageAccountName");
-        form.ManagedIdentityClientId = Str(node, "managedIdentityClientId");
         form.AllowedRoot = Str(node, "allowedRoot");
         form.Host = Str(node, "host");
         form.Username = Str(node, "username");
@@ -242,12 +236,6 @@ public sealed record ConnectionForm
             case ConnectionProvider.S3:
                 node["region"] = Blank(Region) ? "us-east-1" : Region!.Trim();
                 if (!Blank(RoleArn)) node["roleArn"] = RoleArn!.Trim();
-                break;
-
-            case ConnectionProvider.AzureBlob:
-                node["storageAccountName"] = StorageAccountName?.Trim() ?? "";
-                if (!Blank(ManagedIdentityClientId))
-                    node["managedIdentityClientId"] = ManagedIdentityClientId!.Trim();
                 break;
 
             case ConnectionProvider.Filesystem:
@@ -345,7 +333,6 @@ public sealed record ConnectionForm
         return Provider switch
         {
             ConnectionProvider.Filesystem when Blank(AllowedRoot) => "Choose an allowed root.",
-            ConnectionProvider.AzureBlob when Blank(StorageAccountName) => "A storage account is required.",
 
             ConnectionProvider.Sftp when Blank(Host) => "A host is required.",
             ConnectionProvider.Sftp when Blank(Username) => "A username is required.",

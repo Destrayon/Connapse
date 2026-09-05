@@ -51,23 +51,6 @@ public class ConnectionFormTests
     }
 
     [Fact]
-    public void AzureConnection_RoundTripsEveryField()
-    {
-        var stored = Stored(ConnectionProvider.AzureBlob,
-            """{"storageAccountName":"acct","managedIdentityClientId":"mi-1","allowedLocations":["public"]}""");
-
-        var form = ConnectionForm.FromConnection(stored);
-
-        form.StorageAccountName.Should().Be("acct");
-        form.ManagedIdentityClientId.Should().Be("mi-1");
-
-        var reserialized = JsonNode.Parse(form.ToConfigJson())!.AsObject();
-        reserialized["storageAccountName"]!.GetValue<string>().Should().Be("acct");
-        // Dropping this silently falls back to the default identity, which may have wider access.
-        reserialized["managedIdentityClientId"]!.GetValue<string>().Should().Be("mi-1");
-    }
-
-    [Fact]
     public void FilesystemConnection_RoundTripsItsRoot()
     {
         var stored = Stored(ConnectionProvider.Filesystem, """{"allowedRoot":"/data/docs"}""");
@@ -90,14 +73,12 @@ public class ConnectionFormTests
             Name = "c",
             Provider = ConnectionProvider.S3,
             Region = "us-east-1",
-            StorageAccountName = "left-over-from-azure",
             AllowedRoot = "/left-over-from-filesystem",
         };
 
         var node = JsonNode.Parse(form.ToConfigJson())!.AsObject();
 
         node.ContainsKey("region").Should().BeTrue();
-        node.ContainsKey("storageAccountName").Should().BeFalse();
         node.ContainsKey("allowedRoot").Should().BeFalse();
     }
 
@@ -227,13 +208,6 @@ public class ConnectionFormTests
     }
 
     [Fact]
-    public void Validate_AzureRequiresAStorageAccount()
-    {
-        new ConnectionForm { Name = "c", Provider = ConnectionProvider.AzureBlob }
-            .Validate().Should().Contain("storage account");
-    }
-
-    [Fact]
     public void Validate_ValidS3Form_PassesWithNoRegion()
     {
         // Region defaults rather than being required.
@@ -336,7 +310,6 @@ public class ConnectionFormTests
     /// </summary>
     [Theory]
     [InlineData(ConnectionProvider.S3)]
-    [InlineData(ConnectionProvider.AzureBlob)]
     [InlineData(ConnectionProvider.Filesystem)]
     public void NonSftpProviders_NeverProduceASecret(ConnectionProvider provider)
     {
@@ -344,7 +317,6 @@ public class ConnectionFormTests
         {
             Name = "c",
             Provider = provider,
-            StorageAccountName = "a",
             AllowedRoot = "/data",
 
             // Set deliberately: even with a key sitting in the form, these providers must not
@@ -373,7 +345,6 @@ public class ConnectionFormTests
     {
         SftpForm().IsCloudProvider.Should().BeFalse();
         new ConnectionForm { Provider = ConnectionProvider.S3 }.IsCloudProvider.Should().BeTrue();
-        new ConnectionForm { Provider = ConnectionProvider.AzureBlob }.IsCloudProvider.Should().BeTrue();
         new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
     }
 

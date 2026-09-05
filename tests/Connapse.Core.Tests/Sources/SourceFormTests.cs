@@ -43,16 +43,6 @@ public class SourceFormTests
     }
 
     [Fact]
-    public void ToScopeJson_AzureBlob_WritesContainerNameNotBucketName()
-    {
-        var scope = Parse(Filled().ToScopeJson(ConnectionProvider.AzureBlob));
-
-        scope.GetProperty("containerName").GetString().Should().Be("company-knowledge");
-        scope.GetProperty("prefix").GetString().Should().Be("docs/");
-        scope.TryGetProperty("bucketName", out _).Should().BeFalse();
-    }
-
-    [Fact]
     public void ToScopeJson_Filesystem_WritesSubPathAndPatternsAsArrays()
     {
         var scope = Parse(Filled().ToScopeJson(ConnectionProvider.Filesystem));
@@ -127,7 +117,6 @@ public class SourceFormTests
 
     [Theory]
     [InlineData(ConnectionProvider.S3, "bucket")]
-    [InlineData(ConnectionProvider.AzureBlob, "container")]
     public void Validate_CloudProviderWithoutAContainer_IsRejected(ConnectionProvider provider, string noun)
     {
         var form = new SourceForm { Name = "n", ConnectionId = Guid.NewGuid() };

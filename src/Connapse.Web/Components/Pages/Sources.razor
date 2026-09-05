@@ -294,7 +294,7 @@
                     @* Which scope fields exist is decided by the connection's provider, because
                        the keys ConnectorFactory reads differ per provider and writing the wrong
                        one produces a source that silently syncs nothing. *@
-                    @if (selectedProvider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob)
+                    @if (selectedProvider is ConnectionProvider.S3)
                     {
                         @* The connection already names which buckets it permits, so asking for
                            one in free text made the reader supply a fact Connapse was holding —
@@ -326,9 +326,9 @@
                             {
                                 @* Bound to the entry, which is then split across two fields. An entry
                                    may name a prefix — bucket/team — and writing that whole string into
-                                   Container puts "bucket/team" in bucketName, which the S3 and Azure
-                                   connectors use as a literal bucket or container name. The source
-                                   passes preflight and then never syncs. *@
+                                   Container puts "bucket/team" in bucketName, which the S3 connector
+                                   uses as a literal bucket name. The source passes preflight and then
+                                   never syncs. *@
                                 <select id="source-container" class="form-select font-monospace"
                                         aria-describedby="source-container-help"
                                         value="@selectedScope" @onchange="SelectScope">

@@ -70,22 +70,6 @@ public class ConnectorFactory(
             // Providers page reports rather than as whatever the container is carrying.
             awsCredentials),
 
-            ConnectionProvider.AzureBlob => new AzureBlobConnector(new AzureBlobConnectorConfig
-            {
-                StorageAccountName = Str(credential, "storageAccountName")
-                    ?? throw new InvalidOperationException(
-                        $"Connection '{connection.Name}' has no storageAccountName."),
-                ManagedIdentityClientId = Str(credential, "managedIdentityClientId"),
-                ContainerName = RequirePermittedLocation(
-                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
-                    Str(scope, "containerName")
-                        ?? throw new InvalidOperationException(
-                            $"Source '{source.Name}' has no containerName in its scope."),
-                    Str(scope, "prefix"),
-                    connection.Name, source.Name),
-                Prefix = Str(scope, "prefix"),
-            }),
-
             ConnectionProvider.Filesystem => new FilesystemConnector(new FilesystemConnectorConfig
             {
                 RootPath = CombineUnderRoot(
