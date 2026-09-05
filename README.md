@@ -398,7 +398,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Docker release package on ghcr.io
 
 ### Future
-- **v0.4.0**: Per-user AWS search permissions via Amazon Cognito identity linking ([#436](https://github.com/Destrayon/Connapse/issues/436)); communication connectors (Slack, Discord)
+- **v0.4.0**: Communication connectors (Slack, Discord). (Per-user AWS search permissions — epic [#436](https://github.com/Destrayon/Connapse/issues/436), via IAM Identity Center SAML identity linking, not Cognito — has already shipped.)
 - **v0.5.0**: Knowledge platform connectors (Notion, Confluence, GitHub)
 - **v1.0.0**: Production-ready stable release
 
