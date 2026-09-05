@@ -78,7 +78,7 @@ public static class AccessGrantsSetup
             Type: AWS::S3::AccessGrantsInstance
             Properties:
               IdentityCenterArn: !Ref InstanceArn
-          # Register the S3 root without granting access to it.
+          # Register the S3 root as a location.
           Location:
             Type: AWS::S3::AccessGrantsLocation
             DependsOn: GrantsInstance
@@ -104,7 +104,6 @@ public static class AccessGrantsSetup
 
         return FlattenContinuations($$"""
         # Creates the Access Grants instance, s3:// location, and location role.
-        # Does not create access grants.
         FAILED=""
         PREFIX='{{NamePrefix}}'
         STACK="$PREFIX-permissions"
