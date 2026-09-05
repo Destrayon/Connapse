@@ -39,16 +39,14 @@ can rely on:
 
 - **AWS IAM Identity Center linking was removed** ([#435](https://github.com/Destrayon/Connapse/issues/435)).
   v0.3.0 shipped a device authorization flow for AWS. It could not carry a per-user identity through
-  to a usable token, so it stored data nothing could read. There is no AWS sign-in in the product
-  today. Per-user AWS permissions are being rebuilt on an Amazon Cognito identity link
-  ([#436](https://github.com/Destrayon/Connapse/issues/436)); until that lands, AWS access is not
-  user-specific.
-- **IAM-derived scope enforcement was never wired into search** ([#422](https://github.com/Destrayon/Connapse/issues/422)).
-  `CloudScopeService` exists and is unit-tested, but it has no production caller. **Every user who
-  can reach a container can search every document indexed in it.** Access is controlled by ASP.NET
-  role authorization (Viewer and above) and by container scoping — both identical for all users of a
-  given role. Do not deploy Connapse on the assumption that a user's cloud permissions limit what
-  they can retrieve.
+  to a usable token, so it stored data nothing could read. AWS sign-in was rebuilt on an IAM Identity
+  Center SAML link instead, which now backs the per-user AWS search filtering described below.
+- **Per-user AWS search filtering is live, and opt-in** ([#436](https://github.com/Destrayon/Connapse/issues/436)).
+  `ISearchScopeResolver` is wired into the search pipeline and fails closed. Until a deployment links
+  AWS identities (IAM Identity Center SAML sign-in, permissions resolved via AWS S3 Access Grants),
+  search is unrestricted and any user who can reach a container can search every document in it —
+  the same as before. Once AWS identity linking is configured, results are filtered to what the
+  searching user's AWS identity can reach.
 - **Azure Blob Storage connector and Azure AD cloud identity linking were removed**
   ([#476](https://github.com/Destrayon/Connapse/issues/476)). Both were unverified and torn down for
   a clean rebuild; the dead `CloudScopeService`/`ICloudIdentityService` scaffolding they shared was
@@ -63,7 +61,7 @@ These are known gaps to address before v1.0.0:
 - **No encryption at rest**: Database and object storage data is stored unencrypted. Rely on OS/disk-level encryption (e.g., LUKS, BitLocker, encrypted EBS volumes) for sensitive deployments
 - **No MFA**: Multi-factor authentication is not yet implemented
 - **No traditional OIDC / SSO login**: Social login via GitHub, Google, or Microsoft is not yet implemented. OAuth 2.1 with PKCE is used for CLI authentication, but web UI login is still password-based.
-- **No per-user search filtering**: Search results are not filtered by the caller's cloud permissions. See [Corrections since v0.3.0](#corrections-since-v030).
+- **Per-user search filtering is opt-in**: Results are filtered by AWS permissions only once a deployment configures AWS identity linking; unconfigured deployments have no per-user filtering. See [Corrections since v0.3.0](#corrections-since-v030).
 - **Cloud provider testing**: Cloud connector and AI provider integrations are unit-tested with mocks only — no end-to-end tests against real cloud services
 
 ## Reporting Security Vulnerabilities

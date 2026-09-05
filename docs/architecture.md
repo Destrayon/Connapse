@@ -776,31 +776,31 @@ through the Cognito link on the Integrations page.
 
 Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtector`).
 
-### Scope Enforcement — not implemented
+### Scope Enforcement — AWS, opt-in (epic #436)
 
-**There is no per-user permission filtering in Connapse today. Every user can search every indexed
-document.** Access is controlled by ASP.NET role authorization (`RequireViewer` and above) and by
-container scoping, both of which are the same for all users of a given role.
-
-This section previously described `CloudScopeService` and `ICloudIdentityService` enforcing cloud
-identity permissions across document, search and folder endpoints and the sync trigger. None of
-that ever happened — the services had no production caller and no channel by which a per-user
-scope could reach a query — and both, along with the Azure-only `AzureIdentityProvider`, were
-removed as dead scaffolding in the Azure teardown (#476).
-
-What does exist:
+Per-user AWS search scope enforcement is wired into the search pipeline. `SearchEndpoints` resolves
+the caller into `SearchOptions.UserId`, and `HybridSearchService` calls
+`ISearchScopeResolver.ResolveAsync` and fails closed on error.
 
 | Piece | State |
 |---|---|
+| `AwsSearchScopeResolver` | Working. Resolves what an AWS-linked user may reach via AWS S3 Access Grants. Registered in DI over the default once AWS identity linking is configured. |
+| `UnrestrictedScopeResolver` | The DI default. No AWS identity linked → search stays unrestricted. |
 | `ConnectorScopeCache` | Working. Note the TTLs are inverted for a security boundary: allows cached 15 min, denies 5. |
+
+So enforcement is opt-in per deployment: until an operator links AWS identities (IAM Identity Center
+SAML sign-in), every user who can reach a container can search every document in it — the same as
+before #436. Once configured, results are filtered, fail-closed, to what the searching user's AWS
+identity can reach via Access Grants.
+
+This section previously described `CloudScopeService` and `ICloudIdentityService` as dead scaffolding
+with no production caller and no channel by which a per-user scope could reach a query. Both, along
+with the Azure-only `AzureIdentityProvider`, were removed in the Azure teardown (#476); #436 replaced
+them with the resolver above.
 
 `AwsIdentityProvider`, the AWS half of the old `ICloudIdentityProvider`, was removed alongside the
 device flow (#435): it decided access from `CloudIdentityData.PrincipalArn`, which nothing could
 populate once no route created an AWS cloud identity.
-
-Planned work is tracked in [#421](https://github.com/Destrayon/Connapse/issues/421) and
-[docs/plans/search-permission-filtering.md](plans/search-permission-filtering.md). Until it lands,
-do not describe Connapse as filtering search by cloud permissions.
 
 ## Multi-Provider Support (v0.3.0)
 

@@ -242,7 +242,7 @@ The MCP server exposes:
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
 - **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), or Amazon S3 (IAM auth). Your files stay where they are.
 - **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server for Claude. Built for humans, scripts, and AI agents equally.
-- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with AWS identity linking. Per-user filtering of search results by cloud permissions is in progress, not yet enforced.
+- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with AWS identity linking. Per-user filtering of search results by AWS permissions is enforced once identity linking is configured (opt-in; unrestricted until then).
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
 <details>
@@ -251,7 +251,7 @@ The MCP server exposes:
 - **📄 Multi-Format Ingestion**: PDF, Office documents, Markdown, plain text — parsed, chunked, and embedded automatically
 - **⚡ Real-Time Processing**: Background ingestion with live progress updates via SignalR
 - **🎛️ Runtime Configuration**: Change chunking strategy, embedding model, and search settings per container without restart
-- **☁️ Cloud Identity Linking**: AWS IAM Identity Center (SAML) identity linking. Per-user AWS permission filtering is in progress — search is not yet filtered by cloud permissions
+- **☁️ Cloud Identity Linking**: AWS IAM Identity Center (SAML) identity linking. Per-user AWS permission filtering is enforced once configured (opt-in; unrestricted until then)
 - **👥 Invite-Only Access**: Admin-controlled user registration with four roles (Admin / Editor / Viewer / Agent)
 - **🤖 Agent Management**: Dedicated agent entities with API key lifecycle, scoped permissions, and audit trails
 - **📋 Audit Logging**: Structured audit trail for uploads, deletes, container operations, and auth events
@@ -280,7 +280,7 @@ v0.3.x adds cloud connector architecture, multi-provider embeddings and LLM supp
 - ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
 - ✅ **Audit logging**
 - ✅ **Cloud identity linking** — AWS IAM Identity Center (SAML)
-- ⚠️ **No per-user search filtering** — any user who can reach a container can search every document in it. Cloud permissions are not yet enforced on search; see [SECURITY.md](SECURITY.md)
+- ✅ **Per-user search filtering (opt-in)** — enforced once AWS identity linking is configured (AWS S3 Access Grants, fail-closed); unconfigured deployments have no per-user filtering, see [SECURITY.md](SECURITY.md)
 - ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
 - ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
 
@@ -377,7 +377,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
 - ↩️ Cloud identity linking: Azure AD (OAuth2+PKCE) — shipped in v0.3.0, since removed ([#476](https://github.com/Destrayon/Connapse/issues/476)) alongside the Azure Blob connector
 - ↩️ AWS IAM Identity Center (device auth flow) — shipped in v0.3.0, since removed ([#435](https://github.com/Destrayon/Connapse/issues/435)): the device flow could not carry a per-user identity through to a token
-- ⚠️ IAM-derived scope enforcement — built but never wired into search ([#422](https://github.com/Destrayon/Connapse/issues/422)); cloud permissions do not filter results today
+- ⚠️ IAM-derived scope enforcement — the v0.3.0 `CloudScopeService` was built but never wired into search ([#422](https://github.com/Destrayon/Connapse/issues/422)) and has since been removed; per-user AWS search filtering was rebuilt on `ISearchScopeResolver` + AWS S3 Access Grants (epic [#436](https://github.com/Destrayon/Connapse/issues/436)) — opt-in, fail-closed once AWS identity linking is configured
 - ✅ Multi-provider embeddings: Ollama, OpenAI, Azure OpenAI
 - ✅ Multi-provider LLM: Ollama, OpenAI, Azure OpenAI, Anthropic
 - ✅ Multi-dimension vector support with partial IVFFlat indexes per model
