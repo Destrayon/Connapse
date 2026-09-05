@@ -116,33 +116,6 @@ else
         </div>
     </div>
 
-    <h3 class="h6 text-uppercase text-muted mt-4">Group to grant to in AWS</h3>
-    <p class="small text-muted">
-        Not part of signing in — sign-in works without it. Connapse never creates a grant; this is
-        the group you will name as grantee when you create grants in the S3 console, kept here so
-        its id is at hand. Grants may still name any grantee you like.
-    </p>
-
-    <div class="row g-3">
-        <div class="col-md-8">
-            <label class="form-label" for="saml-group">Group to grant to</label>
-            <InputText id="saml-group" @bind-Value="localSettings.GrantGroupId"
-                       class="form-control font-monospace"
-                       placeholder="a1b2c3d4-5678-90ab-cdef-EXAMPLE11111" />
-            <div class="form-text">
-                The guided setup records this from the block its command prints. Editable here too,
-                for an administrator who already knows the id.
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <label class="form-label" for="saml-group-name">Group name</label>
-            <InputText id="saml-group-name" @bind-Value="localSettings.GrantGroupName"
-                       class="form-control" placeholder="Connapse Readers" />
-            <div class="form-text">Shown instead of the id, which nobody recognises.</div>
-        </div>
-    </div>
-
     <div class="d-flex gap-2 mt-3">
         <button type="submit" class="btn btn-primary">Save</button>
         <button type="button" class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
@@ -185,8 +158,6 @@ else
                 : Settings.AcsUrl,
             IdpEntityId = Settings.IdpEntityId,
             IdpSingleSignOnUrl = Settings.IdpSingleSignOnUrl,
-            GrantGroupId = Settings.GrantGroupId,
-            GrantGroupName = Settings.GrantGroupName,
             IdpSigningCertificate = Settings.IdpSigningCertificate,
         };
 
