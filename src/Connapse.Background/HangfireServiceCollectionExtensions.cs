@@ -94,7 +94,6 @@ public static class HangfireServiceCollectionExtensions
         // Job-class registrations — Hangfire activator resolves these via this IServiceProvider.
         services.AddScoped<Jobs.IIngestionJobs, Jobs.IngestionJobs>();
         services.AddScoped<Jobs.ISummaryJobs, Jobs.SummaryJobs>();
-        services.AddScoped<Jobs.IGrantReconciliationJobs, Jobs.GrantReconciliationJobs>();
 
         // Bridge the legacy IIngestionQueue API onto Hangfire. Replaces the in-memory
         // Channel-based queue + IngestionWorker that previously lived in Connapse.Ingestion.

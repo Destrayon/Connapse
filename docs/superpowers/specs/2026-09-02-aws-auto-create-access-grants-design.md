@@ -1,4 +1,9 @@
-# Auto-create S3 Access Grants with the Connapse role
+﻿# Auto-create S3 Access Grants with the Connapse role
+
+> **Superseded 2026-09-04 (#463).** Reversed: Connapse no longer creates, tags or deletes access
+> grants. In use, the only grant this design could author was the whole configured group on the whole
+> bucket, which gave every member every object. Administrators author grants in the S3 console; the
+> reader is unchanged. Kept for the record of what was tried and why.
 
 **Status:** Design — approved in brainstorming, pending spec review
 **Date:** 2026-09-02

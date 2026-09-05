@@ -73,8 +73,8 @@ public static class S3SetupPolicy
 
     /// <summary>
     /// The complete grant for the identity Connapse creates for itself: read across every AWS
-    /// storage service Connapse can read from, plus creating the S3 access grants that make a
-    /// connection searchable per-user.
+    /// storage service Connapse can read from, plus the reads that resolve what each person may
+    /// search.
     /// </summary>
     /// <remarks>
     /// One policy, not a choice of several. The easy setup exists to remove decisions, and a scope
@@ -89,14 +89,13 @@ public static class S3SetupPolicy
     /// re-reads. That produces a policy edited under pressure, not least privilege.
     /// </para>
     /// <para>
-    /// What it costs, plainly: a leaked key reads every object in the account, any Connapse
-    /// administrator can point a source at any bucket, and — the one authority beyond reading —
-    /// the identity can create S3 access grants, so a compromise of it can grant a directory group
-    /// read access to a bucket. That last is a deliberate reversal: creating grants used to be an
-    /// administrator's decision run in AWS, and is now Connapse's, made knowingly to remove a
-    /// CloudShell trip. Against all this — the identity writes no object, belongs to Connapse
-    /// alone, and revoking it touches nobody else's access. The narrowing lives in each
-    /// connection's allowed-locations list, which <c>ConnectorFactory</c> enforces on every read.
+    /// What it costs, plainly: a leaked key reads every object in the account, and any Connapse
+    /// administrator can point a source at any bucket. Against that — the identity writes nothing,
+    /// belongs to Connapse alone, and revoking it touches nobody else's access. It cannot create
+    /// an access grant: that was tried and reversed, because the only grant Connapse could author
+    /// on its own was a whole group on a whole bucket, and a compromise of the identity would have
+    /// been able to widen who may read what. The narrowing lives in each connection's
+    /// allowed-locations list, which <c>ConnectorFactory</c> enforces on every read.
     /// </para>
     /// <para>
     /// S3 alone today because S3 is the only AWS storage <c>ConnectionProvider</c> names. Adding
@@ -126,9 +125,9 @@ public static class S3SetupPolicy
     /// One sentence describing <see cref="ForManagedIdentity"/>, for the operator about to run it.
     /// </summary>
     public const string ManagedIdentitySummary =
-        "reading every S3 bucket in the account and creating and removing S3 access grants, which "
-        + "grant directory groups read access to buckets. The only things it changes are grants: it "
-        + "writes no object and deletes no data.";
+        "reading every S3 bucket in the account, and reading S3 access grants and the directory to "
+        + "learn what each person may search. It cannot write, delete, or change anything: the grants "
+        + "themselves are created by an administrator in AWS.";
 
     /// <summary>
     /// Every statement in the managed identity's policy, one group per AWS storage service.
@@ -170,36 +169,23 @@ public static class S3SetupPolicy
             ["Resource"] = "arn:aws:s3:::*/*"
         },
         // Named at the Access Grants instances of this account. AWS documents that resource form
-        // for these actions, and it is the one worth narrowing: it is where the identity both
-        // enumerates what every grantee may read and creates new grants.
+        // for this action, and it is the one worth narrowing: it is where the identity enumerates
+        // what every grantee may read.
         //
-        // CreateAccessGrant is the deliberate exception to this policy being read-only. Connapse
-        // now creates the grants that make a connection's buckets searchable per-user rather than
-        // printing a script for an administrator to run -- so a compromise of this identity can
-        // create grants, which the operator is told in ManagedIdentitySummary. ListAccessGrants-
-        // Locations finds the s3:// location a grant attaches to. The grant is still bounded to
-        // the access-grants resource; nothing here touches an object.
+        // Read only, and deliberately so. A grant is an access-control decision an administrator
+        // makes in the S3 console -- who may read which bucket, prefix or object. Connapse reads
+        // that decision to scope search and must never be able to author one: the only grant it
+        // could ever write on its own is "this whole group may read this whole bucket", which is
+        // the opposite of per-user. No Create, Delete or Tag action belongs here.
         //
         // The region is a wildcard because this script runs before the Identity Center region is
         // known -- it is the step that mints the credential the later steps use. The account is
         // substituted by the script from sts:GetCallerIdentity.
         new Dictionary<string, object>
         {
-            ["Sid"] = "ConnapseManageGrants",
+            ["Sid"] = "ConnapseReadGrants",
             ["Effect"] = "Allow",
-            ["Action"] = new[]
-            {
-                "s3:ListAccessGrants",
-                "s3:ListAccessGrantsLocations",
-                "s3:CreateAccessGrant",
-                // Delete + tag: Connapse tags every grant it creates and later removes the ones no
-                // connection needs. ListTagsForResource reads a grant's tag back (ListAccessGrants
-                // does not return tags), which is how cleanup proves a grant is Connapse's own
-                // before deleting it.
-                "s3:DeleteAccessGrant",
-                "s3:TagResource",
-                "s3:ListTagsForResource"
-            },
+            ["Action"] = new[] { "s3:ListAccessGrants" },
             ["Resource"] = $"arn:aws:s3:*:{AccountPlaceholder}:access-grants/*"
         },
         // Resource "*", and deliberately not narrowed on a guess. AWS's own Identity Store policy
@@ -211,25 +197,10 @@ public static class S3SetupPolicy
         {
             ["Sid"] = "ConnapseReadDirectory",
             ["Effect"] = "Allow",
-            // The scope-resolution reads, plus DescribeGroup. CreateAccessGrant calls DescribeGroup
-            // internally to validate a directory-group grantee, so without it creating a group grant
-            // fails with an AccessDenied that names identitystore, not s3 -- invisible to anyone
-            // reading only the s3 actions.
+            // The scope-resolution reads only.
             ["Action"] = PermissionResolutionActions
                 .Where(a => a.StartsWith("identitystore:"))
-                .Append("identitystore:DescribeGroup")
                 .ToArray(),
-            ["Resource"] = "*"
-        },
-        // Creating a grant to a directory user or group makes S3 Access Grants validate the Identity
-        // Center instance and application on the caller's behalf. AWS documents both as required for
-        // any directory grantee; the old CloudShell script never needed them because the administrator
-        // running it already had them, and Connapse creating the grant itself does not.
-        new Dictionary<string, object>
-        {
-            ["Sid"] = "ConnapseValidateIdentityCenter",
-            ["Effect"] = "Allow",
-            ["Action"] = new[] { "sso:DescribeInstance", "sso:DescribeApplication" },
             ["Resource"] = "*"
         }
     ];
