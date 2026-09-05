@@ -95,44 +95,6 @@ public sealed class S3AccessGrantsReader(
         return grants;
     }
 
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> ListAllScopesAsync(
-        string region, CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(region);
-
-        if (!options.CurrentValue.IsConfigured)
-            return [];
-
-        var endpoint = RegionEndpoint.GetBySystemName(region);
-        string account = await ResolveAccountIdAsync(endpoint, ct);
-
-        using var client = new AmazonS3ControlClient(
-            credentials, new AmazonS3ControlConfig { RegionEndpoint = endpoint });
-
-        List<string> scopes = [];
-        string? nextToken = null;
-
-        do
-        {
-            // No grantee filter: the question is whether anybody is granted anything here, not
-            // what one person may read.
-            var response = await client.ListAccessGrantsAsync(
-                new ListAccessGrantsRequest { AccountId = account, NextToken = nextToken }, ct);
-
-            // Null, not empty, when the account holds no grants — the AWS SDK leaves response
-            // collections unset rather than initialising them.
-            scopes.AddRange((response.AccessGrantsList ?? [])
-                .Select(g => g.GrantScope)
-                .Where(s => !string.IsNullOrWhiteSpace(s)));
-
-            nextToken = response.NextToken;
-        }
-        while (!string.IsNullOrEmpty(nextToken));
-
-        return scopes;
-    }
-
     /// <summary>
     /// Whether a grant names one object rather than everything beneath a prefix.
     /// </summary>
