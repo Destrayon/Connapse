@@ -34,16 +34,17 @@ public class S3SetupPolicyTests
         var root = Parse(S3SetupPolicy.ForManagedIdentity());
 
         root.GetProperty("Version").GetString().Should().Be("2012-10-17");
-        root.GetProperty("Statement").GetArrayLength().Should().Be(5);
+        root.GetProperty("Statement").GetArrayLength().Should().Be(6);
     }
 
     [Fact]
-    public void ForManagedIdentity_ReadsEverythingAndChangesNothing()
+    public void ForManagedIdentity_ReadsEverythingAndCreatesGrants()
     {
-        // The whole trade rests on this. A credential that can read every bucket is a real cost,
-        // accepted knowingly; one that can also delete them is a different product. Connapse has no
-        // write surface against a source at all -- IConnector does not expose one -- so a policy
-        // granting more asks for authority the product cannot use.
+        // The trade: the identity reads every bucket -- a real cost accepted knowingly -- and now
+        // also creates S3 access grants, the one write it is deliberately given so Connapse can
+        // grant a group access without a CloudShell trip. It still cannot touch an object beyond
+        // reading it: Connapse has no write surface against a source (IConnector exposes none), so
+        // no object-write action belongs here.
         var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
             .EnumerateArray()
             .SelectMany(x => x.GetProperty("Action").EnumerateArray())
@@ -52,18 +53,69 @@ public class S3SetupPolicyTests
 
         actions.Should().BeEquivalentTo([
             "s3:ListAllMyBuckets", "s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject",
-            // Resolving what a person may read. None of these touches an object, and they are here
-            // rather than in a second policy so one document describes everything the identity can
-            // do.
-            "s3:ListAccessGrants", "identitystore:GetUserId", "identitystore:DescribeUser",
-            "identitystore:ListGroupMembershipsForMember"
+            // Resolving what a person may read, creating the grants that let them, and removing the
+            // grants no connection needs. These are here rather than in a second policy so one
+            // document describes everything the identity can do.
+            "s3:ListAccessGrants", "s3:ListAccessGrantsLocations", "s3:CreateAccessGrant",
+            "s3:DeleteAccessGrant", "s3:TagResource", "s3:ListTagsForResource",
+            "identitystore:GetUserId", "identitystore:DescribeUser",
+            "identitystore:ListGroupMembershipsForMember",
+            // Creating a directory-group grant validates the grantee and the Identity Center instance.
+            "identitystore:DescribeGroup", "sso:DescribeInstance", "sso:DescribeApplication"
         ]);
 
-        // Read-only, whichever service. The verb is the guard: Get, List and Describe cannot change
-        // anything, and no wildcard is allowed to smuggle one in.
+        // The only writes are grant management — create, delete, tag. Everything else is a Get,
+        // List or Describe, and no wildcard is allowed to smuggle a broader one in.
+        string[] grantManagementWrites =
+            ["s3:CreateAccessGrant", "s3:DeleteAccessGrant", "s3:TagResource"];
         actions.Should().OnlyContain(a =>
-            a.Contains(":Get") || a.Contains(":List") || a.Contains(":Describe"));
+            grantManagementWrites.Contains(a)
+            || a.Contains(":Get") || a.Contains(":List") || a.Contains(":Describe"));
         actions.Should().NotContain(a => a.Contains("*"));
+
+        // No object-write, ever: the only delete is DeleteAccessGrant (an access-control record),
+        // never an object or a bucket.
+        actions.Should().NotContain(["s3:PutObject", "s3:DeleteObject", "s3:DeleteBucket"]);
+    }
+
+    [Fact]
+    public void ForManagedIdentity_GrantsCreateAccessGrantOnTheAccessGrantsResource()
+    {
+        var manage = Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseManageGrants");
+
+        manage.GetProperty("Action").EnumerateArray().Select(a => a.GetString())
+            .Should().Contain(["s3:CreateAccessGrant", "s3:ListAccessGrantsLocations"]);
+
+        // Bounded to access-grants -- creating a grant is not authority over objects.
+        manage.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
+    }
+
+    [Fact]
+    public void ForManagedIdentity_CanCreateGrantsForDirectoryGroups()
+    {
+        // Creating a group grant makes S3 Access Grants validate the grantee (DescribeGroup) and the
+        // Identity Center instance (sso). Missing any of these fails the create with an AccessDenied
+        // that names sso/identitystore, not s3 -- the bug this guards against.
+        var actions = Parse(S3SetupPolicy.ForManagedIdentity()).GetProperty("Statement")
+            .EnumerateArray()
+            .SelectMany(x => x.GetProperty("Action").EnumerateArray())
+            .Select(a => a.GetString());
+
+        actions.Should().Contain(
+            ["identitystore:DescribeGroup", "sso:DescribeInstance", "sso:DescribeApplication"]);
+    }
+
+    [Fact]
+    public void ForManagedIdentity_GrantsDeleteAndTagAccessGrant()
+    {
+        // Cleanup needs delete; provenance needs tag-on-create and reading tags back.
+        var manage = Statement(S3SetupPolicy.ForManagedIdentity(), "ConnapseManageGrants");
+
+        manage.GetProperty("Action").EnumerateArray().Select(a => a.GetString())
+            .Should().Contain(["s3:DeleteAccessGrant", "s3:TagResource", "s3:ListTagsForResource"]);
+
+        // Still bounded to the access-grants resource -- deletion never reaches an object.
+        manage.GetProperty("Resource").GetString().Should().Contain(":access-grants/");
     }
 
     [Fact]
@@ -104,12 +156,16 @@ public class S3SetupPolicyTests
     }
 
     [Fact]
-    public void ManagedIdentitySummary_SaysBothWhatItReadsAndWhatItCannotDo()
+    public void ManagedIdentitySummary_SaysItReadsBucketsAndCreatesGrants()
     {
         // This sentence is what an operator reads before running a script that mints a credential.
-        // "Every bucket" without "cannot write" describes something scarier than what is granted.
+        // It must name the read reach AND the new grant-creating authority -- the identity is no
+        // longer read-only, so the old "cannot write, delete, or change anything" claim would be a
+        // false reassurance about a credential that can now create access grants.
         S3SetupPolicy.ManagedIdentitySummary.Should()
-            .Contain("every S3 bucket").And.Contain("cannot write");
+            .Contain("every S3 bucket")
+            .And.Contain("access grant")
+            .And.NotContain("cannot write, delete, or change anything");
     }
 
     [Theory]

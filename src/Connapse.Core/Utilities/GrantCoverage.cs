@@ -56,6 +56,48 @@ public static class GrantCoverage
     }
 
     /// <summary>
+    /// Whether <paramref name="grantScope"/> is fully contained within one of
+    /// <paramref name="allowedLocations"/> — i.e. everything the grant permits is still allowed.
+    /// </summary>
+    /// <remarks>
+    /// The question cleanup asks to decide a grant is still justified, and it is <b>directional</b>,
+    /// which <see cref="Ungranted"/>'s symmetric <see cref="Overlaps"/> is not. A grant on the whole
+    /// bucket <c>s3://acme*</c> merely <i>overlaps</i> an allowed location narrowed to
+    /// <c>acme/team</c>, but it grants far more than that location permits — so overlap would keep an
+    /// over-broad grant alive after a connection is narrowed, leaving the group authorised over data
+    /// deliberately removed. Containment is the correct test: the grant survives only when some
+    /// allowed location is a boundary-aware prefix of (or equal to) the grant's scope. A grant
+    /// broader than every allowed location is orphaned.
+    /// </remarks>
+    public static bool IsScopeWithinAllowed(string? grantScope, IEnumerable<string>? allowedLocations)
+    {
+        string scope = Normalise(grantScope);
+        if (scope.Length == 0)
+            return false;
+
+        return (allowedLocations ?? [])
+            .Select(l => l?.Trim())
+            .Where(l => !string.IsNullOrEmpty(l))
+            .Any(l => Contains(container: Normalise(Scheme + l!), scope));
+    }
+
+    /// <summary>Whether <paramref name="container"/> is a boundary-aware prefix of (or equals) <paramref name="inner"/>.</summary>
+    /// <remarks>
+    /// Boundary-aware so <c>s3://logs</c> does not appear to contain <c>s3://logs-archive/x</c>: a
+    /// location whose name merely starts the same way is somebody else's data.
+    /// </remarks>
+    private static bool Contains(string container, string inner)
+    {
+        if (container.Length == 0 || inner.Length < container.Length)
+            return false;
+
+        if (!inner.StartsWith(container, StringComparison.Ordinal))
+            return false;
+
+        return inner.Length == container.Length || inner[container.Length] == '/';
+    }
+
+    /// <summary>
     /// Reduces a scope or location to the URI prefix it stands for.
     /// </summary>
     /// <remarks>

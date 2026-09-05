@@ -217,6 +217,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
+        services.AddSingleton<IAccessGrantsWriter, CloudScope.S3AccessGrantsWriter>();
 
         // Registered here rather than in Connapse.Search, whose own registration is a TryAdd for
         // the unrestricted default. This one resolves real grants, and it must win.
