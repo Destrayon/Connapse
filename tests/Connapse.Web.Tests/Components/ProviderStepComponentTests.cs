@@ -14,8 +14,8 @@ using Xunit;
 namespace Connapse.Web.Tests.Components;
 
 /// <summary>
-/// The shared step-card shell that every provider setup step (AWS access, directory group,
-/// Identity Center, ...) renders through. Verifies the status-to-presentation mapping, the
+/// The shared step-card shell that every provider setup step (AWS access, Identity Center,
+/// per-user permissions) renders through. Verifies the status-to-presentation mapping, the
 /// collapse-when-satisfied behavior, and the ARIA wiring that makes the disclosure accessible.
 /// </summary>
 [Trait("Category", "Unit")]

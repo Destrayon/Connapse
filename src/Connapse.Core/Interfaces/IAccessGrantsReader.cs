@@ -80,22 +80,6 @@ public interface IAccessGrantsReader
     /// </param>
     Task<IReadOnlyList<AccessGrantRecord>> ListForGranteeAsync(
         AccessGrantee grantee, string region, CancellationToken ct = default);
-
-    /// <summary>
-    /// The scope of every grant in the instance, whoever holds it.
-    /// </summary>
-    /// <remarks>
-    /// For answering "is anybody granted anything here at all", which is what makes a connection
-    /// naming an ungranted bucket worth warning about. Deliberately not per-person: the question is
-    /// whether the bucket is reachable by anyone, and asking it once for a page of connections
-    /// costs one call rather than one per connection per viewer.
-    /// <para>
-    /// Not usable for deciding what a search may read. It ignores who holds each grant, so treating
-    /// it as an authorization answer would show everybody everything anyone was granted. That is
-    /// <see cref="ListForGranteeAsync"/>'s job and the two must not be confused.
-    /// </para>
-    /// </remarks>
-    Task<IReadOnlyList<string>> ListAllScopesAsync(string region, CancellationToken ct = default);
 }
 
 /// <summary>
