@@ -893,7 +893,7 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `GET /api/settings/{category}`
 
-**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload` | `azuread`
+**Categories**: `embedding` | `chunking` | `search` | `llm` | `upload`
 
 **Response** (200 OK) — Example for `embedding`:
 ```json
@@ -930,7 +930,7 @@ All settings endpoints require **Admin** role.
 
 **Endpoint**: `POST /api/settings/test-connection`
 
-**Categories**: `Embedding` | `Llm` | `AzureAd` | `CrossEncoder`
+**Categories**: `Embedding` | `Llm` | `CrossEncoder`
 
 **Request Body**:
 ```json
@@ -1184,7 +1184,7 @@ All API errors follow RFC 7807 Problem Details format.
 
 Base path: `/api/sources`
 
-A **source** is an external system Connapse mirrors read-only — an S3 bucket, an Azure Blob container, or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
+A **source** is an external system Connapse mirrors read-only — an S3 bucket or a filesystem directory. It is searchable but never browsable and never writable. See [connectors.md](connectors.md) for the connection/source model.
 
 **Connections have no REST surface.** They hold the credential boundary and are managed on the Connections page by administrators only. Sources are scoped inside a connection an administrator already approved, which is why they do have routes.
 
@@ -1216,7 +1216,6 @@ Scope keys by provider:
 | Provider | Keys |
 |----------|------|
 | S3 | `bucketName`, `prefix` |
-| AzureBlob | `containerName`, `prefix` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 
 The scope must fall inside the `allowedLocations` or `allowedRoot` its connection declares, or creation fails.
@@ -1374,37 +1373,43 @@ Fire-and-forget reindex with settings change detection.
 
 ---
 
-## Cloud Identity Endpoints (v0.3.0)
+## Cloud Identity Endpoints
 
 Base path: `/api/v1/auth/cloud`
 
-All endpoints require authentication.
+AWS-only per-user identity link, backed by an IAM Identity Center SAML flow (see
+[architecture.md](architecture.md) — Identity Linking). Azure AD per-user identity linking was
+removed in the Azure teardown (#476).
 
-### Get Azure Connect URL
+### Start AWS Connect
 
-**Endpoint**: `GET /api/v1/auth/cloud/azure/connect`
+**Endpoint**: `GET /api/v1/auth/cloud/aws/connect`
 
-Redirects to Azure AD authorize endpoint with PKCE challenge. Sets `__connapse_az_state` and `__connapse_az_pkce` cookies (10-min TTL).
+Redirects the browser to IAM Identity Center to begin the SAML sign-in. Requires authentication.
 
-**Response**: 302 Redirect to Azure AD.
-
----
-
-### Azure Callback
-
-**Endpoint**: `GET /api/v1/auth/cloud/azure/callback`
-
-Handles the OAuth2 callback from Azure AD. Validates state, exchanges code for ID token, stores identity.
-
-**Response**: 302 Redirect to `/profile`.
+**Response**: 302 Redirect to IAM Identity Center.
 
 ---
 
-### List Cloud Identities
+### AWS Assertion Consumer
 
-**Endpoint**: `GET /api/v1/auth/cloud`
+**Endpoint**: `POST /api/v1/auth/cloud/aws/acs`
 
-**Response** (200 OK): Array of linked cloud identities.
+Anonymous endpoint where IAM Identity Center posts the signed SAML assertion. Validates the
+assertion and RelayState, then redirects to the confirm step.
+
+**Response**: 302 Redirect to `/api/v1/auth/cloud/aws/confirm`.
+
+---
+
+### Confirm AWS Link
+
+**Endpoint**: `GET /api/v1/auth/cloud/aws/confirm`
+
+Same-site redirect target that carries the session cookie. Verifies the signed-in user matches the
+one who started the sign-in, then saves the link.
+
+**Response**: 302 Redirect to `/profile/integrations`.
 
 ---
 
@@ -1412,7 +1417,7 @@ Handles the OAuth2 callback from Azure AD. Validates state, exchanges code for I
 
 **Endpoint**: `DELETE /api/v1/auth/cloud/{provider}`
 
-**Path Parameters**: `provider` = `AWS` | `Azure`
+**Path Parameters**: `provider` = `AWS`
 
 Removes the linked identity and evicts cached scope entries.
 

@@ -101,7 +101,6 @@ Search → Core
 
 Storage → Core
        → AWSSDK.S3, AWSSDK.SSOAdmin, AWSSDK.SSOOIDC
-       → Azure.Storage.Blobs, Azure.Identity
        → OpenAI, Azure.AI.OpenAI, Anthropic
 ```
 
@@ -131,12 +130,11 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `ISearchReranker` | Result reranking | `CrossEncoderReranker` |
 | `ISettingsStore` | Runtime-mutable settings | `PostgresSettingsStore` |
 | `ILlmProvider` | LLM completion + streaming | `OllamaLlmProvider`, `OpenAiLlmProvider`, `AzureOpenAiLlmProvider`, `AnthropicLlmProvider` |
-| `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `S3Connector`, `AzureBlobConnector` |
+| `IConnector` | Storage backend I/O | `MinioConnector`, `FilesystemConnector`, `S3Connector` |
 | `IManagedStorageProvider` | Managed Storage abstraction (routes to active backend) | `MinioManagedStorageProvider` (default); overridable per deployment |
 | `IConnectorFactory` | Create connector from container | `ConnectorFactory` |
 | `IContainerSettingsResolver` | Per-container settings overrides | `ContainerSettingsResolver` |
-| `ICloudScopeService` | IAM-derived access control — **written but not wired to anything; see Scope Enforcement** | `CloudScopeService` |
-| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `AzureBlobConnectionTester`, `AzureAdConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
+| `IConnectionTester` | Service connectivity validation | `MinioConnectionTester`, `OllamaConnectionTester`, `S3ConnectionTester`, `OpenAiConnectionTester`, `AzureOpenAiConnectionTester`, `AnthropicConnectionTester` |
 
 **Identity (`Connapse.Identity`)**:
 
@@ -147,8 +145,6 @@ All swappable implementations are defined as interfaces in `Connapse.Core` or `C
 | `IAuditLogger` | Structured audit trail | `AuditLogger` |
 | `IAgentService` | Agent + agent API key CRUD | `AgentService` |
 | `IInviteService` | Invite-only registration tokens | `InviteService` |
-| `ICloudIdentityService` | Cloud identity linking (AWS/Azure) | `CloudIdentityService` |
-| `ICloudIdentityStore` | Encrypted cloud identity persistence | `PostgresCloudIdentityStore` |
 
 ### Core Models
 
@@ -165,14 +161,14 @@ record CreateContainerRequest(string Name, string? Description);
 
 // Connections & Sources — somebody else's storage, mirrored read-only. A connection holds
 // the credential and what it may reach; a source names a scope within one. See connectors.md.
-enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4 }
+enum ConnectionProvider { Filesystem = 1, S3 = 3 }
 record Connection(Guid Id, string Name, ConnectionProvider Provider, string? ConfigJson,
     Guid? CreatedByUserId, DateTime CreatedAt, DateTime UpdatedAt, bool HasSecret, int SourceCount);
 record Source(Guid Id, string Name, string? Description, Guid ConnectionId, string? ScopeJson, ...);
 
 // ConnectorType is the connector's own self-description (IConnector.Type), not a container
 // column — those were dropped in #353.
-enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4 }
+enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3 }
 record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 record Document(string Id, string ContainerId, string FileName, string? ContentType, string Path,
     long SizeBytes, DateTime CreatedAt, Dictionary<string, string> Metadata);
@@ -198,8 +194,6 @@ record SearchSettings(string Mode, int TopK, float FusionAlpha, string FusionMet
     bool AutoCut, bool EnableCrossModelSearch, ...);
 record LlmSettings(string Provider, string BaseUrl, string Model, string? ApiKey, ...);
 record UploadSettings(long MaxFileSizeBytes, List<string> AllowedExtensions, ...);
-// Identity settings (separate config sections)
-class AzureAdSettings { ClientId, TenantId, ClientSecret }
 ```
 
 ## Data Flow
@@ -295,12 +289,7 @@ folders (id, container_id, path, created_at)
 
 -- Settings (runtime-mutable, JSONB per category)
 settings (category, values, updated_at)
--- JSONB per category (embedding, chunking, search, llm, upload, azuread)
-
--- Cloud identities (user ↔ cloud provider linkage)
-user_cloud_identities (id, user_id, provider, encrypted_data, created_at, last_used_at)
--- Unique index on (user_id, provider)
--- DataProtection-encrypted identity data
+-- JSONB per category (embedding, chunking, search, llm, upload)
 ```
 
 **Indexes**:
@@ -741,7 +730,6 @@ A **Container** is a logical knowledge base; a **Connector** is the storage tech
 | **MinIO** | No | 5-min polling | No (global) |
 | **Filesystem** | Yes (`FileSystemWatcher`) | Live + 5-min rescan | `rootPath` |
 | **S3** | No | 5-min polling | `bucketName`, `region` |
-| **AzureBlob** | No | 5-min polling | `storageAccountName`, `containerName` |
 
 ### IConnector Interface
 
@@ -777,13 +765,10 @@ See [connectors.md](connectors.md) for full connector documentation.
 
 ### Identity Linking
 
-Users link one cloud identity per provider via their Profile page:
+Azure AD per-user identity linking (OAuth2 authorization code + PKCE, storing Object ID, Tenant ID
+and display name) was torn down in the Azure teardown (#476).
 
-| Provider | Flow | Stored Data |
-|----------|------|-------------|
-| **Azure** | OAuth2 authorization code + PKCE | Object ID, Tenant ID, display name |
-
-AWS previously linked the same way, via an IAM Identity Center device authorization flow. It was
+AWS previously linked via an IAM Identity Center device authorization flow. It was
 removed (#435): the device flow cannot carry a per-user identity through to a token
 (`sso-oidc:CreateToken` has no `awsAdditionalDetails` field, and `PutApplicationGrant` excludes
 `device_code`), so it stored data nothing could ever read. Per-user AWS permissions instead arrive
@@ -797,31 +782,25 @@ Identity data is encrypted at rest via ASP.NET Core DataProtection (`IDataProtec
 document.** Access is controlled by ASP.NET role authorization (`RequireViewer` and above) and by
 container scoping, both of which are the same for all users of a given role.
 
-This section previously described `CloudScopeService` enforcing cloud identity permissions across
-document, search and folder endpoints and the sync trigger. None of that happens. The service is
-registered in `Program.cs` and has no production caller; `CloudScopeResult.IsPathAllowed` is
-invoked only from its own unit tests. `SearchOptions` carries no principal, so there is no channel
-through which a per-user scope could reach a query.
+This section previously described `CloudScopeService` and `ICloudIdentityService` enforcing cloud
+identity permissions across document, search and folder endpoints and the sync trigger. None of
+that ever happened — the services had no production caller and no channel by which a per-user
+scope could reach a query — and both, along with the Azure-only `AzureIdentityProvider`, were
+removed as dead scaffolding in the Azure teardown (#476).
 
 What does exist:
 
 | Piece | State |
 |---|---|
-| `ICloudIdentityService` | Working. Links a user's Azure identity and stores identity metadata. |
-| `CloudScopeService` | Written, registered, uncalled. Shaped per source rather than per request. |
-| `AzureIdentityProvider` | Probes with the *service's* credential, not the user's, and returns the source's configured prefix. |
 | `ConnectorScopeCache` | Working. Note the TTLs are inverted for a security boundary: allows cached 15 min, denies 5. |
 
-`AwsIdentityProvider`, the AWS half of `ICloudIdentityProvider`, was removed alongside the device
-flow (#435): it decided access from `CloudIdentityData.PrincipalArn`, which nothing can populate
-now that no route creates an AWS cloud identity. `AzureIdentityProvider` is unaffected — Azure's
-sign-in and scope discovery are unchanged.
+`AwsIdentityProvider`, the AWS half of the old `ICloudIdentityProvider`, was removed alongside the
+device flow (#435): it decided access from `CloudIdentityData.PrincipalArn`, which nothing could
+populate once no route created an AWS cloud identity.
 
 Planned work is tracked in [#421](https://github.com/Destrayon/Connapse/issues/421) and
 [docs/plans/search-permission-filtering.md](plans/search-permission-filtering.md). Until it lands,
 do not describe Connapse as filtering search by cloud permissions.
-
-See [azure-identity-setup.md](azure-identity-setup.md) for the Azure setup guide.
 
 ## Multi-Provider Support (v0.3.0)
 

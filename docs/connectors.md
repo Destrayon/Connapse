@@ -11,7 +11,7 @@ Connapse keeps two kinds of storage apart, because they answer to different owne
 | Writable | Yes — upload, delete, create folders | Never |
 | Searchable | Yes | Yes |
 | Created by | Any editor | Administrators only |
-| Backed by | Managed storage | A **connection** to S3, Azure Blob, or a filesystem |
+| Backed by | Managed storage | A **connection** to S3 or a filesystem |
 
 A **connection** is the third piece: an administrator registers one credential and endpoint, and any number of sources point at scopes within it. One connection to an AWS account, many sources naming different buckets.
 
@@ -45,11 +45,10 @@ Connections are created and edited on the **Connections** page, by administrator
 There is no secret field on a connection form, because Connapse does not accept pasted cloud keys.
 
 - **S3** authenticates as the identity set up on the AWS provider page (IAM Roles Anywhere, short-lived credentials from a locally generated certificate), or through the AWS default credential chain when nothing is stored there. `roleArn` optionally names a role to assume on top of that. See [AWS Setup](aws-setup.md).
-- **Azure Blob** authenticates through `DefaultAzureCredential` — a managed identity, a workload identity, or a developer sign-in. `managedIdentityClientId` optionally selects a specific user-assigned identity.
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
-- **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key or an Azure secret is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
+- **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
 
-The consequence worth internalising: **rotating credentials is an operation you perform in AWS or Azure, and Connapse needs no involvement.** There is nothing stored here to rotate.
+The consequence worth internalising: **rotating credentials is an operation you perform in AWS, and Connapse needs no involvement.** There is nothing stored here to rotate.
 
 ### Configuration by provider
 
@@ -60,16 +59,6 @@ The consequence worth internalising: **rotating credentials is an operation you 
   "region": "us-east-1",
   "roleArn": "arn:aws:iam::123456789012:role/ConnapseReader",
   "allowedLocations": ["company-knowledge", "shared-docs/public/"]
-}
-```
-
-**Azure Blob**
-
-```json
-{
-  "storageAccountName": "companydata",
-  "managedIdentityClientId": "00000000-0000-0000-0000-000000000000",
-  "allowedLocations": ["knowledge", "archive/2026/"]
 }
 ```
 
@@ -97,7 +86,7 @@ The consequence worth internalising: **rotating credentials is an operation you 
 
 ### The two allowlists
 
-`allowedLocations` and `allowedRoot` bound what any source using the connection may be pointed at. They exist because **IAM cannot make this distinction on its own**: every source sharing a connection presents the same principal to AWS or Azure, so as far as the cloud provider is concerned they are indistinguishable. The allowlist is the only place that difference can be expressed.
+`allowedLocations` and `allowedRoot` bound what any source using the connection may be pointed at. They exist because **IAM cannot make this distinction on its own**: every source sharing a connection presents the same principal to AWS, so as far as the cloud provider is concerned they are indistinguishable. The allowlist is the only place that difference can be expressed.
 
 A location may name a whole container (`company-knowledge`) or a container and prefix (`shared-docs/public/`). A prefix entry permits only sources at or below it.
 
@@ -179,7 +168,6 @@ Scope keys by provider:
 | Provider | Keys |
 |---|---|
 | S3 | `bucketName`, `prefix` |
-| Azure Blob | `containerName`, `prefix` |
 | Filesystem | `subPath`, `includePatterns`, `excludePatterns` |
 | SFTP | `subPath`, `includePatterns`, `excludePatterns` |
 

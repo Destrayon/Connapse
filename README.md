@@ -24,7 +24,7 @@
 
 > *Your AI agents forget everything between sessions. Connapse fixes that.*
 
-Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing Amazon S3 buckets, Azure Blob Storage containers, or local filesystems. Agents query and build their own research corpus via 11 MCP tools, REST API, or CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
+Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing Amazon S3 buckets or local filesystems. Agents query and build their own research corpus via 11 MCP tools, REST API, or CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
 
 <details>
 <summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
@@ -240,9 +240,9 @@ The MCP server exposes:
 - **🗂️ Container-Isolated Knowledge** — Each project gets its own vector index, storage connector, and search configuration. No cross-contamination between projects, teams, or clients.
 - **🔍 Hybrid Search** — Vector similarity + keyword full-text with configurable fusion (convex combination, DBSF, AutoCut). Get results that pure vector search misses.
 - **🧠 Multi-Provider AI** — Swap between Ollama, OpenAI, Azure OpenAI, and Anthropic for both embeddings and LLM — at runtime, per container, without restarting.
-- **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), Amazon S3 (IAM auth), or Azure Blob Storage (managed identity). Your files stay where they are.
+- **🔌 Index Your Existing Storage** — Connect MinIO, local filesystem (live file watching), or Amazon S3 (IAM auth). Your files stay where they are.
 - **🤖 4 Access Surfaces** — Web UI, REST API, CLI (native binaries), and MCP server for Claude. Built for humans, scripts, and AI agents equally.
-- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with Azure AD identity linking. Per-user filtering of search results by cloud permissions is in progress, not yet enforced.
+- **🔐 Enterprise Auth** — Multi-tier RBAC (Cookie + OAuth 2.1 + PAT + JWT) with AWS identity linking. Per-user filtering of search results by cloud permissions is in progress, not yet enforced.
 - **🐳 One-Command Deploy** — Docker Compose with PostgreSQL + pgvector, MinIO, and optional Ollama. Structured audit logging and rate limiting built in.
 
 <details>
@@ -251,7 +251,7 @@ The MCP server exposes:
 - **📄 Multi-Format Ingestion**: PDF, Office documents, Markdown, plain text — parsed, chunked, and embedded automatically
 - **⚡ Real-Time Processing**: Background ingestion with live progress updates via SignalR
 - **🎛️ Runtime Configuration**: Change chunking strategy, embedding model, and search settings per container without restart
-- **☁️ Cloud Identity Linking**: Azure AD (OAuth2+PKCE) identity linking. Per-user AWS permission filtering is in progress — search is not yet filtered by cloud permissions
+- **☁️ Cloud Identity Linking**: AWS IAM Identity Center (SAML) identity linking. Per-user AWS permission filtering is in progress — search is not yet filtered by cloud permissions
 - **👥 Invite-Only Access**: Admin-controlled user registration with four roles (Admin / Editor / Viewer / Agent)
 - **🤖 Agent Management**: Dedicated agent entities with API key lifecycle, scoped permissions, and audit trails
 - **📋 Audit Logging**: Structured audit trail for uploads, deletes, container operations, and auth events
@@ -267,19 +267,19 @@ The MCP server exposes:
 - **AI agent developers** who need a knowledge backend their agents can both query and build — upload research, curate a corpus, and search it via MCP or REST API
 - **.NET / Azure teams** who want a RAG platform that fits their existing stack and cloud identity
 - **Enterprise teams** who need project-isolated knowledge bases with proper RBAC and audit trails
-- **Anyone tired of re-uploading files** — point Connapse at your existing Amazon S3/Azure Blob Storage/filesystem storage
+- **Anyone tired of re-uploading files** — point Connapse at your existing Amazon S3/filesystem storage
 
 <details>
 <summary><strong>⚠️ Security Status (v0.3.x)</strong></summary>
 
 **This project is in active development (v0.3.2) and approaching production-readiness.**
 
-v0.3.x adds cloud connector architecture, multi-provider embeddings and LLM support, Azure AD cloud identity linking, and rate limiting.
+v0.3.x adds cloud connector architecture, multi-provider embeddings and LLM support, cloud identity linking, and rate limiting.
 
 - ✅ **Authentication and authorization** (v0.2.0)
 - ✅ **Role-based access control** (Admin / Editor / Viewer / Agent)
 - ✅ **Audit logging**
-- ✅ **Cloud identity linking** — Azure AD OAuth2+PKCE (v0.3.0)
+- ✅ **Cloud identity linking** — AWS IAM Identity Center (SAML)
 - ⚠️ **No per-user search filtering** — any user who can reach a container can search every document in it. Cloud permissions are not yet enforced on search; see [SECURITY.md](SECURITY.md)
 - ✅ **Rate limiting** — built-in ASP.NET Core middleware with per-user and per-IP policies (v0.3.2)
 - ⚠️ **Set a strong `Identity__Jwt__Secret`** in production — see [deployment guide](docs/deployment.md)
@@ -305,7 +305,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
               │
 ┌─────────────▼────────────────────────────────────────────────────────┐
 │                        Connectors Layer                              │
-│  MinIO  │  Filesystem  │  Amazon S3  │  Azure Blob Storage          │
+│  MinIO  │  Filesystem  │  Amazon S3  │                               │
 └─────────────┬────────────────────────────────────────────────────────┘
               │
 ┌─────────────▼────────────────────────────────────────────────────────┐
@@ -334,7 +334,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - **Embeddings**: Ollama (default), OpenAI, Azure OpenAI (configurable)
 - **LLM**: Ollama, OpenAI, Azure OpenAI, Anthropic (configurable)
 - **Search**: Hybrid vector + keyword with convex combination fusion
-- **Connectors**: Managed Storage (MinIO default), Filesystem, Amazon S3, Azure Blob Storage
+- **Connectors**: Managed Storage (MinIO default), Filesystem, Amazon S3
 
 ---
 
@@ -344,7 +344,6 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [API Reference](docs/api.md) - REST API endpoints and examples
 - [Connectors Guide](docs/connectors.md) - Connector types, configuration, and background sync
 - [AWS Setup](docs/aws-setup.md) - Roles Anywhere access, IAM Identity Center, S3 Access Grants, troubleshooting
-- [Azure Identity Setup](docs/azure-identity-setup.md) - Azure AD OAuth2+PKCE integration
 - [Deployment Guide](docs/deployment.md) - Docker and production setup
 - [Security Policy](SECURITY.md) - Security limitations and roadmap
 - [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
@@ -373,9 +372,10 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ 256 passing tests (unit + integration)
 
 ### v0.3.0 — Connector Architecture (Complete)
-- ✅ 4 connector types: Managed Storage (MinIO default, provider-abstracted), Filesystem (FileSystemWatcher), Amazon S3 (IAM-only), Azure Blob Storage (managed identity)
+- ✅ 3 connector types: Managed Storage (MinIO default, provider-abstracted), Filesystem (FileSystemWatcher), Amazon S3 (IAM-only)
+- ↩️ Azure Blob Storage connector (managed identity) — shipped in v0.3.0, since removed ([#476](https://github.com/Destrayon/Connapse/issues/476)): it was unverified and torn down for a clean rebuild
 - ✅ Per-container settings overrides (chunking, embedding, search, upload)
-- ✅ Cloud identity linking: Azure AD (OAuth2+PKCE)
+- ↩️ Cloud identity linking: Azure AD (OAuth2+PKCE) — shipped in v0.3.0, since removed ([#476](https://github.com/Destrayon/Connapse/issues/476)) alongside the Azure Blob connector
 - ↩️ AWS IAM Identity Center (device auth flow) — shipped in v0.3.0, since removed ([#435](https://github.com/Destrayon/Connapse/issues/435)): the device flow could not carry a per-user identity through to a token
 - ⚠️ IAM-derived scope enforcement — built but never wired into search ([#422](https://github.com/Destrayon/Connapse/issues/422)); cloud permissions do not filter results today
 - ✅ Multi-provider embeddings: Ollama, OpenAI, Azure OpenAI
@@ -383,7 +383,7 @@ Connapse is pre-1.0. Major design work is tracked in [Discussions](https://githu
 - ✅ Multi-dimension vector support with partial IVFFlat indexes per model
 - ✅ Cross-model search: automatic Semantic→Hybrid fallback for legacy vectors
 - ✅ Background sync: FileSystemWatcher for local, 5-min polling for cloud containers
-- ✅ Connection testing for all providers (Amazon S3, Azure Blob Storage, MinIO, LLM, embeddings, Azure AD)
+- ✅ Connection testing for all providers (Amazon S3, MinIO, LLM, embeddings)
 - ✅ 457 passing tests (unit + integration)
 
 ### v0.3.2 — Hardening & Polish (Complete)

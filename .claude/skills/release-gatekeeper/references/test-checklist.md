@@ -361,7 +361,6 @@ For each category (embedding, chunking, search, llm, upload):
 ### 8.2 Write Guards
 - [ ] S3 connector containers block uploads (400 write_denied)
 - [ ] S3 connector containers block deletes (400 write_denied)
-- [ ] AzureBlob connector containers block writes
 
 ### 8.3 Edge Cases
 - [ ] Upload empty file — handled gracefully
@@ -417,19 +416,9 @@ Client Secret, Region). This is the only way in — the settings API has no `cog
 - [ ] Cancelling consent returns to Integrations with an error and links nothing
 - [ ] Disconnect removes the link and the card returns to its unlinked state
 
-### 11.2 Azure AD
-- [ ] Azure AD settings configurable in admin
-- [ ] OAuth2+PKCE flow initiates
-- [ ] Identity linking works
-
-### 11.3 S3 Connector
+### 11.2 S3 Connector
 - [ ] Create container with S3 connector
 - [ ] Background sync pulls files from bucket
-- [ ] Search works on synced files
-
-### 11.4 Azure Blob Connector
-- [ ] Create container with AzureBlob connector
-- [ ] Background sync pulls files
 - [ ] Search works on synced files
 
 ---
