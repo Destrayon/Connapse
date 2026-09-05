@@ -12,8 +12,10 @@
     at the first sign-in.
 
     Nothing here is withheld from the settings API: a signing certificate is a public key, and the
-    two Connapse values are printed for an administrator to copy. This form held a client secret
-    when it configured a Cognito pool, and that is the whole reason it needed guarding.
+    two Connapse values are printed for an administrator to copy.
+
+    Labels use the names the IAM Identity Center console shows, so a value can be matched to its
+    field without translation.
 *@
 
 @if (suggestedAcs is null)
@@ -49,19 +51,21 @@ else
         every assertion against them character for character, so they must match exactly.
     </p>
 
-    <div class="row g-3">
-        <div class="col-md-6">
-            <label class="form-label" for="saml-entity-id">Audience (entity ID)</label>
-            <InputText id="saml-entity-id" @bind-Value="localSettings.EntityId" class="form-control" />
-            <div class="form-text">
+    <div class="row g-3" style="max-width:44rem">
+        <div class="col-12">
+            <label class="form-label" for="saml-entity-id">Application SAML audience</label>
+            <InputText id="saml-entity-id" @bind-Value="localSettings.EntityId" class="form-control"
+                       aria-describedby="saml-entity-id-help" />
+            <div id="saml-entity-id-help" class="form-text">
                 Identifies Connapse. It is an identifier, not an address — nothing fetches it.
             </div>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label" for="saml-acs">Assertion consumer service URL</label>
-            <InputText id="saml-acs" @bind-Value="localSettings.AcsUrl" class="form-control" />
-            <div class="form-text">
+        <div class="col-12">
+            <label class="form-label" for="saml-acs">Application ACS URL</label>
+            <InputText id="saml-acs" @bind-Value="localSettings.AcsUrl" class="form-control"
+                       aria-describedby="saml-acs-help" />
+            <div id="saml-acs-help" class="form-text">
                 Where the browser posts the assertion. Change Connapse's address and this has to be
                 edited in AWS too, or sign-in stops with a destination mismatch.
             </div>
@@ -85,33 +89,35 @@ else
         not a sign-in outage.
     </p>
 
-    <div class="row g-3">
-        <div class="col-md-6">
-            <label class="form-label" for="saml-idp-entity">Identity Center issuer</label>
+    <div class="row g-3" style="max-width:44rem">
+        <div class="col-12">
+            <label class="form-label" for="saml-idp-entity">IAM Identity Center SAML issuer URL</label>
             <InputText id="saml-idp-entity" @bind-Value="localSettings.IdpEntityId" class="form-control"
-                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE" />
-            <div class="form-text">
+                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE"
+                       aria-describedby="saml-idp-entity-help" />
+            <div id="saml-idp-entity-help" class="form-text">
                 The <code>Issuer</code> every assertion carries. Checked so that a validly signed
                 assertion from somewhere else is still refused.
             </div>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label" for="saml-idp-sso">Sign-in URL</label>
+        <div class="col-12">
+            <label class="form-label" for="saml-idp-sso">IAM Identity Center sign-in URL</label>
             <InputText id="saml-idp-sso" @bind-Value="localSettings.IdpSingleSignOnUrl" class="form-control"
-                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE" />
-            <div class="form-text">Where Connapse sends people to sign in.</div>
+                       placeholder="https://portal.sso.us-west-1.amazonaws.com/saml/assertion/EXAMPLE"
+                       aria-describedby="saml-idp-sso-help" />
+            <div id="saml-idp-sso-help" class="form-text">Where Connapse sends people to sign in.</div>
         </div>
 
         <div class="col-12">
-            <label class="form-label" for="saml-idp-cert">Signing certificate</label>
+            <label class="form-label" for="saml-idp-cert">IAM Identity Center certificate</label>
             <InputTextArea id="saml-idp-cert" @bind-Value="localSettings.IdpSigningCertificate"
                            class="form-control font-monospace" rows="4"
-                           placeholder="MIIDBTCCAe2gAwIBAgIF…" />
-            <div class="form-text">
-                Base64, without the <code>BEGIN CERTIFICATE</code> lines. This is the whole of the
-                trust — every assertion is checked against it. Identity Center rotates it, and a
-                rotation not reflected here stops every sign-in until it is pasted again.
+                           placeholder="MIIDBTCCAe2gAwIBAgIF…"
+                           aria-describedby="saml-idp-cert-help" />
+            <div id="saml-idp-cert-help" class="form-text">
+                Base64, with or without the <code>BEGIN CERTIFICATE</code> lines. Identity Center
+                rotates it; paste the new one here when it does, or every sign-in stops.
             </div>
         </div>
     </div>

@@ -443,7 +443,7 @@
                                     </td>
                                     <td class="text-end">
                                         <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
-                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Delete(c)">Delete</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
                                     </td>
                                 </tr>
                             }
@@ -460,15 +460,22 @@
             <h5>@(isNew ? "Add connection" : $"Edit {editing.Name}")</h5>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Name</label>
-            <input class="form-control" @bind="form.Name" placeholder="prod-docs-bucket" />
-            <div class="form-text">How this connection is referred to when creating a source.</div>
+        <div class="col-12" style="max-width:32rem">
+            <label class="form-label" for="connection-name">Name</label>
+            <input id="connection-name" class="form-control" @bind="form.Name" placeholder="prod-docs-bucket"
+                   aria-describedby="connection-name-help" />
+            <div id="connection-name-help" class="form-text">
+                How this connection is referred to when creating a source.
+                @if (form.Provider == ConnectionProvider.S3)
+                {
+                    <text>Filled in from the first bucket you choose if left blank.</text>
+                }
+            </div>
         </div>
 
-        <div class="col-md-6">
-            <label class="form-label">Provider</label>
-            <select class="form-select" @bind="form.Provider" disabled="@(!isNew)">
+        <div class="col-12" style="max-width:32rem">
+            <label class="form-label" for="connection-provider">Provider</label>
+            <select id="connection-provider" class="form-select" @bind="form.Provider" disabled="@(!isNew)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
@@ -515,32 +522,6 @@
                 </div>
             }
 
-            @* Region is filled in by choosing a bucket below, and a cross-account role is a thing
-               most installations never touch. Both were first-screen fields on a form whose real
-               question is "which bucket", which is the one thing that was not asked directly. *@
-            <div class="col-md-6">
-                <label class="form-label">Region <span class="text-muted">(optional)</span></label>
-                <input class="form-control" @bind="form.Region" placeholder="Found from the bucket" />
-                <div class="form-text">
-                    Connapse asks AWS where the bucket lives when you choose one below. Set it only
-                    to override that.
-                </div>
-            </div>
-
-            <div class="col-12">
-                <details>
-                    <summary class="small text-muted" style="cursor:pointer">Cross-account access</summary>
-                    <div class="mt-2" style="max-width:32rem">
-                        <label class="form-label">Role ARN</label>
-                        <input class="form-control" @bind="form.RoleArn"
-                               placeholder="arn:aws:iam::123456789012:role/connapse" />
-                        <div class="form-text">
-                            Assumed via STS, so this connection reads another account's buckets
-                            rather than Connapse's own. Leave blank unless that is what you need.
-                        </div>
-                    </div>
-                </details>
-            </div>
         }
         else if (form.Provider == ConnectionProvider.AzureBlob)
         {
@@ -621,16 +602,17 @@
             </div>
 
             <div class="col-12">
-                <label class="form-label">
+                <label class="form-label" for="sftp-key">
                     Private key
                     @if (!isNew)
                     {
-                        <span class="text-muted">— leave blank to keep the stored key</span>
+                        <span class="text-muted">(optional — leave blank to keep the stored key)</span>
                     }
                 </label>
-                <textarea class="form-control font-monospace" rows="5" @bind="form.PrivateKey"
-                          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"></textarea>
-                <div class="form-text">
+                <SecretTextArea Id="sftp-key" Rows="5" DescribedBy="sftp-key-help"
+                                Placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"
+                                @bind-Value="form.PrivateKey" />
+                <div id="sftp-key-help" class="form-text">
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
                     the rule that Connapse stores no cloud credentials is about AWS and Azure
                     identities, which are not stored and are not asked for.
@@ -645,9 +627,9 @@
             </div>
 
             <div class="col-md-6">
-                <label class="form-label">Key passphrase <span class="text-muted">(optional)</span></label>
-                <input class="form-control" type="password" @bind="form.Passphrase"
-                       placeholder="Only if the key is encrypted" />
+                <label class="form-label" for="sftp-passphrase">Key passphrase <span class="text-muted">(optional)</span></label>
+                <SecretTextArea Id="sftp-passphrase" Multiline="false" @bind-Value="form.Passphrase"
+                                Placeholder="Only if the key is encrypted" />
             </div>
 
             <div class="col-md-6">
@@ -725,17 +707,16 @@
         @if (form.IsCloudProvider)
         {
             <div class="col-12">
-                <label class="form-label">
+                <label class="form-label" for="allowed-locations">
                     Allowed locations <span class="text-muted">(one per line, optional)</span>
                 </label>
-                <textarea class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
+                <textarea id="allowed-locations" class="form-control font-monospace" rows="3" @bind="form.AllowedLocations"
+                          aria-describedby="allowed-locations-help"
                           placeholder="docs-bucket&#10;shared-bucket/team/"></textarea>
-                <div class="form-text">
-                    Bounds which buckets or containers a source on this connection may name. One
-                    connection credential is shared by every source that uses it, so without this a
-                    source can name anything the credential can reach. An entry naming only a bucket
-                    permits any prefix within it. Leave empty to allow any — currently permitted, with
-                    a warning logged.
+                <div id="allowed-locations-help" class="form-text">
+                    The buckets or containers a source on this connection may name; a bucket alone
+                    permits every prefix in it. Leave empty to allow anything the credential can
+                    reach, which is logged as a warning at each sync.
                 </div>
 
                 @* The list, rather than a name typed from memory. Connapse's own AWS identity is
@@ -750,6 +731,8 @@
                        belong to, and the one you want is found by reading rather than typing. *@
                     <div class="mt-2 position-relative" style="max-width:32rem">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
+                                aria-expanded="@(bucketPickerOpen ? "true" : "false")"
+                                aria-controls="bucket-picker"
                                 @onclick="ToggleBucketPicker" disabled="@listingBuckets">
                             @if (listingBuckets)
                             {
@@ -765,12 +748,13 @@
 
                         @if (bucketPickerOpen)
                         {
-                            <div class="card mt-1 shadow-sm">
+                            <div id="bucket-picker" class="card mt-1 shadow-sm">
                                 <div class="card-body p-2">
                                     @* Escape closes, Enter takes the first match. Whoever is
                                        filtering has their hands on the keyboard already. *@
-                                    <input class="form-control form-control-sm mb-2"
-                                           placeholder="Search buckets"
+                                    <label class="form-label small mb-1" for="bucket-search">Search buckets</label>
+                                    <input id="bucket-search" class="form-control form-control-sm mb-2"
+                                           placeholder="Part of a bucket name"
                                            @bind="bucketFilter" @bind:event="oninput"
                                            @onkeydown="BucketSearchKey" @ref="bucketSearchBox" />
 
@@ -843,15 +827,49 @@
 
 
 
+        @if (form.Provider == ConnectionProvider.S3)
+        {
+            @* After the bucket, because choosing one fills the region in; a cross-account role is
+               a thing most installations never touch, so it stays behind a disclosure. *@
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="s3-region">Region <span class="text-muted">(optional)</span></label>
+                <input id="s3-region" class="form-control font-monospace" @bind="form.Region"
+                       placeholder="Found from the bucket" aria-describedby="s3-region-help" />
+                <div id="s3-region-help" class="form-text">
+                    Filled in when you choose a bucket above, in the form <code>us-east-1</code>.
+                    Set it only to override that.
+                </div>
+            </div>
+
+            <div class="col-12">
+                <details>
+                    <summary class="small text-muted" style="cursor:pointer">Cross-account access</summary>
+                    <div class="mt-2" style="max-width:32rem">
+                        <label class="form-label" for="s3-role-arn">Role ARN <span class="text-muted">(optional)</span></label>
+                        <input id="s3-role-arn" class="form-control font-monospace" @bind="form.RoleArn"
+                               placeholder="arn:aws:iam::123456789012:role/connapse"
+                               aria-describedby="s3-role-arn-help" />
+                        <div id="s3-role-arn-help" class="form-text">
+                            A role in another account that Connapse's identity may assume, so this
+                            connection reads that account's buckets. Copy it from the role's summary
+                            page in the
+                            <a href="https://console.aws.amazon.com/iam/home#/roles" target="_blank" rel="noopener">IAM console</a>.
+                        </div>
+                    </div>
+                </details>
+            </div>
+        }
+
         @* ── Test ──────────────────────────────────────────────────── *@
         @if (form.IsCloudProvider)
         {
-            <div class="col-md-6">
-                <label class="form-label">
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="probe-target">
                     @(form.Provider == ConnectionProvider.S3 ? "Bucket to test against" : "Container to test against")
                 </label>
-                <input class="form-control" @bind="probeTarget" placeholder="@ProbePlaceholder()" />
-                <div class="form-text">
+                <input id="probe-target" class="form-control font-monospace" @bind="probeTarget"
+                       placeholder="@ProbePlaceholder()" aria-describedby="probe-target-help" />
+                <div id="probe-target-help" class="form-text">
                     Not saved. The connection holds no bucket of its own, so testing needs one to probe.
                 </div>
             </div>
@@ -886,14 +904,53 @@
         @if (testMessage is not null)
         {
             <div class="col-12 mt-2">
-                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0">
-                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0"
+                     role="@(testSuccess ? "status" : "alert")">
+                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
                     @testMessage
+                    @if (!testSuccess && form.Provider == ConnectionProvider.S3)
+                    {
+                        <a class="alert-link ms-1" target="_blank" rel="noopener"
+                           href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md#troubleshooting">Troubleshooting</a>
+                    }
+                    @if (!testSuccess && testDetail is { Length: > 0 })
+                    {
+                        <details class="mt-1">
+                            <summary class="small">Raw error</summary>
+                            <pre class="small mb-0 mt-1" style="white-space:pre-wrap">@testDetail</pre>
+                        </details>
+                    }
                 </div>
             </div>
         }
     }
 </div>
+
+@if (pendingDelete is not null)
+{
+    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="delete-connection-title" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="delete-connection-title">Delete connection</h5>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="() => pendingDelete = null"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong>@pendingDelete.Name</strong>?</p>
+                    <p class="text-muted small mb-0">
+                        No source uses it, so nothing stops syncing. What it points at is untouched;
+                        only Connapse's record of how to reach it is removed. This cannot be undone.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => pendingDelete = null">Cancel</button>
+                    <button class="btn btn-danger" @onclick="DeleteConfirmed">Delete connection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private List<Connection> connections = [];
@@ -911,6 +968,12 @@
     private bool statusSuccess;
     private string? testMessage;
     private bool testSuccess;
+
+    /// <summary>The provider's own error text behind a failed test, offered on demand.</summary>
+    private string? testDetail;
+
+    /// <summary>The connection whose deletion is awaiting confirmation.</summary>
+    private Connection? pendingDelete;
 
     protected override async Task OnInitializedAsync()
     {
@@ -992,8 +1055,7 @@
     /// </summary>
     /// <remarks>
     /// Through <c>IProviderSetupReader</c> rather than a probe of its own, so this page and the
-    /// provider page cannot disagree about whether AWS is set up. Duplicating that judgement is
-    /// what let the Access card and its own requirement drift apart before.
+    /// provider page cannot disagree about whether AWS is set up.
     /// </remarks>
     private RequirementStatus? awsAccess;
 
@@ -1132,6 +1194,11 @@
         if (string.IsNullOrWhiteSpace(probeTarget))
             probeTarget = bucket;
 
+        // A name nobody has typed is derived from the first bucket, so the common case of one
+        // connection per bucket needs nothing typed twice.
+        if (string.IsNullOrWhiteSpace(form.Name))
+            form.Name = bucket;
+
         await FillRegionFromBucket(bucket);
     }
 
@@ -1163,9 +1230,8 @@
 
     /// <summary>The least-privilege policy for whatever is currently allowed.</summary>
     /// <remarks>
-    /// One document covering every entry. This used to generate a policy per bucket and join them
-    /// with blank lines, which produces two top-level JSON objects — not a policy at all, and IAM
-    /// rejects it. Anyone allowing two buckets was handed output that could not be pasted.
+    /// One document covering every entry: two top-level JSON objects joined by a blank line are
+    /// not a policy, and IAM rejects them.
     /// </remarks>
     private string? S3PolicyForAllowed()
     {
@@ -1443,7 +1509,7 @@
                 await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
-                Succeed($"Connection '{form.Name.Trim()}' created.{HostRewriteSuffix()}");
+                Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
             }
             else
             {
@@ -1476,7 +1542,8 @@
         }
     }
 
-    private async Task Delete(Connection connection)
+    /// <summary>Refuses while sources depend on the connection; otherwise asks before deleting.</summary>
+    private void ConfirmDelete(Connection connection)
     {
         statusMessage = null;
 
@@ -1487,6 +1554,14 @@
             Fail($"'{connection.Name}' still has {connection.SourceCount} source(s) using it. Remove or repoint them first.");
             return;
         }
+
+        pendingDelete = connection;
+    }
+
+    private async Task DeleteConfirmed()
+    {
+        if (pendingDelete is not { } connection) return;
+        pendingDelete = null;
 
         try
         {
@@ -1532,10 +1607,17 @@
         return (credential.PrivateKey, NullIfBlank(form.Passphrase) ?? credential.Passphrase, null);
     }
 
+    /// <summary>The provider's own error text from a failed test, or null when there is none to show.</summary>
+    private static string? RawError(ConnectionTestResult result) =>
+        !result.Success && result.Details is { } details && details.TryGetValue("error", out object? raw)
+            ? raw?.ToString()
+            : null;
+
     private async Task Test()
     {
         testing = true;
         testMessage = null;
+        testDetail = null;
 
         try
         {
@@ -1575,6 +1657,7 @@
                 }, TimeSpan.FromSeconds(15));
 
                 testSuccess = sftpResult.Success;
+                testDetail = RawError(sftpResult);
 
                 // Which key was used, always. Two keys can be in play and they can disagree, so
                 // a bare "Connected" would leave the operator unsure what they just proved.
@@ -1626,6 +1709,7 @@
 
             testSuccess = result.Success;
             testMessage = result.Message;
+            testDetail = RawError(result);
         }
         catch (Exception ex)
         {

@@ -133,6 +133,11 @@ a:hover, .btn-link:hover {
     color: var(--text-muted);
 }
 
+/* Secret fields (SecretTextArea) are masked until revealed. */
+.secret-masked {
+    -webkit-text-security: disc;
+}
+
 .form-control:disabled, .form-select:disabled {
     background-color: var(--bs-tertiary-bg);
     color: var(--text-muted);
