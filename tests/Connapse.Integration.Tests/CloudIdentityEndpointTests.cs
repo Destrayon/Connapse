@@ -1,7 +1,10 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Connapse.Identity.Services;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests;
 
@@ -69,6 +72,55 @@ public class CloudIdentityEndpointTests(SharedWebAppFixture fixture)
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DisconnectAws_WithASamlLink_DeletesTheLinkAndReturns204()
+    {
+        // The route used to delete from the cloud-identity table, which never holds a SAML link,
+        // so a user with a real link got 404 and stayed eligible for AWS-derived search scopes.
+        Guid admin = AdminUserId();
+        string directoryUserId = $"dir-{Guid.NewGuid():N}";
+
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
+            await store.SaveAsync(admin, directoryUserId, "admin-person", "admin@example.com");
+        }
+
+        try
+        {
+            var response = await fixture.AdminClient.DeleteAsync("/api/v1/auth/cloud/AWS");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+            (await LinkedDirectoryUserIdAsync(admin)).Should().BeNull("the link was deleted");
+        }
+        finally
+        {
+            // Leave the shared admin as the other tests expect to find them: unlinked.
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
+            await store.DeleteAsync(admin);
+        }
+    }
+
+    /// <summary>The admin's own user id, read from the token the fixture signed in with.</summary>
+    private Guid AdminUserId()
+    {
+        var token = new JwtSecurityTokenHandler().ReadJwtToken(fixture.AdminToken);
+        string? sub = token.Claims.FirstOrDefault(c =>
+            c.Type is "sub" or "nameid"
+                   or "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+
+        Guid.TryParse(sub, out Guid id).Should().BeTrue("the token identifies the signed-in user");
+        return id;
+    }
+
+    private async Task<string?> LinkedDirectoryUserIdAsync(Guid userId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
+        return await store.GetDirectoryUserIdAsync(userId);
     }
 
     // ── DTOs ──────────────────────────────────────────────────────────

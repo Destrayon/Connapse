@@ -20,6 +20,7 @@
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IRolesAnywhereSetupValidator RaValidator
+@inject Connapse.Storage.CloudScope.ConnapseAwsCredentials AwsCredentials
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<Providers> Logger
@@ -1622,6 +1623,11 @@
             }
 
             await CredentialStore.SaveRolesAnywhereAsync("aws", config, privateKeyPem, principal, null);
+
+            // Drop the session the runtime is holding, so the next AWS call resolves the credential
+            // just stored rather than finishing out the previous one's refresh window.
+            AwsCredentials.ClearCredentials();
+
             await AuditLogger.LogAsync("provider.credential.saved", "provider", "aws",
                 new { Method = "RolesAnywhere", config.RoleArn, config.Region });
 
@@ -1657,11 +1663,16 @@
     /// Clears this instance's Roles Anywhere credential, then offers to remove the AWS-side resources.
     /// </summary>
     /// <remarks>
-    /// The local wipe comes first and is what actually protects the operator: it stops this instance
-    /// authenticating immediately, independent of any AWS call. The AWS trust anchor, role, and
-    /// profile are per-instance, so a CloudShell cleanup snippet is shown afterwards to remove them —
-    /// Connapse's own read-only identity cannot delete them directly. Nothing shared is ever touched,
-    /// because in the per-instance design nothing is shared.
+    /// The local wipe comes first: the row goes, and the session the runtime was holding is dropped
+    /// with it, so the next AWS call cannot reuse the removed credential. The AWS trust anchor,
+    /// role, and profile are per-instance, so a CloudShell cleanup snippet is shown afterwards to
+    /// remove them — Connapse's own read-only identity cannot delete them directly. Nothing shared
+    /// is ever touched, because in the per-instance design nothing is shared.
+    /// <para>
+    /// With no stored credential the runtime falls back to whatever the environment provides, by
+    /// design (an instance or task role is the ordinary way to run without one). The outcome says
+    /// so when that is the case, because "removed" would otherwise read as "no longer reading S3".
+    /// </para>
     /// </remarks>
     private async Task ResetAccessIdentity()
     {
@@ -1672,6 +1683,7 @@
             RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
 
             await CredentialStore.DeleteAsync("aws");
+            AwsCredentials.ClearCredentials();
             await AuditLogger.LogAsync("provider.credential.removed", "provider", "aws",
                 new { Method = "RolesAnywhere", config?.RoleArn, config?.Region });
 
@@ -1689,6 +1701,12 @@
                 : "Connapse's stored AWS credential was removed. It is still valid in AWS until you "
                   + "run the cleanup command shown below, or it expires.";
             await RefreshSetups();
+
+            if (EnvironmentCredentialResolves)
+            {
+                saveMessage += " Connapse is now reading S3 with credentials from its environment "
+                    + "instead; remove those from the server if that is not what you want.";
+            }
         }
         catch (Exception ex)
         {

@@ -10,5 +10,10 @@ public interface ISettingsReloader
     /// Reloads settings from the database and triggers change notifications.
     /// Call this after updating settings to propagate changes to IOptionsMonitor.
     /// </summary>
-    void Reload();
+    /// <returns>
+    /// True when the database was read. False when it could not be reached or the read failed, in
+    /// which case the merged configuration still holds whatever was loaded before — possibly only
+    /// appsettings defaults — and must not be trusted as the authoritative stored state.
+    /// </returns>
+    bool Reload();
 }

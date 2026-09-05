@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Services;
@@ -309,6 +309,7 @@ public static class CloudIdentityEndpoints
             string provider,
             HttpContext httpContext,
             [FromServices] ICloudIdentityService service,
+            [FromServices] IAwsIdentityLinkService awsLinks,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
@@ -320,7 +321,28 @@ public static class CloudIdentityEndpoints
             if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider))
                 return Results.BadRequest(new { error = "invalid_provider", message = $"Unknown provider: {provider}. Valid values: AWS, Azure." });
 
-            var deleted = await service.DisconnectAsync(userId.Value, cloudProvider, ct);
+            bool deleted;
+            if (cloudProvider == CloudProvider.AWS)
+            {
+                // AWS links live in their own store, the one the integrations page reads and
+                // deletes through; the cloud-identity table this route used to consult never holds
+                // a SAML link, so deleting there answered 404 and left the link in force.
+                var result = await awsLinks.DisconnectAsync(userId.Value, ct);
+                if (result.LinkChangedDuringDisconnect)
+                {
+                    return Results.Conflict(new
+                    {
+                        error = "link_changed",
+                        message = "The AWS identity link changed while disconnecting. Try again."
+                    });
+                }
+
+                deleted = result.Deleted;
+            }
+            else
+            {
+                deleted = await service.DisconnectAsync(userId.Value, cloudProvider, ct);
+            }
 
             // Evict cached scope entries for this user + provider
             if (deleted)

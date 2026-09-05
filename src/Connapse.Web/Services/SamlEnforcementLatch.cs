@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Settings;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Web.Services;
@@ -40,12 +41,27 @@ public sealed class SamlEnforcementLatch(
     IOptionsMonitor<SamlSignInSettings> signIn,
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
+    ISettingsReloader settingsReloader,
     ILogger<SamlEnforcementLatch> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         try
         {
+            // Read the stored settings again, now that migrations have run, and refuse to decide
+            // from a load that did not reach the database. The configuration is first loaded before
+            // the host starts, and a database that is briefly unreachable at that moment leaves
+            // every stored value at its default without any error: a deployment that had been
+            // enforcing then looks exactly like one that never set sign-in up, and the branch below
+            // would record it as unrestricted. Left undetermined instead, searches are refused
+            // until the next successful reload -- the same posture as the catch below.
+            if (!settingsReloader.Reload())
+            {
+                logger.LogError(
+                    "Could not read the stored settings, so whether per-user permissions are enforced is unknown; searches will be refused until the database can be read");
+                return;
+            }
+
             // Already recorded, by a previous boot or by an administrator saving the settings.
             if (enforcement.CurrentValue.IsEnforcing)
             {
