@@ -35,11 +35,15 @@ public sealed class ArmRbacReader(
 
     public async Task<AzureRbacScopes> ResolveAsync(string primaryOid, CancellationToken ct = default)
     {
-        string? sub = options.CurrentValue.SubscriptionId;
+        AzureProviderSettings settings = options.CurrentValue;
+        string? sub = settings.SubscriptionId;
         if (string.IsNullOrWhiteSpace(sub))
             return AzureRbacScopes.Failed();
 
-        string cacheKey = "azure-rbac:" + primaryOid;
+        // Key by tenant + subscription + oid: the subscription and credential come from reloadable
+        // settings, so a cached result must never be reused across a subscription or tenant change
+        // (which would expose accounts not authorized in the new context).
+        string cacheKey = $"azure-rbac:{settings.TenantId}:{sub}:{primaryOid}";
         if (cache.TryGetValue(cacheKey, out AzureRbacScopes? cached) && cached is not null)
             return cached;
 
@@ -107,22 +111,28 @@ public sealed class ArmRbacReader(
         return result;
     }
 
+    private const string BlobReadAction = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read";
+
     private static bool AppliesToBlobRead(IReadOnlyList<Permission>? permissions)
     {
         if (permissions is null) return false;
         foreach (Permission p in permissions)
         {
-            foreach (string a in p.DataActions ?? [])
-            {
-                if (a == "*"
-                    || a.Equals("Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read", StringComparison.OrdinalIgnoreCase)
-                    || (a.EndsWith('*') && "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read"
-                            .StartsWith(a[..^1], StringComparison.OrdinalIgnoreCase)))
-                    return true;
-            }
+            // A deny applies to blob read only when a dataAction covers the read action AND no
+            // notDataAction excludes it (dataActions minus notDataActions). Ignoring notDataActions
+            // would over-subtract and hide legitimately-readable content.
+            bool granted = (p.DataActions ?? []).Any(MatchesBlobRead);
+            bool excluded = (p.NotDataActions ?? []).Any(MatchesBlobRead);
+            if (granted && !excluded)
+                return true;
         }
         return false;
     }
+
+    private static bool MatchesBlobRead(string action) =>
+        action == "*"
+        || action.Equals(BlobReadAction, StringComparison.OrdinalIgnoreCase)
+        || (action.EndsWith('*') && BlobReadAction.StartsWith(action[..^1], StringComparison.OrdinalIgnoreCase));
 
     // A grant is removed if it OVERLAPS any applicable deny in EITHER direction:
     //  - deny at a broader-or-equal scope (deny is a prefix of the grant) covers the grant; and
@@ -136,45 +146,63 @@ public sealed class ArmRbacReader(
             grantPrefix.StartsWith(d, StringComparison.Ordinal) ||
             d.StartsWith(grantPrefix, StringComparison.Ordinal));
 
-    /// <summary>Maps one matched grant (scope + ABAC condition) into a prefix, a tag residue, or a drop.</summary>
+    /// <summary>Maps one matched grant (scope + ABAC condition) into a prefix, a tag residue, or a
+    /// drop. Every ABAC restriction is intersected with the assignment's own scope; when it cannot
+    /// be expressed as an azblob prefix the grant is dropped (fail closed), never broadened.</summary>
     internal static void ApplyGrant(string armScope, string? condition, List<AzureScope> prefixes, List<AzureTagCondition> tags)
     {
         string basePrefix = AzureRbacScopeTranslator.ToAzblobPrefix(armScope);
+        (string? account, string? container) = SplitPrefix(basePrefix);
         AbacResult abac = AzureAbacConditionParser.Parse(condition);
         switch (abac.Kind)
         {
             case AbacKind.None:
                 prefixes.Add(new AzureScope(basePrefix));
                 break;
+
             case AbacKind.PathPrefix:
-                prefixes.Add(new AzureScope(basePrefix + abac.PathPrefix));
+                // A blob-path condition is a prefix WITHIN a container, so it can only be expressed
+                // as an azblob prefix when the scope already fixes the container. On an account or
+                // broader scope the same path applies inside EVERY container (not a container named
+                // for the path), which cannot be represented — drop (fail closed).
+                if (container is not null)
+                    prefixes.Add(new AzureScope(basePrefix + abac.PathPrefix));
                 break;
+
             case AbacKind.ContainerName:
-                // Narrow an account scope to the named container. If the account is unknown (a
-                // broader-than-account grant), the restriction cannot be expressed as a prefix, so
-                // the grant is dropped rather than left broad (fail closed).
-                string? narrowed = NarrowToContainer(basePrefix, abac.ContainerName!);
-                if (narrowed is not null)
-                    prefixes.Add(new AzureScope(narrowed));
+                string? named = abac.ContainerName;
+                if (account is null || named is null)
+                    break; // account unknown → can't apply → drop
+                if (container is null)
+                    prefixes.Add(new AzureScope($"azblob://{account}/{named}/")); // narrow account to the named container
+                else if (string.Equals(container, named, StringComparison.Ordinal))
+                    prefixes.Add(new AzureScope(basePrefix)); // condition names the same container as the scope
+                // else: names a DIFFERENT container than the assignment's scope → grants nothing → drop
                 break;
+
             case AbacKind.Tag:
-                tags.Add(new AzureTagCondition(basePrefix, abac.TagKey!, abac.TagValue!, abac.TagKeyCaseSensitive));
+                tags.Add(new AzureTagCondition(basePrefix, abac.TagKey!, abac.TagValue!, abac.TagKeyCaseSensitive, abac.ValueCaseSensitive));
                 break;
+
             case AbacKind.Unparseable:
             default:
                 break; // drop this grant only (fail closed)
         }
     }
 
-    private static string? NarrowToContainer(string basePrefix, string container)
+    /// <summary>Splits an azblob prefix into (account?, container?): "azblob://" → (null,null);
+    /// "azblob://acct/" → (acct,null); "azblob://acct/c/" → (acct,c).</summary>
+    private static (string? Account, string? Container) SplitPrefix(string basePrefix)
     {
-        // basePrefix is "azblob://", "azblob://{acct}/", or "azblob://{acct}/{c}/". A container-name
-        // condition names the container within the account; only meaningful when the account is known.
         if (basePrefix == "azblob://")
-            return null; // account unknown — the container-name restriction can't be applied → drop (fail closed)
-        // basePrefix ends with "/"; strip any existing container and append the named one.
-        string acct = basePrefix["azblob://".Length..].TrimEnd('/').Split('/')[0];
-        return $"azblob://{acct}/{container}/";
+            return (null, null);
+        string[] segs = basePrefix["azblob://".Length..].TrimEnd('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segs.Length switch
+        {
+            0 => (null, null),
+            1 => (segs[0], null),
+            _ => (segs[0], segs[1]),
+        };
     }
 
     private static string? LastSegment(string? id) =>
@@ -191,8 +219,13 @@ public sealed class ArmRbacReader(
             using HttpResponseMessage response = await httpClient.SendAsync(request, ct);
             response.EnsureSuccessStatusCode(); // non-2xx → throw → caller fails closed
             ArmList? page = await response.Content.ReadFromJsonAsync<ArmList>(ct);
-            if (page?.Value is { } v) all.AddRange(v);
-            next = page?.NextLink;
+            // A 200 whose body is missing or has a null "value" is a malformed/anomalous page. It
+            // must fail closed rather than be read as "no entries" — silently swallowing a deny page
+            // this way would omit denies and turn into an over-grant.
+            if (page?.Value is null)
+                throw new InvalidOperationException("ARM list response had no 'value' array.");
+            all.AddRange(page.Value);
+            next = page.NextLink;
         }
         return all;
     }

@@ -296,4 +296,113 @@ public class ArmRbacReaderTests
         Func<Task> act = () => reader.ResolveAsync(Oid, cts.Token);
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public async Task Resolve_PathCondition_OnAccountScope_IsDropped()
+    {
+        // A blob-path condition on an account scope can't be expressed as a prefix (it applies
+        // inside every container, not a container named for the path) → drop, not azblob://acct/<path>/.
+        string cond = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'readonly/*'))";
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct", cond));
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_ContainerNameCondition_OnAccountScope_NarrowsToNamedContainer()
+    {
+        string cond = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEquals 'reports'))";
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct", cond));
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct/reports/");
+    }
+
+    [Fact]
+    public async Task Resolve_ContainerNameCondition_NamingDifferentContainerThanScope_IsDropped()
+    {
+        // Assignment scoped to container "A" but condition names container "B" → Azure grants
+        // nothing (A != B); must NOT emit azblob://acct/B/ (would escape the assignment scope).
+        string cond = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEquals 'B'))";
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct/blobServices/default/containers/A", cond));
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_ContainerNameCondition_MatchingScopeContainer_IsKept()
+    {
+        string cond = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEquals 'docs'))";
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct/blobServices/default/containers/docs", cond));
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct/docs/");
+    }
+
+    [Fact]
+    public async Task Resolve_MalformedDenyPage_NullValue_FailsClosed()
+    {
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct", null));
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/denyAssignments", StringComparison.OrdinalIgnoreCase)
+                ? Json(HttpStatusCode.OK, """{"value":null}""")
+                : Json(HttpStatusCode.OK, roles));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        (await reader.ResolveAsync(Oid, CancellationToken.None)).Outcome.Should().Be(RbacOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task Resolve_DenyWithBlobReadInNotDataActions_DoesNotSubtractGrant()
+    {
+        // A deny that grants dataActions:["*"] but excludes blob read via notDataActions does NOT
+        // deny blob reads → the grant must survive (ignoring notDataActions would over-subtract).
+        string acctScope = "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
+        string roles = RoleAssignmentsBody((ReaderRole, acctScope, null));
+        string deny = $$$"""
+        {"value":[{"properties":{"scope":"{{{acctScope}}}","permissions":[{"dataActions":["*"],"notDataActions":["Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read"]}]}}]}
+        """;
+        AzureRbacScopes r = await NewReaderWithDeny(roles, deny).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct/");
+    }
+
+    [Fact]
+    public async Task Resolve_CacheKey_IncludesSubscription_NotReusedAcrossSubscriptionChange()
+    {
+        // Same reader + cache, but the subscription changes between calls (settings reload). The
+        // second call must NOT reuse the first subscription's result.
+        var handler = new StubHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.Contains("/denyAssignments", StringComparison.OrdinalIgnoreCase))
+                return Json(HttpStatusCode.OK, EmptyDeny);
+            // Grant an account named after whichever subscription is in the request path.
+            string sub = req.RequestUri.AbsolutePath.Split("/subscriptions/")[1].Split('/')[0];
+            return Json(HttpStatusCode.OK, $$$"""
+            {"value":[{"properties":{"roleDefinitionId":"/x/{{{ReaderRole}}}","scope":"/subscriptions/{{{sub}}}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct-{{{sub}}}","condition":null}}]}
+            """);
+        });
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(
+            new AzureProviderSettings { SubscriptionId = "sub-a" },
+            new AzureProviderSettings { SubscriptionId = "sub-b" });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        AzureRbacScopes a = await reader.ResolveAsync(Oid, CancellationToken.None);
+        AzureRbacScopes b = await reader.ResolveAsync(Oid, CancellationToken.None);
+
+        a.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct-sub-a/");
+        b.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct-sub-b/");
+    }
 }

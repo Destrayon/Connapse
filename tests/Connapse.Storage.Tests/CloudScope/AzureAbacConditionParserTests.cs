@@ -53,7 +53,62 @@ public class AzureAbacConditionParserTests
     {
         // A recognized clause combined with anything else must not be partially honored.
         string compound =
-            "((!(ActionMatches{'x'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'readonly/*' AND @Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags:Secret<$key_case_sensitive$>] StringEquals 'no'))";
+            "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'readonly/*' AND @Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags:Secret<$key_case_sensitive$>] StringEquals 'no'))";
         AzureAbacConditionParser.Parse(compound).Kind.Should().Be(AbacKind.Unparseable);
+    }
+
+    private const string Guard =
+        "(!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'}))";
+
+    [Fact]
+    public void Parse_PathStringStartsWith_IsPrefix()
+    {
+        string cond = $"({Guard} OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringStartsWith 'reports/'))";
+        AbacResult r = AzureAbacConditionParser.Parse(cond);
+        r.Kind.Should().Be(AbacKind.PathPrefix);
+        r.PathPrefix.Should().Be("reports/");
+    }
+
+    [Fact]
+    public void Parse_PathStringLike_MidWildcard_IsUnparseable()
+    {
+        string cond = $"({Guard} OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'a*b*'))";
+        AzureAbacConditionParser.Parse(cond).Kind.Should().Be(AbacKind.Unparseable);
+    }
+
+    [Fact]
+    public void Parse_PathStringLike_NoWildcard_IsUnparseable()
+    {
+        // StringLike with no wildcard is an EXACT match in Azure, not a prefix — must not become one.
+        string cond = $"({Guard} OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'exact.txt'))";
+        AzureAbacConditionParser.Parse(cond).Kind.Should().Be(AbacKind.Unparseable);
+    }
+
+    [Fact]
+    public void Parse_TagStringEqualsIgnoreCase_IsValueCaseInsensitive()
+    {
+        string cond = $"({Guard} OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags:Project<$key_case_sensitive$>] StringEqualsIgnoreCase 'Cascade'))";
+        AbacResult r = AzureAbacConditionParser.Parse(cond);
+        r.Kind.Should().Be(AbacKind.Tag);
+        r.TagValue.Should().Be("Cascade");
+        r.ValueCaseSensitive.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Parse_NameStringEqualsIgnoreCase_ReturnsName()
+    {
+        string cond = $"({Guard} OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEqualsIgnoreCase 'Reports'))";
+        AbacResult r = AzureAbacConditionParser.Parse(cond);
+        r.Kind.Should().Be(AbacKind.ContainerName);
+        r.ContainerName.Should().Be("Reports");
+    }
+
+    [Fact]
+    public void Parse_RecognizedPredicate_WithoutActionGuard_IsUnparseable()
+    {
+        // A predicate not wrapped in the canonical action guard must not be honored (an inverted or
+        // absent guard could make the predicate NOT gate reads).
+        string cond = "(@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringStartsWith 'private/')";
+        AzureAbacConditionParser.Parse(cond).Kind.Should().Be(AbacKind.Unparseable);
     }
 }
