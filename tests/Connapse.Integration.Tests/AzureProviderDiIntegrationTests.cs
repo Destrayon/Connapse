@@ -23,8 +23,13 @@ public class AzureProviderDiIntegrationTests(SharedWebAppFixture fixture)
         using var scope = fixture.Factory.Services.CreateScope();
 
         scope.ServiceProvider.GetRequiredService<ConnapseAzureCredentials>().Should().NotBeNull();
-        scope.ServiceProvider.GetServices<IConnectionTester>()
-            .Should().Contain(t => t is AzureBlobConnectionTester);
+
+        // Registered concrete-only, matching S3ConnectionTester/SftpConnectionTester — this is
+        // the exact path Connections.razor's `@inject AzureBlobConnectionTester` resolves
+        // through. A prior interface-only registration (AddScoped<IConnectionTester,
+        // AzureBlobConnectionTester>) satisfied GetServices<IConnectionTester>() but left the
+        // concrete type unresolvable, which threw InvalidOperationException at component init.
+        scope.ServiceProvider.GetRequiredService<AzureBlobConnectionTester>().Should().NotBeNull();
         scope.ServiceProvider.GetRequiredService<IConnectorFactory>().Should().NotBeNull();
     }
 }

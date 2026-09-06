@@ -189,7 +189,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
-        services.AddScoped<IConnectionTester, AzureBlobConnectionTester>();
+        services.AddScoped<AzureBlobConnectionTester>();
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
