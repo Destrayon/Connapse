@@ -224,6 +224,17 @@ public static class ServiceCollectionExtensions
             configuration.GetSection(AzureProviderSettings.SectionName));
         services.AddSingleton<CloudScope.ConnapseAzureCredentials>();
 
+        // Expose Connapse's Azure identity as the ambient TokenCredential for Azure control-plane
+        // readers (Graph, and ARM in 4b). Nothing else resolves a bare TokenCredential today —
+        // connectors take ConnapseAzureCredentials directly — so this mapping is unambiguous.
+        services.TryAddSingleton<Azure.Core.TokenCredential>(
+            sp => sp.GetRequiredService<CloudScope.ConnapseAzureCredentials>());
+
+        // Reads the Entra directory (deprovisioning gate + transitive groups) over Graph $batch.
+        // Typed HttpClient; the 5-minute decision cache is the shared IMemoryCache singleton, so a
+        // transient reader instance per resolve still shares one cache across the process.
+        services.AddHttpClient<Connapse.Core.Interfaces.IAzureDirectoryReader, CloudScope.GraphDirectoryReader>();
+
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
