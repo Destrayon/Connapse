@@ -124,10 +124,17 @@ public sealed class ArmRbacReader(
         return false;
     }
 
-    // A grant is denied when a deny prefix is equal to, or an ancestor of, the grant prefix
-    // (deny-wins over a broader-or-equal scope). "azblob://" as a deny prefix covers everything.
+    // A grant is removed if it OVERLAPS any applicable deny in EITHER direction:
+    //  - deny at a broader-or-equal scope (deny is a prefix of the grant) covers the grant; and
+    //  - deny at a narrower scope (a "hole" beneath the grant — the grant is a prefix of the deny)
+    //    cannot be represented as "grant minus a hole" in a prefix set, so the whole grant is
+    //    conservatively dropped (over-subtraction = under-grant, the fail-closed direction).
+    // Deny wins either way. "azblob://" on either side matches everything. All emitted prefixes end
+    // in "/" (or are a path-condition prefix), so container-name boundaries are respected.
     private static bool CoveredByAnyDeny(string grantPrefix, IReadOnlyList<string> denyPrefixes) =>
-        denyPrefixes.Any(d => grantPrefix.StartsWith(d, StringComparison.Ordinal));
+        denyPrefixes.Any(d =>
+            grantPrefix.StartsWith(d, StringComparison.Ordinal) ||
+            d.StartsWith(grantPrefix, StringComparison.Ordinal));
 
     /// <summary>Maps one matched grant (scope + ABAC condition) into a prefix, a tag residue, or a drop.</summary>
     internal static void ApplyGrant(string armScope, string? condition, List<AzureScope> prefixes, List<AzureTagCondition> tags)
@@ -143,8 +150,12 @@ public sealed class ArmRbacReader(
                 prefixes.Add(new AzureScope(basePrefix + abac.PathPrefix));
                 break;
             case AbacKind.ContainerName:
-                // Narrow an account/broader scope to the named container.
-                prefixes.Add(new AzureScope(NarrowToContainer(basePrefix, abac.ContainerName!)));
+                // Narrow an account scope to the named container. If the account is unknown (a
+                // broader-than-account grant), the restriction cannot be expressed as a prefix, so
+                // the grant is dropped rather than left broad (fail closed).
+                string? narrowed = NarrowToContainer(basePrefix, abac.ContainerName!);
+                if (narrowed is not null)
+                    prefixes.Add(new AzureScope(narrowed));
                 break;
             case AbacKind.Tag:
                 tags.Add(new AzureTagCondition(basePrefix, abac.TagKey!, abac.TagValue!, abac.TagKeyCaseSensitive));
@@ -155,12 +166,12 @@ public sealed class ArmRbacReader(
         }
     }
 
-    private static string NarrowToContainer(string basePrefix, string container)
+    private static string? NarrowToContainer(string basePrefix, string container)
     {
         // basePrefix is "azblob://", "azblob://{acct}/", or "azblob://{acct}/{c}/". A container-name
         // condition names the container within the account; only meaningful when the account is known.
         if (basePrefix == "azblob://")
-            return basePrefix; // account unknown — leave broad; the condition can't be tightened here
+            return null; // account unknown — the container-name restriction can't be applied → drop (fail closed)
         // basePrefix ends with "/"; strip any existing container and append the named one.
         string acct = basePrefix["azblob://".Length..].TrimEnd('/').Split('/')[0];
         return $"azblob://{acct}/{container}/";

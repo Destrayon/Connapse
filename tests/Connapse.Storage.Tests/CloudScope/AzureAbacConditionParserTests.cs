@@ -47,4 +47,13 @@ public class AzureAbacConditionParserTests
     public void Parse_UnknownExpression_IsUnparseable() =>
         AzureAbacConditionParser.Parse("@Request[...] DateTimeGreaterThan '2024-01-01'")
             .Kind.Should().Be(AbacKind.Unparseable);
+
+    [Fact]
+    public void Parse_CompoundCondition_MoreThanOneAttribute_IsUnparseable()
+    {
+        // A recognized clause combined with anything else must not be partially honored.
+        string compound =
+            "((!(ActionMatches{'x'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'readonly/*' AND @Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags:Secret<$key_case_sensitive$>] StringEquals 'no'))";
+        AzureAbacConditionParser.Parse(compound).Kind.Should().Be(AbacKind.Unparseable);
+    }
 }

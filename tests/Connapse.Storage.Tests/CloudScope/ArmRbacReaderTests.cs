@@ -131,14 +131,8 @@ public class ArmRbacReaderTests
         r.Outcome.Should().Be(RbacOutcome.Failed);
     }
 
-    [Fact]
-    public async Task Resolve_QueriesSubscriptionScope_WithoutAtScope()
-    {
-        var reader = NewReader(RoleAssignmentsBody());
-        await reader.ResolveAsync(Oid, CancellationToken.None);
-        // (assert via a handler that captured URLs — see StubHandler.Urls; validated in Task 6's DI test
-        //  and here by constructing the reader with a capturing handler if needed)
-    }
+    // (Subscription-scope / no-atScope URL shape is asserted in
+    // Resolve_Resolved_IsCached_SecondCallDoesNotHitArm, which captures request URLs.)
 
     // Build a reader whose deny call returns `denyBody`.
     private static ArmRbacReader NewReaderWithDeny(string rolesBody, string denyBody, string? subId = Sub)
@@ -216,5 +210,90 @@ public class ArmRbacReaderTests
         handler.Urls.Count.Should().Be(after); // served from cache
         handler.Urls.Should().Contain(u => u.Contains("/roleAssignments") && u.Contains("assignedTo") && !u.Contains("atScope"));
         handler.Urls.Should().Contain(u => u.Contains("/subscriptions/" + Sub + "/"));
+    }
+
+    [Fact]
+    public async Task Resolve_DenyNarrowerThanGrant_DropsTheWholeGrant()
+    {
+        // Account-scoped grant with a container-scoped deny beneath it. The prefix model cannot
+        // represent "account minus one container", so the whole grant is dropped (deny wins;
+        // over-subtraction = under-grant, the fail-closed direction). Never leave the container
+        // readable through the broad grant.
+        string acctScope = "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
+        string roles = RoleAssignmentsBody((ReaderRole, acctScope, null)); // whole account
+        string deny = DenyBody(acctScope + "/blobServices/default/containers/secret"); // one container
+        AzureRbacScopes r = await NewReaderWithDeny(roles, deny).ResolveAsync(Oid, CancellationToken.None);
+
+        r.Outcome.Should().Be(RbacOutcome.Resolved);
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_ContainerNameCondition_OnBroaderThanAccountScope_DropsGrant()
+    {
+        // A container-name ABAC condition on a subscription-scoped grant cannot be reduced to a
+        // prefix (the account is unknown), so it must drop — not resolve to azblob:// (all accounts).
+        string cond = "((!(ActionMatches{'Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers:name] StringEquals 'reports'))";
+        string roles = RoleAssignmentsBody((ReaderRole, "/subscriptions/" + Sub, cond)); // subscription scope
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.Outcome.Should().Be(RbacOutcome.Resolved);
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_CompoundCondition_PathAndTag_IsDroppedNotPartiallyHonored()
+    {
+        // A compound condition (path AND tag) must not be partially honored — the path restriction
+        // would be lost if only the tag matched. More than one attribute reference → unparseable → drop.
+        string cond = "((!(ActionMatches{'x'})) OR (@Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs:path] StringLike 'readonly/*' AND @Resource[Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags:Secret<$key_case_sensitive$>] StringEquals 'no'))";
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct/blobServices/default/containers/docs", cond));
+        AzureRbacScopes r = await NewReader(roles).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Should().BeEmpty();
+        r.TagConditioned.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_RoleAssignmentsCallFails_FailsClosed()
+    {
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/roleAssignments", StringComparison.OrdinalIgnoreCase)
+                ? Json(HttpStatusCode.InternalServerError, "{}")
+                : Json(HttpStatusCode.OK, EmptyDeny));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        (await reader.ResolveAsync(Oid, CancellationToken.None)).Outcome.Should().Be(RbacOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task Resolve_InternalTimeout_TokenNotCancelled_FailsClosed()
+    {
+        var handler = new StubHandler(_ => throw new TaskCanceledException("http timeout"));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        (await reader.ResolveAsync(Oid, CancellationToken.None)).Outcome.Should().Be(RbacOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task Resolve_CallerCancellation_IsRethrown()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var handler = new StubHandler(_ => throw new OperationCanceledException());
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        Func<Task> act = () => reader.ResolveAsync(Oid, cts.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }

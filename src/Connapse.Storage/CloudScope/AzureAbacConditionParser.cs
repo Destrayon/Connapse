@@ -32,10 +32,21 @@ public static partial class AzureAbacConditionParser
         RegexOptions.IgnoreCase)]
     private static partial Regex TagRegex();
 
+    [GeneratedRegex(@"@(?:Resource|Request|Environment|Principal)\[", RegexOptions.IgnoreCase)]
+    private static partial Regex AttributeRefRegex();
+
     public static AbacResult Parse(string? condition)
     {
         if (string.IsNullOrWhiteSpace(condition))
             return new AbacResult(AbacKind.None);
+
+        // Only the canonical SINGLE-attribute read template is understood. A compound condition —
+        // more than one attribute reference (a path AND a tag, or a recognized clause AND an
+        // unrecognized/restrictive one) — must never be partially honored, or a restrictive clause
+        // would be silently dropped and the grant over-broadened. Require exactly one attribute
+        // reference; anything else is Unparseable and the caller drops the grant (fail closed).
+        if (AttributeRefRegex().Matches(condition).Count != 1)
+            return new AbacResult(AbacKind.Unparseable);
 
         Match tag = TagRegex().Match(condition);
         if (tag.Success)
