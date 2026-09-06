@@ -21,8 +21,13 @@ public enum AzureIdentityOutcome
 public record AzureIdentitySet(bool Enabled, IReadOnlyList<string> PrincipalOids, AzureIdentityOutcome Outcome)
 {
     /// <summary>P = {oid} ∪ {group oids}, from a confident directory answer.</summary>
+    /// <remarks>
+    /// The principals are copied into a genuinely immutable collection: this set is handed to
+    /// callers and also held in the resolver's cache, so a caller casting the list back to a
+    /// mutable type must not be able to inject a principal and poison the shared cache entry.
+    /// </remarks>
     public static AzureIdentitySet Resolved(IReadOnlyList<string> principalOids) =>
-        new(true, principalOids, AzureIdentityOutcome.Resolved);
+        new(true, Array.AsReadOnly(principalOids.ToArray()), AzureIdentityOutcome.Resolved);
 
     /// <summary>The account is gone or disabled. Deny; cacheable.</summary>
     public static AzureIdentitySet Deprovisioned() => new(false, [], AzureIdentityOutcome.Deprovisioned);

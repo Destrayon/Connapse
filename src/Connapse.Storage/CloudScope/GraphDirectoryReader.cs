@@ -27,7 +27,10 @@ public sealed class GraphDirectoryReader(
     public async Task<AzureIdentitySet> ResolveAsync(AzureIdentityRef link, CancellationToken ct = default)
     {
         string oid = link.ObjectId;
-        string cacheKey = "azure-identity:" + oid;
+        // Keyed by (tenant, oid) so a resolved set can never be reused across a tenant boundary,
+        // even though the single-tenant deployment and globally-unique Entra object ids make a
+        // collision practically impossible.
+        string cacheKey = "azure-identity:" + link.TenantId + ":" + oid;
         if (cache.TryGetValue(cacheKey, out AzureIdentitySet? cached) && cached is not null)
             return cached;
 
@@ -99,12 +102,26 @@ public sealed class GraphDirectoryReader(
         if (accountEnabled == false)
             return AzureIdentitySet.Deprovisioned();
 
+        // The 200 body must actually be the requested user: a $batch scopes each sub-response by
+        // request id and URL, but we still require the returned id to be present and equal to the
+        // requested oid before trusting accountEnabled, so a stale/misassociated user body can
+        // never satisfy the gate for a different (possibly disabled) searcher.
+        if (!string.Equals(user.Body?.Id, oid, StringComparison.OrdinalIgnoreCase))
+            return AzureIdentitySet.Failed();
+
         // Groups must resolve, or the identity set is unknown — fail closed.
         if (groups.Status != 200 || groups.Body?.Value is null)
             return AzureIdentitySet.Failed();
 
+        // Every group value must be a real Entra object GUID. A null, empty, or non-GUID element
+        // is an anomalous response, so fail closed rather than admit a bogus principal into P.
         var principals = new List<string>(1 + groups.Body.Value.Count) { oid };
-        principals.AddRange(groups.Body.Value);
+        foreach (string? group in groups.Body.Value)
+        {
+            if (!Guid.TryParse(group, out _))
+                return AzureIdentitySet.Failed();
+            principals.Add(group!);
+        }
         return AzureIdentitySet.Resolved(principals);
     }
 
@@ -124,6 +141,7 @@ public sealed class GraphDirectoryReader(
         [property: JsonPropertyName("status")] int Status,
         [property: JsonPropertyName("body")] SubBody? Body);
     internal sealed record SubBody(
+        [property: JsonPropertyName("id")] string? Id,
         [property: JsonPropertyName("accountEnabled")] bool? AccountEnabled,
         [property: JsonPropertyName("value")] IReadOnlyList<string>? Value);
 }
