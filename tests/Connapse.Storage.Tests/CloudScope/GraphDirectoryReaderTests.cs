@@ -155,4 +155,35 @@ public class GraphDirectoryReaderTests
         second.Outcome.Should().Be(AzureIdentityOutcome.Resolved); // failure was retried, not cached
         handler.Sends.Should().Be(2);
     }
+
+    [Fact]
+    public async Task Resolve_UserResponse200_ButAccountEnabledAbsent_FailsClosed_NotDeprovisioned()
+    {
+        // An anomalous 200 whose body omits accountEnabled is uncertain, not a confirmed
+        // deprovision — it must fail as Failed (retried, never cached), not Deprovisioned (cached).
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, """
+        {"responses":[
+          {"id":"user","status":200,"body":{"id":"oid"}},
+          {"id":"groups","status":200,"body":{"value":[]}}
+        ]}
+        """));
+
+        AzureIdentitySet set = await NewReader(handler).ResolveAsync(Link, CancellationToken.None);
+
+        set.Outcome.Should().Be(AzureIdentityOutcome.Failed);
+        set.PrincipalOids.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_Cancellation_IsRethrown_NotSwallowedAsFailed()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var handler = new StubHandler(_ => throw new OperationCanceledException());
+        GraphDirectoryReader reader = NewReader(handler);
+
+        Func<Task> act = () => reader.ResolveAsync(Link, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
 }

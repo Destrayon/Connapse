@@ -85,12 +85,18 @@ public sealed class GraphDirectoryReader(
         if (user is null || groups is null)
             return AzureIdentitySet.Failed();
 
-        // Deprovisioning gate.
+        // Deprovisioning gate. A 404 or an explicit accountEnabled==false is a confirmed denial
+        // (cacheable). A 200 whose body is missing/omits accountEnabled is an anomalous, uncertain
+        // answer — not a confirmed deprovision — so it fails closed as Failed (retried, never
+        // cached), per the spec's "fail closed on an uncertain/partial response".
         if (user.Status == 404)
             return AzureIdentitySet.Deprovisioned();
         if (user.Status != 200)
             return AzureIdentitySet.Failed();
-        if (user.Body?.AccountEnabled != true)
+        bool? accountEnabled = user.Body?.AccountEnabled;
+        if (accountEnabled is null)
+            return AzureIdentitySet.Failed();
+        if (accountEnabled == false)
             return AzureIdentitySet.Deprovisioned();
 
         // Groups must resolve, or the identity set is unknown — fail closed.
