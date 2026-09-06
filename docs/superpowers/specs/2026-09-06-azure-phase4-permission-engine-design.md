@@ -111,22 +111,38 @@ Task<AzureRbacScopes> ResolveAsync(string primaryOid, CancellationToken ct);
 IReadOnlyList<AzureTagCondition> TagConditioned, RbacOutcome Outcome }`.
 
 **`ArmRbacReader`** (Storage) — one ARM call plus a parallel deny call, api-version `2022-04-01`,
-on `ConnapseAzureCredentials` (scope `https://management.azure.com/.default`):
-- `GET .../providers/Microsoft.Authorization/roleAssignments?$filter=atScope() and assignedTo('{oid}')`
-  — `assignedTo` is **transitive over the user's groups**, so this single call returns every
-  role assignment reaching the user (no per-group fan-out).
-- In parallel, `.../denyAssignments` with the same filter. **effective = grants − denies** (deny
-  wins; a missing deny call → `Failed`, not "assume none" — ignoring a deny fails open).
-- Match each assignment's role-definition id against three hard-coded built-in GUIDs: Reader
-  `2a2b9908-6ea1-4ae2-8e65-a410df84e7d1`, Contributor `ba92f5b4-2d11-453d-a403-e96b0029c9fe`,
-  Owner `b7e6dc6d-f1e8-4753-8033-0f276bb0955b` (only these grant blob **data** read).
-- Translate each surviving assignment's scope to an `azblob://{account}/{container}[/{prefix}]`
-  scope, applying its ABAC `condition`:
-  - **path/name condition** → narrow to a prefix predicate (a `ReadablePrefix`).
-  - **blob-index-tag condition** → cannot reduce to a prefix; emit an `AzureTagCondition`
-    (container/path scope + the tag predicate) for **live per-hit verification** (§E), never
-    excluded.
-  - **unparseable condition** → drop that assignment (fail closed).
+on `ConnapseAzureCredentials` (scope `https://management.azure.com/.default`), at the
+**subscription scope** (`AzureProviderSettings.SubscriptionId`, added this phase; absent → `Failed`):
+- `GET /subscriptions/{sub}/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01&$filter=assignedTo('{oid}')`
+  — **without** `atScope()`. Corrects the parent design: the docs state `atScope()` lists "only the
+  specified scope, **not including the role assignments at subscopes**", so it would miss
+  account- and container-scoped grants (the common case). A plain subscription-scope list includes
+  assignments at the scope, its ancestors (inherited), **and** its descendants (RG / account /
+  container). `assignedTo` is **transitive over the user's groups**, so this single call returns
+  every role assignment reaching the user (no per-group fan-out).
+- In parallel, `.../denyAssignments?...&$filter=assignedTo('{oid}')`. **effective = grants − denies**
+  (deny wins; a missing/failed deny call → `Failed`, not "assume none" — ignoring a deny fails open).
+  Conservative & sound: any deny assignment whose scope covers (is equal to or an ancestor of) a
+  grant's scope and whose (data)actions include the blob read action removes/trims that grant; when
+  a deny's applicability is uncertain, drop the overlapping grant (under-grant, never over-grant).
+- Match each assignment's `roleDefinitionId` (last GUID segment) against three hard-coded built-in
+  GUIDs: Reader `2a2b9908-6ea1-4ae2-8e65-a410df84e7d1`, Contributor
+  `ba92f5b4-2d11-453d-a403-e96b0029c9fe`, Owner `b7e6dc6d-f1e8-4753-8033-0f276bb0955b` (only these
+  grant blob **data** read).
+- Translate each surviving assignment's `scope` to an `azblob://` prefix:
+  `.../storageAccounts/{acct}/blobServices/default/containers/{c}` → `azblob://{acct}/{c}/`;
+  `.../storageAccounts/{acct}` → `azblob://{acct}/`; a broader scope (RG / subscription /
+  management group) covers every account under it → `azblob://` (matches all accounts). Then apply
+  its ABAC `condition`:
+  - **path condition** (`@Resource[...blobs:path] StringLike/StringStartsWith '<p>'`) → narrow to a
+    prefix (`azblob://{acct}/{c}/<p>`), stripping a trailing `*`.
+  - **container-name condition** (`@Resource[...containers:name] StringEquals '<c>'`) → narrow the
+    account/broader scope to that container.
+  - **blob-index-tag condition** (`@Resource[...blobs/tags:<key>...] ...`) → cannot reduce to a
+    prefix; emit an `AzureTagCondition` (scope + the tag predicate) for **live per-hit
+    verification** (§E), never excluded.
+  - **unparseable condition** → drop that one assignment (fail closed for that grant; the rest still
+    count).
 - Cache ~5 min keyed by oid (`azure-rbac:{oid}`), confident answers only.
 
 ### C. Flat resolver + composite + per-cloud enforcement (4c)
