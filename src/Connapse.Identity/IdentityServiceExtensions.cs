@@ -75,6 +75,9 @@ public static class IdentityServiceExtensions
         services.AddScoped<AzureIdentityLinkStore>();
         services.AddScoped<IAzureIdentityLinkReader>(sp => sp.GetRequiredService<AzureIdentityLinkStore>());
         services.AddScoped<IAzureIdentityLinkService, AzureIdentityLinkService>();
+        services.AddScoped<AzureIdTokenValidator>();
+        services.AddHttpClient<IAzureSigningKeySource, AzureAdSigningKeySource>();
+        services.AddHttpClient<IOidcTokenExchanger, AzureOidcTokenExchanger>();
 
         // All three are single-process by design and documented as such: one remembers assertion
         // ids so a signed assertion cannot be posted twice, one remembers who started a sign-in so
