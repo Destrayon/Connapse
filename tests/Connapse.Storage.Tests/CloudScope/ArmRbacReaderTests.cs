@@ -195,4 +195,26 @@ public class ArmRbacReaderTests
 
         (await reader.ResolveAsync(Oid, CancellationToken.None)).Outcome.Should().Be(RbacOutcome.Failed);
     }
+
+    [Fact]
+    public async Task Resolve_Resolved_IsCached_SecondCallDoesNotHitArm()
+    {
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct", null));
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/denyAssignments", StringComparison.OrdinalIgnoreCase)
+                ? Json(HttpStatusCode.OK, EmptyDeny) : Json(HttpStatusCode.OK, roles));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        await reader.ResolveAsync(Oid, CancellationToken.None);
+        int after = handler.Urls.Count;
+        await reader.ResolveAsync(Oid, CancellationToken.None);
+
+        handler.Urls.Count.Should().Be(after); // served from cache
+        handler.Urls.Should().Contain(u => u.Contains("/roleAssignments") && u.Contains("assignedTo") && !u.Contains("atScope"));
+        handler.Urls.Should().Contain(u => u.Contains("/subscriptions/" + Sub + "/"));
+    }
 }

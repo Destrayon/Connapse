@@ -37,11 +37,16 @@ public sealed class ArmRbacReader(
     {
         string? sub = options.CurrentValue.SubscriptionId;
         if (string.IsNullOrWhiteSpace(sub))
-            return AzureRbacScopes.Failed(); // cannot query without a subscription — fail closed
+            return AzureRbacScopes.Failed();
 
+        string cacheKey = "azure-rbac:" + primaryOid;
+        if (cache.TryGetValue(cacheKey, out AzureRbacScopes? cached) && cached is not null)
+            return cached;
+
+        AzureRbacScopes result;
         try
         {
-            return await ResolveUncachedAsync(sub, primaryOid, ct); // Task 5/6 add deny + cache
+            result = await ResolveUncachedAsync(sub, primaryOid, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -51,6 +56,10 @@ public sealed class ArmRbacReader(
         {
             return AzureRbacScopes.Failed();
         }
+
+        if (result.Outcome is RbacOutcome.Resolved)
+            cache.Set(cacheKey, result, CacheLifetime);
+        return result;
     }
 
     private async Task<AzureRbacScopes> ResolveUncachedAsync(string sub, string oid, CancellationToken ct)
