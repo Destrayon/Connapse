@@ -235,6 +235,11 @@ public static class ServiceCollectionExtensions
         // transient reader instance per resolve still shares one cache across the process.
         services.AddHttpClient<Connapse.Core.Interfaces.IAzureDirectoryReader, CloudScope.GraphDirectoryReader>();
 
+        // Reads the searcher's effective RBAC-readable azblob scopes from ARM (role assignments
+        // minus deny assignments). Typed HttpClient; the 5-minute decision cache is the shared
+        // IMemoryCache singleton. TokenCredential is already mapped to ConnapseAzureCredentials (4a).
+        services.AddHttpClient<Connapse.Core.Interfaces.IAzureRbacReader, CloudScope.ArmRbacReader>();
+
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();

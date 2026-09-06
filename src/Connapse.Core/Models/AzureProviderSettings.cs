@@ -14,4 +14,8 @@ public record AzureProviderSettings
     public string? ClientCertificatePath { get; init; }
     public string? ClientCertificatePassword { get; init; }
     public string? UserAssignedManagedIdentityClientId { get; init; }
+
+    /// <summary>The subscription whose role/deny assignments the RBAC resolver queries. Required
+    /// for per-user Azure permission filtering; absent → the resolver fails closed.</summary>
+    public string? SubscriptionId { get; init; }
 }
