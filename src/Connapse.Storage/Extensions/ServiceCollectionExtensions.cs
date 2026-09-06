@@ -249,10 +249,14 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
         // Starts undetermined, so a host that never runs the startup migration refuses to answer
         // rather than assuming nothing was being enforced. Connapse.Web completes it from
-        // SamlEnforcementLatch; nothing else resolves this today.
+        // CloudEnforcementLatch; nothing else resolves this today.
         services.TryAddSingleton(new EnforcementMigration());
 
-        services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
+        // The composite is THE resolver; it consumes the AWS and Azure resolvers as concrete types
+        // and unions them per cloud/scheme. AWS keeps its exact behavior as one inner resolver.
+        services.AddScoped<CloudScope.AwsSearchScopeResolver>();
+        services.AddScoped<CloudScope.AzureSearchScopeResolver>();
+        services.AddScoped<ISearchScopeResolver, CloudScope.CompositeSearchScopeResolver>();
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
