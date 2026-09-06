@@ -84,6 +84,7 @@ public static class IdentityServiceExtensions
         services.AddSingleton<ISamlReplayGuard, MemorySamlReplayGuard>();
         services.AddSingleton<SamlSignInRequests>();
         services.AddSingleton<SamlLinkConfirmations>();
+        services.AddSingleton<AzureSignInRequests>();
 
         services.AddHttpContextAccessor();
 
