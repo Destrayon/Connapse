@@ -24,6 +24,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["identitycenter"] = "Identity:IdentityCenter",
         ["permissionenforcement"] = "Identity:PermissionEnforcement",
         ["azure"] = "Providers:Azure",
+        ["azuread"] = "Identity:AzureAd",
     };
 
     public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)
