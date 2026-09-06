@@ -258,6 +258,50 @@ public class SourceScopePreflightTests
 
         result.IsRefused.Should().BeFalse();
     }
+    // ── Azure Blob ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Check_AzureContainerInsideAllowedLocations_IsAllowed()
+    {
+        var connection = Conn(ConnectionProvider.AzureBlob, """{"allowedLocations":["company-knowledge"]}""");
+
+        var result = Build().Check(connection, """{"containerName":"company-knowledge"}""");
+
+        result.IsRefused.Should().BeFalse();
+        result.Warning.Should().BeNull();
+    }
+
+    [Fact]
+    public void Check_AzureContainerOutsideAllowedLocations_IsRefusedNamingTheScope()
+    {
+        var connection = Conn(ConnectionProvider.AzureBlob, """{"allowedLocations":["company-knowledge"]}""");
+
+        var result = Build().Check(connection, """{"containerName":"payroll-data"}""");
+
+        result.IsRefused.Should().BeTrue();
+        result.Error.Should().Contain("payroll-data").And.Contain("conn");
+    }
+
+    [Fact]
+    public void Check_AzureMissingContainerName_IsRefusedBeforeThePolicyRuns()
+    {
+        var connection = Conn(ConnectionProvider.AzureBlob, """{"allowedLocations":["c"]}""");
+
+        Build().Check(connection, "{}").IsRefused.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Check_AzureNoAllowedLocations_IsAcceptedWithAWarning()
+    {
+        // Matches ConnectorFactory, which warns and proceeds for Azure exactly as it does for S3.
+        var connection = Conn(ConnectionProvider.AzureBlob, """{"accountName":"acct"}""");
+
+        var result = Build().Check(connection, """{"containerName":"anything"}""");
+
+        result.IsRefused.Should().BeFalse();
+        result.Warning.Should().NotBeNullOrEmpty();
+    }
+
     // ── SFTP ───────────────────────────────────────────────────────────────
 
     private const string SftpConn = """{"host":"h","port":22,"username":"u","allowedRoot":"/D:/CodeProjects"}""";
