@@ -72,6 +72,9 @@ public static class IdentityServiceExtensions
         services.AddScoped<AwsIdentityLinkStore>();
         services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
+        services.AddScoped<AzureIdentityLinkStore>();
+        services.AddScoped<IAzureIdentityLinkReader>(sp => sp.GetRequiredService<AzureIdentityLinkStore>());
+        services.AddScoped<IAzureIdentityLinkService, AzureIdentityLinkService>();
 
         // All three are single-process by design and documented as such: one remembers assertion
         // ids so a signed assertion cannot be posted twice, one remembers who started a sign-in so
