@@ -1,9 +1,11 @@
 using System.Net;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Storage.CloudScope;
 using Connapse.Storage.ConnectionTesters;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
@@ -195,6 +197,27 @@ public class MinioConnectionTesterTests
     }
 
     // Note: Full MinIO integration tests require real service and are covered in Integration.Tests
+}
+
+[Trait("Category", "Unit")]
+public class AzureBlobConnectionTesterTests
+{
+    [Fact]
+    public async Task AzureBlobTester_WrongSettingsType_Fails()
+    {
+        var tester = new AzureBlobConnectionTester(
+            new ConnapseAzureCredentials(new TestOptionsMonitor<AzureProviderSettings>(new())));
+        var result = await tester.TestConnectionAsync("not-a-config", TimeSpan.FromSeconds(1));
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("AzureBlobConnectorConfig");
+    }
+
+    private sealed class TestOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    {
+        public T CurrentValue { get; private set; } = value;
+        public T Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
+    }
 }
 
 /// <summary>

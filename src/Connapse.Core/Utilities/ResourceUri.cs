@@ -28,4 +28,12 @@ public static class ResourceUri
         ArgumentException.ThrowIfNullOrWhiteSpace(bucket);
         return $"s3://{bucket}/{key}";
     }
+
+    /// <summary>An Azure Blob Storage object, as <c>azblob://account/container/path</c>.</summary>
+    public static string ForAzureBlob(string account, string container, string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(account);
+        ArgumentException.ThrowIfNullOrWhiteSpace(container);
+        return $"azblob://{account}/{container}/{path}";
+    }
 }

@@ -67,10 +67,16 @@ public class SourceConnectorFactoryTests
         services.AddSingleton(credentialStore);
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
+        // No network is touched: Create() never calls GetToken, so a default,
+        // unconfigured AzureProviderSettings is enough to construct the credential.
+        var azureOptions = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        azureOptions.CurrentValue.Returns(new AzureProviderSettings());
+
         return new ConnectorFactory(
             monitor,
             hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
+            new ConnapseAzureCredentials(azureOptions),
             logger ?? NullLogger<ConnectorFactory>.Instance);
     }
 
@@ -109,6 +115,18 @@ public class SourceConnectorFactoryTests
         connector.Config.Region.Should().Be("eu-west-1", "the region comes from the connection");
         connector.Config.BucketName.Should().Be("my-bucket", "the bucket comes from the source scope");
         connector.Config.Prefix.Should().Be("docs/");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void Create_AzureBlob_BuildsConnectorFromSplitConfig()
+    {
+        var connection = MakeConnection(ConnectionProvider.AzureBlob, """{"accountName":"acct"}""");
+        var source = MakeSource(connection.Id, """{"containerName":"docs","prefix":"reports/"}""");
+
+        var connector = (AzureBlobConnector)_factory.Create(source, connection);
+
+        connector.Type.Should().Be(ConnectorType.AzureBlob);
     }
 
     [Fact]

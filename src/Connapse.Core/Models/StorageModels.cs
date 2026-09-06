@@ -1,6 +1,6 @@
 ﻿namespace Connapse.Core;
 
-public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, Sftp = 5 }
+public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5 }
 
 public record ContainerSettingsOverrides
 {

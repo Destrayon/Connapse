@@ -54,4 +54,20 @@ public class ResourceUriTests
             .Should().Throw<ArgumentException>();
     }
 
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ForAzureBlob_BuildsAzblobUri()
+    {
+        ResourceUri.ForAzureBlob("acct", "docs", "reports/q1.pdf")
+            .Should().Be("azblob://acct/docs/reports/q1.pdf");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ForAzureBlob_BlankAccount_Throws()
+    {
+        var act = () => ResourceUri.ForAzureBlob("", "docs", "k");
+        act.Should().Throw<ArgumentException>();
+    }
+
 }
