@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Connapse.Identity.Services;
 
@@ -20,16 +20,27 @@ public sealed record AzurePendingSignIn(
 /// this process actually issued.
 /// </summary>
 /// <remarks>
-/// Single-process by design, like <see cref="SamlSignInRequests"/> and for the same reason: it
-/// spans one redirect to Entra and back, and several instances behind a load balancer would need
-/// the callback to land on the instance that started the sign-in, or a shared store.
+/// Backed by <see cref="IMemoryCache"/>, like <see cref="SamlSignInRequests"/> and for the same
+/// two reasons. First, the cache expires each entry at the sign-in's own deadline, so a sign-in
+/// that is started and never completed — the browser closed at the Entra prompt, the redirect
+/// URL captured but never followed — does not linger: abandoned entries are evicted on expiry
+/// rather than accumulating for the life of the process. A raw dictionary that only removed on
+/// redemption would grow without bound under repeated abandoned sign-ins. Second, single-process
+/// by design: it spans one redirect to Entra and back, and several instances behind a load
+/// balancer would need the callback to land on the instance that started the sign-in, or a
+/// shared store.
 /// </remarks>
-public sealed class AzureSignInRequests
+public sealed class AzureSignInRequests(IMemoryCache cache)
 {
-    private readonly ConcurrentDictionary<string, AzurePendingSignIn> _pending = new();
+    private const string KeyPrefix = "azure-signin:";
 
     /// <summary>Records that a sign-in was started for <paramref name="pending"/>'s state.</summary>
-    public void Add(AzurePendingSignIn pending) => _pending[pending.State] = pending;
+    /// <remarks>
+    /// The entry is set to expire at the request's own <see cref="AzurePendingSignIn.ExpiresAtUtc"/>,
+    /// so it is reclaimed automatically whether or not the callback ever arrives.
+    /// </remarks>
+    public void Add(AzurePendingSignIn pending) =>
+        cache.Set(KeyPrefix + pending.State, pending, new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
 
     /// <summary>
     /// Removes and returns the pending sign-in for <paramref name="state"/>, or null if it does
@@ -37,9 +48,11 @@ public sealed class AzureSignInRequests
     /// </summary>
     public AzurePendingSignIn? TakeByState(string state)
     {
-        if (!_pending.TryRemove(state, out AzurePendingSignIn? pending))
+        string key = KeyPrefix + state;
+        if (!cache.TryGetValue(key, out AzurePendingSignIn? pending) || pending is null)
             return null;
 
-        return pending.ExpiresAtUtc < DateTime.UtcNow ? null : pending;
+        cache.Remove(key);
+        return pending;
     }
 }
