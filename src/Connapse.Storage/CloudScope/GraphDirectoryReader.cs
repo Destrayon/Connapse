@@ -39,13 +39,20 @@ public sealed class GraphDirectoryReader(
         {
             result = await ResolveUncachedAsync(oid, ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Genuine caller cancellation propagates cooperatively.
+            throw;
+        }
         catch (OperationCanceledException)
         {
-            throw;
+            // An HttpClient internal timeout surfaces as TaskCanceledException with ct NOT
+            // cancelled — that is a transport failure, so fail closed rather than propagate.
+            return AzureIdentitySet.Failed();
         }
         catch
         {
-            // Any transport/parse failure fails closed and is never cached.
+            // Any other transport/parse failure fails closed and is never cached.
             return AzureIdentitySet.Failed();
         }
 
@@ -88,26 +95,27 @@ public sealed class GraphDirectoryReader(
         if (user is null || groups is null)
             return AzureIdentitySet.Failed();
 
-        // Deprovisioning gate. A 404 or an explicit accountEnabled==false is a confirmed denial
-        // (cacheable). A 200 whose body is missing/omits accountEnabled is an anomalous, uncertain
-        // answer — not a confirmed deprovision — so it fails closed as Failed (retried, never
-        // cached), per the spec's "fail closed on an uncertain/partial response".
+        // Deprovisioning gate. A 404 is a confirmed denial (cacheable).
         if (user.Status == 404)
             return AzureIdentitySet.Deprovisioned();
         if (user.Status != 200)
             return AzureIdentitySet.Failed();
+
+        // The 200 body must actually be the requested user BEFORE we trust anything in it — a
+        // $batch scopes each sub-response by request id and URL, but a stale/misassociated body
+        // must never drive either the enabled OR the disabled decision for this searcher. A
+        // missing/mismatched id is uncertain, so it fails closed (Failed, uncached) rather than
+        // caching a Deprovisioned denial off another user's body.
+        if (!string.Equals(user.Body?.Id, oid, StringComparison.OrdinalIgnoreCase))
+            return AzureIdentitySet.Failed();
+
+        // A 200 that omits accountEnabled is anomalous/uncertain → Failed (uncached); an explicit
+        // accountEnabled==false is a confirmed disable → Deprovisioned (cacheable).
         bool? accountEnabled = user.Body?.AccountEnabled;
         if (accountEnabled is null)
             return AzureIdentitySet.Failed();
         if (accountEnabled == false)
             return AzureIdentitySet.Deprovisioned();
-
-        // The 200 body must actually be the requested user: a $batch scopes each sub-response by
-        // request id and URL, but we still require the returned id to be present and equal to the
-        // requested oid before trusting accountEnabled, so a stale/misassociated user body can
-        // never satisfy the gate for a different (possibly disabled) searcher.
-        if (!string.Equals(user.Body?.Id, oid, StringComparison.OrdinalIgnoreCase))
-            return AzureIdentitySet.Failed();
 
         // Groups must resolve, or the identity set is unknown — fail closed.
         if (groups.Status != 200 || groups.Body?.Value is null)

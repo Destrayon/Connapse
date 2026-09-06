@@ -259,4 +259,30 @@ public class GraphDirectoryReaderTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public async Task Resolve_InternalTimeout_TaskCanceledWithTokenNotCancelled_FailsClosed()
+    {
+        // HttpClient's own timeout surfaces as TaskCanceledException (an OperationCanceledException)
+        // with the caller's token NOT cancelled — a transport failure, so it must fail closed
+        // rather than propagate.
+        var handler = new StubHandler(_ => throw new TaskCanceledException("http timeout"));
+        AzureIdentitySet set = await NewReader(handler).ResolveAsync(Link, CancellationToken.None);
+        set.Outcome.Should().Be(AzureIdentityOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task Resolve_DisabledAccount_ButIdMismatch_FailsClosed_NotDeprovisioned()
+    {
+        // A 200 accountEnabled:false whose body is a DIFFERENT user must not cache-deny the
+        // requested searcher off another user's disabled status — id mismatch is uncertain → Failed.
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, """
+        {"responses":[
+          {"id":"user","status":200,"body":{"id":"99999999-9999-9999-9999-999999999999","accountEnabled":false}},
+          {"id":"groups","status":200,"body":{"value":[]}}
+        ]}
+        """));
+        (await NewReader(handler).ResolveAsync(Link, CancellationToken.None))
+            .Outcome.Should().Be(AzureIdentityOutcome.Failed);
+    }
 }
