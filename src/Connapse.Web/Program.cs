@@ -100,7 +100,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>
 // Carries an existing deployment's per-user permissions across the upgrade that separated
 // "enforcing" from "configured". Without it, an installation that already had filtering working
 // would come back up unfiltered -- the exact failure that separation exists to prevent.
-builder.Services.AddHostedService<SamlEnforcementLatch>();
+builder.Services.AddHostedService<CloudEnforcementLatch>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();

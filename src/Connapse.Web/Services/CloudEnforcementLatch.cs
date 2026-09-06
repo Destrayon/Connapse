@@ -35,14 +35,19 @@ namespace Connapse.Web.Services;
 /// It only ever turns enforcement on, and only when the effective configuration is complete.
 /// Switching it off is an administrator's decision and has its own path through the UI.
 /// </para>
+/// <para>
+/// Enforcement is opt-in via SAML or Azure AD, either one. A deployment that configured either
+/// identity provider had per-user permissions working, so either configuration latches it.
+/// </para>
 /// </remarks>
-public sealed class SamlEnforcementLatch(
+public sealed class CloudEnforcementLatch(
     IServiceScopeFactory scopes,
     IOptionsMonitor<SamlSignInSettings> signIn,
+    IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
     ISettingsReloader settingsReloader,
-    ILogger<SamlEnforcementLatch> logger) : IHostedService
+    ILogger<CloudEnforcementLatch> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -69,9 +74,9 @@ public sealed class SamlEnforcementLatch(
                 return;
             }
 
-            // Never set this up. A deployment that does not filter stays unrestricted, which is the
-            // documented default and the only legitimate one.
-            if (!signIn.CurrentValue.IsConfigured)
+            // Enforcement is opt-in via ANY cloud identity provider. Once SAML OR Azure AD is configured,
+            // the deployment latches into enforcing mode; before that, searches are unfiltered.
+            if (!signIn.CurrentValue.IsConfigured && !azureAd.CurrentValue.IsConfigured)
             {
                 migration.Complete();
                 return;

@@ -22,7 +22,7 @@ namespace Connapse.Web.Tests.Services;
 /// unrestricted. These tests exist because that version passed everything else.
 /// </remarks>
 [Trait("Category", "Unit")]
-public class SamlEnforcementLatchTests
+public class CloudEnforcementLatchTests
 {
     private readonly ISettingsStore store = Substitute.For<ISettingsStore>();
 
@@ -38,6 +38,14 @@ public class SamlEnforcementLatchTests
         IdpSigningCertificate = "MIIDBTCCAe2gAwIBAgIFEXAMPLE",
     };
 
+    private static AzureAdSignInSettings CompleteAzureAd() => new()
+    {
+        TenantId = "tenant-1",
+        ClientId = "client-1",
+        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/cb",
+        ClientCertificatePath = "cert.pem",
+    };
+
     private static IOptionsMonitor<T> Monitor<T>(T value) where T : class
     {
         var monitor = Substitute.For<IOptionsMonitor<T>>();
@@ -45,8 +53,11 @@ public class SamlEnforcementLatchTests
         return monitor;
     }
 
-    private (SamlEnforcementLatch Latch, EnforcementMigration Migration) Build(
-        SamlSignInSettings signIn, bool alreadyEnforcing = false, bool settingsReadable = true)
+    private (CloudEnforcementLatch Latch, EnforcementMigration Migration) Build(
+        SamlSignInSettings signIn,
+        AzureAdSignInSettings? azureAd = null,
+        bool alreadyEnforcing = false,
+        bool settingsReadable = true)
     {
         var services = new ServiceCollection();
         services.AddSingleton(store);
@@ -54,13 +65,14 @@ public class SamlEnforcementLatchTests
         var migration = new EnforcementMigration();
         reloader.Reload().Returns(settingsReadable);
 
-        return (new SamlEnforcementLatch(
+        return (new CloudEnforcementLatch(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             Monitor(signIn),
+            Monitor(azureAd ?? new AzureAdSignInSettings()),
             Monitor(new PermissionEnforcementSettings { IsEnforcing = alreadyEnforcing }),
             migration,
             reloader,
-            NullLogger<SamlEnforcementLatch>.Instance), migration);
+            NullLogger<CloudEnforcementLatch>.Instance), migration);
     }
 
     private Task<PermissionEnforcementSettings?> SavedMarker()
@@ -84,6 +96,19 @@ public class SamlEnforcementLatchTests
             .Returns((SamlSignInSettings?)null);
 
         var (latch, migration) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        (await SavedMarker())!.IsEnforcing.Should().BeTrue();
+        migration.Determined.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Latches_When_OnlyAzureAd_Configured()
+    {
+        // SAML not configured, Azure AD configured, not yet marked → the latch turns enforcement on.
+        // Mirrors ConfiguredThroughEnvironmentOnly_StillLatches above, but with Azure AD as the
+        // provider that was already working and SAML left blank.
+        var (latch, migration) = Build(new SamlSignInSettings(), azureAd: CompleteAzureAd());
         await latch.StartAsync(CancellationToken.None);
 
         (await SavedMarker())!.IsEnforcing.Should().BeTrue();
