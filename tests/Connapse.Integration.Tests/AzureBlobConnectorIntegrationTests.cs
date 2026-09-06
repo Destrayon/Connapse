@@ -35,4 +35,29 @@ public class AzureBlobConnectorIntegrationTests(AzuriteFixture fixture)
         using var stream = await connector.ReadFileAsync("reports/q1.pdf");
         (await new StreamReader(stream).ReadToEndAsync()).Should().Be("hello");
     }
+
+    [Fact]
+    public async Task ReadFileAsync_BlobOutsideConfiguredPrefix_IsConfined()
+    {
+        var service = new BlobServiceClient(fixture.ConnectionString); // shared-key, Azurite
+        var container = service.GetBlobContainerClient("docs-confinement");
+        await container.CreateIfNotExistsAsync();
+        await container.UploadBlobAsync("reports/q1.pdf", new BinaryData("hello"));
+        await container.UploadBlobAsync("hr/secret.pdf", new BinaryData("confidential"));
+
+        var connector = new AzureBlobConnector(
+            new AzureBlobConnectorConfig { AccountName = "devstoreaccount1", ContainerName = "docs-confinement", Prefix = "reports/" },
+            service); // internal test ctor
+
+        // In-scope blob still reads fine.
+        using var stream = await connector.ReadFileAsync("reports/q1.pdf");
+        (await new StreamReader(stream).ReadToEndAsync()).Should().Be("hello");
+
+        // A blob that exists in the SAME container but outside the source's configured
+        // prefix must not be reachable via this connector, even though the underlying
+        // Azure SDK client has no such restriction.
+        var act = async () => await connector.ReadFileAsync("hr/secret.pdf");
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        (await connector.ExistsAsync("hr/secret.pdf")).Should().BeFalse();
+    }
 }

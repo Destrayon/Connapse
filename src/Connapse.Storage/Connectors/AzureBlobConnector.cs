@@ -52,12 +52,33 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
 
     public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
+        if (!IsInPrefixScope(path))
+        {
+            throw new UnauthorizedAccessException(
+                $"Blob '{path}' is outside the source's configured prefix scope.");
+        }
         var download = await _container.GetBlobClient(path).DownloadStreamingAsync(cancellationToken: ct);
         return download.Value.Content;
     }
 
     public async Task<bool> ExistsAsync(string path, CancellationToken ct = default)
-        => await _container.GetBlobClient(path).ExistsAsync(ct);
+        => IsInPrefixScope(path) && await _container.GetBlobClient(path).ExistsAsync(ct);
+
+    /// <summary>
+    /// Enforces the configured prefix as an exact-subtree boundary: a path is in scope only if
+    /// the prefix is empty (whole container), equals the path exactly, or is followed by '/'.
+    /// Prevents a sibling prefix (e.g. "team-archive/") from matching "team/" via a raw StartsWith.
+    /// </summary>
+    internal bool IsInPrefixScope(string path)
+    {
+        string normalizedPrefix = _config.Prefix?.Trim('/') ?? "";
+        if (string.IsNullOrEmpty(normalizedPrefix))
+        {
+            return true;
+        }
+        return path.Equals(normalizedPrefix, StringComparison.Ordinal)
+            || path.StartsWith(normalizedPrefix + "/", StringComparison.Ordinal);
+    }
 
     public async IAsyncEnumerable<ConnectorFileEvent> WatchAsync([EnumeratorCancellation] CancellationToken ct = default)
     {
