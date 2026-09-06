@@ -16,26 +16,43 @@ public static class AzureCredentialChainFactory
         AzureProviderSettings settings,
         Func<AzureProviderSettings, X509Certificate2?> certLoader)
     {
-        var sources = new List<TokenCredential>();
+        bool anyServicePrincipalFieldSet =
+            !string.IsNullOrWhiteSpace(settings.TenantId)
+            || !string.IsNullOrWhiteSpace(settings.ClientId)
+            || !string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+            || !string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
 
-        if (!string.IsNullOrWhiteSpace(settings.ClientId))
+        if (!anyServicePrincipalFieldSet)
         {
-            X509Certificate2 cert = certLoader(settings)
-                ?? throw new InvalidOperationException(
-                    "Azure ClientId is configured but no usable certificate was loaded "
-                    + $"(ClientCertificatePath='{settings.ClientCertificatePath}'). "
-                    + "Fix the certificate configuration; Connapse will not silently fall back to managed identity.");
+            // No service-principal intent at all: managed-identity-only chain.
+            TokenCredential managedIdentity = string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+                ? new ManagedIdentityCredential()
+                : new ManagedIdentityCredential(
+                    ManagedIdentityId.FromUserAssignedClientId(settings.UserAssignedManagedIdentityClientId));
 
-            sources.Add(new ClientCertificateCredential(
-                settings.TenantId, settings.ClientId, cert,
-                new ClientCertificateCredentialOptions { SendCertificateChain = true }));
+            return new ChainedTokenCredential(managedIdentity);
         }
 
-        sources.Add(string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
-            ? new ManagedIdentityCredential()
-            : new ManagedIdentityCredential(
-                ManagedIdentityId.FromUserAssignedClientId(settings.UserAssignedManagedIdentityClientId)));
+        // Any populated service-principal field is intent to use certificate auth.
+        // Require a complete, usable set — never fall through to managed identity
+        // (a broader, ambient identity) on a partial or broken configuration.
+        if (string.IsNullOrWhiteSpace(settings.TenantId) || string.IsNullOrWhiteSpace(settings.ClientId))
+        {
+            throw new InvalidOperationException(
+                "Azure service-principal fields are partially configured (some of TenantId, ClientId, "
+                + "ClientCertificatePath, ClientCertificatePassword are set) but TenantId and ClientId are "
+                + "both required. Fix the certificate configuration; Connapse will not silently fall back "
+                + "to managed identity.");
+        }
 
-        return new ChainedTokenCredential(sources.ToArray());
+        X509Certificate2 cert = certLoader(settings)
+            ?? throw new InvalidOperationException(
+                "Azure ClientId is configured but no usable certificate was loaded "
+                + $"(ClientCertificatePath='{settings.ClientCertificatePath}'). "
+                + "Fix the certificate configuration; Connapse will not silently fall back to managed identity.");
+
+        return new ChainedTokenCredential(new ClientCertificateCredential(
+            settings.TenantId, settings.ClientId, cert,
+            new ClientCertificateCredentialOptions { SendCertificateChain = true }));
     }
 }

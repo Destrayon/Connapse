@@ -52,12 +52,66 @@ public class AzureCredentialChainFactoryTests
            .WithMessage("*certificate*");
     }
 
-    // Reads the private _sources array ChainedTokenCredential stores, to assert ordering.
-    private static TokenCredential FirstSource(TokenCredential chain)
+    [Fact]
+    public void Create_TenantIdAndCertPathSetButClientIdBlank_Throws()
+    {
+        // Partial service-principal config: ClientId lost/blank must not silently
+        // fall through to managed identity (a broader, ambient identity).
+        var settings = new AzureProviderSettings { TenantId = "t", ClientCertificatePath = "cert.pfx" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_ClientIdAndTenantIdSetButCertPathBlank_Throws()
+    {
+        var settings = new AzureProviderSettings { TenantId = "t", ClientId = "c" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => null);
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_OnlyClientCertificatePasswordSet_Throws()
+    {
+        // A lone SP field is still "intent to use certificate auth" and must fail
+        // closed rather than silently becoming managed-identity-only.
+        var settings = new AzureProviderSettings { ClientCertificatePassword = "pw" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_OnlyClientIdSetButTenantIdBlank_Throws()
+    {
+        var settings = new AzureProviderSettings { ClientId = "c", ClientCertificatePath = "cert.pfx" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_FullServicePrincipalSet_UsesCertificateCredentialOnly()
+    {
+        // When the SP set is complete, the chain must not also carry a managed-identity
+        // fallback source — that fallback is exactly the broader-identity fall-open path.
+        var settings = new AzureProviderSettings { TenantId = "t", ClientId = "c", ClientCertificatePath = "cert.pfx" };
+        var cred = AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ClientCertificateCredential>();
+    }
+
+    [Fact]
+    public void Create_NoServicePrincipalFields_ManagedIdentityOnlyChain()
+    {
+        var cred = AzureCredentialChainFactory.Create(new AzureProviderSettings(), _ => null);
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
+    }
+
+    // Reads the private _sources array ChainedTokenCredential stores, to assert ordering/contents.
+    private static TokenCredential FirstSource(TokenCredential chain) => Sources(chain)[0];
+
+    private static TokenCredential[] Sources(TokenCredential chain)
     {
         var field = typeof(ChainedTokenCredential)
             .GetField("_sources", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var sources = (TokenCredential[])field.GetValue(chain)!;
-        return sources[0];
+        return (TokenCredential[])field.GetValue(chain)!;
     }
 }

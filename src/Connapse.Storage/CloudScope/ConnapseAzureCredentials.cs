@@ -16,19 +16,32 @@ public sealed class ConnapseAzureCredentials : TokenCredential, IDisposable
     private readonly IOptionsMonitor<AzureProviderSettings> _options;
     private readonly IDisposable? _reload;
     private readonly object _gate = new();
-    private TokenCredential _current;
+    private TokenCredential? _current;
 
     public ConnapseAzureCredentials(IOptionsMonitor<AzureProviderSettings> options)
     {
         _options = options;
-        _current = Build(options.CurrentValue);
-        _reload = options.OnChange(settings =>
+        // Deliberately do NOT build here: a missing/unreadable cert or incomplete config
+        // must not throw during DI construction and take down unrelated (non-Azure) hosts.
+        // The credential is built lazily on first GetToken/GetTokenAsync call.
+        _reload = options.OnChange(_ =>
         {
-            lock (_gate) { _current = Build(settings); }
+            // Invalidate only — never build (and never let a build failure throw) from
+            // the reload callback. The next token request rebuilds from fresh settings.
+            lock (_gate) { _current = null; }
         });
     }
 
-    private TokenCredential Current { get { lock (_gate) { return _current; } } }
+    private TokenCredential Current
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _current ??= Build(_options.CurrentValue);
+            }
+        }
+    }
 
     public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken ct) =>
         Current.GetToken(requestContext, ct);
