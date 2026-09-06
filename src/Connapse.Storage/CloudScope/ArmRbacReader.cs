@@ -57,23 +57,68 @@ public sealed class ArmRbacReader(
     {
         AccessToken token = await azureCredential.GetTokenAsync(new TokenRequestContext(ArmScopes), ct);
 
-        IReadOnlyList<Assignment> grants = await ListAllAsync(
+        Task<IReadOnlyList<Assignment>> grantsTask = ListAllAsync(
             $"{ArmBase}/subscriptions/{sub}/providers/Microsoft.Authorization/roleAssignments" +
             $"?api-version={ApiVersion}&$filter=assignedTo('{oid}')", token, ct);
+        Task<IReadOnlyList<Assignment>> denyTask = ListAllAsync(
+            $"{ArmBase}/subscriptions/{sub}/providers/Microsoft.Authorization/denyAssignments" +
+            $"?api-version={ApiVersion}&$filter=assignedTo('{oid}')", token, ct);
+        await Task.WhenAll(grantsTask, denyTask); // a failure in either throws → caller fails closed
 
         var prefixes = new List<AzureScope>();
         var tags = new List<AzureTagCondition>();
-        foreach (Assignment a in grants)
+        foreach (Assignment a in grantsTask.Result)
         {
             string? roleGuid = LastSegment(a.Properties?.RoleDefinitionId);
             if (roleGuid is null || !BlobDataReadRoles.Contains(roleGuid) || a.Properties?.Scope is null)
                 continue;
-
             ApplyGrant(a.Properties.Scope, a.Properties.Condition, prefixes, tags);
+        }
+
+        IReadOnlyList<string> denyPrefixes = DenyPrefixes(denyTask.Result);
+        if (denyPrefixes.Count > 0)
+        {
+            prefixes = prefixes.Where(p => !CoveredByAnyDeny(p.Prefix, denyPrefixes)).ToList();
+            tags = tags.Where(t => !CoveredByAnyDeny(t.Scope, denyPrefixes)).ToList();
         }
 
         return AzureRbacScopes.Resolved(prefixes, tags);
     }
+
+    /// <summary>Deny scopes (as azblob prefixes) that apply to blob read for this searcher.</summary>
+    private static IReadOnlyList<string> DenyPrefixes(IReadOnlyList<Assignment> denies)
+    {
+        var result = new List<string>();
+        foreach (Assignment d in denies)
+        {
+            if (d.Properties?.Scope is null) continue;
+            if (AppliesToBlobRead(d.Properties.Permissions))
+                result.Add(AzureRbacScopeTranslator.ToAzblobPrefix(d.Properties.Scope));
+        }
+        return result;
+    }
+
+    private static bool AppliesToBlobRead(IReadOnlyList<Permission>? permissions)
+    {
+        if (permissions is null) return false;
+        foreach (Permission p in permissions)
+        {
+            foreach (string a in p.DataActions ?? [])
+            {
+                if (a == "*"
+                    || a.Equals("Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read", StringComparison.OrdinalIgnoreCase)
+                    || (a.EndsWith('*') && "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read"
+                            .StartsWith(a[..^1], StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // A grant is denied when a deny prefix is equal to, or an ancestor of, the grant prefix
+    // (deny-wins over a broader-or-equal scope). "azblob://" as a deny prefix covers everything.
+    private static bool CoveredByAnyDeny(string grantPrefix, IReadOnlyList<string> denyPrefixes) =>
+        denyPrefixes.Any(d => grantPrefix.StartsWith(d, StringComparison.Ordinal));
 
     /// <summary>Maps one matched grant (scope + ABAC condition) into a prefix, a tag residue, or a drop.</summary>
     internal static void ApplyGrant(string armScope, string? condition, List<AzureScope> prefixes, List<AzureTagCondition> tags)
@@ -140,5 +185,9 @@ public sealed class ArmRbacReader(
     internal sealed record AssignmentProps(
         [property: JsonPropertyName("roleDefinitionId")] string? RoleDefinitionId,
         [property: JsonPropertyName("scope")] string? Scope,
-        [property: JsonPropertyName("condition")] string? Condition);
+        [property: JsonPropertyName("condition")] string? Condition,
+        [property: JsonPropertyName("permissions")] IReadOnlyList<Permission>? Permissions);
+    internal sealed record Permission(
+        [property: JsonPropertyName("dataActions")] IReadOnlyList<string>? DataActions,
+        [property: JsonPropertyName("notDataActions")] IReadOnlyList<string>? NotDataActions);
 }

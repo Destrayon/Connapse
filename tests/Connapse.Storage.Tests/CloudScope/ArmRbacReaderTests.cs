@@ -139,4 +139,60 @@ public class ArmRbacReaderTests
         // (assert via a handler that captured URLs — see StubHandler.Urls; validated in Task 6's DI test
         //  and here by constructing the reader with a capturing handler if needed)
     }
+
+    // Build a reader whose deny call returns `denyBody`.
+    private static ArmRbacReader NewReaderWithDeny(string rolesBody, string denyBody, string? subId = Sub)
+    {
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/denyAssignments", StringComparison.OrdinalIgnoreCase)
+                ? Json(HttpStatusCode.OK, denyBody)
+                : Json(HttpStatusCode.OK, rolesBody));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = subId });
+        return new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+    }
+
+    private static string DenyBody(string scope) => $$$"""
+    {"value":[{"properties":{"scope":"{{{scope}}}","permissions":[{"dataActions":["Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read"],"notDataActions":[]}]}}]}
+    """;
+
+    [Fact]
+    public async Task Resolve_DenyCoveringGrant_RemovesIt()
+    {
+        string acctScope = "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
+        string roles = RoleAssignmentsBody((ReaderRole, acctScope + "/blobServices/default/containers/docs", null));
+        // Deny at the whole account covers the container grant.
+        AzureRbacScopes r = await NewReaderWithDeny(roles, DenyBody(acctScope)).ResolveAsync(Oid, CancellationToken.None);
+
+        r.Outcome.Should().Be(RbacOutcome.Resolved);
+        r.ReadablePrefixes.Should().BeEmpty(); // deny wins
+    }
+
+    [Fact]
+    public async Task Resolve_DenyElsewhere_DoesNotRemoveUnrelatedGrant()
+    {
+        string roles = RoleAssignmentsBody((ReaderRole,
+            "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct/blobServices/default/containers/docs", null));
+        string denyOther = DenyBody("/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/other");
+        AzureRbacScopes r = await NewReaderWithDeny(roles, denyOther).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://acct/docs/");
+    }
+
+    [Fact]
+    public async Task Resolve_DenyCallFails_FailsClosed()
+    {
+        var handler = new StubHandler(req =>
+            req.RequestUri!.AbsolutePath.Contains("/denyAssignments", StringComparison.OrdinalIgnoreCase)
+                ? Json(HttpStatusCode.InternalServerError, "{}")
+                : Json(HttpStatusCode.OK, RoleAssignmentsBody((ReaderRole,
+                    "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct", null))));
+        var opts = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
+        opts.CurrentValue.Returns(new AzureProviderSettings { SubscriptionId = Sub });
+        var reader = new ArmRbacReader(new HttpClient(handler), new StubTokenCredential(),
+            new MemoryCache(new MemoryCacheOptions()), opts);
+
+        (await reader.ResolveAsync(Oid, CancellationToken.None)).Outcome.Should().Be(RbacOutcome.Failed);
+    }
 }
