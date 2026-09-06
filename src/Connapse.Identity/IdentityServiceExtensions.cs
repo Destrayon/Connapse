@@ -88,6 +88,7 @@ public static class IdentityServiceExtensions
         services.AddSingleton<SamlSignInRequests>();
         services.AddSingleton<SamlLinkConfirmations>();
         services.AddSingleton<AzureSignInRequests>();
+        services.AddSingleton<AzureLinkConfirmations>();
 
         services.AddHttpContextAccessor();
 

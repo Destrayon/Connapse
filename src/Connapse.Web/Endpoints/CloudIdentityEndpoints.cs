@@ -25,6 +25,19 @@ public static class CloudIdentityEndpoints
 
     private const string SamlConfirmCookiePath = "/api/v1/auth/cloud/aws";
 
+    /// <summary>Carries the one-time code that claims a validated Entra id_token outcome.</summary>
+    /// <remarks>
+    /// Same rationale as <see cref="SamlConfirmCookieName"/>: not readable by script, not in
+    /// browser history, not something a person could paste to somebody else. Unlike the AWS
+    /// cookie, this one is set on a same-site top-level redirect rather than a cross-site POST —
+    /// but the same-site session cookie present on that request is exactly what an attacker who
+    /// merely captured the /azure/connect URL and sent it to a colleague never gets to see, which
+    /// is the property this whole confirm hop exists to use.
+    /// </remarks>
+    private const string AzureConfirmCookieName = "__connapse_azure_link";
+
+    private const string AzureConfirmCookiePath = "/api/v1/auth/cloud/azure";
+
     public static IEndpointRouteBuilder MapCloudIdentityEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/v1/auth/cloud").WithTags("Cloud Identity");
@@ -224,11 +237,19 @@ public static class CloudIdentityEndpoints
         // Same purpose as the AWS link above — a per-user record so search can resolve Entra
         // permissions, holding no credential of its own — but the sign-in itself is OIDC
         // authorization-code + PKCE against Entra ID rather than SAML against Identity Center.
-        // Unlike the AWS flow, there is no separate confirm step: `state` already carries the
-        // starting user's id (recorded server-side in AzureSignInRequests), Entra's redirect
-        // back is a same-site top-level GET, and the id_token's `nonce` claim is checked against
-        // the value minted at /connect — so nothing here needs a second round trip to pair a
-        // cookie with a session the way the cross-site SAML POST does.
+        //
+        // This still needs the same confirm hop AWS uses, even though the callback below is a
+        // same-site top-level GET (unlike AWS's cross-site POST) and so may well carry a session
+        // cookie. `state` only proves the callback belongs to a sign-in this deployment started —
+        // it does not prove the browser completing it is the browser that started it. Anybody
+        // with a Connapse account can call /azure/connect, capture the resulting Entra
+        // authorization URL without following it, and send it to a colleague; the colleague's own
+        // genuine Entra sign-in then returns here carrying the attacker's `state`, with a valid
+        // PKCE exchange (bound to the code, not to a person) and a matching `nonce` (it was in the
+        // request the colleague actually completed). Saving at this point would link the
+        // attacker's Connapse account to the colleague's Entra identity. So, exactly like AWS, the
+        // validated outcome is parked and claimed at /azure/confirm, where a session exists and
+        // can be checked against who started the sign-in.
 
         // GET /api/v1/auth/cloud/azure/connect — send the browser to Entra ID.
         group.MapGet("/azure/connect", (
@@ -256,20 +277,18 @@ public static class CloudIdentityEndpoints
 
         // GET /api/v1/auth/cloud/azure/callback — where Entra redirects back with the code.
         //
-        // Anonymous: this is a same-site top-level GET (a genuine session cookie may well be
-        // present), but nothing here relies on one — the user this sign-in belongs to comes from
-        // the pending entry `state` resolves to, not from whoever's browser happens to land here.
-        // Every step fails closed: an unknown/expired state, a failed exchange, a failed
-        // validation, or any other exception all take the same generic error redirect and store
-        // nothing, so no internal detail (an exception message, a validator's rejection reason)
-        // ever reaches the query string.
+        // Anonymous, and deliberately saves nothing — see the remark above. Every step still
+        // fails closed: an unknown/expired state, a failed exchange, a failed validation, or any
+        // other exception all take the same generic error redirect, so no internal detail (an
+        // exception message, a validator's rejection reason) ever reaches the query string.
         group.MapGet("/azure/callback", async (
+            HttpContext http,
             string? code,
             string? state,
             [FromServices] AzureSignInRequests pending,
             [FromServices] IOidcTokenExchanger exchanger,
             [FromServices] AzureIdTokenValidator validator,
-            [FromServices] IAzureIdentityLinkService linkService,
+            [FromServices] AzureLinkConfirmations confirmations,
             [FromServices] ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
@@ -296,18 +315,79 @@ public static class CloudIdentityEndpoints
                     return Results.Redirect("/profile/integrations?error=azure_link_failed");
                 }
 
-                await linkService.StoreAsync(p.UserId, r.ObjectId!, r.TenantId!, r.DisplayName ?? "", ct);
+                // Parked, not saved — StartedByUserId travels with it and is checked against the
+                // session at /azure/confirm before anything is written.
+                string confirmCode = confirmations.Start(new PendingAzureLink(
+                    p.UserId, r.ObjectId!, r.TenantId!, r.DisplayName ?? ""));
 
-                return Results.Redirect("/profile/integrations");
+                http.Response.Cookies.Append(AzureConfirmCookieName, confirmCode, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = http.Request.IsHttps,
+                    SameSite = SameSiteMode.Lax,
+                    MaxAge = AzureLinkConfirmations.Lifetime,
+                    Path = AzureConfirmCookiePath,
+                });
+
+                return Results.Redirect("/api/v1/auth/cloud/azure/confirm");
             }
             catch (Exception ex)
             {
                 // Fail closed on anything unanticipated (a network failure in the exchange, a
-                // malformed response, ...): nothing gets stored on an exception either.
+                // malformed response, ...): nothing gets parked or stored on an exception either.
                 logger.LogWarning(ex, "Entra sign-in callback failed");
                 return Results.Redirect("/profile/integrations?error=azure_link_failed");
             }
         }).AllowAnonymous();
+
+        // GET /api/v1/auth/cloud/azure/confirm — where the link is actually saved.
+        //
+        // Reached by a same-site top-level redirect, so the session cookie is present. Two things
+        // must agree before anything is written: the browser must hold the confirmation cookie
+        // the callback set, and the signed-in user must be the one who started the sign-in.
+        //
+        // That is what closes the attack described above. An attacker who starts a sign-in and
+        // has a colleague complete it never receives the cookie — it is HttpOnly in the
+        // colleague's browser — and the colleague, who does hold it, is not the user the sign-in
+        // was started by. Neither of them can save the link.
+        group.MapGet("/azure/confirm", async (
+            HttpContext http,
+            [FromServices] AzureLinkConfirmations confirmations,
+            [FromServices] IAzureIdentityLinkService linkService,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Azure");
+
+            string? code = http.Request.Cookies[AzureConfirmCookieName];
+            http.Response.Cookies.Delete(
+                AzureConfirmCookieName, new CookieOptions { Path = AzureConfirmCookiePath });
+
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            // Single-use, so an interrupted confirmation cannot be retried from history.
+            var link = confirmations.Consume(code);
+            if (link is null)
+            {
+                logger.LogWarning("An Entra link confirmation arrived without a claim this deployment issued");
+                return Results.Redirect("/profile/integrations?error=azure_link_failed");
+            }
+
+            if (link.StartedByUserId != userId.Value)
+            {
+                // The cross-user case. Worth a warning rather than an information line: the
+                // ordinary flow cannot produce it, so it means somebody completed a sign-in that
+                // somebody else began.
+                logger.LogWarning(
+                    "An Entra sign-in was completed by a different user than the one who started it; refusing to link");
+                return Results.Redirect("/profile/integrations?error=azure_link_failed");
+            }
+
+            await linkService.StoreAsync(userId.Value, link.ObjectId, link.TenantId, link.DisplayName, ct);
+
+            return Results.Redirect("/profile/integrations");
+        }).RequireAuthorization();
 
         group.MapDelete("/{provider}", async (
             string provider,
