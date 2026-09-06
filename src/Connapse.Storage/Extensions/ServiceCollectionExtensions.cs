@@ -189,6 +189,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
+        services.AddScoped<IConnectionTester, AzureBlobConnectionTester>();
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
@@ -214,6 +215,15 @@ public static class ServiceCollectionExtensions
         // credential provider therefore takes IServiceScopeFactory and opens a scope per refresh
         // rather than holding the store.
         services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
+
+        // Connapse's own Azure app identity — bound from Providers:Azure, consumed by
+        // ConnectorFactory and AzureBlobConnectionTester. Singleton for the same reason as
+        // ConnapseAwsCredentials: it caches/rebuilds its own credential chain on settings
+        // reload, so one instance per process is the correct shape, not one per scope.
+        services.Configure<AzureProviderSettings>(
+            configuration.GetSection(AzureProviderSettings.SectionName));
+        services.AddSingleton<CloudScope.ConnapseAzureCredentials>();
+
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
