@@ -7,7 +7,9 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Microsoft.Extensions.Options
 @inject IAwsIdentityLinkService AwsIdentityLinkService
+@inject IAzureIdentityLinkService AzureIdentityLinkService
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
+@inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject EnforcementMigration Migration
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -201,6 +203,101 @@
                 }
             </div>
         </div>
+
+        <!-- Azure (Entra ID) Identity Card -->
+        <div class="col-md-6">
+            <div class="card h-100 provider-card @(azureIdentity is not null ? "provider-connected" : "")"
+                 style="--provider-color: #0078d4;">
+                <div class="card-body p-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                             style="width: 40px; height: 40px; background: rgba(0, 120, 212, 0.1); border: 1px solid rgba(0, 120, 212, 0.25);">
+                            <span class="bi-shield-lock" style="font-size: 1.1rem; color: #0078d4;"></span>
+                        </div>
+                        <div class="ms-3 flex-grow-1">
+                            <strong>Microsoft Entra ID</strong>
+                        </div>
+                        @if (azureIdentity is not null)
+                        {
+                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
+                                <span class="bi-check-circle-fill me-1"></span>Connected
+                            </span>
+                        }
+                    </div>
+
+                    @if (!azureSignInConfigured)
+                    {
+                        <div class="rounded-3 p-3" style="background: rgba(0, 120, 212, 0.08); border: 1px solid rgba(0, 120, 212, 0.2);">
+                            <small class="d-flex align-items-start" style="color: #60a5fa;">
+                                <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+                                <span>Entra ID sign-in is not set up yet. An administrator configures this under Providers &rarr; Microsoft Entra ID before anyone can connect.</span>
+                            </small>
+                        </div>
+                    }
+                    else if (azureIdentity is not null)
+                    {
+                        <div class="d-flex flex-column gap-2 mb-3">
+                            <div>
+                                <small class="text-muted d-block">Connected as</small>
+                                <span class="small">@azureIdentity.DisplayName</span>
+                            </div>
+                            <div class="d-flex gap-4">
+                                <div>
+                                    <small class="text-muted d-block">Tenant</small>
+                                    <small>@azureIdentity.TenantId</small>
+                                </div>
+                                <div>
+                                    <small class="text-muted d-block">Connected</small>
+                                    <small>@azureIdentity.ConnectedAt.ToString("MMM dd, yyyy")</small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mb-0">
+                            <span class="bi-box-arrow-up-right me-1"></span>
+                            You sign in at <strong>Microsoft Entra ID</strong> with the
+                            credentials and multi-factor you already use — not in Connapse, which
+                            never sees what you type there.
+                        </p>
+                    }
+                </div>
+                @if (azureIdentity is not null)
+                {
+                    <!-- Same reasoning as the AWS footer above: disconnect must not depend on
+                         azureSignInConfigured, or a connected row becomes unremovable once an
+                         administrator clears the Entra settings. -->
+                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                        @if (confirmDisconnectAzure)
+                        {
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-danger" @onclick="DisconnectAzureAsync" disabled="@isProcessing">
+                                    Confirm Disconnect
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectAzure = false">
+                                    Cancel
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectAzure = true" disabled="@isProcessing">
+                                <span class="bi-x-circle me-1"></span>Disconnect
+                            </button>
+                        }
+                    </div>
+                }
+                else if (azureSignInConfigured)
+                {
+                    <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                        <button class="btn btn-sm btn-primary" @onclick="ConnectAzureAsync" disabled="@isProcessing">
+                            <span class="bi-box-arrow-up-right me-1"></span>Continue to Entra sign-in
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
     </div>
 </div>
 
@@ -217,6 +314,10 @@
     private EnforcementState awsEnforcement;
     private bool confirmDisconnectAws;
 
+    private AzureIdentityLinkDto? azureIdentity;
+    private bool azureSignInConfigured;
+    private bool confirmDisconnectAzure;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
@@ -229,8 +330,10 @@
         awsSignInConfigured = SamlOptions.CurrentValue.IsConfigured;
         awsEnforcement = EnforcementOptions.CurrentValue.StateFor(
             SamlOptions.CurrentValue, Migration.Determined);
+        azureSignInConfigured = AzureAdOptions.CurrentValue.IsConfigured;
 
         ApplyAwsErrorFromQuery();
+        ApplyAzureErrorFromQuery();
 
         await LoadIdentitiesAsync();
     }
@@ -238,6 +341,7 @@
     private async Task LoadIdentitiesAsync()
     {
         awsIdentity = await AwsIdentityLinkService.GetAsync(currentUserId);
+        azureIdentity = await AzureIdentityLinkService.GetAsync(currentUserId);
     }
 
     // The assertion consumer redirects here with ?error=aws_<reason> when a sign-in failed. A
@@ -285,6 +389,68 @@
     private void ConnectAwsAsync()
     {
         Navigation.NavigateTo("/api/v1/auth/cloud/aws/connect", forceLoad: true);
+    }
+
+    // The Entra callback/confirm hop redirects here with ?error=azure_<reason> when a sign-in
+    // failed. Unlike AWS, every failure path collapses to one of two generic reasons — the
+    // detail (a bad signature, a replayed callback, a validator rejection) is logged
+    // server-side and never put in a URL a browser can carry in history.
+    private void ApplyAzureErrorFromQuery()
+    {
+        var uri = new Uri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (!query.TryGetValue("error", out var errorValues))
+            return;
+
+        var error = errorValues.ToString();
+        if (!error.StartsWith("azure_", StringComparison.Ordinal))
+            return;
+
+        var reason = error["azure_".Length..];
+        statusMessage = reason switch
+        {
+            "not_configured" => "Could not connect your Entra identity: Entra ID sign-in is not set up yet. An administrator sets it up under Providers.",
+            "link_failed" => "Could not connect your Entra identity. Please try again.",
+            _ => "Could not connect your Entra identity. Please try again.",
+        };
+        statusSuccess = false;
+    }
+
+    private void ConnectAzureAsync()
+    {
+        Navigation.NavigateTo("/api/v1/auth/cloud/azure/connect", forceLoad: true);
+    }
+
+    private async Task DisconnectAzureAsync()
+    {
+        isProcessing = true;
+        statusMessage = null;
+        confirmDisconnectAzure = false;
+        try
+        {
+            bool deleted = await AzureIdentityLinkService.DisconnectAsync(currentUserId);
+            if (deleted)
+            {
+                statusMessage = "Entra identity disconnected.";
+                statusSuccess = true;
+                await LoadIdentitiesAsync();
+            }
+            else
+            {
+                statusMessage = "No Entra identity link found.";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to disconnect Azure identity link for user {UserId}", currentUserId);
+            statusMessage = "Failed to disconnect. Please try again.";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
     }
 
     private async Task DisconnectAwsAsync()
