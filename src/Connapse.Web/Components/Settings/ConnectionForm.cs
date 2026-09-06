@@ -315,6 +315,24 @@ public sealed record ConnectionForm
     }
 
     /// <summary>
+    /// The container (and optional prefix) to test a cloud connection against: the
+    /// operator-entered probe target when there is one, otherwise the first allowed location,
+    /// and null when neither is available.
+    /// <para>
+    /// Extracted so "nothing to test against" can be told apart from "test some
+    /// account-wide default container" by the caller. Azure storage accounts do not
+    /// auto-create a root container the way S3 always has a bucket once one is named, so a
+    /// caller that turned a null here into a guessed container name would report a perfectly
+    /// valid account as unreachable.
+    /// </para>
+    /// </summary>
+    public (string Container, string? Prefix)? ResolveProbeTarget(string? probeTarget)
+    {
+        string? target = string.IsNullOrWhiteSpace(probeTarget) ? FirstAllowedLocation() : probeTarget.Trim();
+        return target is null ? null : SplitLocation(target);
+    }
+
+    /// <summary>
     /// The credential to store, or null to leave any existing one untouched.
     /// </summary>
     /// <remarks>

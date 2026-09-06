@@ -268,6 +268,38 @@ public class ConnectionFormTests
         new ConnectionForm { Provider = ConnectionProvider.AzureBlob }.IsCloudProvider.Should().BeTrue();
     }
 
+    // ── ResolveProbeTarget, for the test-connection probe ───────────────
+
+    [Fact]
+    public void ResolveProbeTarget_PrefersTheOperatorEnteredTarget()
+    {
+        var form = new ConnectionForm { AllowedLocations = "allowlisted-container" };
+
+        form.ResolveProbeTarget("typed-container/docs")
+            .Should().Be(("typed-container", "docs"));
+    }
+
+    [Fact]
+    public void ResolveProbeTarget_FallsBackToTheFirstAllowedLocation()
+    {
+        var form = new ConnectionForm { AllowedLocations = "first-container\nsecond-container" };
+
+        form.ResolveProbeTarget(null).Should().Be(("first-container", (string?)null));
+        form.ResolveProbeTarget("   ").Should().Be(("first-container", (string?)null));
+    }
+
+    /// <summary>
+    /// This is the regression this test guards: with nothing typed and nothing allow-listed,
+    /// there is no container to test that is known to exist. "$root" is not auto-created by
+    /// Azure, so a caller that guessed it here would report a valid account as unreachable.
+    /// </summary>
+    [Fact]
+    public void ResolveProbeTarget_NoTargetAndNoAllowlist_IsNullRatherThanAGuessedContainer()
+    {
+        new ConnectionForm().ResolveProbeTarget(null).Should().BeNull();
+        new ConnectionForm().ResolveProbeTarget("  ").Should().BeNull();
+    }
+
     // ── SFTP ───────────────────────────────────────────────────────────────
 
     private static ConnectionForm SftpForm() => new()

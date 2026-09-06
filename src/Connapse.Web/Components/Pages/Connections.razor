@@ -1687,20 +1687,23 @@
 
             if (form.Provider == ConnectionProvider.AzureBlob)
             {
-                // Unlike S3, a missing probe target is not refused: an Azure storage account
-                // always has a root container to check against, so this tests service-level
-                // reachability instead of demanding a container nobody has chosen yet.
-                string? azureTarget = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
-                var (azureContainer, azurePrefix) = azureTarget is null
-                    ? ("$root", null)
-                    : ConnectionForm.SplitLocation(azureTarget);
+                // Unlike a bucket name, "$root" is not a safe default: Azure storage accounts
+                // do not auto-create a root container, so probing it when nobody has chosen a
+                // container yet would report a perfectly valid account as unreachable.
+                var azureProbe = form.ResolveProbeTarget(probeTarget);
+                if (azureProbe is null)
+                {
+                    testSuccess = false;
+                    testMessage = "Enter a container name (or configure an allowed location) to test this Azure connection.";
+                    return;
+                }
 
                 ConnectionTestResult azureResult = await AzureBlobTester.TestConnectionAsync(new AzureBlobConnectorConfig
                 {
                     AccountName = form.StorageAccountName?.Trim() ?? "",
                     BlobEndpoint = NullIfBlank(form.BlobEndpoint),
-                    ContainerName = azureContainer,
-                    Prefix = azurePrefix,
+                    ContainerName = azureProbe.Value.Container,
+                    Prefix = azureProbe.Value.Prefix,
                 }, TimeSpan.FromSeconds(15));
 
                 testSuccess = azureResult.Success;
