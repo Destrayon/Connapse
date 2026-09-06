@@ -215,6 +215,59 @@ public class ConnectionFormTests
             .Validate().Should().BeNull();
     }
 
+    // ── AzureBlob ────────────────────────────────────────────────────────
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ConnectionForm_AzureBlob_BuildsConfigJson()
+    {
+        // Name is required for every provider (see Validate_RequiresAName above), so it is set
+        // here even though the brief's test body omitted it — otherwise this can never pass.
+        var form = new ConnectionForm { Name = "c", Provider = ConnectionProvider.AzureBlob, StorageAccountName = "acct" };
+        form.Validate().Should().BeNull();               // valid
+        form.ToConfigJson().Should().Contain("\"accountName\":\"acct\"");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void ConnectionForm_AzureBlob_MissingAccount_FailsValidation()
+    {
+        var form = new ConnectionForm { Provider = ConnectionProvider.AzureBlob };
+        form.Validate().Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AzureBlobConnection_RoundTripsEveryField()
+    {
+        var stored = Stored(ConnectionProvider.AzureBlob,
+            """{"accountName":"acct","blobEndpoint":"http://azurite:10000/acct","allowedLocations":["docs"]}""");
+
+        var form = ConnectionForm.FromConnection(stored);
+
+        form.StorageAccountName.Should().Be("acct");
+        form.BlobEndpoint.Should().Be("http://azurite:10000/acct");
+        form.AllowedLocations.Should().Be("docs");
+
+        var reserialized = JsonNode.Parse(form.ToConfigJson())!.AsObject();
+        reserialized["accountName"]!.GetValue<string>().Should().Be("acct");
+        reserialized["blobEndpoint"]!.GetValue<string>().Should().Be("http://azurite:10000/acct");
+    }
+
+    [Fact]
+    public void ToConfigJson_AzureBlob_OmitsBlankBlobEndpoint()
+    {
+        var form = new ConnectionForm { Name = "c", Provider = ConnectionProvider.AzureBlob, StorageAccountName = "acct" };
+
+        JsonNode.Parse(form.ToConfigJson())!.AsObject()
+            .ContainsKey("blobEndpoint").Should().BeFalse();
+    }
+
+    [Fact]
+    public void AzureBlob_IsACloudProvider()
+    {
+        new ConnectionForm { Provider = ConnectionProvider.AzureBlob }.IsCloudProvider.Should().BeTrue();
+    }
+
     // ── SFTP ───────────────────────────────────────────────────────────────
 
     private static ConnectionForm SftpForm() => new()

@@ -15,6 +15,7 @@
 @inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
 @inject S3ConnectionTester S3Tester
+@inject AzureBlobConnectionTester AzureBlobTester
 @inject SftpConnectionTester SftpTester
 @inject IS3Discovery S3Discovery
 @inject IProviderSetupReader SetupReader
@@ -475,6 +476,7 @@
             <label class="form-label" for="connection-provider">Provider</label>
             <select id="connection-provider" class="form-select" @bind="form.Provider" disabled="@(!isNew)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
+                <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
                 <option value="@ConnectionProvider.Sftp">SFTP</option>
             </select>
@@ -519,6 +521,31 @@
                 </div>
             }
 
+        }
+        else if (form.Provider == ConnectionProvider.AzureBlob)
+        {
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="azure-account-name">Storage account name</label>
+                <input id="azure-account-name" class="form-control font-monospace" @bind="form.StorageAccountName"
+                       placeholder="mystorageaccount" aria-describedby="azure-account-name-help" />
+                <div id="azure-account-name-help" class="form-text">
+                    Connapse reaches it as its own Azure identity — no key or connection string is
+                    entered here.
+                </div>
+            </div>
+
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="azure-blob-endpoint">
+                    Blob endpoint <span class="text-muted">(optional)</span>
+                </label>
+                <input id="azure-blob-endpoint" class="form-control font-monospace" @bind="form.BlobEndpoint"
+                       placeholder="@($"https://{(string.IsNullOrWhiteSpace(form.StorageAccountName) ? "account" : form.StorageAccountName)}.blob.core.windows.net")"
+                       aria-describedby="azure-blob-endpoint-help" />
+                <div id="azure-blob-endpoint-help" class="form-text">
+                    Set only to override the default endpoint above — for example, to point at
+                    Azurite or another local emulator.
+                </div>
+            </div>
         }
         else if (form.Provider == ConnectionProvider.Sftp)
         {
@@ -1658,6 +1685,30 @@
                 return;
             }
 
+            if (form.Provider == ConnectionProvider.AzureBlob)
+            {
+                // Unlike S3, a missing probe target is not refused: an Azure storage account
+                // always has a root container to check against, so this tests service-level
+                // reachability instead of demanding a container nobody has chosen yet.
+                string? azureTarget = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
+                var (azureContainer, azurePrefix) = azureTarget is null
+                    ? ("$root", null)
+                    : ConnectionForm.SplitLocation(azureTarget);
+
+                ConnectionTestResult azureResult = await AzureBlobTester.TestConnectionAsync(new AzureBlobConnectorConfig
+                {
+                    AccountName = form.StorageAccountName?.Trim() ?? "",
+                    BlobEndpoint = NullIfBlank(form.BlobEndpoint),
+                    ContainerName = azureContainer,
+                    Prefix = azurePrefix,
+                }, TimeSpan.FromSeconds(15));
+
+                testSuccess = azureResult.Success;
+                testMessage = azureResult.Message;
+                testDetail = RawError(azureResult);
+                return;
+            }
+
             string? target = NullIfBlank(probeTarget) ?? form.FirstAllowedLocation();
             if (target is null)
             {
@@ -1700,6 +1751,7 @@
         {
             ConnectionProvider.Filesystem => form.AllowedRoot ?? "—",
             ConnectionProvider.S3 => form.Region ?? "—",
+            ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             _ => "—"
         };
