@@ -59,27 +59,32 @@ public class PermissionEnforcementSettings
     /// </remarks>
     public bool IsEnforcing { get; set; }
 
-    /// <summary>
-    /// What a resolver should do, given the sign-in settings it has to work with.
-    /// </summary>
-    /// <param name="signIn">The sign-in configuration, from wherever it was configured.</param>
+    /// <summary>What a resolver should do, given whether its own sign-in provider is configured.</summary>
+    /// <param name="providerConfigured">True when the resolver's identity provider (SAML, Azure AD)
+    /// has a complete sign-in configuration.</param>
     /// <param name="determined">
     /// False when the startup migration could not establish whether this deployment was already
     /// enforcing. An undetermined deployment enforces: not knowing is not permission to open.
     /// </param>
-    public EnforcementState StateFor(SamlSignInSettings signIn, bool determined = true)
+    public EnforcementState StateFor(bool providerConfigured, bool determined = true)
     {
-        ArgumentNullException.ThrowIfNull(signIn);
-
         if (!determined)
             return EnforcementState.EnforcingButUnusable;
 
         if (!IsEnforcing)
             return EnforcementState.NotEnforcing;
 
-        return signIn.IsConfigured
+        return providerConfigured
             ? EnforcementState.Enforcing
             : EnforcementState.EnforcingButUnusable;
+    }
+
+    /// <summary>What a resolver should do, given the SAML sign-in settings it has. Delegates to the
+    /// provider-agnostic overload — kept so the AWS resolver and its tests are unchanged.</summary>
+    public EnforcementState StateFor(SamlSignInSettings signIn, bool determined = true)
+    {
+        ArgumentNullException.ThrowIfNull(signIn);
+        return StateFor(signIn.IsConfigured, determined);
     }
 }
 
