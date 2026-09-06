@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Identity.Services;
 using ITfoxtec.Identity.Saml2;
 using Microsoft.AspNetCore.Http;
@@ -217,10 +219,101 @@ public static class CloudIdentityEndpoints
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();
 
+        // --- Azure (Entra user identity link) ---
+        //
+        // Same purpose as the AWS link above — a per-user record so search can resolve Entra
+        // permissions, holding no credential of its own — but the sign-in itself is OIDC
+        // authorization-code + PKCE against Entra ID rather than SAML against Identity Center.
+        // Unlike the AWS flow, there is no separate confirm step: `state` already carries the
+        // starting user's id (recorded server-side in AzureSignInRequests), Entra's redirect
+        // back is a same-site top-level GET, and the id_token's `nonce` claim is checked against
+        // the value minted at /connect — so nothing here needs a second round trip to pair a
+        // cookie with a session the way the cross-site SAML POST does.
+
+        // GET /api/v1/auth/cloud/azure/connect — send the browser to Entra ID.
+        group.MapGet("/azure/connect", (
+            HttpContext http,
+            [FromServices] IOptionsMonitor<AzureAdSignInSettings> settings,
+            [FromServices] AzureSignInRequests pending) =>
+        {
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            var azureAd = settings.CurrentValue;
+            if (!azureAd.IsConfigured)
+                return Results.Redirect("/profile/integrations?error=azure_not_configured");
+
+            var (verifier, challenge) = OidcPkce.Create();
+            string state = GenerateRandomToken();
+            string nonce = GenerateRandomToken();
+
+            // Recorded before redirecting: the callback below trusts `state` to name a sign-in
+            // this deployment actually started, and consumes it exactly once.
+            pending.Add(new AzurePendingSignIn(state, verifier, nonce, userId.Value, DateTime.UtcNow.AddMinutes(10)));
+
+            return Results.Redirect(AzureAuthorizationUrl.Build(azureAd, state, nonce, challenge));
+        }).RequireAuthorization();
+
+        // GET /api/v1/auth/cloud/azure/callback — where Entra redirects back with the code.
+        //
+        // Anonymous: this is a same-site top-level GET (a genuine session cookie may well be
+        // present), but nothing here relies on one — the user this sign-in belongs to comes from
+        // the pending entry `state` resolves to, not from whoever's browser happens to land here.
+        // Every step fails closed: an unknown/expired state, a failed exchange, a failed
+        // validation, or any other exception all take the same generic error redirect and store
+        // nothing, so no internal detail (an exception message, a validator's rejection reason)
+        // ever reaches the query string.
+        group.MapGet("/azure/callback", async (
+            string? code,
+            string? state,
+            [FromServices] AzureSignInRequests pending,
+            [FromServices] IOidcTokenExchanger exchanger,
+            [FromServices] AzureIdTokenValidator validator,
+            [FromServices] IAzureIdentityLinkService linkService,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.Azure");
+
+            try
+            {
+                AzurePendingSignIn? p = string.IsNullOrEmpty(state) ? null : pending.TakeByState(state);
+                if (p is null)
+                {
+                    logger.LogWarning(
+                        "An Entra callback arrived for a sign-in this deployment did not start or that already expired");
+                    return Results.Redirect("/profile/integrations?error=azure_link_failed");
+                }
+
+                string raw = await exchanger.ExchangeAsync(code ?? string.Empty, p.CodeVerifier, ct);
+                AzureIdTokenResult r = await validator.ValidateAsync(raw, p.Nonce, ct);
+
+                if (!r.Ok)
+                {
+                    // r.Error may echo exception text or a validator message — never put it in
+                    // the redirect a browser can carry in history; log it server-side instead.
+                    logger.LogWarning("Entra id_token validation failed: {Error}", LogSanitizer.Sanitize(r.Error ?? "unknown"));
+                    return Results.Redirect("/profile/integrations?error=azure_link_failed");
+                }
+
+                await linkService.StoreAsync(p.UserId, r.ObjectId!, r.TenantId!, r.DisplayName ?? "", ct);
+
+                return Results.Redirect("/profile/integrations");
+            }
+            catch (Exception ex)
+            {
+                // Fail closed on anything unanticipated (a network failure in the exchange, a
+                // malformed response, ...): nothing gets stored on an exception either.
+                logger.LogWarning(ex, "Entra sign-in callback failed");
+                return Results.Redirect("/profile/integrations?error=azure_link_failed");
+            }
+        }).AllowAnonymous();
+
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
             [FromServices] IAwsIdentityLinkService awsLinks,
+            [FromServices] IAzureIdentityLinkService azureLinks,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
@@ -229,8 +322,24 @@ public static class CloudIdentityEndpoints
             var userId = GetUserId(httpContext);
             if (userId is null) return Results.Unauthorized();
 
-            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider) || cloudProvider != CloudProvider.AWS)
-                return Results.BadRequest(new { error = "invalid_provider", message = $"Unknown provider: {provider}. Valid values: AWS." });
+            if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider)
+                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "invalid_provider",
+                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure."
+                });
+            }
+
+            if (cloudProvider == CloudProvider.Azure)
+            {
+                // Azure links hold no cloud-scoped search permissions yet — the scope cache only
+                // ever gets populated for S3 sources today, so there is nothing Azure-shaped to
+                // invalidate here. Wiring that up is Phase 4's job (#478 covers only the link).
+                bool azureDeleted = await azureLinks.DisconnectAsync(userId.Value, ct);
+                return azureDeleted ? Results.NoContent() : Results.NotFound();
+            }
 
             // AWS links live in their own store, the one the integrations page reads and
             // deletes through; the cloud-identity table this route used to consult never holds
@@ -283,4 +392,13 @@ public static class CloudIdentityEndpoints
         var idClaim = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(idClaim, out var id) ? id : null;
     }
+
+    /// <summary>
+    /// A CSPRNG-sourced, base64url-encoded random value for use as an OAuth <c>state</c> or OIDC
+    /// <c>nonce</c> — both need to be unguessable, not merely unique, since either being
+    /// predictable would let an attacker forge a callback for a sign-in they never started.
+    /// </summary>
+    private static string GenerateRandomToken() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
