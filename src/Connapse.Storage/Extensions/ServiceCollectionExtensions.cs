@@ -240,6 +240,11 @@ public static class ServiceCollectionExtensions
         // IMemoryCache singleton. TokenCredential is already mapped to ConnapseAzureCredentials (4a).
         services.AddHttpClient<Connapse.Core.Interfaces.IAzureRbacReader, CloudScope.ArmRbacReader>();
 
+        // Gen2 permission engine (Phase 4d). A pure library the Phase 4e verifier consumes; nothing here
+        // is wired into the search pipeline yet.
+        services.AddSingleton<IGen2DirectoryReader, DataLakeGen2DirectoryReader>();
+        services.AddSingleton<AncestorTraverseResolver>();
+
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
