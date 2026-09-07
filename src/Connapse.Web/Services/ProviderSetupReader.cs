@@ -16,6 +16,8 @@ namespace Connapse.Web.Services;
 public class ProviderSetupReader(
     IOptionsMonitor<SamlSignInSettings> samlSignIn,
     IOptionsMonitor<IdentityCenterSettings> identityCenter,
+    IOptionsMonitor<AzureProviderSettings> azureProvider,
+    IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IS3Discovery s3Discovery,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
@@ -62,8 +64,75 @@ public class ProviderSetupReader(
                     IdentityCentre(identityCenter.CurrentValue),
                     PerUserPermissions(samlSignIn.CurrentValue)
                 ],
-                InUse: providers.Contains(ConnectionProvider.S3))
+                InUse: providers.Contains(ConnectionProvider.S3)),
+
+            new ProviderSetup("azure", "Azure",
+                [
+                    AzureAccess(azureProvider.CurrentValue),
+                    AzurePerUserPermissions(azureAd.CurrentValue, azureProvider.CurrentValue)
+                ],
+                InUse: providers.Contains(ConnectionProvider.AzureBlob))
         ];
+    }
+
+    /// <summary>
+    /// Whether Connapse has an Azure app identity to read Blob storage (and Entra/ARM) with.
+    /// </summary>
+    /// <remarks>
+    /// Config-only for now — it reports whether a tenant and a credential are set, not a live probe.
+    /// A credential is a certificate-based app registration (<c>ClientId</c> + a certificate) or a
+    /// user-assigned managed identity. An ambient <i>system</i>-assigned managed identity cannot be
+    /// seen from settings, so a deployment relying on one reads as not-configured here even when it
+    /// works; a later iteration adds a live check (parity with AWS's access probe).
+    /// </remarks>
+    private static ProviderRequirement AzureAccess(AzureProviderSettings settings)
+    {
+        const string name = "Access";
+        const string description = "The Azure app identity Connapse reads Blob storage with.";
+
+        bool hasCredential =
+            (!string.IsNullOrWhiteSpace(settings.ClientId)
+                && !string.IsNullOrWhiteSpace(settings.ClientCertificatePath))
+            || !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId);
+
+        if (string.IsNullOrWhiteSpace(settings.TenantId) || !hasCredential)
+            return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
+                "Set under the Providers:Azure settings — a tenant and either a certificate app "
+                + "registration or a managed identity — so Connapse can read Azure.");
+
+        return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
+            $"Tenant {settings.TenantId}");
+    }
+
+    /// <summary>
+    /// Whether people can sign in with their Entra identity so their Azure results are scoped to
+    /// what they may read.
+    /// </summary>
+    /// <remarks>
+    /// Two parts: the Entra sign-in application (<c>Identity:AzureAd</c>) and the subscription the
+    /// RBAC resolver queries (<c>Providers:Azure</c> <c>SubscriptionId</c>). Both are needed for
+    /// per-user Azure filtering; sign-in without the subscription fails closed, so that is a warning
+    /// rather than a clean state.
+    /// </remarks>
+    private static ProviderRequirement AzurePerUserPermissions(
+        AzureAdSignInSettings signIn, AzureProviderSettings provider)
+    {
+        const string name = "Per-user permissions";
+        const string description =
+            "The Entra application people sign in through, so their Azure results are scoped to what "
+            + "that identity may read.";
+
+        if (!signIn.IsConfigured)
+            return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
+                "Set the Identity:AzureAd sign-in application so people can connect their Entra identity.");
+
+        if (string.IsNullOrWhiteSpace(provider.SubscriptionId))
+            return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                "Sign-in is set, but Providers:Azure SubscriptionId is missing — the RBAC resolver "
+                + "needs it, so Azure filtering fails closed until it is set.");
+
+        return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
+            $"Tenant {signIn.TenantId}, subscription {provider.SubscriptionId}");
     }
 
     /// <summary>
