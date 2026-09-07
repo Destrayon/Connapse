@@ -7,7 +7,7 @@ namespace Connapse.Storage.Tests.CloudScope;
 [Trait("Category", "Unit")]
 public class CompositeSearchScopeResolverTests
 {
-    // The composite composes two ISearchScopeResolver results; drive it through a tiny fake for each
+    // The composite composes two ISearchScopeResolver results; drive it through tiny fakes for each
     // cloud rather than the concrete resolvers (those have their own tests).
     private sealed class FakeResolver(SearchScopes result) : ISearchScopeResolver
     {
@@ -15,8 +15,10 @@ public class CompositeSearchScopeResolverTests
             Task.FromResult(result);
     }
 
-    private static SearchScopes S3(params string[] prefixes) =>
-        SearchScopes.OfPrefixes(prefixes.Select(p => p).ToList());
+    private sealed class ThrowingResolver(Exception ex) : ISearchScopeResolver
+    {
+        public Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default) => throw ex;
+    }
 
     private static async Task<SearchScopes> Combine(SearchScopes aws, SearchScopes azure)
     {
@@ -62,5 +64,33 @@ public class CompositeSearchScopeResolverTests
     {
         SearchScopes r = await Combine(SearchScopes.OfPrefixes(["s3://b/"]), SearchScopes.Failed);
         r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://b/");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OneInnerThrows_IsolatedToThatCloud_OtherSurvives()
+    {
+        // AWS resolver throws; the composite must fail only AWS closed (no s3 matches) while the
+        // healthy Azure cloud's grants still come through — a throw must never become a global deny.
+        var composite = new CompositeSearchScopeResolver(
+            new ThrowingResolver(new InvalidOperationException("aws down")),
+            new FakeResolver(SearchScopes.OfPrefixes(["azblob://acct/"])));
+
+        SearchScopes r = await composite.ResolveAsync(Guid.NewGuid(), CancellationToken.None);
+
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("azblob://acct/");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_InnerThrowsOperationCanceled_Propagates()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var composite = new CompositeSearchScopeResolver(
+            new ThrowingResolver(new OperationCanceledException()),
+            new FakeResolver(SearchScopes.Unrestricted));
+
+        Func<Task> act = () => composite.ResolveAsync(Guid.NewGuid(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }

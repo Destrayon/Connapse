@@ -10,17 +10,20 @@ namespace Connapse.Storage.CloudScope;
 /// docs hidden), and one cloud's failure never denies the other's or non-cloud docs. Only when both
 /// clouds are unrestricted is the result globally unrestricted.
 /// </summary>
+// The inner resolvers are typed as ISearchScopeResolver (not the concrete AWS/Azure types) purely
+// so this can be unit-tested with throwing fakes; DI wires the two concrete resolvers in via an
+// explicit factory, which also avoids a self-referential ISearchScopeResolver resolution.
 public sealed class CompositeSearchScopeResolver(
-    AwsSearchScopeResolver aws,
-    AzureSearchScopeResolver azure) : ISearchScopeResolver
+    ISearchScopeResolver aws,
+    ISearchScopeResolver azure) : ISearchScopeResolver
 {
-    private static readonly Combiner Combine = new();
+    private static readonly Combiner Rule = new();
 
     public async Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default)
     {
         SearchScopes awsScopes = await SafeResolveAsync(aws, userId, ct);
         SearchScopes azureScopes = await SafeResolveAsync(azure, userId, ct);
-        return Combine.Combine(awsScopes, azureScopes);
+        return Rule.Combine(awsScopes, azureScopes);
     }
 
     // A throw from one cloud fails only that cloud closed; cancellation still propagates.
