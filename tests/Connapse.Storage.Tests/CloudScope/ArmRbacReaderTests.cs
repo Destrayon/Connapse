@@ -426,6 +426,22 @@ public class ArmRbacReaderTests
     }
 
     [Fact]
+    public async Task Resolve_DenyAssignment_IsExposedOnDeniedPrefixes()
+    {
+        // A Blob Data role grant on the account, plus a deny assignment on a container beneath it.
+        // The grant itself is unaffected (deny doesn't cover the whole account), but the resolved
+        // result must also surface the deny as a DeniedPrefix so the verifier can block ACL fallback
+        // reads under it.
+        string acctScope = "/subscriptions/" + Sub + "/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
+        string roles = RoleAssignmentsBody((ReaderRole, acctScope, null));
+        string containerScope = acctScope + "/blobServices/default/containers/secret";
+        AzureRbacScopes r = await NewReaderWithDeny(roles, DenyBody(containerScope)).ResolveAsync(Oid, CancellationToken.None);
+
+        r.Outcome.Should().Be(RbacOutcome.Resolved);
+        r.DeniedPrefixes.Should().Contain("azblob://acct/secret/");
+    }
+
+    [Fact]
     public async Task Resolve_CacheKey_IncludesSubscription_NotReusedAcrossSubscriptionChange()
     {
         // Same reader + cache, but the subscription changes between calls (settings reload). The

@@ -22,11 +22,14 @@ public record AzureTagCondition(
 public record AzureRbacScopes(
     IReadOnlyList<AzureScope> ReadablePrefixes,
     IReadOnlyList<AzureTagCondition> TagConditioned,
-    RbacOutcome Outcome)
+    RbacOutcome Outcome,
+    IReadOnlyList<string> DeniedPrefixes)
 {
     public static AzureRbacScopes Resolved(
-        IReadOnlyList<AzureScope> readablePrefixes, IReadOnlyList<AzureTagCondition> tagConditioned) =>
-        new(readablePrefixes, tagConditioned, RbacOutcome.Resolved);
+        IReadOnlyList<AzureScope> readablePrefixes,
+        IReadOnlyList<AzureTagCondition> tagConditioned,
+        IReadOnlyList<string>? deniedPrefixes = null) =>
+        new(readablePrefixes, tagConditioned, RbacOutcome.Resolved, deniedPrefixes ?? []);
 
-    public static AzureRbacScopes Failed() => new([], [], RbacOutcome.Failed);
+    public static AzureRbacScopes Failed() => new([], [], RbacOutcome.Failed, []);
 }

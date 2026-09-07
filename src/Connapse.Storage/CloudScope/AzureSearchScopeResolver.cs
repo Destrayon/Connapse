@@ -7,15 +7,16 @@ using Microsoft.Extensions.Options;
 namespace Connapse.Storage.CloudScope;
 
 /// <summary>
-/// Answers what a Connapse user may search in Azure Blob, from the Storage-Blob-Data role
-/// assignments held against the Entra identity they linked. Flat accounts only: the RBAC prefix set
-/// is exact and complete. Mirrors <see cref="AwsSearchScopeResolver"/> — enforcement gate first,
-/// then link → deprovisioning gate → RBAC — and fails closed on every uncertain path.
+/// Answers what a Connapse user may search in Azure Blob. Broad retrieve-then-verify: for any valid
+/// enforcing identity (link present, not deprovisioned, directory not failed) this returns the single
+/// broad <c>azblob://</c> match so every Azure candidate is retrieved by relevance; the Phase 4e
+/// per-hit verifier tightens the result via RBAC coverage, tag conditions, and Gen2 ACLs. Mirrors
+/// <see cref="AwsSearchScopeResolver"/> for the enforcement gate and link → deprovisioning gate, and
+/// fails closed on every uncertain path.
 /// </summary>
 public sealed class AzureSearchScopeResolver(
     IAzureIdentityLinkReader links,
     IAzureDirectoryReader directory,
-    IAzureRbacReader rbac,
     IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
@@ -81,17 +82,10 @@ public sealed class AzureSearchScopeResolver(
         if (identity.Outcome is AzureIdentityOutcome.Failed)
             return SearchScopes.Failed;
 
-        AzureRbacScopes scopes = await rbac.ResolveAsync(link.ObjectId, ct);
-        if (scopes.Outcome is RbacOutcome.Failed)
-            return SearchScopes.Failed;
-
-        // Flat accounts: RBAC readable prefixes are the answer. Tag-conditioned residue and Gen2
-        // ACLs are NOT admitted here — they require Phase 4e's live per-hit verifier; omitting them
-        // is a temporary under-grant on the epic branch that 4e closes before the epic reaches main.
-        var matches = scopes.ReadablePrefixes
-            .Select(s => new GrantMatch(s.Prefix, IsExact: false))
-            .ToList();
-
-        return SearchScopes.Of(matches);
+        // Broad retrieve-then-verify (§E amendment): a valid enforcing identity retrieves EVERY Azure
+        // candidate by relevance; the post-retrieval verifier (Phase 4e) tightens per hit via RBAC
+        // coverage, tag conditions, and Gen2 file-ACL + ancestor traverse. Narrowing here (e.g. to RBAC
+        // prefixes) would drop ACL-only "Case C" files, which can live in any container.
+        return SearchScopes.Of([new GrantMatch("azblob://", IsExact: false)]);
     }
 }

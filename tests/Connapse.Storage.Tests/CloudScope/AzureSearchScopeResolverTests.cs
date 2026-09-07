@@ -25,7 +25,6 @@ public class AzureSearchScopeResolverTests
     private static AzureSearchScopeResolver Build(
         IAzureIdentityLinkReader? links = null,
         IAzureDirectoryReader? directory = null,
-        IAzureRbacReader? rbac = null,
         bool azureAdConfigured = true,
         bool isEnforcing = true,
         bool determined = true)
@@ -44,7 +43,6 @@ public class AzureSearchScopeResolverTests
         return new AzureSearchScopeResolver(
             links ?? Substitute.For<IAzureIdentityLinkReader>(),
             directory ?? Substitute.For<IAzureDirectoryReader>(),
-            rbac ?? Substitute.For<IAzureRbacReader>(),
             azureAd, enforcement, migration,
             new MemoryCache(new MemoryCacheOptions()),
             NullLogger<AzureSearchScopeResolver>.Instance);
@@ -110,47 +108,18 @@ public class AzureSearchScopeResolverTests
     }
 
     [Fact]
-    public async Task RbacFailed_Fails()
+    public async Task ValidEnforcingIdentity_RetrievesAllAzblob_ForTheVerifierToTighten()
     {
         var links = Substitute.For<IAzureIdentityLinkReader>();
         links.GetLinkAsync(User, Arg.Any<CancellationToken>()).Returns(Link);
         var directory = Substitute.For<IAzureDirectoryReader>();
         directory.ResolveAsync(Link, Arg.Any<CancellationToken>()).Returns(AzureIdentitySet.Resolved(["oid-1"]));
-        var rbac = Substitute.For<IAzureRbacReader>();
-        rbac.ResolveAsync("oid-1", Arg.Any<CancellationToken>()).Returns(AzureRbacScopes.Failed());
-        var r = Build(links: links, directory: directory, rbac: rbac);
-        (await r.ResolveAsync(User)).Outcome.Should().Be(ScopeOutcome.ResolverFailed);
-    }
-
-    [Fact]
-    public async Task Enabled_WithRbacPrefixes_ReturnsGrantedAzblobMatches()
-    {
-        var links = Substitute.For<IAzureIdentityLinkReader>();
-        links.GetLinkAsync(User, Arg.Any<CancellationToken>()).Returns(Link);
-        var directory = Substitute.For<IAzureDirectoryReader>();
-        directory.ResolveAsync(Link, Arg.Any<CancellationToken>()).Returns(AzureIdentitySet.Resolved(["oid-1"]));
-        var rbac = Substitute.For<IAzureRbacReader>();
-        rbac.ResolveAsync("oid-1", Arg.Any<CancellationToken>()).Returns(
-            AzureRbacScopes.Resolved([new AzureScope("azblob://acct/docs/")], []));
-        var r = Build(links: links, directory: directory, rbac: rbac);
+        var r = Build(links: links, directory: directory);
 
         SearchScopes s = await r.ResolveAsync(User);
+
         s.Outcome.Should().Be(ScopeOutcome.Granted);
-        s.Matches.Should().ContainSingle().Which.Value.Should().Be("azblob://acct/docs/");
+        s.Matches.Should().ContainSingle().Which.Value.Should().Be("azblob://");
         s.Matches[0].IsExact.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task Enabled_NoRbacPrefixes_IsNoGrants()
-    {
-        var links = Substitute.For<IAzureIdentityLinkReader>();
-        links.GetLinkAsync(User, Arg.Any<CancellationToken>()).Returns(Link);
-        var directory = Substitute.For<IAzureDirectoryReader>();
-        directory.ResolveAsync(Link, Arg.Any<CancellationToken>()).Returns(AzureIdentitySet.Resolved(["oid-1"]));
-        var rbac = Substitute.For<IAzureRbacReader>();
-        rbac.ResolveAsync("oid-1", Arg.Any<CancellationToken>()).Returns(AzureRbacScopes.Resolved([], []));
-        var r = Build(links: links, directory: directory, rbac: rbac);
-
-        (await r.ResolveAsync(User)).Outcome.Should().Be(ScopeOutcome.NoGrants);
     }
 }

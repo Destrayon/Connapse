@@ -240,10 +240,22 @@ public static class ServiceCollectionExtensions
         // IMemoryCache singleton. TokenCredential is already mapped to ConnapseAzureCredentials (4a).
         services.AddHttpClient<Connapse.Core.Interfaces.IAzureRbacReader, CloudScope.ArmRbacReader>();
 
-        // Gen2 permission engine (Phase 4d). A pure library the Phase 4e verifier consumes; nothing here
-        // is wired into the search pipeline yet.
-        services.AddSingleton<IGen2DirectoryReader, DataLakeGen2DirectoryReader>();
+        // Gen2 permission engine (Phase 4d), consumed by the Phase 4e per-hit verifier below.
+        // DataLakeGen2DirectoryReader implements both IGen2DirectoryReader (mode bits for ancestor
+        // traverse checks) and IGen2FileAclReader (a file's own ACL) — one singleton serves both
+        // interfaces so directory reads share the client construction and any future caching.
+        services.AddSingleton<DataLakeGen2DirectoryReader>();
+        services.AddSingleton<IGen2DirectoryReader>(sp => sp.GetRequiredService<DataLakeGen2DirectoryReader>());
+        services.AddSingleton<IGen2FileAclReader>(sp => sp.GetRequiredService<DataLakeGen2DirectoryReader>());
         services.AddSingleton<AncestorTraverseResolver>();
+
+        // Live per-hit permission verify (Phase 4e), wired into HybridSearchService's search
+        // pipeline. Always registered — it self-no-ops (CandidateMultiplier=1, VerifyAsync passes
+        // everything through) when Azure AD isn't configured, so AWS-only/non-cloud deployments
+        // pay nothing extra.
+        services.AddSingleton<IBlobTagReader, BlobTagReader>();
+        services.AddScoped<ISearchResultVerifier, AzureSearchResultVerifier>();
+        services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();

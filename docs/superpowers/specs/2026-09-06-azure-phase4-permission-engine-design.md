@@ -309,3 +309,26 @@ claim. Per-cloud isolation: an Azure failure must not hide AWS-granted or non-cl
 - Ingestion-time permission capture / any new stored permission surface.
 - Any write to customer Azure authorization (grants/roles/ACLs).
 - Touching the AWS provider's mechanism (it already satisfies the invariant; it is only wrapped).
+
+## §E amendment — retrieval breadth decision (2026-09-07, settled with the user)
+
+§E left the Gen2 retrieval over-approximation open ("container(s) the user has a foothold in, or unfiltered across HNS containers"). **Decision: unfiltered — broad retrieve-then-verify, no HNS detection.**
+
+For an enforcing Azure user with a valid, non-deprovisioned identity, `AzureSearchScopeResolver` emits the **broad scheme wildcard `azblob://`** (retrieve every Azure candidate by relevance); all Azure tightening moves to the post-retrieval verifier. This is the only over-approximation that can retrieve a "Case C" file (ACL-granted, RBAC-less) wherever it lives, so completeness holds. It needs **no new Azure permission** (no ARM `isHnsEnabled`; the app stays `Storage Blob Data Reader` + the existing RBAC-read used by 4b).
+
+Consequence: 4c's flat filtering moves from the SQL prefix filter to the verifier's RBAC-coverage check. That check is **in-memory** against the user's already-resolved-and-cached (~5 min, per 4b) RBAC prefixes — no per-hit call, no new persistence (still live-only). Per-hit live reads happen only for hits **not** covered by RBAC: tag-conditioned (blob-tag read) or Gen2 ACL (file-ACL + ancestor traverse). On a flat account a Gen2 ACL read fails → null → drop (fail closed). Rejected alternative: foothold-scoped retrieval + ARM HNS detection — lower verify volume but a new control-plane permission and a Case-C recall gap.
+
+### §E amendment 2 — blob-tag read permission prerequisite (2026-09-07)
+
+Live tag verification (`GetBlobTags`, for ABAC tag-conditioned grants) needs the data action
+`Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read`, which the built-in
+**Storage Blob Data Reader** role does not include. Connapse cannot grant it to itself — it never
+writes roles or grants (`connapse-writes-grants`) and its identity has no role-assignment right — so
+this is a **deployment prerequisite**: the app registration's role assignment must include
+`blobs/tags/read` (add it via a small custom role bundling `blobs/read` + `blobs/tags/read`, or an
+additional assignment). It is a data-plane **read** action, still read-only (never Data Owner).
+
+Fail-closed either way: without it, `GetBlobTags` returns 403 → the reader returns null → the
+verifier falls through to the Gen2 ACL check (§E amendment 1 routing). So a tag-conditioned file that
+is **also** ACL- or RBAC-readable still surfaces; only a file readable **solely** via a matching tag
+condition (ACL denies it) is dropped until the permission is granted. Never an over-grant.

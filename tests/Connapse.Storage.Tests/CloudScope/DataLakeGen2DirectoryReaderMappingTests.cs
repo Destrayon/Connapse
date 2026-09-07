@@ -98,4 +98,9 @@ public class DataLakeGen2DirectoryReaderMappingTests
         // (a named entry would otherwise be uncapped) → deny the directory.
         DataLakeGen2DirectoryReader.IsStructurallyComplete(
             Acl(mask: null, namedGroups: [new Gen2NamedAce("devs", RX)])).Should().BeFalse();
+
+    [Fact]
+    public void Reader_Implements_FileAclReader() =>
+        typeof(Connapse.Core.Interfaces.IGen2FileAclReader)
+            .IsAssignableFrom(typeof(DataLakeGen2DirectoryReader)).Should().BeTrue();
 }

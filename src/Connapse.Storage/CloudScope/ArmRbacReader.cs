@@ -95,7 +95,7 @@ public sealed class ArmRbacReader(
             tags = tags.Where(t => !CoveredByAnyDeny(t.Scope, denyPrefixes)).ToList();
         }
 
-        return AzureRbacScopes.Resolved(prefixes, tags);
+        return AzureRbacScopes.Resolved(prefixes, tags, denyPrefixes);
     }
 
     /// <summary>Deny scopes (as azblob prefixes) that apply to blob read for this searcher.</summary>
