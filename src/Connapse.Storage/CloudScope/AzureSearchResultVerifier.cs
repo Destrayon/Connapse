@@ -46,6 +46,8 @@ public sealed class AzureSearchResultVerifier(
         // No Azure enforcement → the resolver did not broaden; nothing to tighten. Return every
         // candidate unchanged (not capped at topK) — the pipeline's own final Take(topK) applies
         // the cap, so AutoCut still sees the full pool exactly as it would with no verifier at all.
+        // A resolve/verify state flip is benign: off→NotEnforcing returns unfiltered (correct for
+        // not-enforcing); on→Enforcing filters (fail-closed). Neither over-grants.
         EnforcementState state = enforcement.CurrentValue.StateForAzure(
             azureAd.CurrentValue.IsConfigured, migration.Determined);
         if (state == EnforcementState.NotEnforcing)
@@ -103,20 +105,29 @@ public sealed class AzureSearchResultVerifier(
 
     private async Task<bool> AdmitAzureHitAsync(string uri, Gen2Path path, AzureContext azure, CancellationToken ct)
     {
+        // 0. Deny assignments outrank every grant (RBAC and ACL). A hit under any applicable deny scope is
+        //    blocked by Azure regardless of ACLs, so drop it before any permissive check.
+        if (azure.DeniedPrefixes.Any(d => uri.StartsWith(d, StringComparison.Ordinal)))
+            return false;
+
         // 1. RBAC read supersedes ACLs — covered by any readable prefix → pass, no live call.
         // Prefix match is safe because resolver-minted prefixes are account/container-terminated with '/'
         // (or the bare azblob:// wildcard); it never partial-matches a sibling like azblob://acct/docs-secret/.
         if (azure.ReadablePrefixes.Any(p => uri.StartsWith(p, StringComparison.Ordinal)))
             return true;
 
-        // 2. Tag-conditioned residue → live tag verify against every covering condition.
+        // 2. Tag-conditioned residue → live tag verify. A MATCH grants (RBAC-ABAC supersedes ACLs). A
+        //    non-match or unreadable tags does NOT drop: this assignment simply doesn't grant, and the file
+        //    may still be readable via its own ACL (Azure evaluates ACLs when ABAC does not grant), so fall
+        //    through to the Gen2 ACL check below (which is itself fail-closed).
         AzureTagCondition[] covering =
             azure.TagConditions.Where(t => uri.StartsWith(t.Scope, StringComparison.Ordinal)).ToArray();
         if (covering.Length > 0)
         {
             IReadOnlyDictionary<string, string>? tags = await blobTags.ReadTagsAsync(path, ct);
-            if (tags is null) return false; // fail closed
-            return covering.Any(c => AzureTagConditionEvaluator.Matches(c, tags));
+            if (tags is not null && covering.Any(c => AzureTagConditionEvaluator.Matches(c, tags)))
+                return true;
+            // else: no tag grant — fall through to the ACL path (never over-grants; ACL is fail-closed).
         }
 
         // 3. Gen2 ACL: file's own Read AND traverse-X on every ancestor. Folder access never trusted.
@@ -143,10 +154,12 @@ public sealed class AzureSearchResultVerifier(
         return new AzureContext(
             link.ObjectId, groups,
             scopes.ReadablePrefixes.Select(s => s.Prefix).ToArray(),
-            scopes.TagConditioned.ToArray());
+            scopes.TagConditioned.ToArray(),
+            scopes.DeniedPrefixes.ToArray());
     }
 
     private sealed record AzureContext(
         string UserOid, IReadOnlySet<string> GroupOids,
-        IReadOnlyList<string> ReadablePrefixes, IReadOnlyList<AzureTagCondition> TagConditions);
+        IReadOnlyList<string> ReadablePrefixes, IReadOnlyList<AzureTagCondition> TagConditions,
+        IReadOnlyList<string> DeniedPrefixes);
 }

@@ -152,8 +152,12 @@ public class AzureSearchResultVerifierTests
     }
 
     [Fact]
-    public async Task TagConditioned_MatchingTag_Passes_And_NonMatching_Drops()
+    public async Task TagConditioned_MatchingTag_Passes_And_NonMatching_FallsThroughToAcl_AndDrops()
     {
+        // The tag branch itself only ever grants on a match. A non-match falls through to the Gen2
+        // ACL check; with FileAcl unstubbed (returns null / unreadable), that fallthrough still
+        // fails closed, so the non-matching hit drops — same observable outcome as before the fix,
+        // but now via the ACL path rather than the tag branch being terminal.
         var h = new Harness();
         h.Rbac.ResolveAsync("user-oid", Arg.Any<CancellationToken>()).Returns(
             AzureRbacScopes.Resolved([], [new AzureTagCondition("azblob://acct/docs/", "Project", "Cascade", true, false)]));
@@ -166,6 +170,65 @@ public class AzureSearchResultVerifierTests
         IReadOnlyList<SearchHit> r = await h.Build().VerifyAsync([Hit("hit-ok", 0.9), Hit("hit-no", 0.8)], User, 10);
 
         r.Select(x => x.DocumentId).Should().BeEquivalentTo("hit-ok");
+    }
+
+    [Fact]
+    public async Task DenyCoveredHit_IsDropped_EvenWhenAclWouldGrant()
+    {
+        // A deny assignment outranks every grant, including the Gen2 ACL fallback. Even though the
+        // file's own ACL (and every ancestor) would grant read, the hit sits under a denied prefix
+        // and must be dropped before the ACL check ever runs.
+        var h = new Harness();
+        h.Rbac.ResolveAsync("user-oid", Arg.Any<CancellationToken>())
+            .Returns(AzureRbacScopes.Resolved([], [], ["azblob://acct/secret/"]));
+        ResourceUris(h, ("d1", "azblob://acct/secret/x.txt"));
+        h.FileAcl.ReadFileAclAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Gen2Acl("owner", "group", RX, RX, RX, null, [], []));
+        h.DirReader.ReadModeBitsAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Gen2ModeBits("owner", "group", RX, RX, RX, HasExtendedAcl: false));
+
+        IReadOnlyList<SearchHit> r = await h.Build().VerifyAsync([Hit("d1", 0.9)], User, 10);
+
+        r.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task TagNonMatch_FallsThroughToAcl_AndAclReadableFilePasses()
+    {
+        // Azure evaluates ACLs when an ABAC condition doesn't grant. A tag condition that covers the
+        // scope but doesn't match this blob's tags must not drop the hit outright — the file's own
+        // ACL (plus ancestor traverse) still grants it, so it passes via the Gen2 ACL fallback.
+        var h = new Harness();
+        h.Rbac.ResolveAsync("user-oid", Arg.Any<CancellationToken>()).Returns(
+            AzureRbacScopes.Resolved([], [new AzureTagCondition("azblob://acct/docs/", "Project", "Cascade", true, false)]));
+        ResourceUris(h, ("d1", "azblob://acct/docs/a.txt"));
+        h.Tags.ReadTagsAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, string> { ["Project"] = "Other" });
+        h.FileAcl.ReadFileAclAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Gen2Acl("owner", "group", RX, Gen2Permission.None, Gen2Permission.None,
+                Mask: RX, NamedUsers: [new Gen2NamedAce("user-oid", RX)], NamedGroups: []));
+        h.DirReader.ReadModeBitsAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Gen2ModeBits("owner", "group", RX, RX, RX, HasExtendedAcl: false));
+
+        IReadOnlyList<SearchHit> r = await h.Build().VerifyAsync([Hit("d1", 0.9)], User, 10);
+
+        r.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task TagNonMatch_FallsThroughToAcl_AndAclDeniesDrops()
+    {
+        // Same as above, but the file's own ACL is unreadable — the ACL fallback is itself
+        // fail-closed, so the hit still drops.
+        var h = new Harness();
+        h.Rbac.ResolveAsync("user-oid", Arg.Any<CancellationToken>()).Returns(
+            AzureRbacScopes.Resolved([], [new AzureTagCondition("azblob://acct/docs/", "Project", "Cascade", true, false)]));
+        ResourceUris(h, ("d1", "azblob://acct/docs/a.txt"));
+        h.Tags.ReadTagsAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, string> { ["Project"] = "Other" });
+        h.FileAcl.ReadFileAclAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>()).Returns((Gen2Acl?)null);
+
+        (await h.Build().VerifyAsync([Hit("d1", 0.9)], User, 10)).Should().BeEmpty();
     }
 
     [Fact]
