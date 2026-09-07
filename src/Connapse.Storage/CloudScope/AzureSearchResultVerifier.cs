@@ -26,8 +26,11 @@ public sealed class AzureSearchResultVerifier(
     IOptions<AzureVerifierSettings> settings,
     ILogger<AzureSearchResultVerifier> logger) : ISearchResultVerifier
 {
+    // Azure AD not configured is a deployment-level fact (this instance can never verify azblob
+    // hits either way), so an AWS-only/non-cloud deployment never pays the over-fetch cost even
+    // though this verifier is always registered.
     public int CandidateMultiplier =>
-        Math.Max(1, settings.Value.CandidateMultiplier);
+        azureAd.CurrentValue.IsConfigured ? Math.Max(1, settings.Value.CandidateMultiplier) : 1;
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)

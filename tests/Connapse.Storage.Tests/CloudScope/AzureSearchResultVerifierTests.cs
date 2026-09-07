@@ -229,4 +229,20 @@ public class AzureSearchResultVerifierTests
 
         (await h.Build().VerifyAsync([Hit("gone", 0.9)], User, 10)).Should().BeEmpty();
     }
+
+    [Fact]
+    public void CandidateMultiplier_IsOne_WhenAzureAdNotConfigured()
+    {
+        var h = new Harness { AzureConfigured = false };
+
+        h.Build().CandidateMultiplier.Should().Be(1);
+    }
+
+    [Fact]
+    public void CandidateMultiplier_UsesSetting_WhenAzureConfigured()
+    {
+        var h = new Harness { AzureConfigured = true };
+
+        h.Build().CandidateMultiplier.Should().Be(5);
+    }
 }
