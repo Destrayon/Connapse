@@ -183,9 +183,10 @@ public class AzureSearchResultVerifierTests
             .Returns(AzureRbacScopes.Resolved([], [], ["azblob://acct/secret/"]));
         ResourceUris(h, ("d1", "azblob://acct/secret/x.txt"));
         h.FileAcl.ReadFileAclAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
-            .Returns(new Gen2Acl("owner", "group", RX, RX, RX, null, [], []));
+            .Returns(new Gen2Acl("owner", "group", RX, RX, Gen2Permission.Read | Gen2Permission.Execute,
+                Mask: null, NamedUsers: [], NamedGroups: [])); // grants "user-oid" Read via the "other" class
         h.DirReader.ReadModeBitsAsync(Arg.Any<Gen2Path>(), Arg.Any<CancellationToken>())
-            .Returns(new Gen2ModeBits("owner", "group", RX, RX, RX, HasExtendedAcl: false));
+            .Returns(new Gen2ModeBits("owner", "group", RX, RX, Gen2Permission.Execute, HasExtendedAcl: false)); // ancestors traverse via "other"
 
         IReadOnlyList<SearchHit> r = await h.Build().VerifyAsync([Hit("d1", 0.9)], User, 10);
 
