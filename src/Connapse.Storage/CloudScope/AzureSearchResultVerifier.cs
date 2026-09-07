@@ -10,7 +10,9 @@ namespace Connapse.Storage.CloudScope;
 /// Live per-hit Azure permission verify (Phase 4e). Passes non-Azure hits untouched; for each
 /// azblob hit, admits it only if covered by an RBAC prefix (in-memory), or a matching blob-tag
 /// condition, or the file's own ACL grants Read AND every ancestor directory grants traverse-X
-/// (4d). Fails closed on every uncertain read. Preserves rank order and returns at most topK.
+/// (4d). Fails closed on every uncertain read. Preserves rank order. When actually enforcing,
+/// caps the result at topK (backfilling from lower-ranked survivors); when not enforcing, returns
+/// every candidate unchanged so the pipeline's own final cap sees the untouched pool.
 /// </summary>
 public sealed class AzureSearchResultVerifier(
     IDocumentStore documents,
@@ -26,20 +28,28 @@ public sealed class AzureSearchResultVerifier(
     IOptions<AzureVerifierSettings> settings,
     ILogger<AzureSearchResultVerifier> logger) : ISearchResultVerifier
 {
-    // Azure AD not configured is a deployment-level fact (this instance can never verify azblob
-    // hits either way), so an AWS-only/non-cloud deployment never pays the over-fetch cost even
-    // though this verifier is always registered.
+    // Over-fetch only pays off when VerifyAsync will actually drop hits, which happens only in the
+    // Enforcing state below. NotEnforcing and EnforcingButUnusable never call into the per-hit
+    // logic that needs backfill material (NotEnforcing passes everything; EnforcingButUnusable
+    // drops every azblob hit outright, and backfill can't rescue a class that's dropped wholesale).
+    // So AWS-only, non-cloud, and configured-but-not-yet-enforcing Azure deployments never pay the
+    // over-fetch cost even though this verifier is always registered.
     public int CandidateMultiplier =>
-        azureAd.CurrentValue.IsConfigured ? Math.Max(1, settings.Value.CandidateMultiplier) : 1;
+        enforcement.CurrentValue.StateForAzure(azureAd.CurrentValue.IsConfigured, migration.Determined)
+            == EnforcementState.Enforcing
+            ? Math.Max(1, settings.Value.CandidateMultiplier)
+            : 1;
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
-        // No Azure enforcement → the resolver did not broaden; nothing to tighten.
+        // No Azure enforcement → the resolver did not broaden; nothing to tighten. Return every
+        // candidate unchanged (not capped at topK) — the pipeline's own final Take(topK) applies
+        // the cap, so AutoCut still sees the full pool exactly as it would with no verifier at all.
         EnforcementState state = enforcement.CurrentValue.StateForAzure(
             azureAd.CurrentValue.IsConfigured, migration.Determined);
         if (state == EnforcementState.NotEnforcing)
-            return rankedCandidates.Take(topK).ToList();
+            return rankedCandidates;
 
         // Map hits to their governing URIs (one batched query).
         IReadOnlyDictionary<string, string?> uris =

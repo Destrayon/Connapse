@@ -233,7 +233,18 @@ public class AzureSearchResultVerifierTests
     [Fact]
     public void CandidateMultiplier_IsOne_WhenAzureAdNotConfigured()
     {
-        var h = new Harness { AzureConfigured = false };
+        // Not configured -> EnforcingButUnusable (latched on by the harness default), not Enforcing -> 1.
+        var h = new Harness { AzureConfigured = false, AzureEnforcing = true };
+
+        h.Build().CandidateMultiplier.Should().Be(1);
+    }
+
+    [Fact]
+    public void CandidateMultiplier_IsOne_WhenAzureConfiguredButNotEnforcing()
+    {
+        // Configured but the latch is off -> NotEnforcing, not Enforcing -> 1. A deployment with
+        // Azure AD wired up that hasn't switched enforcement on must not pay the over-fetch cost.
+        var h = new Harness { AzureConfigured = true, AzureEnforcing = false };
 
         h.Build().CandidateMultiplier.Should().Be(1);
     }
@@ -241,7 +252,8 @@ public class AzureSearchResultVerifierTests
     [Fact]
     public void CandidateMultiplier_UsesSetting_WhenAzureConfigured()
     {
-        var h = new Harness { AzureConfigured = true };
+        // Configured AND enforcing -> Enforcing -> the configured setting (5) applies.
+        var h = new Harness { AzureConfigured = true, AzureEnforcing = true };
 
         h.Build().CandidateMultiplier.Should().Be(5);
     }
