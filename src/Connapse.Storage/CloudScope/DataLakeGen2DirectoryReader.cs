@@ -14,7 +14,7 @@ namespace Connapse.Storage.CloudScope;
 /// failure returns <c>null</c> (the resolver treats that as fail-closed); genuine caller
 /// cancellation propagates.
 /// </summary>
-public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IGen2DirectoryReader
+public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IGen2DirectoryReader, IGen2FileAclReader
 {
     public async Task<Gen2ModeBits?> ReadModeBitsAsync(Gen2Path directory, CancellationToken ct = default)
     {
@@ -50,6 +50,28 @@ public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IG
             Response<PathAccessControl> ac = await dir.GetAccessControlAsync(cancellationToken: ct);
             Gen2Acl acl = MapAccessControl(ac.Value.Owner, ac.Value.Group, ac.Value.AccessControlList);
             return IsStructurallyComplete(acl) ? acl : null; // incomplete ACL → deny (fail closed)
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<Gen2Acl?> ReadFileAclAsync(Gen2Path file, CancellationToken ct = default)
+    {
+        try
+        {
+            var service = new DataLakeServiceClient(
+                new Uri($"https://{file.Account}.dfs.core.windows.net"), credential);
+            DataLakeFileSystemClient fs = service.GetFileSystemClient(file.FileSystem);
+            DataLakeFileClient fileClient = fs.GetFileClient(file.Path);
+            Response<PathAccessControl> ac = await fileClient.GetAccessControlAsync(cancellationToken: ct);
+            Gen2Acl acl = MapAccessControl(ac.Value.Owner, ac.Value.Group, ac.Value.AccessControlList);
+            return IsStructurallyComplete(acl) ? acl : null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
