@@ -152,6 +152,15 @@ public sealed class ArmRbacReader(
     internal static void ApplyGrant(string armScope, string? condition, List<AzureScope> prefixes, List<AzureTagCondition> tags)
     {
         string basePrefix = AzureRbacScopeTranslator.ToAzblobPrefix(armScope);
+
+        // A resource-group scope translates to the bare "azblob://" wildcard but is bounded to the
+        // accounts in that one resource group, which cannot be enumerated here. Honouring the
+        // wildcard would grant every account across the subscription — a cross-scope disclosure — so
+        // the whole grant is dropped (fail closed, an under-grant), regardless of any ABAC condition.
+        // Only a subscription/management-group/root scope legitimately covers everything.
+        if (basePrefix == "azblob://" && !AzureRbacScopeTranslator.IsSubscriptionWideOrBroader(armScope))
+            return;
+
         (string? account, string? container) = SplitPrefix(basePrefix);
         AbacResult abac = AzureAbacConditionParser.Parse(condition);
         switch (abac.Kind)

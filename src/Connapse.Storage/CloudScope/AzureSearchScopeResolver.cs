@@ -27,7 +27,7 @@ public sealed class AzureSearchScopeResolver(
 
     public async Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default)
     {
-        switch (enforcement.CurrentValue.StateFor(azureAd.CurrentValue.IsConfigured, migration.Determined))
+        switch (enforcement.CurrentValue.StateForAzure(azureAd.CurrentValue.IsConfigured, migration.Determined))
         {
             case EnforcementState.NotEnforcing:
                 return SearchScopes.Unrestricted;

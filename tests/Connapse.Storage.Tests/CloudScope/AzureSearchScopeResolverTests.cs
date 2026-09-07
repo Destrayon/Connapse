@@ -37,7 +37,8 @@ public class AzureSearchScopeResolverTests
             RedirectUri = azureAdConfigured ? "https://x/cb" : null,
             ClientCertificatePath = azureAdConfigured ? "cert.pem" : null,
         });
-        var enforcement = Opt(new PermissionEnforcementSettings { IsEnforcing = isEnforcing });
+        // The Azure resolver gates on the independent Azure latch, not the SAML/AWS one.
+        var enforcement = Opt(new PermissionEnforcementSettings { AzureEnforcing = isEnforcing });
         EnforcementMigration migration = determined ? EnforcementMigration.Completed() : new EnforcementMigration();
 
         return new AzureSearchScopeResolver(

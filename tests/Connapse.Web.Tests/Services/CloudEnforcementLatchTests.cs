@@ -57,6 +57,7 @@ public class CloudEnforcementLatchTests
         SamlSignInSettings signIn,
         AzureAdSignInSettings? azureAd = null,
         bool alreadyEnforcing = false,
+        bool azureAlreadyEnforcing = false,
         bool settingsReadable = true)
     {
         var services = new ServiceCollection();
@@ -69,7 +70,11 @@ public class CloudEnforcementLatchTests
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             Monitor(signIn),
             Monitor(azureAd ?? new AzureAdSignInSettings()),
-            Monitor(new PermissionEnforcementSettings { IsEnforcing = alreadyEnforcing }),
+            Monitor(new PermissionEnforcementSettings
+            {
+                IsEnforcing = alreadyEnforcing,
+                AzureEnforcing = azureAlreadyEnforcing,
+            }),
             migration,
             reloader,
             NullLogger<CloudEnforcementLatch>.Instance), migration);
@@ -105,14 +110,81 @@ public class CloudEnforcementLatchTests
     [Fact]
     public async Task Latches_When_OnlyAzureAd_Configured()
     {
-        // SAML not configured, Azure AD configured, not yet marked → the latch turns enforcement on.
-        // Mirrors ConfiguredThroughEnvironmentOnly_StillLatches above, but with Azure AD as the
-        // provider that was already working and SAML left blank.
+        // SAML not configured, Azure AD configured, not yet marked → the latch turns Azure enforcement
+        // on. Crucially it latches Azure INDEPENDENTLY: SAML stays off, so the AWS resolver keeps its
+        // corpus unfiltered rather than denying every S3 document.
         var (latch, migration) = Build(new SamlSignInSettings(), azureAd: CompleteAzureAd());
         await latch.StartAsync(CancellationToken.None);
 
-        (await SavedMarker())!.IsEnforcing.Should().BeTrue();
+        PermissionEnforcementSettings marker = (await SavedMarker())!;
+        marker.AzureEnforcing.Should().BeTrue();
+        marker.IsEnforcing.Should().BeFalse("configuring Azure AD must not latch SAML/AWS enforcement");
         migration.Determined.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Latches_Saml_Independently_LeavingAzureOff()
+    {
+        // The mirror of the Azure-only case: SAML configured, Azure AD blank → SAML latches, Azure
+        // stays off so the Azure resolver keeps its corpus unfiltered.
+        var (latch, _) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        PermissionEnforcementSettings marker = (await SavedMarker())!;
+        marker.IsEnforcing.Should().BeTrue();
+        marker.AzureEnforcing.Should().BeFalse("configuring SAML must not latch Azure enforcement");
+    }
+
+    [Fact]
+    public async Task Latches_BothProviders_WhenBothConfigured()
+    {
+        var (latch, _) = Build(Complete(), azureAd: CompleteAzureAd());
+        await latch.StartAsync(CancellationToken.None);
+
+        PermissionEnforcementSettings marker = (await SavedMarker())!;
+        marker.IsEnforcing.Should().BeTrue();
+        marker.AzureEnforcing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AlreadySamlEnforcing_AddingAzure_LatchesAzureWithoutClearingSaml()
+    {
+        // A deployment that was already SAML-enforcing later configures Azure AD. The old early-out
+        // ("already enforcing → return") would have skipped Azure entirely; the per-provider latch
+        // must record Azure while leaving SAML latched.
+        var (latch, _) = Build(Complete(), azureAd: CompleteAzureAd(), alreadyEnforcing: true);
+        await latch.StartAsync(CancellationToken.None);
+
+        PermissionEnforcementSettings marker = (await SavedMarker())!;
+        marker.IsEnforcing.Should().BeTrue();
+        marker.AzureEnforcing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AlreadyEnforcingBoth_WritesNothing()
+    {
+        // Steady-state boot: both markers already set and both providers configured → no change, no
+        // write (never copy a sign-in value into a shadowing row).
+        var (latch, migration) = Build(
+            Complete(), azureAd: CompleteAzureAd(), alreadyEnforcing: true, azureAlreadyEnforcing: true);
+        await latch.StartAsync(CancellationToken.None);
+
+        (await SavedMarker()).Should().BeNull();
+        migration.Determined.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AzureOnly_KeepsSamlGateUnfiltered_EndToEnd()
+    {
+        // The end-to-end proof for the regression: run the real latch for an Azure-configured /
+        // SAML-unconfigured deployment, then feed the marker it produced into both resolver gates.
+        // AWS/SAML must read NotEnforcing (S3 stays visible — completeness), Azure must enforce.
+        var (latch, _) = Build(new SamlSignInSettings(), azureAd: CompleteAzureAd());
+        await latch.StartAsync(CancellationToken.None);
+
+        PermissionEnforcementSettings marker = (await SavedMarker())!;
+        marker.StateFor(new SamlSignInSettings()).Should().Be(EnforcementState.NotEnforcing);
+        marker.StateForAzure(azureConfigured: true).Should().Be(EnforcementState.Enforcing);
     }
 
     [Fact]
