@@ -100,6 +100,13 @@ public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IG
             }
         }
 
+        // An ADLS extended ACL (one with named entries) always carries a mask. If we parsed named
+        // entries but no mask, the ACL is anomalous — cap named/group access to nothing rather than
+        // leave named entries uncapped (which would be fail-open). Minimal ACLs (no named entries)
+        // legitimately have no mask and keep it null so the owning group stays uncapped.
+        if (mask is null && (namedUsers.Count > 0 || namedGroups.Count > 0))
+            mask = Gen2Permission.None;
+
         return new Gen2Acl(owner, group, ownerPerms, groupPerms, other, mask, namedUsers, namedGroups);
     }
 

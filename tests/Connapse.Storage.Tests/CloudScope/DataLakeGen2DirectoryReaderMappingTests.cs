@@ -62,4 +62,22 @@ public class DataLakeGen2DirectoryReaderMappingTests
 
         DataLakeGen2DirectoryReader.MapAccessControl("o", "g", items).Mask.Should().BeNull();
     }
+
+    [Fact]
+    public void MapAccessControl_NamedEntriesButNoMask_CapsToNone_NotFailOpen()
+    {
+        // Anomalous (a real extended ACL always has a mask): named entry present, no mask entry.
+        // Must not leave the named entry uncapped — cap to None (fail closed).
+        var items = new List<PathAccessControlItem>
+        {
+            new(AccessControlType.User,  RolePermissions.Read | RolePermissions.Execute, defaultScope: false, entityId: null),
+            new(AccessControlType.User,  RolePermissions.Read | RolePermissions.Execute, defaultScope: false, entityId: "alice"),
+            new(AccessControlType.Group, RolePermissions.Read | RolePermissions.Execute, defaultScope: false, entityId: null),
+            new(AccessControlType.Other, RolePermissions.None, defaultScope: false, entityId: null),
+        };
+
+        Gen2Acl acl = DataLakeGen2DirectoryReader.MapAccessControl("o", "g", items);
+
+        acl.Mask.Should().Be(Gen2Permission.None);
+    }
 }

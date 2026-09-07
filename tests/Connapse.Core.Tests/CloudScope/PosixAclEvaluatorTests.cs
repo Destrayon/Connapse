@@ -99,6 +99,16 @@ public class PosixAclEvaluatorTests
     }
 
     [Fact]
+    public void Other_IgnoresMask()
+    {
+        // "other" is never capped by the mask. A stranger (no owner/named/group match) with X in
+        // "other" is granted even when a restrictive mask is present.
+        var acl = Acl(owner: "someone-else", group: "not-mine",
+            other: Gen2Permission.Read | Gen2Permission.Execute, mask: Gen2Permission.None);
+        PosixAclEvaluator.Grants(acl, P("stranger"), Gen2Permission.Execute).Should().BeTrue();
+    }
+
+    [Fact]
     public void Owner_TakesPrecedence_OverANamedUserEntryForTheSamePrincipal()
     {
         // Same principal is both owner and a named user; owner class wins (terminal, unmasked).
