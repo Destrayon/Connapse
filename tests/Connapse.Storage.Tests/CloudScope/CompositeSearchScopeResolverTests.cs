@@ -1,0 +1,96 @@
+using Connapse.Core;
+using Connapse.Storage.CloudScope;
+using FluentAssertions;
+
+namespace Connapse.Storage.Tests.CloudScope;
+
+[Trait("Category", "Unit")]
+public class CompositeSearchScopeResolverTests
+{
+    // The composite composes two ISearchScopeResolver results; drive it through tiny fakes for each
+    // cloud rather than the concrete resolvers (those have their own tests).
+    private sealed class FakeResolver(SearchScopes result) : ISearchScopeResolver
+    {
+        public Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default) =>
+            Task.FromResult(result);
+    }
+
+    private sealed class ThrowingResolver(Exception ex) : ISearchScopeResolver
+    {
+        public Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default) => throw ex;
+    }
+
+    private static async Task<SearchScopes> Combine(SearchScopes aws, SearchScopes azure)
+    {
+        var c = new CompositeSearchScopeResolver.Combiner();
+        return await Task.FromResult(c.Combine(aws, azure));
+    }
+
+    [Fact]
+    public async Task BothUnrestricted_IsUnrestricted() =>
+        (await Combine(SearchScopes.Unrestricted, SearchScopes.Unrestricted)).IsUnrestricted.Should().BeTrue();
+
+    [Fact]
+    public async Task AwsGranted_AzureUnrestricted_UnionsPrefixesAndAzureWildcard()
+    {
+        SearchScopes r = await Combine(SearchScopes.OfPrefixes(["s3://bucket/team/"]), SearchScopes.Unrestricted);
+        r.IsUnrestricted.Should().BeFalse();
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://bucket/team/", "azblob://");
+    }
+
+    [Fact]
+    public async Task AwsUnrestricted_AzureGranted_UnionsAwsWildcardAndAzurePrefixes()
+    {
+        SearchScopes r = await Combine(SearchScopes.Unrestricted, SearchScopes.OfPrefixes(["azblob://acct/docs/"]));
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "azblob://acct/docs/");
+    }
+
+    [Fact]
+    public async Task OneCloudFailed_DoesNotDenyTheOther()
+    {
+        SearchScopes r = await Combine(SearchScopes.Failed, SearchScopes.OfPrefixes(["azblob://acct/"]));
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("azblob://acct/"); // AWS failed → no s3 matches
+    }
+
+    [Fact]
+    public async Task BothDeny_IsEmpty()
+    {
+        SearchScopes r = await Combine(SearchScopes.Failed, SearchScopes.None);
+        r.IsEmpty.Should().BeTrue(); // only non-cloud (resource_uri IS NULL) will survive in SQL
+    }
+
+    [Fact]
+    public async Task AwsGranted_AzureFailed_KeepsAwsHidesAzure()
+    {
+        SearchScopes r = await Combine(SearchScopes.OfPrefixes(["s3://b/"]), SearchScopes.Failed);
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://b/");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OneInnerThrows_IsolatedToThatCloud_OtherSurvives()
+    {
+        // AWS resolver throws; the composite must fail only AWS closed (no s3 matches) while the
+        // healthy Azure cloud's grants still come through — a throw must never become a global deny.
+        var composite = new CompositeSearchScopeResolver(
+            new ThrowingResolver(new InvalidOperationException("aws down")),
+            new FakeResolver(SearchScopes.OfPrefixes(["azblob://acct/"])));
+
+        SearchScopes r = await composite.ResolveAsync(Guid.NewGuid(), CancellationToken.None);
+
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("azblob://acct/");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_InnerThrowsOperationCanceled_Propagates()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var composite = new CompositeSearchScopeResolver(
+            new ThrowingResolver(new OperationCanceledException()),
+            new FakeResolver(SearchScopes.Unrestricted));
+
+        Func<Task> act = () => composite.ResolveAsync(Guid.NewGuid(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+}

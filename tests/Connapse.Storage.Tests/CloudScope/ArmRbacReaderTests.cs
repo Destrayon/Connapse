@@ -78,6 +78,54 @@ public class ArmRbacReaderTests
     }
 
     [Fact]
+    public async Task Resolve_ResourceGroupScopedGrant_IsDropped_NotWidenedToAllAccounts()
+    {
+        // A Blob Data Reader assignment scoped to a resource group is bounded to the accounts IN that
+        // RG, which cannot be enumerated here. It must NOT translate to azblob:// (every account in
+        // the subscription) — that would disclose storage in other resource groups. Drop it.
+        string body = RoleAssignmentsBody((ReaderRole, "/subscriptions/" + Sub + "/resourceGroups/rg-a", null));
+        AzureRbacScopes r = await NewReader(body).ResolveAsync(Oid, CancellationToken.None);
+
+        r.Outcome.Should().Be(RbacOutcome.Resolved);
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Resolve_SubscriptionScopedGrant_YieldsGlobalAzureWildcard()
+    {
+        // A subscription-scoped assignment genuinely covers every storage account Connapse's
+        // configured subscription can see, so the azblob:// wildcard is sound and kept.
+        string body = RoleAssignmentsBody((ReaderRole, "/subscriptions/" + Sub, null));
+        AzureRbacScopes r = await NewReader(body).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://");
+    }
+
+    [Fact]
+    public async Task Resolve_ManagementGroupScopedGrant_YieldsGlobalAzureWildcard()
+    {
+        // A management-group scope is above the subscription, so it too covers everything Connapse
+        // can see → azblob:// is sound.
+        string body = RoleAssignmentsBody((ReaderRole, "/providers/Microsoft.Management/managementGroups/mg", null));
+        AzureRbacScopes r = await NewReader(body).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().ContainSingle().Which.Should().Be("azblob://");
+    }
+
+    [Fact]
+    public async Task Resolve_ResourceGroupGrant_DoesNotLeakAnotherResourceGroupsAccount()
+    {
+        // The concrete disclosure: the user holds Blob Data Reader on rg-a only. A precise account
+        // grant in rg-a would be fine, but a resource-group-level grant must not become the wildcard
+        // that also matches acct-b (in rg-b). Nothing is emitted rather than everything.
+        string body = RoleAssignmentsBody((ReaderRole, "/subscriptions/" + Sub + "/resourceGroups/rg-a", null));
+        AzureRbacScopes r = await NewReader(body).ResolveAsync(Oid, CancellationToken.None);
+
+        r.ReadablePrefixes.Select(p => p.Prefix).Should().NotContain("azblob://");
+        r.ReadablePrefixes.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Resolve_IgnoresNonBlobDataRoles()
     {
         // Owner of the *control plane* role "Contributor" for ARM is a different GUID; use a random one.
