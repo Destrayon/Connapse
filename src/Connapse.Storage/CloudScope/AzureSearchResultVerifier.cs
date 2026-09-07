@@ -33,16 +33,20 @@ public sealed class AzureSearchResultVerifier(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
         // No Azure enforcement → the resolver did not broaden; nothing to tighten.
-        if (enforcement.CurrentValue.StateForAzure(azureAd.CurrentValue.IsConfigured, migration.Determined)
-            != EnforcementState.Enforcing)
+        EnforcementState state = enforcement.CurrentValue.StateForAzure(
+            azureAd.CurrentValue.IsConfigured, migration.Determined);
+        if (state == EnforcementState.NotEnforcing)
             return rankedCandidates.Take(topK).ToList();
 
         // Map hits to their governing URIs (one batched query).
         IReadOnlyDictionary<string, string?> uris =
             await documents.GetResourceUrisAsync(rankedCandidates.Select(h => h.DocumentId).ToList(), ct);
 
-        // Resolve the searcher's Azure context once. Any failure/deprovision → drop every azblob hit.
-        AzureContext? azure = await ResolveContextAsync(userId, ct);
+        // Enforcing → resolve identity. EnforcingButUnusable ("searches deny") → no context, so every
+        // azblob hit is dropped (and non-cloud still passes), matching the resolver's SearchScopes.Failed.
+        AzureContext? azure = state == EnforcementState.Enforcing
+            ? await ResolveContextAsync(userId, ct)
+            : null;
 
         // Verify azblob hits concurrently (bounded); non-azblob pass; decision keyed by index so we
         // can re-assemble in rank order.
@@ -51,10 +55,19 @@ public sealed class AzureSearchResultVerifier(
 
         await Task.WhenAll(rankedCandidates.Select(async (hit, i) =>
         {
-            string? uri = uris.GetValueOrDefault(hit.DocumentId);
+            if (!uris.TryGetValue(hit.DocumentId, out string? uri))
+            {
+                verdicts[i] = false; // document row not found (deleted/dangling chunk) → fail closed
+                return;
+            }
+            if (uri is null || !AzblobUri.IsAzblob(uri))
+            {
+                verdicts[i] = true; // non-cloud (null) or non-Azure (s3://) → pass untouched
+                return;
+            }
             if (!AzblobUri.TryParse(uri, out Gen2Path path))
             {
-                verdicts[i] = true; // s3:// or non-cloud → pass untouched
+                verdicts[i] = false; // azblob scheme but unparseable → fail closed, never bypass
                 return;
             }
             if (azure is null)
@@ -63,7 +76,7 @@ public sealed class AzureSearchResultVerifier(
                 return;
             }
             await gate.WaitAsync(ct);
-            try { verdicts[i] = await AdmitAzureHitAsync(uri!, path, azure, ct); }
+            try { verdicts[i] = await AdmitAzureHitAsync(uri, path, azure, ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) { logger.LogError(ex, "Azure hit verify failed; dropping"); verdicts[i] = false; }
             finally { gate.Release(); }
@@ -78,6 +91,8 @@ public sealed class AzureSearchResultVerifier(
     private async Task<bool> AdmitAzureHitAsync(string uri, Gen2Path path, AzureContext azure, CancellationToken ct)
     {
         // 1. RBAC read supersedes ACLs — covered by any readable prefix → pass, no live call.
+        // Prefix match is safe because resolver-minted prefixes are account/container-terminated with '/'
+        // (or the bare azblob:// wildcard); it never partial-matches a sibling like azblob://acct/docs-secret/.
         if (azure.ReadablePrefixes.Any(p => uri.StartsWith(p, StringComparison.Ordinal)))
             return true;
 

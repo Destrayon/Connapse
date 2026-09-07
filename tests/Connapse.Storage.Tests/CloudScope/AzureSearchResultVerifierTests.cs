@@ -197,4 +197,36 @@ public class AzureSearchResultVerifierTests
 
         r.Select(x => x.DocumentId).Should().Equal("d2", "d3"); // rank order preserved, d1 backfilled out
     }
+
+    [Fact]
+    public async Task EnforcingButUnusable_DropsAllAzure_ButKeepsNonCloud()
+    {
+        // AzureEnforcing latched on but the provider isn't configured → EnforcingButUnusable, which
+        // the sibling AzureSearchScopeResolver treats as SearchScopes.Failed ("searches deny"). The
+        // verifier must not fall back to passing everything through.
+        var h = new Harness { AzureConfigured = false, AzureEnforcing = true };
+        ResourceUris(h, ("az", "azblob://acct/docs/x"), ("nc", null));
+
+        IReadOnlyList<SearchHit> r = await h.Build().VerifyAsync([Hit("az", 0.9), Hit("nc", 0.8)], User, 10);
+
+        r.Select(x => x.DocumentId).Should().BeEquivalentTo("nc");
+    }
+
+    [Fact]
+    public async Task UnparseableAzblobUri_IsDropped_FailClosed()
+    {
+        var h = new Harness();
+        ResourceUris(h, ("bad", "azblob://acct/docs/")); // azblob scheme, empty blob path → unparseable
+
+        (await h.Build().VerifyAsync([Hit("bad", 0.9)], User, 10)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DocumentIdNotFound_IsDropped_FailClosed()
+    {
+        var h = new Harness();
+        ResourceUris(h); // no entries at all — "gone" is absent from the map, not merely null
+
+        (await h.Build().VerifyAsync([Hit("gone", 0.9)], User, 10)).Should().BeEmpty();
+    }
 }
