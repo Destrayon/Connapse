@@ -309,3 +309,11 @@ claim. Per-cloud isolation: an Azure failure must not hide AWS-granted or non-cl
 - Ingestion-time permission capture / any new stored permission surface.
 - Any write to customer Azure authorization (grants/roles/ACLs).
 - Touching the AWS provider's mechanism (it already satisfies the invariant; it is only wrapped).
+
+## §E amendment — retrieval breadth decision (2026-09-07, settled with the user)
+
+§E left the Gen2 retrieval over-approximation open ("container(s) the user has a foothold in, or unfiltered across HNS containers"). **Decision: unfiltered — broad retrieve-then-verify, no HNS detection.**
+
+For an enforcing Azure user with a valid, non-deprovisioned identity, `AzureSearchScopeResolver` emits the **broad scheme wildcard `azblob://`** (retrieve every Azure candidate by relevance); all Azure tightening moves to the post-retrieval verifier. This is the only over-approximation that can retrieve a "Case C" file (ACL-granted, RBAC-less) wherever it lives, so completeness holds. It needs **no new Azure permission** (no ARM `isHnsEnabled`; the app stays `Storage Blob Data Reader` + the existing RBAC-read used by 4b).
+
+Consequence: 4c's flat filtering moves from the SQL prefix filter to the verifier's RBAC-coverage check. That check is **in-memory** against the user's already-resolved-and-cached (~5 min, per 4b) RBAC prefixes — no per-hit call, no new persistence (still live-only). Per-hit live reads happen only for hits **not** covered by RBAC: tag-conditioned (blob-tag read) or Gen2 ACL (file-ACL + ancestor traverse). On a flat account a Gen2 ACL read fails → null → drop (fail closed). Rejected alternative: foothold-scoped retrieval + ARM HNS detection — lower verify volume but a new control-plane permission and a Case-C recall gap.
