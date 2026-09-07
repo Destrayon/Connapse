@@ -21,9 +21,18 @@ public sealed class AncestorTraverseResolver(IGen2DirectoryReader reader, IMemor
     private const string KeyPrefix = "gen2-traverse:";
 
     public async Task<bool> HoldsTraverseOnAllAncestorsAsync(
-        Gen2Path file, IReadOnlySet<string> principals, CancellationToken ct = default)
+        Gen2Path file, string userOid, IReadOnlySet<string> groupOids, CancellationToken ct = default)
     {
-        string principalKey = string.Join(",", principals.OrderBy(p => p, StringComparer.Ordinal));
+        ArgumentNullException.ThrowIfNull(userOid);
+        ArgumentNullException.ThrowIfNull(groupOids);
+
+        // Snapshot the group set once, up front. The caller passes an IReadOnlySet, which does not
+        // guarantee immutability (a HashSet satisfies it); a set mutated during an awaited read could
+        // otherwise cache a decision computed with post-mutation membership under the pre-mutation
+        // key. The snapshot is used for both the cache key and every evaluation. userOid is a single
+        // immutable value.
+        var groups = groupOids.ToHashSet(StringComparer.Ordinal);
+        string principalKey = userOid + "|" + string.Join(",", groups.OrderBy(g => g, StringComparer.Ordinal));
 
         foreach (Gen2Path dir in Ancestors(file))
         {
@@ -34,7 +43,7 @@ public sealed class AncestorTraverseResolver(IGen2DirectoryReader reader, IMemor
                 continue;
             }
 
-            bool? decision = await ResolveDirectoryExecuteAsync(dir, principals, ct);
+            bool? decision = await ResolveDirectoryExecuteAsync(dir, userOid, groups, ct);
             if (decision is null)
                 return false; // uncertain → fail closed, uncached (retried next time)
 
@@ -45,10 +54,11 @@ public sealed class AncestorTraverseResolver(IGen2DirectoryReader reader, IMemor
         return true;
     }
 
-    /// <summary>Whether <paramref name="principals"/> hold traverse-<c>X</c> on one directory.
-    /// <c>null</c> means the directory could not be read (uncertain → the caller denies).</summary>
+    /// <summary>Whether the requester (<paramref name="userOid"/> plus <paramref name="groupOids"/>)
+    /// holds traverse-<c>X</c> on one directory. <c>null</c> means the directory could not be read
+    /// (uncertain → the caller denies).</summary>
     private async Task<bool?> ResolveDirectoryExecuteAsync(
-        Gen2Path dir, IReadOnlySet<string> principals, CancellationToken ct)
+        Gen2Path dir, string userOid, IReadOnlySet<string> groupOids, CancellationToken ct)
     {
         Gen2ModeBits? bits = await reader.ReadModeBitsAsync(dir, ct);
         if (bits is null)
@@ -57,14 +67,14 @@ public sealed class AncestorTraverseResolver(IGen2DirectoryReader reader, IMemor
         // Mode bits alone are authoritative when the requester owns the directory (owner is terminal)
         // or the ACL is not extended (no named entries, no mask). Otherwise a named entry could be
         // decisive, so the full access ACL is read.
-        bool ownsDir = bits.OwnerOid is not null && principals.Contains(bits.OwnerOid);
+        bool ownsDir = bits.OwnerOid is not null && bits.OwnerOid == userOid;
         if (ownsDir || !bits.HasExtendedAcl)
-            return PosixAclEvaluator.Grants(bits.ToAcl(), principals, Gen2Permission.Execute);
+            return PosixAclEvaluator.Grants(bits.ToAcl(), userOid, groupOids, Gen2Permission.Execute);
 
         Gen2Acl? full = await reader.ReadAccessAclAsync(dir, ct);
         if (full is null)
             return null;
-        return PosixAclEvaluator.Grants(full, principals, Gen2Permission.Execute);
+        return PosixAclEvaluator.Grants(full, userOid, groupOids, Gen2Permission.Execute);
     }
 
     /// <summary>The filesystem root and every directory prefix of the file, file itself excluded.</summary>

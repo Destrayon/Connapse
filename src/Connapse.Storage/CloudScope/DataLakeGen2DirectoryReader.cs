@@ -26,6 +26,8 @@ public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IG
             // GetPaths-listing optimization is a Phase-4e pre-warm concern; correctness does not
             // depend on it.) The extended flag is "any named entry or mask present".
             Gen2Acl acl = MapAccessControl(ac.Value.Owner, ac.Value.Group, ac.Value.AccessControlList);
+            if (!IsStructurallyComplete(acl))
+                return null; // anomalous/incomplete ACL → deny (fail closed), never coerce to valid
             bool extended = acl.NamedUsers.Count > 0 || acl.NamedGroups.Count > 0 || acl.Mask is not null;
             return new Gen2ModeBits(acl.OwnerOid, acl.OwningGroupOid,
                 acl.OwnerPermissions, acl.OwningGroupPermissions, acl.OtherPermissions, extended);
@@ -46,7 +48,8 @@ public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IG
         {
             DataLakeDirectoryClient dir = DirectoryClient(directory);
             Response<PathAccessControl> ac = await dir.GetAccessControlAsync(cancellationToken: ct);
-            return MapAccessControl(ac.Value.Owner, ac.Value.Group, ac.Value.AccessControlList);
+            Gen2Acl acl = MapAccessControl(ac.Value.Owner, ac.Value.Group, ac.Value.AccessControlList);
+            return IsStructurallyComplete(acl) ? acl : null; // incomplete ACL → deny (fail closed)
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -100,15 +103,21 @@ public sealed class DataLakeGen2DirectoryReader(TokenCredential credential) : IG
             }
         }
 
-        // An ADLS extended ACL (one with named entries) always carries a mask. If we parsed named
-        // entries but no mask, the ACL is anomalous — cap named/group access to nothing rather than
-        // leave named entries uncapped (which would be fail-open). Minimal ACLs (no named entries)
-        // legitimately have no mask and keep it null so the owning group stays uncapped.
-        if (mask is null && (namedUsers.Count > 0 || namedGroups.Count > 0))
-            mask = Gen2Permission.None;
-
         return new Gen2Acl(owner, group, ownerPerms, groupPerms, other, mask, namedUsers, namedGroups);
     }
+
+    /// <summary>
+    /// Whether a mapped ACL is structurally complete enough to evaluate soundly. An ADLS access ACL
+    /// always names an owner and an owning group, and an <i>extended</i> ACL (one with named entries)
+    /// always carries a mask. A response missing any of these is anomalous — evaluating it would let
+    /// the real owner/owning-group fall through to a more permissive class (an over-grant) or leave a
+    /// named entry uncapped. The reader denies such directories (returns <c>null</c>) rather than
+    /// coerce them into an apparently valid ACL.
+    /// </summary>
+    internal static bool IsStructurallyComplete(Gen2Acl acl) =>
+        !string.IsNullOrEmpty(acl.OwnerOid)
+        && !string.IsNullOrEmpty(acl.OwningGroupOid)
+        && (acl.Mask is not null || (acl.NamedUsers.Count == 0 && acl.NamedGroups.Count == 0));
 
     private static Gen2Permission FromRolePermissions(RolePermissions p)
     {
