@@ -206,7 +206,14 @@ public static class AzureCloudShellSetup
         # --- Access app registration (certificate-authenticated); reused by name on re-runs ---
         ACCESS_APP_ID=$(az ad app list --display-name "$ACCESS_APP_NAME" --query '[0].appId' -o tsv)
         [ -n "$ACCESS_APP_ID" ] || ACCESS_APP_ID=$(az ad app create --display-name "$ACCESS_APP_NAME" --query appId -o tsv)
-        az ad app credential reset --id "$ACCESS_APP_ID" --cert "@$CERT_FILE" --append >/dev/null
+        # Registers the certificate; a re-run with the same certificate is fine, anything else is fatal.
+        register_cert() {
+          local out
+          if out=$(az ad app credential reset --id "$1" --cert "@$CERT_FILE" --append 2>&1 >/dev/null); then return 0; fi
+          if echo "$out" | grep -qi "exist"; then echo "Certificate already registered on $1."; return 0; fi
+          echo "$out" >&2; return 1
+        }
+        register_cert "$ACCESS_APP_ID"
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
         rm -f "$CERT_FILE"
 
@@ -248,7 +255,14 @@ public static class AzureCloudShellSetup
         SIGNIN_APP_ID=$(az ad app list --display-name "$SIGNIN_APP_NAME" --query '[0].appId' -o tsv)
         [ -n "$SIGNIN_APP_ID" ] || SIGNIN_APP_ID=$(az ad app create --display-name "$SIGNIN_APP_NAME" --query appId -o tsv)
         az ad app update --id "$SIGNIN_APP_ID" --web-redirect-uris "$REDIRECT_URI"
-        az ad app credential reset --id "$SIGNIN_APP_ID" --cert "@$CERT_FILE" --append >/dev/null
+        # Registers the certificate; a re-run with the same certificate is fine, anything else is fatal.
+        register_cert() {
+          local out
+          if out=$(az ad app credential reset --id "$1" --cert "@$CERT_FILE" --append 2>&1 >/dev/null); then return 0; fi
+          if echo "$out" | grep -qi "exist"; then echo "Certificate already registered on $1."; return 0; fi
+          echo "$out" >&2; return 1
+        }
+        register_cert "$SIGNIN_APP_ID"
         az ad sp create --id "$SIGNIN_APP_ID" >/dev/null 2>&1 || true
         rm -f "$CERT_FILE"
 

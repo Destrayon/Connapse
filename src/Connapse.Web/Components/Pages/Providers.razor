@@ -1142,7 +1142,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="GenerateAzureAccessScript">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureAccessCertificate">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -1291,7 +1291,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="GenerateAzurePermissionsScript">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureSignInCertificate">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -2214,9 +2214,11 @@
 
     /// <summary>Generates a fresh certificate on this host and the Access script that uploads only its
     /// public half. The material is held until the operator saves the pasted-back result.</summary>
-    private void GenerateAzureAccessScript()
+    private void NewAzureAccessCertificate() => GenerateAzureAccessScript(newCertificate: true);
+
+    private void GenerateAzureAccessScript(bool newCertificate)
     {
-        azureAccessCert = AzureCertificateGenerator.Generate("connapse-azure-access");
+        azureAccessCert = LoadOrMintAzureCertificate(AzureAccessCertFile, "connapse-azure-access", newCertificate);
         azureAccessScript = AzureCloudShellSetup.GenerateAccessScript(new AzureAccessSetupInput(
             AccessAppName: "Connapse-Azure-Access",
             PublicCertificatePem: azureAccessCert.PublicCertificatePem));
@@ -2226,9 +2228,11 @@
 
     /// <summary>The sign-in app gets its own certificate; the script also grants the saved access app
     /// its Graph permissions, which is why this step waits for the Access step.</summary>
-    private void GenerateAzurePermissionsScript()
+    private void NewAzureSignInCertificate() => GenerateAzurePermissionsScript(newCertificate: true);
+
+    private void GenerateAzurePermissionsScript(bool newCertificate)
     {
-        azureSignInCert = AzureCertificateGenerator.Generate("connapse-azure-signin");
+        azureSignInCert = LoadOrMintAzureCertificate(AzureSignInCertFile, "connapse-azure-signin", newCertificate);
         BuildAzurePermissionsScript();
         azurePermissionsPasted = null;
         copyMessage = null;
@@ -2258,12 +2262,45 @@
     // renders rather than behind a button. Nothing touches disk until Save.
     private void EnsureAzureAccessScript()
     {
-        if (azureAccessScript is null) GenerateAzureAccessScript();
+        if (azureAccessScript is null) GenerateAzureAccessScript(newCertificate: false);
     }
 
     private void EnsureAzurePermissionsScript()
     {
-        if (azurePermissionsScript is null) GenerateAzurePermissionsScript();
+        if (azurePermissionsScript is null) GenerateAzurePermissionsScript(newCertificate: false);
+    }
+
+    private const string AzureAccessCertFile = "connapse-azure-access.pem";
+    private const string AzureSignInCertFile = "connapse-azure-signin.pem";
+
+    /// <summary>
+    /// The certificate a script embeds must be the one Connapse later signs with — across page reloads
+    /// and restarts, which happen between copying a script and pasting its result back. So it lives on
+    /// disk from the moment it is minted, and the guide re-reads that file on later renders instead of
+    /// minting again. Only "New certificate" replaces it. A daemon-app key nothing is registered
+    /// against yet is harmless to keep on disk.
+    /// </summary>
+    private AzureCertificateMaterial LoadOrMintAzureCertificate(string fileName, string commonName, bool newCertificate)
+    {
+        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+        if (!newCertificate && File.Exists(path))
+        {
+            try
+            {
+                string combined = File.ReadAllText(path);
+                using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
+                return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
+            {
+                // Unreadable file: fall through and mint a fresh one over it.
+            }
+        }
+
+        AzureCertificateMaterial minted = AzureCertificateGenerator.Generate(commonName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, minted.CombinedPem);
+        return minted;
     }
 
     private async Task CopyText(string text)
