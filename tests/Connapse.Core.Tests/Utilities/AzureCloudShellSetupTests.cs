@@ -33,6 +33,19 @@ public class AzureCloudShellSetupTests
     }
 
     [Fact]
+    public void AccessScript_RolesGrantListing_AndAreUpdatedInPlaceOnReRun()
+    {
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+
+        // Container listing is a control-plane Action even over the data plane; account listing is
+        // subscription-wide metadata. Both read-only, neither touches keys.
+        s.Should().Contain("\\\"Actions\\\": [\\\"Microsoft.Storage/storageAccounts/blobServices/containers/read\\\"]");
+        s.Should().Contain("\\\"Microsoft.Storage/storageAccounts/read\\\"");
+        s.Should().NotContain("listKeys");
+        s.Should().Contain("az role definition update");
+    }
+
+    [Fact]
     public void AccessScript_ReadsTheSignedInSubscription_NothingToTypeUpFront()
     {
         string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());

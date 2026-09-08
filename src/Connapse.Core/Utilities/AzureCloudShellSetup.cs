@@ -177,31 +177,42 @@ public static class AzureCloudShellSetup
         {{cert}}
         CONNAPSE_CERT_EOF
 
-        # --- Least-privilege custom roles (create only if absent) ---
-        if [ -z "$(az role definition list --name '{{blobRoleName}}' --query '[0].id' -o tsv 2>/dev/null)" ]; then
-          az role definition create --role-definition "{
-            \"Name\": \"{{blobRoleName}}\", \"IsCustom\": true,
-            \"Description\": \"Read blob content and blob index tags for Connapse.\",
-            \"Actions\": [], \"NotActions\": [], \"NotDataActions\": [],
-            \"DataActions\": [
-              \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read\",
-              \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read\"
-            ],
-            \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
-          }" >/dev/null
-        fi
-        if [ -z "$(az role definition list --name '{{rbacRoleName}}' --query '[0].id' -o tsv 2>/dev/null)" ]; then
-          az role definition create --role-definition "{
-            \"Name\": \"{{rbacRoleName}}\", \"IsCustom\": true,
-            \"Description\": \"Read role and deny assignments at subscription scope for Connapse.\",
-            \"Actions\": [
-              \"Microsoft.Authorization/roleAssignments/read\",
-              \"Microsoft.Authorization/denyAssignments/read\"
-            ],
-            \"NotActions\": [], \"DataActions\": [], \"NotDataActions\": [],
-            \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
-          }" >/dev/null
-        fi
+        # --- Least-privilege custom roles: created, or updated in place so re-runs upgrade them ---
+        upsert_role() {  # $1 role name, $2 definition JSON (without id)
+          local id
+          id=$(az role definition list --name "$1" --query '[0].id' -o tsv 2>/dev/null)
+          if [ -z "$id" ]; then
+            az role definition create --role-definition "$2" >/dev/null
+          else
+            az role definition update --role-definition "$(echo "$2" | jq --arg id "$id" '. + {id: $id}')" >/dev/null
+          fi
+        }
+        # Data-plane blob reads, plus listing containers (a control-plane action even over the
+        # data plane) so the connection form can offer a container list.
+        upsert_role '{{blobRoleName}}' "{
+          \"Name\": \"{{blobRoleName}}\", \"IsCustom\": true,
+          \"Description\": \"Read blob content, blob index tags, and container names for Connapse.\",
+          \"Actions\": [\"Microsoft.Storage/storageAccounts/blobServices/containers/read\"],
+          \"NotActions\": [], \"NotDataActions\": [],
+          \"DataActions\": [
+            \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read\",
+            \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read\"
+          ],
+          \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
+        }"
+        # Subscription-wide reads: role and deny assignments for per-user filtering, and storage
+        # account metadata (names, endpoints — never keys) so the form can offer an account list.
+        upsert_role '{{rbacRoleName}}' "{
+          \"Name\": \"{{rbacRoleName}}\", \"IsCustom\": true,
+          \"Description\": \"Read role and deny assignments and storage account metadata at subscription scope for Connapse.\",
+          \"Actions\": [
+            \"Microsoft.Authorization/roleAssignments/read\",
+            \"Microsoft.Authorization/denyAssignments/read\",
+            \"Microsoft.Storage/storageAccounts/read\"
+          ],
+          \"NotActions\": [], \"DataActions\": [], \"NotDataActions\": [],
+          \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
+        }"
 
         # --- Access app registration (certificate-authenticated); reused by name on re-runs ---
         ACCESS_APP_ID=$(az ad app list --display-name "$ACCESS_APP_NAME" --query '[0].appId' -o tsv)
