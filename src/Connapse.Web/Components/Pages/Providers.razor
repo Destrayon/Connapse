@@ -1114,43 +1114,15 @@
                 </ManualContent>
                 <EasyContent>
                     <p class="small text-muted">
-                        Connapse generates a certificate on this host. You run one script in Azure Cloud Shell — it
-                        creates two least-privilege custom roles and the access app registration, uploading only the
-                        public certificate — then paste back what it prints.
+                        Nothing to fill in. Connapse generates a certificate on this host; you run one script in Azure
+                        Cloud Shell — it uses whichever subscription Cloud Shell is signed in to, creates two
+                        least-privilege custom roles and the access app registration, and uploads only the public
+                        certificate — then paste back what it prints.
                     </p>
                     <p class="small mb-3">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
 
-                    <div class="row g-2 mb-3" style="max-width:44rem">
-                        <div class="col-12">
-                            <label class="form-label small mb-1" for="az-access-sub">Subscription ID</label>
-                            <input id="az-access-sub" class="form-control form-control-sm font-monospace"
-                                   placeholder="00000000-0000-0000-0000-000000000000"
-                                   @bind="easySubscriptionId" @bind:event="oninput" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label small mb-1" for="az-access-scope">
-                                Storage account scope <span class="text-muted">(optional)</span>
-                            </label>
-                            <input id="az-access-scope" class="form-control form-control-sm font-monospace"
-                                   placeholder="Leave blank to cover the whole subscription"
-                                   aria-describedby="az-access-scope-help" @bind="easyStorageScope" />
-                            <div id="az-access-scope-help" class="form-text">
-                                A storage-account resource id to scope the blob-data role to; blank grants it across
-                                the subscription.
-                            </div>
-                        </div>
-                    </div>
-
-                    @if (string.IsNullOrWhiteSpace(easySubscriptionId))
-                    {
-                        <div class="alert alert-secondary py-2 small mb-0">
-                            Enter the subscription ID to generate the setup command.
-                        </div>
-                    }
-                    else
-                    {
                         <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="GenerateAzureAccessScript">
                             <span class="bi-arrow-repeat me-1" aria-hidden="true"></span>
                             @(azureAccessScript is null ? "Generate setup command" : "Regenerate (new certificate)")
@@ -1216,7 +1188,6 @@
                                 }
                             }
                         }
-                    }
                 </EasyContent>
                 <Actions>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
@@ -1397,8 +1368,6 @@
     private bool showAzurePermissions;
 
     // Azure easy-setup (Cloud Shell) state — one script per step, each with its own certificate.
-    private string? easySubscriptionId;
-    private string? easyStorageScope;
     private string easyRedirectUri = "";
     private string? azureAccessScript;
     private AzureCertificateMaterial? azureAccessCert;
@@ -1580,7 +1549,6 @@
         // The sign-in app's redirect URI is Connapse's Entra callback at the address this admin reached
         // it on; pre-fill the subscription from whatever is already stored.
         easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + "/api/v1/auth/cloud/azure/callback";
-        easySubscriptionId = azureProviderSettings.SubscriptionId;
     }
 
     /// <summary>
@@ -2236,8 +2204,6 @@
     {
         azureAccessCert = AzureCertificateGenerator.Generate("connapse-azure-access");
         azureAccessScript = AzureCloudShellSetup.GenerateAccessScript(new AzureAccessSetupInput(
-            SubscriptionId: (easySubscriptionId ?? string.Empty).Trim(),
-            StorageScope: string.IsNullOrWhiteSpace(easyStorageScope) ? null : easyStorageScope!.Trim(),
             AccessAppName: "Connapse-Azure-Access",
             PublicCertificatePem: azureAccessCert.PublicCertificatePem));
         azureAccessPasted = null;

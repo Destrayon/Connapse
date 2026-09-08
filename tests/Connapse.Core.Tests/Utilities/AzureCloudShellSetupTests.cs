@@ -14,8 +14,7 @@ public class AzureCloudShellSetupTests
 
     // ---- Access step ----
 
-    private static AzureAccessSetupInput AccessInput(string? scope = null) =>
-        new(Sub, scope, "Connapse-Azure-Access", Cert);
+    private static AzureAccessSetupInput AccessInput() => new("Connapse-Azure-Access", Cert);
 
     [Fact]
     public void AccessScript_ContainsRolesAppCertAndMarkers_ButNeverThePrivateKey()
@@ -23,7 +22,7 @@ public class AzureCloudShellSetupTests
         string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
 
         s.Should().Contain(AzureCloudShellSetup.AccessBeginMarker).And.Contain(AzureCloudShellSetup.AccessEndMarker);
-        s.Should().Contain($"SUBSCRIPTION_ID='{Sub}'");
+        s.Should().Contain("ACCESS_APP_NAME='Connapse-Azure-Access'");
         s.Should().Contain(AzureCloudShellSetup.BlobDataRoleName).And.Contain("blobs/tags/read");
         s.Should().Contain(AzureCloudShellSetup.RbacReadRoleName).And.Contain("Microsoft.Authorization/denyAssignments/read");
         s.Should().Contain("az ad app create --display-name \"$ACCESS_APP_NAME\"");
@@ -34,16 +33,21 @@ public class AzureCloudShellSetupTests
     }
 
     [Fact]
-    public void AccessScript_StorageScope_DefaultsToSubscription() =>
-        AzureCloudShellSetup.GenerateAccessScript(AccessInput())
-            .Should().Contain($"STORAGE_SCOPE='/subscriptions/{Sub}'");
+    public void AccessScript_ReadsTheSignedInSubscription_NothingToTypeUpFront()
+    {
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+
+        s.Should().Contain("SUBSCRIPTION_ID=$(az account show --query id -o tsv)");
+        s.Should().NotContain("{{"); // no unfilled placeholders
+    }
 
     [Fact]
-    public void AccessScript_UsesGivenStorageScope()
+    public void AccessScript_StorageScope_DefaultsToWholeSubscription_AndIsEditableInline()
     {
-        string scope = $"/subscriptions/{Sub}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
-        AzureCloudShellSetup.GenerateAccessScript(AccessInput(scope))
-            .Should().Contain($"STORAGE_SCOPE='{scope}'");
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+
+        s.Should().Contain("STORAGE_SCOPE=\"\"");
+        s.Should().Contain("STORAGE_SCOPE=\"/subscriptions/$SUBSCRIPTION_ID\"");
     }
 
     private static string AccessBlock(string tenant = Tenant, string sub = Sub, string access = AccessId) =>

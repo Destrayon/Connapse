@@ -1,12 +1,9 @@
 namespace Connapse.Core.Utilities;
 
-/// <summary>Inputs for the Access step's script: the subscription and storage scope the access identity
-/// is granted on, and the PUBLIC certificate it authenticates with (the private key stays on the host).</summary>
-public sealed record AzureAccessSetupInput(
-    string SubscriptionId,
-    string? StorageScope,
-    string AccessAppName,
-    string PublicCertificatePem);
+/// <summary>Inputs for the Access step's script: the app name and the PUBLIC certificate it authenticates
+/// with (the private key stays on the host). The subscription is whichever one Cloud Shell is signed
+/// in to — the script reads it and prints it back, so the operator types nothing.</summary>
+public sealed record AzureAccessSetupInput(string AccessAppName, string PublicCertificatePem);
 
 /// <summary>The non-secret identifiers the Access script prints back.</summary>
 public sealed record AzureAccessResult(string TenantId, string SubscriptionId, string AccessAppClientId);
@@ -63,13 +60,7 @@ public static class AzureCloudShellSetup
     public static string GenerateAccessScript(AzureAccessSetupInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        string storageScope = string.IsNullOrWhiteSpace(input.StorageScope)
-            ? "/subscriptions/" + input.SubscriptionId
-            : input.StorageScope!.Trim();
-
         return AccessTemplate
-            .Replace("{{subscription}}", Shell(input.SubscriptionId))
-            .Replace("{{storageScope}}", Shell(storageScope))
             .Replace("{{accessAppName}}", Shell(input.AccessAppName))
             .Replace("{{blobRoleName}}", BlobDataRoleName)
             .Replace("{{rbacRoleName}}", RbacReadRoleName)
@@ -161,14 +152,20 @@ public static class AzureCloudShellSetup
         # Connapse Azure setup — step 1 of 2 (Access). Run in Azure Cloud Shell (Bash). Creates two
         # least-privilege custom roles and Connapse's certificate-authenticated access app, then prints
         # a block to paste back into Connapse. Safe to re-run. Only the PUBLIC certificate is here.
+        #
+        # It uses the subscription Cloud Shell is signed in to. To use a different one, run
+        #   az account set --subscription <id>
+        # first. To limit the blob role to one storage account instead of the whole subscription,
+        # set STORAGE_SCOPE below to that storage account's resource id.
         set -euo pipefail
 
-        SUBSCRIPTION_ID='{{subscription}}'
-        STORAGE_SCOPE='{{storageScope}}'
         ACCESS_APP_NAME='{{accessAppName}}'
+        STORAGE_SCOPE=""
 
-        az account set --subscription "$SUBSCRIPTION_ID"
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         TENANT_ID=$(az account show --query tenantId -o tsv)
+        [ -n "$STORAGE_SCOPE" ] || STORAGE_SCOPE="/subscriptions/$SUBSCRIPTION_ID"
+        echo "Using subscription $SUBSCRIPTION_ID ($(az account show --query name -o tsv))"
 
         CERT_FILE=$(mktemp)
         cat > "$CERT_FILE" <<'CONNAPSE_CERT_EOF'
