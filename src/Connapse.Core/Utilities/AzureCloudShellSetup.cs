@@ -162,7 +162,12 @@ public static class AzureCloudShellSetup
         #   az account set --subscription <id>
         # first. To limit the blob role to one storage account instead of the whole subscription,
         # set STORAGE_SCOPE below to that storage account's resource id.
+        #
+        # Runs in a subshell so that pasting it into the interactive shell cannot close your
+        # session on an error: the failing command is printed and you stay signed in.
+        (
         set -euo pipefail
+        trap 'echo; echo "Connapse setup failed at: $BASH_COMMAND" >&2' ERR
 
         ACCESS_APP_NAME='{{accessAppName}}'
         STORAGE_SCOPE=""
@@ -239,6 +244,7 @@ public static class AzureCloudShellSetup
         echo
         printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\n%s\n' \
           "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$ACCESS_APP_ID" "{{endMarker}}"
+        ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 
     private const string PermissionsTemplate = """
@@ -247,7 +253,12 @@ public static class AzureCloudShellSetup
         # Creates the sign-in app people authenticate through and grants the access app the Microsoft
         # Graph permissions it reads the directory with. Admin consent needs a Global Administrator or
         # Privileged Role Administrator; if you are not one, the script prints a link to send them.
+        #
+        # Runs in a subshell so that pasting it into the interactive shell cannot close your
+        # session on an error: the failing command is printed and you stay signed in.
+        (
         set -euo pipefail
+        trap 'echo; echo "Connapse setup failed at: $BASH_COMMAND" >&2' ERR
 
         ACCESS_APP_ID='{{accessAppId}}'
         REDIRECT_URI='{{redirectUri}}'
@@ -301,5 +312,6 @@ public static class AzureCloudShellSetup
         echo
         printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\n%s\n' \
           "{{beginMarker}}" "$SIGNIN_APP_ID" "$CONSENT_GRANTED" "$CONSENT_URL" "{{endMarker}}"
+        ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 }

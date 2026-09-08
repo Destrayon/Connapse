@@ -153,6 +153,22 @@ public class AzureCloudShellSetupTests
     }
 
     [Fact]
+    public void Scripts_RunInASubshell_SoAPasteIntoTheInteractiveShellSurvivesAnError()
+    {
+        // `set -e` pasted into an interactive shell closes the session on the first failure, taking
+        // the error message with it. Both scripts wrap the body and print what failed.
+        foreach (string s in new[]
+                 {
+                     AzureCloudShellSetup.GenerateAccessScript(AccessInput()),
+                     AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()),
+                 })
+        {
+            s.Should().Contain("\n(\nset -euo pipefail\ntrap 'echo; echo \"Connapse setup failed at: $BASH_COMMAND\" >&2' ERR");
+            s.Should().Contain(") || echo \"----- CONNAPSE SETUP FAILED");
+        }
+    }
+
+    [Fact]
     public void Scripts_FindExistingAppsByName_SoReRunsDoNotDuplicate()
     {
         AzureCloudShellSetup.GenerateAccessScript(AccessInput())
