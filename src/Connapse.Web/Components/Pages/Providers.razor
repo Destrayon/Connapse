@@ -1547,6 +1547,22 @@
         // The sign-in app's redirect URI is Connapse's Entra callback at the address this admin reached
         // it on; pre-fill the subscription from whatever is already stored.
         easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + "/api/v1/auth/cloud/azure/callback";
+
+        // Returning from Entra's admin-consent page: it bounces back here with ?admin_consent=True
+        // (or ?error=...&error_description=...). Surface which, so "pending" doesn't linger.
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue("admin_consent", out var consent)
+            && string.Equals(consent.ToString(), "True", StringComparison.OrdinalIgnoreCase))
+        {
+            saveMessage = "Admin consent granted — Connapse can now look people and groups up in Entra.";
+            saveSuccess = true;
+        }
+        else if (query.TryGetValue("error", out var consentError))
+        {
+            string detail = query.TryGetValue("error_description", out var description) ? description.ToString() : consentError.ToString();
+            saveMessage = $"Admin consent was not granted: {LogSanitizer.Sanitize(detail)}";
+            saveSuccess = false;
+        }
     }
 
     /// <summary>
@@ -2224,9 +2240,14 @@
         azurePermissionsScript = AzureCloudShellSetup.GeneratePermissionsScript(new AzurePermissionsSetupInput(
             AccessAppClientId: azureProviderSettings.ClientId ?? string.Empty,
             RedirectUri: easyRedirectUri.Trim(),
+            ConsentRedirectUri: AzureConsentLandingUri,
             SignInAppName: "Connapse-Azure-SignIn",
             PublicCertificatePem: azureSignInCert!.PublicCertificatePem));
     }
+
+    /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
+    /// app's reply URL by the Permissions script.</summary>
+    private string AzureConsentLandingUri => Navigation.BaseUri.TrimEnd('/') + "/admin/providers/azure";
 
     private void RefreshAzurePermissionsScript()
     {

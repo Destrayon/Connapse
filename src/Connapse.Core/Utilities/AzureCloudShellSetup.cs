@@ -9,10 +9,13 @@ public sealed record AzureAccessSetupInput(string AccessAppName, string PublicCe
 public sealed record AzureAccessResult(string TenantId, string SubscriptionId, string AccessAppClientId);
 
 /// <summary>Inputs for the Per-user permissions step's script: which access app to grant Graph
-/// permissions on, the sign-in app's redirect URI, and the PUBLIC certificate for the sign-in app.</summary>
+/// permissions on, the sign-in app's redirect URI, the page Entra should bounce back to after admin
+/// consent (registered on the access app — without one, the consent endpoint refuses with
+/// AADSTS500113), and the PUBLIC certificate for the sign-in app.</summary>
 public sealed record AzurePermissionsSetupInput(
     string AccessAppClientId,
     string RedirectUri,
+    string ConsentRedirectUri,
     string SignInAppName,
     string PublicCertificatePem);
 
@@ -93,6 +96,8 @@ public static class AzureCloudShellSetup
         return PermissionsTemplate
             .Replace("{{accessAppId}}", Shell(input.AccessAppClientId))
             .Replace("{{redirectUri}}", Shell(input.RedirectUri))
+            .Replace("{{consentRedirectUri}}", Shell(input.ConsentRedirectUri))
+            .Replace("{{consentRedirectEncoded}}", Uri.EscapeDataString(input.ConsentRedirectUri))
             .Replace("{{signInAppName}}", Shell(input.SignInAppName))
             .Replace("{{graphAppId}}", GraphAppId)
             .Replace("{{beginMarker}}", PermissionsBeginMarker)
@@ -198,8 +203,9 @@ public static class AzureCloudShellSetup
           }" >/dev/null
         fi
 
-        # --- Access app registration (certificate-authenticated) ---
-        ACCESS_APP_ID=$(az ad app create --display-name "$ACCESS_APP_NAME" --query appId -o tsv)
+        # --- Access app registration (certificate-authenticated); reused by name on re-runs ---
+        ACCESS_APP_ID=$(az ad app list --display-name "$ACCESS_APP_NAME" --query '[0].appId' -o tsv)
+        [ -n "$ACCESS_APP_ID" ] || ACCESS_APP_ID=$(az ad app create --display-name "$ACCESS_APP_NAME" --query appId -o tsv)
         az ad app credential reset --id "$ACCESS_APP_ID" --cert "@$CERT_FILE" --append >/dev/null
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
         rm -f "$CERT_FILE"
@@ -227,6 +233,7 @@ public static class AzureCloudShellSetup
 
         ACCESS_APP_ID='{{accessAppId}}'
         REDIRECT_URI='{{redirectUri}}'
+        CONSENT_REDIRECT_URI='{{consentRedirectUri}}'
         SIGNIN_APP_NAME='{{signInAppName}}'
         GRAPH_API='{{graphAppId}}'
 
@@ -237,11 +244,17 @@ public static class AzureCloudShellSetup
         {{cert}}
         CONNAPSE_CERT_EOF
 
-        # --- Sign-in app registration (OIDC, certificate client-assertion) ---
-        SIGNIN_APP_ID=$(az ad app create --display-name "$SIGNIN_APP_NAME" --web-redirect-uris "$REDIRECT_URI" --query appId -o tsv)
+        # --- Sign-in app registration (OIDC, certificate client-assertion); reused by name on re-runs ---
+        SIGNIN_APP_ID=$(az ad app list --display-name "$SIGNIN_APP_NAME" --query '[0].appId' -o tsv)
+        [ -n "$SIGNIN_APP_ID" ] || SIGNIN_APP_ID=$(az ad app create --display-name "$SIGNIN_APP_NAME" --query appId -o tsv)
+        az ad app update --id "$SIGNIN_APP_ID" --web-redirect-uris "$REDIRECT_URI"
         az ad app credential reset --id "$SIGNIN_APP_ID" --cert "@$CERT_FILE" --append >/dev/null
         az ad sp create --id "$SIGNIN_APP_ID" >/dev/null 2>&1 || true
         rm -f "$CERT_FILE"
+
+        # The admin-consent page bounces back to a reply URL registered on the ACCESS app; without one
+        # Entra refuses with AADSTS500113. Connapse's Providers page is that landing spot.
+        az ad app update --id "$ACCESS_APP_ID" --web-redirect-uris "$CONSENT_REDIRECT_URI"
 
         # --- Microsoft Graph application permissions on the ACCESS app (ids resolved live) ---
         USER_READ_ALL=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='User.Read.All'].id | [0]" -o tsv)
@@ -254,7 +267,7 @@ public static class AzureCloudShellSetup
         if az ad app permission admin-consent --id "$ACCESS_APP_ID" >/dev/null 2>&1; then
           CONSENT_GRANTED=true
         fi
-        CONSENT_URL="https://login.microsoftonline.com/$TENANT_ID/adminconsent?client_id=$ACCESS_APP_ID"
+        CONSENT_URL="https://login.microsoftonline.com/$TENANT_ID/adminconsent?client_id=$ACCESS_APP_ID&redirect_uri={{consentRedirectEncoded}}"
 
         echo
         printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\n%s\n' \

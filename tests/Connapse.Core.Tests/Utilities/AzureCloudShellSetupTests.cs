@@ -93,7 +93,11 @@ public class AzureCloudShellSetupTests
     // ---- Per-user permissions step ----
 
     private static AzurePermissionsSetupInput PermissionsInput() =>
-        new(AccessId, "https://connapse.example.com/api/v1/auth/cloud/azure/callback", "Connapse-Azure-SignIn", Cert);
+        new(AccessId,
+            "https://connapse.example.com/api/v1/auth/cloud/azure/callback",
+            "https://connapse.example.com/admin/providers/azure",
+            "Connapse-Azure-SignIn",
+            Cert);
 
     [Fact]
     public void PermissionsScript_ContainsSignInAppGraphPermsConsentAndMarkers()
@@ -102,7 +106,7 @@ public class AzureCloudShellSetupTests
 
         s.Should().Contain(AzureCloudShellSetup.PermissionsBeginMarker).And.Contain(AzureCloudShellSetup.PermissionsEndMarker);
         s.Should().Contain($"ACCESS_APP_ID='{AccessId}'");
-        s.Should().Contain("--web-redirect-uris \"$REDIRECT_URI\"");
+        s.Should().Contain("az ad app update --id \"$SIGNIN_APP_ID\" --web-redirect-uris \"$REDIRECT_URI\"");
         s.Should().Contain("https://connapse.example.com/api/v1/auth/cloud/azure/callback");
         s.Should().Contain("User.Read.All").And.Contain("GroupMember.Read.All");
         s.Should().Contain("az ad app permission admin-consent");
@@ -115,6 +119,27 @@ public class AzureCloudShellSetupTests
     private static string PermissionsBlock(string signIn = SignInId, string consent = "true") =>
         $"{AzureCloudShellSetup.PermissionsBeginMarker}\nsignInAppClientId={signIn}\nconsentGranted={consent}\n"
         + $"consentUrl=https://login.microsoftonline.com/{Tenant}/adminconsent?client_id={AccessId}\n{AzureCloudShellSetup.PermissionsEndMarker}";
+
+    [Fact]
+    public void PermissionsScript_RegistersConsentLandingOnAccessApp_AndPassesItAsRedirectUri()
+    {
+        // The v1 adminconsent endpoint needs a registered reply URL on the app being consented to,
+        // else it fails with AADSTS500113 before showing the prompt.
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput());
+
+        s.Should().Contain("az ad app update --id \"$ACCESS_APP_ID\" --web-redirect-uris \"$CONSENT_REDIRECT_URI\"");
+        s.Should().Contain("CONSENT_REDIRECT_URI='https://connapse.example.com/admin/providers/azure'");
+        s.Should().Contain("&redirect_uri=https%3A%2F%2Fconnapse.example.com%2Fadmin%2Fproviders%2Fazure");
+    }
+
+    [Fact]
+    public void Scripts_FindExistingAppsByName_SoReRunsDoNotDuplicate()
+    {
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput())
+            .Should().Contain("az ad app list --display-name \"$ACCESS_APP_NAME\"");
+        AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput())
+            .Should().Contain("az ad app list --display-name \"$SIGNIN_APP_NAME\"");
+    }
 
     [Fact]
     public void ParsePermissionsResult_ConsentGranted_ReturnsIdAndTrue()
