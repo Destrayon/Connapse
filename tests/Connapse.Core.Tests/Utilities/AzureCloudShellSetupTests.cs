@@ -133,6 +133,13 @@ public class AzureCloudShellSetupTests
     }
 
     [Fact]
+    public void PermissionsScript_PreConsentsSignInAppForEveryone_WhenAdminConsentSucceeds()
+    {
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput());
+        s.Should().Contain("az ad app permission grant --id \"$SIGNIN_APP_ID\" --api \"$GRAPH_API\" --scope \"openid profile offline_access\"");
+    }
+
+    [Fact]
     public void Scripts_FindExistingAppsByName_SoReRunsDoNotDuplicate()
     {
         AzureCloudShellSetup.GenerateAccessScript(AccessInput())

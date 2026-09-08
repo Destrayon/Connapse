@@ -266,6 +266,10 @@ public static class AzureCloudShellSetup
         CONSENT_GRANTED=false
         if az ad app permission admin-consent --id "$ACCESS_APP_ID" >/dev/null 2>&1; then
           CONSENT_GRANTED=true
+          # Same administrator can pre-consent the sign-in app's delegated sign-in scopes for everyone,
+          # so people never see a consent prompt. offline_access is implied by the code flow;
+          # Connapse stores no tokens, only the user's object id and tenant.
+          az ad app permission grant --id "$SIGNIN_APP_ID" --api "$GRAPH_API" --scope "openid profile offline_access" >/dev/null 2>&1 || true
         fi
         CONSENT_URL="https://login.microsoftonline.com/$TENANT_ID/adminconsent?client_id=$ACCESS_APP_ID&redirect_uri={{consentRedirectEncoded}}"
 
