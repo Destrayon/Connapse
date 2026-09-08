@@ -172,10 +172,13 @@ public class ProvidersPageTests
         string markup = File.ReadAllText(Path.Combine(
             PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
 
-        Regex.Matches(markup, "<ProviderStepCard").Should().HaveCount(3);
+        // Three AWS step cards plus the two Azure ones built on the same component.
+        Regex.Matches(markup, "<ProviderStepCard").Should().HaveCount(5);
         markup.Should().Contain("Id=\"access\"")
             .And.Contain("Id=\"identity-center\"")
-            .And.Contain("Id=\"permissions\"");
+            .And.Contain("Id=\"permissions\"")
+            .And.Contain("Id=\"azure-access\"")
+            .And.Contain("Id=\"azure-permissions\"");
         Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(3);
         markup.Should().NotContain("confirmResetAccess")
             .And.NotContain("confirmResetIdentityCenter")

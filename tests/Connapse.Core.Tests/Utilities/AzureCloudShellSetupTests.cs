@@ -6,118 +6,143 @@ namespace Connapse.Core.Tests.Utilities;
 [Trait("Category", "Unit")]
 public class AzureCloudShellSetupTests
 {
-    private static AzureSetupInput Input() => new(
-        SubscriptionId: "33333333-3333-3333-3333-333333333333",
-        StorageScope: null,
-        RedirectUri: "https://connapse.example.com/api/v1/auth/cloud/azure/callback",
-        AccessAppName: "Connapse-Azure-Access",
-        SignInAppName: "Connapse-Azure-SignIn",
-        PublicCertificatePem: "-----BEGIN CERTIFICATE-----\nMIIBfakefakefake\n-----END CERTIFICATE-----");
+    private const string Sub = "33333333-3333-3333-3333-333333333333";
+    private const string Tenant = "11111111-1111-1111-1111-111111111111";
+    private const string AccessId = "22222222-2222-2222-2222-222222222222";
+    private const string SignInId = "44444444-4444-4444-4444-444444444444";
+    private const string Cert = "-----BEGIN CERTIFICATE-----\nMIIBfakefakefake\n-----END CERTIFICATE-----";
+
+    // ---- Access step ----
+
+    private static AzureAccessSetupInput AccessInput(string? scope = null) =>
+        new(Sub, scope, "Connapse-Azure-Access", Cert);
 
     [Fact]
-    public void GenerateScript_ContainsTheKeyStepsAndMarkers()
+    public void AccessScript_ContainsRolesAppCertAndMarkers_ButNeverThePrivateKey()
     {
-        string script = AzureCloudShellSetup.GenerateScript(Input());
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
 
-        script.Should().Contain(AzureCloudShellSetup.BeginMarker);
-        script.Should().Contain(AzureCloudShellSetup.EndMarker);
-        script.Should().Contain("33333333-3333-3333-3333-333333333333");
-        script.Should().Contain("https://connapse.example.com/api/v1/auth/cloud/azure/callback");
-        script.Should().Contain("az ad app create --display-name \"$ACCESS_APP_NAME\"");
-        script.Should().Contain("az ad app create --display-name \"$SIGNIN_APP_NAME\"");
-        script.Should().Contain("--web-redirect-uris \"$REDIRECT_URI\"");
-        script.Should().Contain(AzureCloudShellSetup.BlobDataRoleName);
-        script.Should().Contain(AzureCloudShellSetup.RbacReadRoleName);
-        script.Should().Contain("blobs/tags/read");
-        script.Should().Contain("Microsoft.Authorization/denyAssignments/read");
-        script.Should().Contain("User.Read.All");
-        script.Should().Contain("GroupMember.Read.All");
-        script.Should().Contain("az ad app permission admin-consent");
-        script.Should().Contain("MIIBfakefakefake"); // the public cert is embedded
-        script.Should().NotContain("PRIVATE KEY");    // never the private key
+        s.Should().Contain(AzureCloudShellSetup.AccessBeginMarker).And.Contain(AzureCloudShellSetup.AccessEndMarker);
+        s.Should().Contain($"SUBSCRIPTION_ID='{Sub}'");
+        s.Should().Contain(AzureCloudShellSetup.BlobDataRoleName).And.Contain("blobs/tags/read");
+        s.Should().Contain(AzureCloudShellSetup.RbacReadRoleName).And.Contain("Microsoft.Authorization/denyAssignments/read");
+        s.Should().Contain("az ad app create --display-name \"$ACCESS_APP_NAME\"");
+        s.Should().Contain("az ad app credential reset").And.Contain("--append");
+        s.Should().Contain("MIIBfakefakefake");
+        s.Should().NotContain("PRIVATE KEY");
+        s.Should().NotContain("admin-consent"); // consent belongs to the Permissions step
     }
 
     [Fact]
-    public void GenerateScript_StorageScope_DefaultsToSubscription_WhenNull()
-    {
-        string script = AzureCloudShellSetup.GenerateScript(Input());
-        script.Should().Contain("STORAGE_SCOPE='/subscriptions/33333333-3333-3333-3333-333333333333'");
-    }
+    public void AccessScript_StorageScope_DefaultsToSubscription() =>
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput())
+            .Should().Contain($"STORAGE_SCOPE='/subscriptions/{Sub}'");
 
     [Fact]
-    public void GenerateScript_UsesGivenStorageScope_WhenProvided()
+    public void AccessScript_UsesGivenStorageScope()
     {
-        var input = Input() with { StorageScope = "/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct" };
-        string script = AzureCloudShellSetup.GenerateScript(input);
-        script.Should().Contain("STORAGE_SCOPE='/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct'");
+        string scope = $"/subscriptions/{Sub}/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/acct";
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput(scope))
+            .Should().Contain($"STORAGE_SCOPE='{scope}'");
     }
 
-    private static string Block(string tenant, string sub, string access, string signIn, string consent = "true", string? url = null) =>
-        $"{AzureCloudShellSetup.BeginMarker}\n"
-        + $"tenantId={tenant}\nsubscriptionId={sub}\naccessAppClientId={access}\nsignInAppClientId={signIn}\n"
-        + $"consentGranted={consent}\nconsentUrl={url ?? "https://login.microsoftonline.com/" + tenant + "/adminconsent?client_id=" + access}\n"
-        + $"{AzureCloudShellSetup.EndMarker}";
+    private static string AccessBlock(string tenant = Tenant, string sub = Sub, string access = AccessId) =>
+        $"{AzureCloudShellSetup.AccessBeginMarker}\ntenantId={tenant}\nsubscriptionId={sub}\naccessAppClientId={access}\n{AzureCloudShellSetup.AccessEndMarker}";
 
     [Fact]
-    public void ParseResult_WellFormedBlock_ReturnsAllFields()
+    public void ParseAccessResult_WellFormed_ReturnsIds()
     {
-        AzureSetupResult? r = AzureCloudShellSetup.ParseResult(Block(
-            "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333",
-            "22222222-2222-2222-2222-222222222222", "44444444-4444-4444-4444-444444444444"));
-
+        AzureAccessResult? r = AzureCloudShellSetup.ParseAccessResult(AccessBlock());
         r.Should().NotBeNull();
-        r!.TenantId.Should().Be("11111111-1111-1111-1111-111111111111");
-        r.SubscriptionId.Should().Be("33333333-3333-3333-3333-333333333333");
-        r.AccessAppClientId.Should().Be("22222222-2222-2222-2222-222222222222");
-        r.SignInAppClientId.Should().Be("44444444-4444-4444-4444-444444444444");
-        r.ConsentGranted.Should().BeTrue();
-        r.ConsentUrl.Should().Contain("adminconsent");
+        r!.TenantId.Should().Be(Tenant);
+        r.SubscriptionId.Should().Be(Sub);
+        r.AccessAppClientId.Should().Be(AccessId);
     }
 
     [Fact]
-    public void ParseResult_ConsentNotGranted_CarriesFalseAndUrl()
+    public void ParseAccessResult_AnchorsOnLastMarkerPair_WhenTerminalIsPasted()
     {
-        AzureSetupResult? r = AzureCloudShellSetup.ParseResult(Block(
-            "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333",
-            "22222222-2222-2222-2222-222222222222", "44444444-4444-4444-4444-444444444444",
-            consent: "false"));
-
-        r!.ConsentGranted.Should().BeFalse();
-        r.ConsentUrl.Should().NotBeNull();
-    }
-
-    [Fact]
-    public void ParseResult_AnchorsOnLastMarkerPair_WhenTerminalIsPasted()
-    {
-        // Pasting the whole terminal (script echo THEN the printed block) must read the printed block.
-        string terminal = "az ad app create ...\n" + AzureCloudShellSetup.BeginMarker + "\nnoise\n" + AzureCloudShellSetup.EndMarker
-            + "\n...output...\n" + Block("11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333",
-                "22222222-2222-2222-2222-222222222222", "44444444-4444-4444-4444-444444444444");
-
-        AzureCloudShellSetup.ParseResult(terminal)!.AccessAppClientId
-            .Should().Be("22222222-2222-2222-2222-222222222222");
+        string terminal = "echo script\n" + AzureCloudShellSetup.AccessBeginMarker + "\nnoise\n" + AzureCloudShellSetup.AccessEndMarker
+            + "\n...\n" + AccessBlock();
+        AzureCloudShellSetup.ParseAccessResult(terminal)!.AccessAppClientId.Should().Be(AccessId);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("no markers here")]
-    public void ParseResult_NoBlock_ReturnsNull(string? pasted) =>
-        AzureCloudShellSetup.ParseResult(pasted).Should().BeNull();
+    [InlineData("no markers")]
+    public void ParseAccessResult_NoBlock_ReturnsNull(string? pasted) =>
+        AzureCloudShellSetup.ParseAccessResult(pasted).Should().BeNull();
 
     [Fact]
-    public void ParseResult_NonGuidId_ReturnsNull() =>
-        AzureCloudShellSetup.ParseResult(Block(
-            "not-a-guid", "33333333-3333-3333-3333-333333333333",
-            "22222222-2222-2222-2222-222222222222", "44444444-4444-4444-4444-444444444444"))
-            .Should().BeNull();
+    public void ParseAccessResult_NonGuid_ReturnsNull() =>
+        AzureCloudShellSetup.ParseAccessResult(AccessBlock(tenant: "not-a-guid")).Should().BeNull();
 
     [Fact]
-    public void GenerateScript_ThenParseResult_RoundTripsTheMarkerContract()
+    public void AccessScript_PrintsTheKeys_ParseAccessResultReads()
     {
-        // The script's printf uses the same keys ParseResult reads — guard against them drifting apart.
-        string script = AzureCloudShellSetup.GenerateScript(Input());
-        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=", "signInAppClientId=", "consentGranted=", "consentUrl=" })
-            script.Should().Contain(key);
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=" })
+            s.Should().Contain(key);
+    }
+
+    // ---- Per-user permissions step ----
+
+    private static AzurePermissionsSetupInput PermissionsInput() =>
+        new(AccessId, "https://connapse.example.com/api/v1/auth/cloud/azure/callback", "Connapse-Azure-SignIn", Cert);
+
+    [Fact]
+    public void PermissionsScript_ContainsSignInAppGraphPermsConsentAndMarkers()
+    {
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput());
+
+        s.Should().Contain(AzureCloudShellSetup.PermissionsBeginMarker).And.Contain(AzureCloudShellSetup.PermissionsEndMarker);
+        s.Should().Contain($"ACCESS_APP_ID='{AccessId}'");
+        s.Should().Contain("--web-redirect-uris \"$REDIRECT_URI\"");
+        s.Should().Contain("https://connapse.example.com/api/v1/auth/cloud/azure/callback");
+        s.Should().Contain("User.Read.All").And.Contain("GroupMember.Read.All");
+        s.Should().Contain("az ad app permission admin-consent");
+        s.Should().Contain("/adminconsent?client_id=");
+        s.Should().Contain("MIIBfakefakefake");
+        s.Should().NotContain("PRIVATE KEY");
+        s.Should().NotContain("az role definition create"); // roles belong to the Access step
+    }
+
+    private static string PermissionsBlock(string signIn = SignInId, string consent = "true") =>
+        $"{AzureCloudShellSetup.PermissionsBeginMarker}\nsignInAppClientId={signIn}\nconsentGranted={consent}\n"
+        + $"consentUrl=https://login.microsoftonline.com/{Tenant}/adminconsent?client_id={AccessId}\n{AzureCloudShellSetup.PermissionsEndMarker}";
+
+    [Fact]
+    public void ParsePermissionsResult_ConsentGranted_ReturnsIdAndTrue()
+    {
+        AzurePermissionsResult? r = AzureCloudShellSetup.ParsePermissionsResult(PermissionsBlock());
+        r.Should().NotBeNull();
+        r!.SignInAppClientId.Should().Be(SignInId);
+        r.ConsentGranted.Should().BeTrue();
+        r.ConsentUrl.Should().Contain("adminconsent");
+    }
+
+    [Fact]
+    public void ParsePermissionsResult_ConsentPending_ReturnsFalseAndUrl()
+    {
+        AzurePermissionsResult? r = AzureCloudShellSetup.ParsePermissionsResult(PermissionsBlock(consent: "false"));
+        r!.ConsentGranted.Should().BeFalse();
+        r.ConsentUrl.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void ParsePermissionsResult_NonGuid_ReturnsNull() =>
+        AzureCloudShellSetup.ParsePermissionsResult(PermissionsBlock(signIn: "bad")).Should().BeNull();
+
+    [Fact]
+    public void ParsePermissionsResult_DoesNotReadTheAccessBlock() =>
+        AzureCloudShellSetup.ParsePermissionsResult(AccessBlock()).Should().BeNull();
+
+    [Fact]
+    public void PermissionsScript_PrintsTheKeys_ParsePermissionsResultReads()
+    {
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput());
+        foreach (string key in new[] { "signInAppClientId=", "consentGranted=", "consentUrl=" })
+            s.Should().Contain(key);
     }
 }
