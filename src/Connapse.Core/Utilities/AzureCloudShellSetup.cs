@@ -183,13 +183,19 @@ public static class AzureCloudShellSetup
         CONNAPSE_CERT_EOF
 
         # --- Least-privilege custom roles: created, or updated in place so re-runs upgrade them ---
-        upsert_role() {  # $1 role name, $2 definition JSON (without id)
-          local id
-          id=$(az role definition list --name "$1" --query '[0].id' -o tsv 2>/dev/null)
-          if [ -z "$id" ]; then
+        upsert_role() {  # $1 role name, $2 definition JSON in the shape `az role definition create` takes
+          local existing
+          existing=$(az role definition list --name "$1" --custom-role-only true -o json 2>/dev/null | jq -c '.[0] // empty')
+          if [ -z "$existing" ]; then
             az role definition create --role-definition "$2" >/dev/null
           else
-            az role definition update --role-definition "$(echo "$2" | jq --arg id "$id" '. + {id: $id}')" >/dev/null
+            # `update` wants the shape `list` returns (roleName, permissions[], id), so patch the
+            # existing definition rather than resending the create-shaped one.
+            az role definition update --role-definition "$(jq -n --argjson e "$existing" --argjson d "$2" '
+              $e | .description = $d.Description
+                 | .permissions = [{actions: $d.Actions, notActions: $d.NotActions,
+                                    dataActions: $d.DataActions, notDataActions: $d.NotDataActions}]
+                 | .assignableScopes = $d.AssignableScopes')" >/dev/null
           fi
         }
         # Data-plane blob reads, plus listing containers (a control-plane action even over the

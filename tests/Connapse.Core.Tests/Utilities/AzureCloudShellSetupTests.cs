@@ -42,7 +42,10 @@ public class AzureCloudShellSetupTests
         s.Should().Contain("\\\"Actions\\\": [\\\"Microsoft.Storage/storageAccounts/blobServices/containers/read\\\"]");
         s.Should().Contain("\\\"Microsoft.Storage/storageAccounts/read\\\"");
         s.Should().NotContain("listKeys");
-        s.Should().Contain("az role definition update");
+        // `update` takes the `list` shape (roleName/permissions), not the create shape — the existing
+        // definition is patched. Resending the create shape fails with KeyError: 'roleName'.
+        s.Should().Contain("az role definition update --role-definition \"$(jq -n --argjson e \"$existing\" --argjson d \"$2\"");
+        s.Should().Contain(".permissions = [{actions: $d.Actions");
     }
 
     [Fact]
