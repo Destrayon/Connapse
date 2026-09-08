@@ -62,7 +62,7 @@ public sealed class AzureOidcTokenExchanger(
     // asserting the client's own identity, signed with the certificate configured for Entra
     // rather than a shared secret. iss/sub are both the client id per the spec; aud is the
     // token endpoint being called.
-    private static string BuildClientAssertion(AzureAdSignInSettings settings, string tokenEndpoint)
+    internal static string BuildClientAssertion(AzureAdSignInSettings settings, string tokenEndpoint)
     {
         X509Certificate2 cert = LoadCertificate(settings)
             ?? throw new InvalidOperationException(
@@ -85,12 +85,8 @@ public sealed class AzureOidcTokenExchanger(
                 ["jti"] = Guid.NewGuid().ToString(),
             },
             // Entra identifies the signing cert by the base64url SHA-1 thumbprint in the `x5t`
-            // header, not by `kid` — set it explicitly rather than relying on default header
-            // population.
-            AdditionalHeaderClaims = new Dictionary<string, object>
-            {
-                ["x5t"] = Base64UrlEncoder.Encode(cert.GetCertHash()),
-            },
+            // header. JsonWebTokenHandler writes `x5t` (and `kid`) itself from X509SigningCredentials
+            // and rejects them in AdditionalHeaderClaims (IDX14116), so nothing is added here.
         };
 
         return Handler.CreateToken(descriptor);
