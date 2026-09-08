@@ -1123,11 +1123,7 @@
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
 
-                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="GenerateAzureAccessScript">
-                            <span class="bi-arrow-repeat me-1" aria-hidden="true"></span>
-                            @(azureAccessScript is null ? "Generate setup command" : "Regenerate (new certificate)")
-                        </button>
-
+                        @{ EnsureAzureAccessScript(); }
                         @if (azureAccessScript is { Length: > 0 } accessScript)
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
@@ -1146,6 +1142,9 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="GenerateAzureAccessScript">
+                                    <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
+                                </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
                             </div>
 
@@ -1266,18 +1265,14 @@
                         <div class="mb-3" style="max-width:44rem">
                             <label class="form-label small mb-1" for="az-perm-redirect">Sign-in redirect URI</label>
                             <input id="az-perm-redirect" class="form-control form-control-sm font-monospace"
-                                   @bind="easyRedirectUri" aria-describedby="az-perm-redirect-help" />
+                                   @bind="easyRedirectUri" @bind:after="RefreshAzurePermissionsScript"
+                                   aria-describedby="az-perm-redirect-help" />
                             <div id="az-perm-redirect-help" class="form-text">
                                 Registered on the sign-in app. Auto-filled from the address you reached Connapse on.
                             </div>
                         </div>
 
-                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" @onclick="GenerateAzurePermissionsScript"
-                                disabled="@string.IsNullOrWhiteSpace(easyRedirectUri)">
-                            <span class="bi-arrow-repeat me-1" aria-hidden="true"></span>
-                            @(azurePermissionsScript is null ? "Generate setup command" : "Regenerate (new certificate)")
-                        </button>
-
+                        EnsureAzurePermissionsScript();
                         @if (azurePermissionsScript is { Length: > 0 } permissionsScript)
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
@@ -1296,6 +1291,9 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="GenerateAzurePermissionsScript">
+                                    <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
+                                </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
                             </div>
 
@@ -2215,13 +2213,36 @@
     private void GenerateAzurePermissionsScript()
     {
         azureSignInCert = AzureCertificateGenerator.Generate("connapse-azure-signin");
+        BuildAzurePermissionsScript();
+        azurePermissionsPasted = null;
+        copyMessage = null;
+    }
+
+    /// <summary>Re-renders the Permissions script for the current redirect URI, keeping the certificate.</summary>
+    private void BuildAzurePermissionsScript()
+    {
         azurePermissionsScript = AzureCloudShellSetup.GeneratePermissionsScript(new AzurePermissionsSetupInput(
             AccessAppClientId: azureProviderSettings.ClientId ?? string.Empty,
             RedirectUri: easyRedirectUri.Trim(),
             SignInAppName: "Connapse-Azure-SignIn",
-            PublicCertificatePem: azureSignInCert.PublicCertificatePem));
-        azurePermissionsPasted = null;
-        copyMessage = null;
+            PublicCertificatePem: azureSignInCert!.PublicCertificatePem));
+    }
+
+    private void RefreshAzurePermissionsScript()
+    {
+        if (azureSignInCert is not null) BuildAzurePermissionsScript();
+    }
+
+    // The scripts embed a certificate Connapse mints here, so each is produced the moment its guide
+    // renders rather than behind a button. Nothing touches disk until Save.
+    private void EnsureAzureAccessScript()
+    {
+        if (azureAccessScript is null) GenerateAzureAccessScript();
+    }
+
+    private void EnsureAzurePermissionsScript()
+    {
+        if (azurePermissionsScript is null) GenerateAzurePermissionsScript();
     }
 
     private async Task CopyText(string text)
