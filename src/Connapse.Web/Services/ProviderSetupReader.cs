@@ -56,6 +56,9 @@ public class ProviderSetupReader(
     {
         var providers = await InUseProvidersAsync(ct);
 
+        var azureAccess = AzureAccess(azureProvider.CurrentValue);
+        var azurePermissions = AzurePerUserPermissions(azureAd.CurrentValue, azureProvider.CurrentValue);
+
         return
         [
             new ProviderSetup("aws", "AWS",
@@ -64,14 +67,15 @@ public class ProviderSetupReader(
                     IdentityCentre(identityCenter.CurrentValue),
                     PerUserPermissions(samlSignIn.CurrentValue)
                 ],
-                InUse: providers.Contains(ConnectionProvider.S3)),
+                InUse: providers.Contains(ConnectionProvider.S3) || samlSignIn.CurrentValue.IsConfigured),
 
+            // Azure access is settings-only (no ambient credential can make it read as configured),
+            // so a saved Access step is as deliberate a choice as sign-in or a connection.
             new ProviderSetup("azure", "Azure",
-                [
-                    AzureAccess(azureProvider.CurrentValue),
-                    AzurePerUserPermissions(azureAd.CurrentValue, azureProvider.CurrentValue)
-                ],
-                InUse: providers.Contains(ConnectionProvider.AzureBlob))
+                [azureAccess, azurePermissions],
+                InUse: providers.Contains(ConnectionProvider.AzureBlob)
+                    || azureAd.CurrentValue.IsConfigured
+                    || azureAccess.Status != RequirementStatus.NotConfigured)
         ];
     }
 

@@ -620,6 +620,36 @@ public class ProviderSetupReaderTests
 
         azure.InUse.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Azure_WithAccessSavedButNoConnection_IsInUse_SoTheListShowsItsState()
+    {
+        // Saving the Access step is an explicit choice (Azure access is settings-only, nothing ambient
+        // can make it read as configured), so the list must show status rather than an offer.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider()));
+
+        azure.InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Aws_WithSignInConfiguredButNoConnection_IsInUse()
+    {
+        // The documented rule: sign-in configured, or a connection built on it.
+        var setups = await Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn()).ReadAsync();
+
+        setups.Single(p => p.Key == "aws").InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Azure_WithSignInConfiguredButNoConnection_IsInUse()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureAd: ConfiguredAzureAd()));
+
+        azure.InUse.Should().BeTrue();
+    }
 }
 
 internal static class OptionsMonitorExtensions
