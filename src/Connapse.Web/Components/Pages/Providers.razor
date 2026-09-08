@@ -1190,6 +1190,13 @@
                 </EasyContent>
                 <Actions>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    @if (azureProviderSettings.TenantId is { Length: > 0 })
+                    {
+                        <ProviderResetAction Label="Reset access"
+                                             ConfirmLabel="Confirm access reset"
+                                             HelpText="Clears the tenant, subscription, and app identity and discards the stored certificate. Azure connections stop working until access is set up again."
+                                             OnReset="ClearAzureAccess" />
+                    }
                 </Actions>
             </ProviderStepCard>
 
@@ -1339,6 +1346,13 @@
                 </EasyContent>
                 <Actions>
                     <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    @if (azureAdSettings.ClientId is { Length: > 0 })
+                    {
+                        <ProviderResetAction Label="Reset sign-in application"
+                                             ConfirmLabel="Confirm sign-in reset"
+                                             HelpText="Per-user filtering stays on, so Azure searches return nothing for anyone until the application is set up again."
+                                             OnReset="ClearAzureSignIn" />
+                    }
                 </Actions>
             </ProviderStepCard>
         }
@@ -2252,6 +2266,41 @@
     /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
     /// app's reply URL by the Permissions script.</summary>
     private string AzureConsentLandingUri => Navigation.BaseUri.TrimEnd('/') + "/admin/providers/azure";
+
+    /// <summary>Clears the access identity and discards its stored certificate, so the next setup mints
+    /// a fresh key instead of re-offering one an old app registration may still hold.</summary>
+    private async Task ClearAzureAccess()
+    {
+        await SaveAzureProviderFromForm(new AzureProviderSettings());
+        if (!saveSuccess) return;
+
+        DeleteAzureCertificate(AzureAccessCertFile);
+        azureAccessScript = null;
+        azureAccessCert = null;
+        azureAccessPasted = null;
+    }
+
+    private async Task ClearAzureSignIn()
+    {
+        // Enforcement is deliberately left on (the Azure latch never releases). With sign-in
+        // incomplete the verifier denies, so Azure searches return nothing for everyone until the
+        // application is set up again, rather than silently widening to the whole corpus.
+        await SaveAzureAdFromForm(new AzureAdSignInSettings());
+        if (!saveSuccess) return;
+
+        DeleteAzureCertificate(AzureSignInCertFile);
+        azurePermissionsScript = null;
+        azureSignInCert = null;
+        azurePermissionsPasted = null;
+        azureConsentPending = false;
+        azureConsentUrl = null;
+    }
+
+    private void DeleteAzureCertificate(string fileName)
+    {
+        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+        if (File.Exists(path)) File.Delete(path);
+    }
 
     private void RefreshAzurePermissionsScript()
     {
