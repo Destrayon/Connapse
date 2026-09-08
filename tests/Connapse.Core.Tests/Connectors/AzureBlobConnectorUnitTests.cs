@@ -14,6 +14,19 @@ public class AzureBlobConnectorUnitTests
         new(new AzureBlobConnectorConfig { AccountName = "acct", ContainerName = "docs", Prefix = "reports/" },
             new BlobServiceClient(new Uri("http://127.0.0.1:10000/devstoreaccount1")));
 
+    [Theory]
+    [InlineData("reports/", null, true)]                 // flat-namespace folder marker
+    [InlineData("reports/q1", "true", true)]             // Gen2 directory placeholder
+    [InlineData("reports/q1", "True", true)]
+    [InlineData("reports/q1.pdf", "false", false)]
+    [InlineData("reports/q1.pdf", null, false)]
+    [InlineData("README", null, false)]                  // an extension-less real file is still a file
+    public void IsDirectoryPlaceholder_FoldersAreNotFiles(string name, string? hdiIsFolder, bool expected)
+    {
+        var metadata = hdiIsFolder is null ? null : new Dictionary<string, string> { ["hdi_isfolder"] = hdiIsFolder };
+        AzureBlobConnector.IsDirectoryPlaceholder(name, metadata).Should().Be(expected);
+    }
+
     [Fact] public void Type_IsAzureBlob() => Make().Type.Should().Be(ConnectorType.AzureBlob);
     [Fact] public void SupportsLiveWatch_False() => Make().SupportsLiveWatch.Should().BeFalse();
 
