@@ -16,6 +16,8 @@
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
+@inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
+@inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
 @inject IRolesAnywhereSetupValidator RaValidator
@@ -152,8 +154,9 @@
         }
 
         @* AWS renders status and setup together below. Repeating these cards above those sections
-           made the page read like two separate checklists for the same work. *@
-        @if (Key != "aws")
+           made the page read like two separate checklists for the same work. Azure does the same
+           (its setup cards below), so it is excluded here too. *@
+        @if (Key != "aws" && Key != "azure")
         {
         @* Requirements first: someone arriving here is asking what is left to do, and answering
            that before showing forms is the reason this page exists. *@
@@ -1063,6 +1066,46 @@
                 </Actions>
             </ProviderStepCard>
         }
+        else if (Key == "azure")
+        {
+            <p class="text-muted">
+                Two steps: the Azure app identity Connapse reads Blob storage and permissions with,
+                and the Entra application people sign in through. Both are stored in Connapse's
+                settings — no client secrets; Connapse authenticates with a certificate or a managed
+                identity.
+            </p>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="@IconClass(AccessStatus)" aria-hidden="true"></span>
+                        <strong>Access</strong>
+                        <span class="badge @BadgeClass(AccessStatus)">@RequirementLabel(AccessStatus)</span>
+                    </div>
+                    <div class="form-text mb-3">
+                        The Azure app identity Connapse reads Blob storage with, and queries Entra and
+                        Azure Resource Manager (role and deny assignments) through.
+                    </div>
+                    <AzureProviderSettingsTab Settings="azureProviderSettings" OnSave="SaveAzureProviderFromForm" />
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="@IconClass(PermissionsStatus)" aria-hidden="true"></span>
+                        <strong>Per-user permissions</strong>
+                        <span class="badge @BadgeClass(PermissionsStatus)">@RequirementLabel(PermissionsStatus)</span>
+                    </div>
+                    <div class="form-text mb-3">
+                        The Entra application people sign in through, so their Azure results are scoped
+                        to what that identity may read. Needs the subscription above for the RBAC
+                        resolver.
+                    </div>
+                    <AzureAdSignInSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdFromForm" />
+                </div>
+            </div>
+        }
 
     }
 </div>
@@ -1077,6 +1120,10 @@
 
     private SamlSignInSettings samlSettings = new();
     private bool showSamlManual;
+
+    /// <summary>Backs the Azure setup forms — loaded from the effective settings, saved back per section.</summary>
+    private AzureProviderSettings azureProviderSettings = new();
+    private AzureAdSignInSettings azureAdSettings = new();
 
     private string? grantsCopyMessage;
     private bool grantsCopySucceeded;
@@ -1242,6 +1289,8 @@
         // table, which overrides appsettings.json, and reloads without a restart.
         samlSettings = SamlOptions.CurrentValue;
         identityCenterSettings = IdentityCenterOptions.CurrentValue;
+        azureProviderSettings = AzureProviderOptions.CurrentValue;
+        azureAdSettings = AzureAdOptions.CurrentValue;
     }
 
     /// <summary>
@@ -1780,6 +1829,7 @@
     private static string Offer(ProviderSetup provider) => provider.Key switch
     {
         "aws" => "Read files from S3.",
+        "azure" => "Read files from Azure Blob Storage.",
         _ => $"Set up {provider.DisplayName}."
     };
 
@@ -1850,6 +1900,42 @@
         // form back the previous values and make a save look as though it had not taken. Guarded on
         // success so a failed save leaves the form showing what is actually stored.
         if (saveSuccess) samlSettings = settings;
+
+        await RefreshSetups();
+    }
+
+    /// <summary>Stores the Azure access app credential (Providers:Azure) and re-checks status.</summary>
+    private async Task SaveAzureProviderFromForm(AzureProviderSettings settings)
+    {
+        await SaveSettings("azure", settings);
+
+        if (saveSuccess)
+        {
+            // What was posted, not a re-read: the options reload behind SaveSettings may not have
+            // landed yet, so a stale read would hand the form back the previous values.
+            azureProviderSettings = settings;
+            await AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
+                new
+                {
+                    HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
+                    HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
+                });
+        }
+
+        await RefreshSetups();
+    }
+
+    /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status.</summary>
+    private async Task SaveAzureAdFromForm(AzureAdSignInSettings settings)
+    {
+        await SaveSettings("azuread", settings);
+
+        if (saveSuccess)
+        {
+            azureAdSettings = settings;
+            await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
+                new { Configured = settings.IsConfigured });
+        }
 
         await RefreshSetups();
     }
@@ -1933,6 +2019,8 @@
     private static string SettingsName(string category) => category switch
     {
         "samlsignin" => "AWS sign-in",
+        "azure" => "Azure access",
+        "azuread" => "Azure sign-in",
         _ => category
     };
 }

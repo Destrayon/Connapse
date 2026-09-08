@@ -1,0 +1,115 @@
+@using Connapse.Core
+@using Connapse.Web.Components.Shared
+
+@*
+    Connapse's own Azure app identity — what it reads Blob storage with, and queries Entra and Azure
+    Resource Manager (role/deny assignments) through. A certificate-based app registration or a
+    managed identity; never a client secret. Stored under the Providers:Azure settings.
+*@
+
+<div class="row g-3" style="max-width:44rem">
+    <div class="col-12">
+        <label class="form-label" for="az-tenant">Directory (tenant) ID</label>
+        <input id="az-tenant" class="form-control font-monospace" @bind="tenantId"
+               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="az-tenant-help" />
+        <div id="az-tenant-help" class="form-text">The Entra tenant the app registration lives in.</div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="az-sub">Subscription ID</label>
+        <input id="az-sub" class="form-control font-monospace" @bind="subscriptionId"
+               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="az-sub-help" />
+        <div id="az-sub-help" class="form-text">
+            The subscription whose role and deny assignments per-user filtering reads. Required for
+            Azure permission filtering — without it, Azure searches fail closed.
+        </div>
+    </div>
+
+    <div class="col-12">
+        <hr class="my-1" />
+        <div class="small text-uppercase text-muted">App registration (certificate)</div>
+        <div class="form-text mt-0">Leave these blank to use the host's ambient managed identity instead.</div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="az-client">Application (client) ID</label>
+        <input id="az-client" class="form-control font-monospace" @bind="clientId"
+               placeholder="00000000-0000-0000-0000-000000000000" />
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="az-cert">Client certificate path</label>
+        <input id="az-cert" class="form-control font-monospace" @bind="certPath"
+               placeholder="/certs/azure.pem" aria-describedby="az-cert-help" />
+        <div id="az-cert-help" class="form-text">
+            Path on the Connapse host to the PEM or PFX the app registration trusts. Connapse reads
+            it; it is never uploaded here.
+        </div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="az-cert-pw">
+            Certificate password <span class="text-muted">(PFX only)</span>
+        </label>
+        <SecretTextArea Id="az-cert-pw" Multiline="false" @bind-Value="certPassword"
+                        Placeholder="Leave blank for a PEM certificate" DescribedBy="az-cert-pw-help" />
+        <div id="az-cert-pw-help" class="form-text">Only for a password-protected PFX. Stored encrypted.</div>
+    </div>
+
+    <div class="col-12">
+        <hr class="my-1" />
+        <div class="small text-uppercase text-muted">Or a managed identity</div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="az-mi">
+            User-assigned managed identity client ID <span class="text-muted">(optional)</span>
+        </label>
+        <input id="az-mi" class="form-control font-monospace" @bind="miClientId"
+               placeholder="Leave blank to use the certificate above, or the ambient identity"
+               aria-describedby="az-mi-help" />
+        <div id="az-mi-help" class="form-text">
+            On Azure, leave the certificate blank and Connapse uses the host's managed identity; set
+            this to pick a specific user-assigned one.
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mt-3">
+    <button type="button" class="btn btn-primary" @onclick="HandleSubmit">Save</button>
+    <button type="button" class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
+</div>
+
+@code {
+    [Parameter] public AzureProviderSettings Settings { get; set; } = new();
+    [Parameter] public EventCallback<AzureProviderSettings> OnSave { get; set; }
+
+    // Local strings rather than binding the record directly: AzureProviderSettings is init-only, so
+    // it cannot be @bound; the record is rebuilt on save.
+    private string? tenantId, clientId, subscriptionId, certPath, certPassword, miClientId;
+
+    protected override void OnParametersSet()
+    {
+        tenantId = Settings.TenantId;
+        clientId = Settings.ClientId;
+        subscriptionId = Settings.SubscriptionId;
+        certPath = Settings.ClientCertificatePath;
+        certPassword = Settings.ClientCertificatePassword;
+        miClientId = Settings.UserAssignedManagedIdentityClientId;
+    }
+
+    private Task HandleSubmit() =>
+        OnSave.InvokeAsync(new AzureProviderSettings
+        {
+            TenantId = Trim(tenantId),
+            ClientId = Trim(clientId),
+            SubscriptionId = Trim(subscriptionId),
+            ClientCertificatePath = Trim(certPath),
+            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? null : certPassword,
+            UserAssignedManagedIdentityClientId = Trim(miClientId),
+        });
+
+    private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private void Reset() => OnParametersSet();
+}
