@@ -414,9 +414,8 @@ public static class CloudIdentityEndpoints
 
             if (cloudProvider == CloudProvider.Azure)
             {
-                // Azure links hold no cloud-scoped search permissions yet — the scope cache only
-                // ever gets populated for S3 sources today, so there is nothing Azure-shaped to
-                // invalidate here. Wiring that up is Phase 4's job (#478 covers only the link).
+                // Azure permissions are resolved live per search hit rather than cached against
+                // the link, so removing the link is the whole revocation.
                 bool azureDeleted = await azureLinks.DisconnectAsync(userId.Value, ct);
                 return azureDeleted ? Results.NoContent() : Results.NotFound();
             }

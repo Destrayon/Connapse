@@ -1,4 +1,6 @@
 using Azure;
+using Azure.Core;
+using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Resources;
 using Azure.ResourceManager.Storage;
@@ -21,6 +23,51 @@ public sealed class AzureBlobDiscovery(
     ILogger<AzureBlobDiscovery> logger) : IAzureBlobDiscovery
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>The audience a token is requested for. Azure Resource Manager issues one to any
+    /// identity in the tenant, so the check tests the credential and nothing else.</summary>
+    private const string ArmScope = "https://management.azure.com/.default";
+
+    public async Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default)
+    {
+        AzureProviderSettings settings = options.CurrentValue;
+        if (!IsConfigured(settings))
+            return AzureProbe<string>.NotConfigured(
+                "No Azure identity is set up — configure it on the Azure provider page.");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(Timeout);
+
+        try
+        {
+            await credentials.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
+
+            string verified = string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+                ? $"Entra accepted the certificate for app {settings.ClientId} in tenant {settings.TenantId}."
+                : $"Azure issued a token for managed identity {settings.UserAssignedManagedIdentityClientId}.";
+            return AzureProbe<string>.Ok(verified);
+        }
+        catch (AuthenticationFailedException ex) when (IsCredentialRefusal(ex))
+        {
+            // Entra answered and said no: the certificate is not registered on the app, has
+            // expired, or the app or tenant no longer exists. Only a new setup fixes it.
+            logger.LogWarning("Entra refused Connapse's Azure credential: {Reason}", ex.Message);
+            return AzureProbe<string>.Denied(ex.Message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Network faults, an unreadable certificate file, a partially configured identity, or
+            // no managed identity on this host: the check could not be completed either way.
+            logger.LogWarning(ex, "Checking Connapse's Azure identity failed");
+            return AzureProbe<string>.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>Whether Entra itself rejected the credential, as opposed to the request not
+    /// reaching it. Entra's rejections carry an <c>AADSTS</c> code; transport failures do not.</summary>
+    internal static bool IsCredentialRefusal(AuthenticationFailedException ex) =>
+        ex is not CredentialUnavailableException
+        && ex.Message.Contains("AADSTS", StringComparison.Ordinal);
 
     public async Task<AzureProbe<IReadOnlyList<AzureStorageAccountInfo>>> ListStorageAccountsAsync(
         CancellationToken ct = default)

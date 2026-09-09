@@ -57,6 +57,19 @@ public enum AzureProbeOutcome
 public interface IAzureBlobDiscovery
 {
     /// <summary>
+    /// Asks Entra for a token as Connapse's own identity, proving the credential is accepted:
+    /// the certificate is registered on the app and not expired, or the managed identity exists.
+    /// </summary>
+    /// <remarks>
+    /// Authentication only — a token is issued whether or not any role is assigned, so a pass
+    /// says "Entra accepts this identity", not "it can read a container". The value is a sentence
+    /// saying what was verified. <see cref="AzureProbeOutcome.Denied"/> means Entra refused the
+    /// credential itself (an <c>AADSTS</c> error), which only setting access up again can fix;
+    /// <see cref="AzureProbeOutcome.Failed"/> means the check could not complete.
+    /// </remarks>
+    Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Every storage account in the configured subscription the identity may read metadata for.
     /// </summary>
     /// <remarks>Needs <c>Microsoft.Storage/storageAccounts/read</c> at subscription scope. A denial

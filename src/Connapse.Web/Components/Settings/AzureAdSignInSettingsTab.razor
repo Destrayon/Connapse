@@ -11,46 +11,80 @@
     <div class="col-12">
         <label class="form-label" for="azad-tenant">Directory (tenant) ID</label>
         <input id="azad-tenant" class="form-control font-monospace" @bind="tenantId"
-               placeholder="00000000-0000-0000-0000-000000000000" />
+               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="azad-tenant-help"
+               aria-invalid="@(problemField == "azad-tenant" ? "true" : null)" />
+        <div id="azad-tenant-help" class="form-text">
+            @if (DefaultTenantId is { Length: > 0 })
+            {
+                <text>Filled in from the Access step; change it only if the sign-in app lives in another tenant.</text>
+            }
+            else
+            {
+                <text>
+                    The Entra tenant the sign-in app is registered in. Shown on the
+                    <a href="https://entra.microsoft.com/#view/Microsoft_AAD_IAM/TenantOverview.ReactView" target="_blank" rel="noopener">tenant overview</a>
+                    in the Microsoft Entra admin center.
+                </text>
+            }
+        </div>
     </div>
 
     <div class="col-12">
         <label class="form-label" for="azad-client">Application (client) ID</label>
         <input id="azad-client" class="form-control font-monospace" @bind="clientId"
-               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="azad-client-help" />
+               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="azad-client-help"
+               aria-invalid="@(problemField == "azad-client" ? "true" : null)" />
         <div id="azad-client-help" class="form-text">
-            The Entra app registration people sign in through — separate from the access app above.
+            The app registration people sign in through — separate from the access app above. On its
+            Overview page under
+            <a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" rel="noopener">App registrations</a>.
         </div>
     </div>
 
     <div class="col-12">
         <label class="form-label" for="azad-redirect">Redirect URI</label>
         <input id="azad-redirect" class="form-control font-monospace" @bind="redirectUri"
-               placeholder="https://connapse.example.com/api/v1/auth/cloud/azure/cb"
-               aria-describedby="azad-redirect-help" />
+               placeholder="@(DefaultRedirectUri ?? "https://connapse.example.com/api/v1/auth/cloud/azure/callback")"
+               aria-describedby="azad-redirect-help"
+               aria-invalid="@(problemField == "azad-redirect" ? "true" : null)" />
         <div id="azad-redirect-help" class="form-text">
-            Registered on the app registration as a redirect URI. Change Connapse's address and this
-            must be updated in Entra too, or sign-in stops with a redirect mismatch.
+            Where Entra sends people back after they sign in: Connapse's address plus
+            <code>/api/v1/auth/cloud/azure/callback</code>. Add the same value under the app's
+            <strong>Authentication</strong> page as a Web redirect URI; if Connapse's address changes,
+            update it in both places or sign-in stops with a redirect mismatch.
         </div>
     </div>
 
     <div class="col-12">
         <label class="form-label" for="azad-cert">Client certificate path</label>
         <input id="azad-cert" class="form-control font-monospace" @bind="certPath"
-               placeholder="/certs/azure-signin.pem" aria-describedby="azad-cert-help" />
+               placeholder="/certs/azure-signin.pem" aria-describedby="azad-cert-help"
+               aria-invalid="@(problemField == "azad-cert" ? "true" : null)" />
         <div id="azad-cert-help" class="form-text">
-            Path on the Connapse host to the PEM or PFX registered on the sign-in app registration.
+            Path on the Connapse host to the PEM (certificate plus private key) or PFX whose public
+            certificate is uploaded under the sign-in app's <strong>Certificates &amp; secrets</strong>.
         </div>
     </div>
 
     <div class="col-12">
         <label class="form-label" for="azad-cert-pw">
-            Certificate password <span class="text-muted">(PFX only)</span>
+            Certificate password <span class="text-muted">(optional — PFX only)</span>
         </label>
         <SecretTextArea Id="azad-cert-pw" Multiline="false" @bind-Value="certPassword"
-                        Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")" />
+                        Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")"
+                        DescribedBy="azad-cert-pw-help" />
+        <div id="azad-cert-pw-help" class="form-text">
+            Only for a password-protected PFX. The stored value is never shown here; leave it blank to keep it.
+        </div>
     </div>
 </div>
+
+@if (problem is not null)
+{
+    <div class="alert alert-danger py-2 mt-3 mb-0 small" role="alert">
+        <span class="bi-x-circle me-1" aria-hidden="true"></span>@problem
+    </div>
+}
 
 <div class="d-flex gap-2 mt-3">
     <button type="button" class="btn btn-primary" @onclick="HandleSubmit">Save</button>
@@ -61,21 +95,51 @@
     [Parameter] public AzureAdSignInSettings Settings { get; set; } = new();
     [Parameter] public EventCallback<AzureAdSignInSettings> OnSave { get; set; }
 
+    /// <summary>The tenant the Access step recorded, used when nothing is stored here yet.</summary>
+    [Parameter] public string? DefaultTenantId { get; set; }
+
+    /// <summary>Connapse's own callback at the address this page was reached on, used when nothing is stored here yet.</summary>
+    [Parameter] public string? DefaultRedirectUri { get; set; }
+
     // Local strings: AzureAdSignInSettings is an init-only record, rebuilt on save.
     private string? tenantId, clientId, redirectUri, certPath, certPassword;
 
+    /// <summary>The first thing stopping a save, and the id of the field it is about; null until Save is tried.</summary>
+    private string? problem, problemField;
+
     protected override void OnParametersSet()
     {
-        tenantId = Settings.TenantId;
+        tenantId = Settings.TenantId ?? DefaultTenantId;
         clientId = Settings.ClientId;
-        redirectUri = Settings.RedirectUri;
+        redirectUri = Settings.RedirectUri ?? DefaultRedirectUri;
         certPath = Settings.ClientCertificatePath;
         // The stored password is never rehydrated into the browser; blank on save keeps it.
         certPassword = null;
     }
 
-    private Task HandleSubmit() =>
-        OnSave.InvokeAsync(new AzureAdSignInSettings
+    private (string Message, string Field)? Validate()
+    {
+        if (string.IsNullOrWhiteSpace(tenantId))
+            return ("Enter the Directory (tenant) ID.", "azad-tenant");
+        if (string.IsNullOrWhiteSpace(clientId))
+            return ("Enter the Application (client) ID.", "azad-client");
+        if (!Uri.TryCreate(redirectUri?.Trim(), UriKind.Absolute, out Uri? uri) || uri.Scheme is not ("https" or "http"))
+            return ("Enter the redirect URI as a full address, starting with https://.", "azad-redirect");
+        if (string.IsNullOrWhiteSpace(certPath))
+            return ("Enter the path to the client certificate on the Connapse host.", "azad-cert");
+        return null;
+    }
+
+    private Task HandleSubmit()
+    {
+        if (Validate() is { } failed)
+        {
+            (problem, problemField) = failed;
+            return Task.CompletedTask;
+        }
+
+        problem = problemField = null;
+        return OnSave.InvokeAsync(new AzureAdSignInSettings
         {
             TenantId = Trim(tenantId),
             ClientId = Trim(clientId),
@@ -84,8 +148,13 @@
             ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
             AdminConsentPending = Settings.AdminConsentPending,
         });
+    }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private void Reset() => OnParametersSet();
+    private void Reset()
+    {
+        OnParametersSet();
+        problem = problemField = null;
+    }
 }

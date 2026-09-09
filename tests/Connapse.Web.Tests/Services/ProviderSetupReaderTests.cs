@@ -41,11 +41,18 @@ public class ProviderSetupReaderTests
         IdentityCenterSettings? identityCenter = null,
         AzureProviderSettings? azureProvider = null,
         AzureAdSignInSettings? azureAd = null,
-        IConnectionStore? connections = null)
+        IConnectionStore? connections = null,
+        AzureProbe<string>? azureAccess = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
         discovery.ListBucketsAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(buckets);
+
+        // Defaults to Entra accepting the credential, so a test about anything else is not also
+        // silently a test about the live check.
+        var azureDiscovery = Substitute.For<IAzureBlobDiscovery>();
+        azureDiscovery.CheckAccessAsync(Arg.Any<CancellationToken>())
+            .Returns(azureAccess ?? AzureProbe<string>.Ok("Entra accepted the certificate."));
 
         if (credentials is null)
         {
@@ -67,7 +74,7 @@ public class ProviderSetupReaderTests
             Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
             Options.Create(azureProvider ?? new AzureProviderSettings()).AsMonitor(),
             Options.Create(azureAd ?? new AzureAdSignInSettings()).AsMonitor(),
-            discovery, connections, credentials,
+            discovery, azureDiscovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
     }
@@ -309,7 +316,7 @@ public class ProviderSetupReaderTests
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Options.Create(new AzureProviderSettings()).AsMonitor(),
             Options.Create(new AzureAdSignInSettings()).AsMonitor(),
-            Substitute.For<IS3Discovery>(), connections,
+            Substitute.For<IS3Discovery>(), Substitute.For<IAzureBlobDiscovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -532,7 +539,7 @@ public class ProviderSetupReaderTests
     {
         TenantId = "11111111-1111-1111-1111-111111111111",
         ClientId = "44444444-4444-4444-4444-444444444444",
-        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/cb",
+        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/callback",
         ClientCertificatePath = "/certs/azure-signin.pem",
     };
 
@@ -575,8 +582,58 @@ public class ProviderSetupReaderTests
         var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
             azureProvider: ConfiguredAzureProvider()));
 
-        azure.Requirements.Single(r => r.Name == "Access").Status
-            .Should().Be(RequirementStatus.Satisfied);
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Satisfied);
+        // A pass says what was verified, in the words the probe used.
+        access.Detail.Should().Contain("Entra accepted");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WhenEntraRefusesTheCredential_IsFailed_AndSaysToSetUpAgain()
+    {
+        // An expired or unregistered certificate is the one thing settings alone cannot see, and
+        // the reason to ask Entra at all. It must read as Failed, not Ready.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Denied("AADSTS700027: The certificate is not registered on application")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Failed);
+        access.Detail.Should().Contain("set access up again").And.Contain("AADSTS700027");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WhenTheCheckCannotComplete_Warns_RatherThanFails()
+    {
+        // A network fault says nothing about the credential, so it is a warning: "cannot confirm",
+        // which the connection test can still answer.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Failed("No such host is known")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Warning);
+        access.Detail.Should().Contain("could not reach Azure").And.Contain("No such host");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WithNothingConfigured_NeverAsksEntra()
+    {
+        var azureDiscovery = Substitute.For<IAzureBlobDiscovery>();
+        var reader = new ProviderSetupReader(
+            Options.Create(new SamlSignInSettings()).AsMonitor(),
+            Options.Create(new IdentityCenterSettings()).AsMonitor(),
+            Options.Create(new AzureProviderSettings()).AsMonitor(),
+            Options.Create(new AzureAdSignInSettings()).AsMonitor(),
+            Substitute.For<IS3Discovery>(), azureDiscovery, ConnectionsWith(),
+            Substitute.For<IProviderCredentialStore>(),
+            new FixedClock(new DateTimeOffset(Created)),
+            NullLogger<ProviderSetupReader>.Instance);
+
+        var azure = await AzureAsync(reader);
+
+        azure.Requirements.Single(r => r.Name == "Access").Status.Should().Be(RequirementStatus.NotConfigured);
+        await azureDiscovery.DidNotReceive().CheckAccessAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]

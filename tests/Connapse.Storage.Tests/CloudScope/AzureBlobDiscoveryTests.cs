@@ -1,4 +1,5 @@
 using Azure;
+using Azure.Identity;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
@@ -59,6 +60,39 @@ public class AzureBlobDiscoveryTests
         probe.Outcome.Should().Be(AzureProbeOutcome.Failed);
         probe.Detail.Should().Contain("No storage account");
     }
+
+    [Fact]
+    public async Task CheckAccess_NoIdentity_IsNotConfigured_WithoutCallingAzure()
+    {
+        var probe = await Build(new AzureProviderSettings()).CheckAccessAsync();
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.NotConfigured);
+        probe.Detail.Should().Contain("provider page");
+    }
+
+    [Fact]
+    public async Task CheckAccess_CertificateFileMissing_Fails_WithTheReason()
+    {
+        // The credential chain refuses to build without a readable certificate, and refuses to
+        // fall through to a managed identity. That is a check that could not run, not Entra
+        // saying no — so Failed, carrying the message the operator needs.
+        var probe = await Build(Configured()).CheckAccessAsync();
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.Failed);
+        probe.Detail.Should().Contain("certificate");
+    }
+
+    [Theory]
+    [InlineData("AADSTS700027: Client assertion contains an invalid signature", true)]
+    [InlineData("AADSTS7000215: Invalid client secret provided", true)]
+    [InlineData("No such host is known (login.microsoftonline.com:443)", false)]
+    public void IsCredentialRefusal_OnlyWhenEntraAnswered(string message, bool expected) =>
+        AzureBlobDiscovery.IsCredentialRefusal(new AuthenticationFailedException(message)).Should().Be(expected);
+
+    [Fact]
+    public void IsCredentialRefusal_ManagedIdentityUnavailable_IsNotARefusal() =>
+        AzureBlobDiscovery.IsCredentialRefusal(new CredentialUnavailableException("AADSTS-looking text from the IMDS probe"))
+            .Should().BeFalse();
 
     [Theory]
     [InlineData(401, true)]

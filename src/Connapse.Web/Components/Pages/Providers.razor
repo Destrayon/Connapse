@@ -1074,7 +1074,10 @@
                 Two steps: the Azure app identity Connapse reads Blob storage and permissions with, and
                 the Entra application people sign in through. No client secrets — Connapse authenticates
                 with certificates it generates on this host (the private keys never leave it) or a
-                managed identity.
+                managed identity. Every field, where to find its value, and what each error means are in
+                the
+                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md"
+                   target="_blank" rel="noopener">Azure setup guide</a>.
             </p>
 
             <ProviderStepCard Id="azure-access" Title="Access"
@@ -1101,7 +1104,30 @@
                                     <text>app @azureProviderSettings.ClientId (certificate)</text>
                                 }
                             </dd>
+                            @if (azureAccessCertExpires is { } expires)
+                            {
+                                <dt class="col-sm-3">Certificate expires</dt>
+                                <dd class="col-sm-9">@expires.ToString("u")</dd>
+                            }
                         </dl>
+                        @if (azureAccessCertExpires is { } expired && expired <= DateTime.UtcNow)
+                        {
+                            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>
+                                The certificate has expired, so Entra refuses this identity and Azure
+                                sources no longer sync. Set access up again below: choose New certificate,
+                                run the script, and paste back what it prints.
+                            </div>
+                        }
+                        else if (azureAccessCertExpires is { } soon && soon <= DateTime.UtcNow.AddDays(30))
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status">
+                                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                The certificate expires in @((soon - DateTime.UtcNow).Days) days. Choose
+                                New certificate below and run the script before then, or Azure sources
+                                stop syncing.
+                            </div>
+                        }
                     }
                 </Summary>
                 <ManualContent>
@@ -1128,8 +1154,9 @@
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
                                 <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                                Keep this page open until you have pasted the result back — the certificate is held
-                                here until you save. Regenerating makes a fresh one.
+                                The script carries the certificate Connapse holds on this host, so it can be
+                                re-run at any time. New certificate makes a replacement that only takes over
+                                once you save; until then the current one keeps working.
                             </div>
 
                             <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@accessScript</code></pre>
@@ -1189,7 +1216,13 @@
                         }
                 </EasyContent>
                 <Actions>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    @if (AccessStatus == RequirementStatus.Satisfied)
+                    {
+                        <a class="btn btn-sm btn-primary" href="/connections">
+                            <span class="bi-plug me-1" aria-hidden="true"></span> Add a connection
+                        </a>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     @if (azureProviderSettings.TenantId is { Length: > 0 })
                     {
                         <ProviderResetAction Label="Reset access"
@@ -1213,7 +1246,30 @@
                             <dd class="col-sm-9 font-monospace">@azureAdSettings.ClientId</dd>
                             <dt class="col-sm-3">Redirect URI</dt>
                             <dd class="col-sm-9 font-monospace">@azureAdSettings.RedirectUri</dd>
+                            @if (azureSignInCertExpires is { } expires)
+                            {
+                                <dt class="col-sm-3">Certificate expires</dt>
+                                <dd class="col-sm-9">@expires.ToString("u")</dd>
+                            }
                         </dl>
+                        @if (azureSignInCertExpires is { } expired && expired <= DateTime.UtcNow)
+                        {
+                            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>
+                                The sign-in certificate has expired, so nobody can connect an Entra
+                                identity. Set the application up again below: choose New certificate,
+                                run the script, and paste back what it prints.
+                            </div>
+                        }
+                        else if (azureSignInCertExpires is { } soon && soon <= DateTime.UtcNow.AddDays(30))
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status">
+                                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                The sign-in certificate expires in @((soon - DateTime.UtcNow).Days) days.
+                                Choose New certificate below and run the script before then, or Entra
+                                sign-in stops working.
+                            </div>
+                        }
                     }
                     @if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
                     {
@@ -1221,7 +1277,9 @@
                             <div class="mb-2">
                                 <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
                                 <strong>One step left — admin consent.</strong> The apps are created, but the two
-                                Microsoft Graph permissions Connapse looks people up with need a
+                                Microsoft Graph permissions Connapse looks people up with —
+                                <code>User.Read.All</code> and <code>GroupMember.Read.All</code>, read-only
+                                lookups of who a person is and which groups they belong to — need a
                                 <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong>
                                 to approve. Send them this link; they sign in and click Accept.
                             </div>
@@ -1243,7 +1301,9 @@
                     <details class="border rounded p-3 mb-3">
                         <summary class="fw-semibold">Manual values — use an existing sign-in app registration</summary>
                         <div class="mt-3">
-                            <AzureAdSignInSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdFromForm" />
+                            <AzureAdSignInSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdFromForm"
+                                                      DefaultTenantId="@azureProviderSettings.TenantId"
+                                                      DefaultRedirectUri="@easyRedirectUri" />
                         </div>
                     </details>
                 </ManualContent>
@@ -1284,8 +1344,9 @@
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
                                 <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                                Keep this page open until you have pasted the result back — the sign-in certificate is
-                                held here until you save.
+                                The script carries the sign-in certificate Connapse holds on this host, so it
+                                can be re-run at any time. New certificate makes a replacement that only takes
+                                over once you save.
                             </div>
 
                             <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@permissionsScript</code></pre>
@@ -1345,7 +1406,7 @@
                     }
                 </EasyContent>
                 <Actions>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     @if (azureAdSettings.ClientId is { Length: > 0 })
                     {
                         <ProviderResetAction Label="Reset sign-in application"
@@ -1558,10 +1619,11 @@
         identityCenterSettings = IdentityCenterOptions.CurrentValue;
         azureProviderSettings = AzureProviderOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
+        LoadAzureCertificateExpiry();
 
         // The sign-in app's redirect URI is Connapse's Entra callback at the address this admin reached
-        // it on; pre-fill the subscription from whatever is already stored.
-        easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + "/api/v1/auth/cloud/azure/callback";
+        // it on.
+        easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + AzureCallbackPath;
 
         // Returning from Entra's admin-consent page: it bounces back here with ?admin_consent=True
         // (or ?error=...&error_description=...). Surface which, so "pending" doesn't linger.
@@ -2211,6 +2273,7 @@
             // What was posted, not a re-read: the options reload behind SaveSettings may not have
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
+            LoadAzureCertificateExpiry();
             await AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
                 new
                 {
@@ -2235,6 +2298,7 @@
         if (saveSuccess)
         {
             azureAdSettings = settings;
+            LoadAzureCertificateExpiry();
             await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
                 new { Configured = settings.IsConfigured });
         }
@@ -2296,6 +2360,9 @@
     /// app's reply URL by the Permissions script.</summary>
     private string AzureConsentLandingUri => Navigation.BaseUri.TrimEnd('/') + "/admin/providers/azure";
 
+    /// <summary>The path Entra redirects a person back to after sign-in; the sign-in app must register it.</summary>
+    private const string AzureCallbackPath = "/api/v1/auth/cloud/azure/callback";
+
     /// <summary>Clears the access identity and discards its stored certificate, so the next setup mints
     /// a fresh key instead of re-offering one an old app registration may still hold.</summary>
     private async Task ClearAzureAccess()
@@ -2325,8 +2392,10 @@
 
     private void DeleteAzureCertificate(string fileName)
     {
-        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
-        if (File.Exists(path)) File.Delete(path);
+        foreach (string path in new[] { AzureCertificatePath(fileName), AzurePendingCertificatePath(fileName) })
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     /// <summary>The admin-consent link for the access app — derived from settings, so it survives a
@@ -2345,7 +2414,7 @@
     }
 
     // The scripts embed a certificate Connapse mints here, so each is produced the moment its guide
-    // renders rather than behind a button. Nothing touches disk until Save.
+    // renders rather than behind a button.
     private void EnsureAzureAccessScript()
     {
         if (azureAccessScript is null) GenerateAzureAccessScript(newCertificate: false);
@@ -2359,36 +2428,83 @@
     private const string AzureAccessCertFile = "connapse-azure-access.pem";
     private const string AzureSignInCertFile = "connapse-azure-signin.pem";
 
+    private string AzureCertificatePath(string fileName) =>
+        Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+
+    /// <summary>The file a certificate waits in between being minted and being saved.</summary>
+    private string AzurePendingCertificatePath(string fileName) =>
+        AzureCertificatePath(Path.GetFileNameWithoutExtension(fileName) + ".pending.pem");
+
     /// <summary>
     /// The certificate a script embeds must be the one Connapse later signs with — across page reloads
-    /// and restarts, which happen between copying a script and pasting its result back. So it lives on
-    /// disk from the moment it is minted, and the guide re-reads that file on later renders instead of
-    /// minting again. Only "New certificate" replaces it. A daemon-app key nothing is registered
-    /// against yet is harmless to keep on disk.
+    /// and restarts, which happen between copying a script and pasting its result back. So a minted
+    /// certificate lives in a pending file from the moment it is made, and the guide re-reads that file
+    /// on later renders instead of minting again. The live file — the one the stored settings point at
+    /// and Connapse signs with today — is never written here; <see cref="WriteAzureCertificateAsync"/>
+    /// replaces it on Save. Until then "New certificate" only replaces the pending one, so an Access
+    /// step that already works keeps working while a replacement is being set up.
     /// </summary>
     private AzureCertificateMaterial LoadOrMintAzureCertificate(string fileName, string commonName, bool newCertificate)
     {
-        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
-        if (!newCertificate && File.Exists(path))
+        string pendingPath = AzurePendingCertificatePath(fileName);
+        if (!newCertificate)
         {
-            try
+            // Pending first: a replacement in progress is what the script must embed. Otherwise the
+            // live certificate, so re-running a script re-registers the key Connapse already holds.
+            foreach (string path in new[] { pendingPath, AzureCertificatePath(fileName) })
             {
-                string combined = File.ReadAllText(path);
-                using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
-                // A file written before owner-only creation existed keeps its old mode; tighten it.
-                if (!OperatingSystem.IsWindows())
-                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
-            }
-            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
-            {
-                // Unreadable file: fall through and mint a fresh one over it.
+                if (ReadAzureCertificate(path) is { } existing) return existing;
             }
         }
 
         AzureCertificateMaterial minted = AzureCertificateGenerator.Generate(commonName);
-        WriteOwnerOnly(path, minted.CombinedPem);
+        WriteOwnerOnly(pendingPath, minted.CombinedPem);
         return minted;
+    }
+
+    /// <summary>Reads a combined PEM back as material, or null when the file is missing or unreadable.</summary>
+    private static AzureCertificateMaterial? ReadAzureCertificate(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try
+        {
+            string combined = File.ReadAllText(path);
+            using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
+            // A file written before owner-only creation existed keeps its old mode; tighten it.
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
+        }
+        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>When the certificate at a stored path stops being accepted; null when there is none to read.</summary>
+    private static DateTime? AzureCertificateExpiry(string? certificatePath)
+    {
+        if (string.IsNullOrWhiteSpace(certificatePath) || !File.Exists(certificatePath)) return null;
+        string extension = Path.GetExtension(certificatePath).ToLowerInvariant();
+        if (extension is not (".pem" or ".crt")) return null;
+
+        try
+        {
+            return CertificateExpiry(File.ReadAllText(certificatePath));
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    private DateTime? azureAccessCertExpires;
+    private DateTime? azureSignInCertExpires;
+
+    private void LoadAzureCertificateExpiry()
+    {
+        azureAccessCertExpires = AzureCertificateExpiry(azureProviderSettings.ClientCertificatePath);
+        azureSignInCertExpires = AzureCertificateExpiry(azureAdSettings.ClientCertificatePath);
     }
 
     /// <summary>
@@ -2464,11 +2580,16 @@
     }
 
     /// <summary>The private key stays on this host: the cert + key go to the appdata volume, and only
-    /// the public certificate was uploaded to Azure by the script.</summary>
+    /// the public certificate was uploaded to Azure by the script. This is the one place the live file
+    /// is written; the pending copy it came from is removed once it is.</summary>
     private Task<string> WriteAzureCertificateAsync(string fileName, string combinedPem)
     {
-        string certPath = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+        string certPath = AzureCertificatePath(fileName);
         WriteOwnerOnly(certPath, combinedPem);
+
+        string pendingPath = AzurePendingCertificatePath(fileName);
+        if (File.Exists(pendingPath)) File.Delete(pendingPath);
+
         return Task.FromResult(certPath);
     }
 
