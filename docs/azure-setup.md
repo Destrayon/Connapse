@@ -73,6 +73,17 @@ done
 made, press **The permissions have been granted** on the Per-user permissions card (or, for a
 hand-entered identity, set the sign-in application up under Manual values).
 
+### How quickly a permission change takes effect
+
+Per-user filtering is evaluated at query time against Azure, with short caches so a search
+does not pay for two or three control-plane calls every time: who a person is and which groups
+they belong to (5 minutes), their role and deny assignments (5 minutes), and, on Data Lake Gen2
+accounts, the directory traversals that grant recall (60 seconds). A grant or revocation in
+Azure is therefore reflected within that window — at most five minutes — never later, and a
+revoked user or removed role is refused on the next search after the cache expires. Blob
+tags and Gen2 file ACLs are read live for every result. If a shorter window matters more than
+per-query cost in your deployment, that is a tuning point rather than a redesign; open an issue.
+
 ### What Recheck verifies
 
 **Recheck** on the Access card asks Entra for a token as Connapse's identity. *Ready* means Entra
