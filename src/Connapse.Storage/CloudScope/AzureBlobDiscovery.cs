@@ -85,11 +85,13 @@ public sealed class AzureBlobDiscovery(
             logger.LogWarning(ex, "Connapse's Azure identity cannot be used from this host");
             return AzureProbe<string>.Unusable(ex.Message);
         }
-        catch (CredentialUnavailableException ex) when (AzureCredentialChainFactory.IsManagedIdentity(candidate))
+        catch (AuthenticationFailedException ex)
+            when (AzureCredentialChainFactory.IsManagedIdentity(candidate) && IsNoManagedIdentityHere(ex))
         {
-            // Settings say "sign in as a managed identity" and the host has none to offer: not a
-            // transport fault to retry, the identity is gone from this host (or the settings came
-            // from another one).
+            // Settings say "sign in as a managed identity" and the host has none to offer — no
+            // metadata service at all, or one that answers "Identity not found" (an Azure VM with
+            // no identity assigned). Not a transport fault to retry: the identity is gone from this
+            // host, or the settings came from another one.
             logger.LogWarning(ex, "Connapse is configured to use a managed identity, but this host has none");
             return AzureProbe<string>.Unusable(
                 "No managed identity is available on this host: " + ex.Message);
@@ -112,6 +114,12 @@ public sealed class AzureBlobDiscovery(
             "Entra answered but did not judge the credential (a transient fault or throttling); try again. " + ex.Message,
         _ => ex.Message,
     };
+
+    /// <summary>Whether a managed-identity failure means this host simply has no such identity:
+    /// no metadata service to ask, or one that answers "Identity not found".</summary>
+    internal static bool IsNoManagedIdentityHere(AuthenticationFailedException ex) =>
+        ex is CredentialUnavailableException
+        || ex.Message.Contains("Identity not found", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whether Entra rejected the credential itself — something only setting access up again fixes —

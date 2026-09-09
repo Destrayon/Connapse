@@ -117,6 +117,16 @@ public class AzureBlobDiscoveryTests
     public void IsCredentialRefusal_OnlyForCodesThatMeanTheCredentialIsWrong(string message, bool expected) =>
         AzureBlobDiscovery.IsCredentialRefusal(new AuthenticationFailedException(message)).Should().Be(expected);
 
+    [Theory]
+    [InlineData("[Managed Identity] Authentication unavailable. Error Code: invalid_request Error Description: Identity not found", true)]
+    [InlineData("AADSTS90033: A transient error has occurred", false)]
+    [InlineData("No such host is known", false)]
+    public void IsNoManagedIdentityHere_MetadataServiceSaysNoIdentity_OrIsAbsent(string message, bool expected)
+    {
+        AzureBlobDiscovery.IsNoManagedIdentityHere(new AuthenticationFailedException(message)).Should().Be(expected);
+        AzureBlobDiscovery.IsNoManagedIdentityHere(new CredentialUnavailableException("no IMDS")).Should().BeTrue();
+    }
+
     [Fact]
     public void IsCredentialRefusal_ManagedIdentityUnavailable_IsNotARefusal() =>
         AzureBlobDiscovery.IsCredentialRefusal(new CredentialUnavailableException("AADSTS-looking text from the IMDS probe"))
