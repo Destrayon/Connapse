@@ -61,11 +61,17 @@ not found (`AADSTS700016`, `AADSTS90002`), missing service principal (`AADSTS700
 a refusal. Throttling, transient faults, and outages read as *Unconfirmed* with a retry, never as
 a demand to set up again.
 
-Old certificate files are removed only once nothing stored names them and they are more than an
-hour old, so two Connapse processes sharing one volume cannot delete each other's key. Saving
-the sign-in application switches per-user enforcement on *before* storing the application; if
-the switch cannot be written the application is not saved, and if it is somehow off while sign-in
-is configured the Per-user permissions card shows Failed and says how to switch it on.
+Each save attempt writes its own file (`connapse-azure-access-<thumbprint>-<attempt>.pem`), so
+attempts never share one. Old certificate files are removed only once nothing stored names them
+and they are more than an hour old, so two Connapse processes sharing one volume cannot delete
+each other's key; if the settings store cannot be read, nothing is deleted at all. Saving the
+sign-in application switches per-user enforcement on *before* storing the application and
+requires the switch to be live in this process; if it cannot be written or applied, the
+application is not saved and the message says to restart and save again. The AWS sign-in save
+carries the Azure switch through unchanged. If enforcement is somehow off while sign-in is
+configured, the Per-user permissions card shows Failed and says how to switch it on. A save
+whose outcome cannot be confirmed (the store failed after committing and could not be read back)
+is reported as unconfirmed rather than as failed; check the card after a restart before retrying.
 
 ## Manual values
 

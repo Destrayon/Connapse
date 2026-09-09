@@ -2240,19 +2240,34 @@
         // the environment, so copying those values into a row here would shadow them permanently.
         bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing;
 
-        await SaveSettings("samlsignin", settings);
+        // The latch first, and the Azure latch carried along unchanged: the record holds one flag
+        // per provider, and writing it with only this one would switch Azure filtering off. Written
+        // before the sign-in settings for the same reason as the Azure save — a latch that cannot be
+        // written must not leave sign-in configured with filtering off.
+        if (enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
+        {
+            bool? latched = await SaveSettings(
+                PermissionEnforcementSettings.Category,
+                new PermissionEnforcementSettings
+                {
+                    IsEnforcing = enforcing,
+                    AzureEnforcing = EnforcementOptions.CurrentValue.AzureEnforcing,
+                });
+            if (latched != true || EnforcementOptions.CurrentValue.IsEnforcing != enforcing)
+            {
+                saveMessage = "Per-user enforcement for AWS could not be switched on in this process, so "
+                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
+                saveSuccess = false;
+                return;
+            }
+        }
 
-        if (saveSuccess)
+        bool? committed = await SaveSettings("samlsignin", settings);
+
+        if (committed == true)
         {
             await AuditLogger.LogAsync("provider.saml.saved", "provider", "aws",
                 new { settings.EntityId, settings.IdpEntityId, Configured = settings.IsConfigured });
-        }
-
-        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
-        {
-            await SaveSettings(
-                PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings { IsEnforcing = enforcing });
         }
 
         // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
@@ -2269,7 +2284,7 @@
     /// caller has already verified <paramref name="settings"/>, Entra is asked first, and a credential
     /// it refuses is not stored — the one that works stays in place.
     /// </summary>
-    private async Task<bool> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
+    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
     {
         // A reset (blank tenant) has nothing to verify.
         if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
@@ -2283,31 +2298,49 @@
             }
         }
 
-        bool committed = await SaveSettings("azure", settings);
+        bool? committed = await SaveSettings("azure", settings);
 
-        if (committed)
+        if (committed == true)
         {
             // What was posted, not a re-read: the options reload behind SaveSettings may not have
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
             LoadAzureCertificateExpiry();
-            await AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
+            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
                 new
                 {
                     HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
                     HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
-                });
+                }));
         }
 
-        await RefreshSetups();
+        await AfterAzureCommitAsync(RefreshSetups);
         return committed;
+    }
+
+    /// <summary>
+    /// Runs a step that follows a commit — the audit line, the status refresh, a cleanup — so that
+    /// its failure is reported beside the save rather than as the save failing. The settings are
+    /// stored by then; telling the operator otherwise would send them to retry a replacement that
+    /// already happened.
+    /// </summary>
+    private async Task AfterAzureCommitAsync(Func<Task> step)
+    {
+        try
+        {
+            await step();
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"{saveMessage} A follow-up step failed afterwards ({ex.Message}); the settings themselves are stored.";
+        }
     }
 
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
     /// the access app, a credential Entra refuses is not stored unless the caller already verified it.
     /// Returns whether the sign-in settings themselves were committed; the enforcement latch saved
     /// after them is reported separately and never turns a committed save into a failed one.</summary>
-    private async Task<bool> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
+    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
     {
         if (!verified && settings.IsConfigured)
         {
@@ -2331,33 +2364,36 @@
         bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
         if (enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
         {
-            bool latched = await SaveSettings(
+            bool? latched = await SaveSettings(
                 PermissionEnforcementSettings.Category,
                 new PermissionEnforcementSettings
                 {
                     IsEnforcing = EnforcementOptions.CurrentValue.IsEnforcing,
                     AzureEnforcing = enforcing,
                 });
-            if (!latched)
+            // Stored is not enough: the resolver reads the live options, so a latch that was written
+            // but not applied (the reload failed) would let sign-in be saved into an unfiltered
+            // process. Only a latch this process can see counts.
+            if (latched != true || EnforcementOptions.CurrentValue.AzureEnforcing != enforcing)
             {
-                saveMessage = "Per-user enforcement for Azure could not be switched on, so the sign-in "
-                    + $"application was not saved: {saveMessage}";
+                saveMessage = "Per-user enforcement for Azure could not be switched on in this process, so "
+                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
                 saveSuccess = false;
                 return false;
             }
         }
 
-        bool committed = await SaveSettings("azuread", settings);
+        bool? committed = await SaveSettings("azuread", settings);
 
-        if (committed)
+        if (committed == true)
         {
             azureAdSettings = settings;
             LoadAzureCertificateExpiry();
-            await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
-                new { Configured = settings.IsConfigured });
+            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
+                new { Configured = settings.IsConfigured }));
         }
 
-        await RefreshSetups();
+        await AfterAzureCommitAsync(RefreshSetups);
         return committed;
     }
 
@@ -2418,7 +2454,7 @@
         await AzureCertificateGate.WaitAsync();
         try
         {
-            if (!await SaveAzureProviderFromForm(new AzureProviderSettings())) return;
+            if (await SaveAzureProviderFromForm(new AzureProviderSettings()) != true) return;
 
             await DeleteAzureCertificatesAsync(AzureAccessCertFile);
             azureAccessScript = null;
@@ -2439,7 +2475,7 @@
         await AzureCertificateGate.WaitAsync();
         try
         {
-            if (!await SaveAzureAdFromForm(new AzureAdSignInSettings())) return;
+            if (await SaveAzureAdFromForm(new AzureAdSignInSettings()) != true) return;
 
             await DeleteAzureCertificatesAsync(AzureSignInCertFile);
             azurePermissionsScript = null;
@@ -2467,6 +2503,7 @@
         if (File.Exists(pendingPath)) File.Delete(pendingPath);
 
         var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced is null) return;
         DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
         foreach (string path in Directory.EnumerateFiles(directory, Path.GetFileNameWithoutExtension(fileName) + "*.pem"))
         {
@@ -2656,13 +2693,16 @@
                 return;
             }
 
-            if (!await SaveAzureProviderFromForm(candidate, verified: true))
+            bool? committed = await SaveAzureProviderFromForm(candidate, verified: true);
+            if (committed != true)
             {
-                await DeleteAzureCandidateAsync(newPath);
+                // False: not stored, the candidate is surplus. Null: unknown — the file may be the
+                // one the store names by now, so it stays, and so does the paste for a retry.
+                if (committed == false) await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
-            await SweepAzureCertificatesAsync(AzureAccessCertFile, promotedPem: material.CombinedPem);
+            await AfterAzureCommitAsync(() => SweepAzureCertificatesAsync(AzureAccessCertFile, promotedPem: material.CombinedPem));
             azureAccessScript = null;
             azureAccessCert = null;
             azureAccessPasted = null;
@@ -2686,13 +2726,15 @@
     /// </summary>
     private static readonly SemaphoreSlim AzureCertificateGate = new(1, 1);
 
-    /// <summary>Where a candidate certificate lives: its own file, named by the thumbprint, so no two
-    /// candidates — from this session or another — ever share a path with each other or with the key
-    /// in use.</summary>
+    /// <summary>Where a candidate certificate lives: its own file, named by the thumbprint and a
+    /// per-attempt suffix, so no two attempts — in this session, another, or another process that
+    /// picked up the same pending material — ever share a path with each other or with the key in
+    /// use. One attempt's cleanup can therefore never touch another's file.</summary>
     private string AzureVersionedCertificatePath(string fileName, AzureCertificateMaterial material)
     {
         string thumbprint = AzureCertificateFile.Thumbprint(material.PublicCertificatePem);
-        return AzureCertificatePath($"{Path.GetFileNameWithoutExtension(fileName)}-{thumbprint[..12].ToLowerInvariant()}.pem");
+        string attempt = Guid.NewGuid().ToString("N")[..8];
+        return AzureCertificatePath($"{Path.GetFileNameWithoutExtension(fileName)}-{thumbprint[..12].ToLowerInvariant()}-{attempt}.pem");
     }
 
     /// <summary>
@@ -2701,15 +2743,24 @@
     /// committed since this page loaded — plus the live options as a floor when the store has no row
     /// (settings coming from appsettings or the environment).
     /// </summary>
-    private async Task<HashSet<string>> PersistedAzureCertificatePathsAsync()
+    private async Task<HashSet<string>?> PersistedAzureCertificatePathsAsync()
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void Add(string? path) { if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path)); }
 
         Add(AzureProviderOptions.CurrentValue.ClientCertificatePath);
         Add(AzureAdOptions.CurrentValue.ClientCertificatePath);
-        Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
-        Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+        try
+        {
+            Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
+            Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+        }
+        catch (Exception)
+        {
+            // Not knowing what is referenced is not the same as nothing being referenced: with the
+            // store unreadable, nothing is deleted at all.
+            return null;
+        }
         return paths;
     }
 
@@ -2726,7 +2777,7 @@
     {
         if (!File.Exists(path)) return;
         var referenced = await PersistedAzureCertificatePathsAsync();
-        if (referenced.Contains(Path.GetFullPath(path))) return;
+        if (referenced is null || referenced.Contains(Path.GetFullPath(path))) return;
         File.Delete(path);
     }
 
@@ -2743,6 +2794,7 @@
         if (!Directory.Exists(directory)) return;
 
         var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced is null) return;
         string stem = Path.GetFileNameWithoutExtension(fileName);
         string pendingPath = Path.GetFullPath(AzurePendingCertificatePath(fileName));
         DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
@@ -2823,7 +2875,7 @@
                 return;
             }
 
-            bool committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
+            bool? committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
                 ClientId = result.SignInAppClientId,
@@ -2832,13 +2884,13 @@
                 // Persisted, so a reload cannot turn "consent still pending" into a green card.
                 AdminConsentPending = !result.ConsentGranted,
             }, verified: true);
-            if (!committed)
+            if (committed != true)
             {
-                await DeleteAzureCandidateAsync(newPath);
+                if (committed == false) await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
-            await SweepAzureCertificatesAsync(AzureSignInCertFile, promotedPem: material.CombinedPem);
+            await AfterAzureCommitAsync(() => SweepAzureCertificatesAsync(AzureSignInCertFile, promotedPem: material.CombinedPem));
             azurePermissionsScript = null;
             azureSignInCert = null;
             azurePermissionsPasted = null;
@@ -2916,7 +2968,9 @@
     /// read back and compared, and a commit whose reload failed is reported as stored-but-not-applied
     /// rather than as a failure — callers rolling back on false must never undo a commit.
     /// </summary>
-    private async Task<bool> SaveSettings<T>(string category, T settings) where T : class
+    /// <returns>True when committed, false when not, null when the store threw and could not be read
+    /// back either — the outcome is unknown, and callers must neither roll back nor report success.</returns>
+    private async Task<bool?> SaveSettings<T>(string category, T settings) where T : class
     {
         string? reloadProblem = null;
         try
@@ -2925,11 +2979,17 @@
         }
         catch (Exception ex)
         {
-            if (!await IsStoredAsync(category, settings))
+            switch (await IsStoredAsync(category, settings))
             {
-                saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
-                saveSuccess = false;
-                return false;
+                case false:
+                    saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
+                    saveSuccess = false;
+                    return false;
+                case null:
+                    saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: "
+                        + $"{ex.Message} Check this card again after a restart before retrying.";
+                    saveSuccess = false;
+                    return null;
             }
             reloadProblem = ex.Message;
         }
@@ -2951,8 +3011,9 @@
         return true;
     }
 
-    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under <paramref name="category"/>.</summary>
-    private async Task<bool> IsStoredAsync<T>(string category, T settings) where T : class
+    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under
+    /// <paramref name="category"/>; null when the store cannot be read, which is not a no.</summary>
+    private async Task<bool?> IsStoredAsync<T>(string category, T settings) where T : class
     {
         try
         {
@@ -2962,7 +3023,7 @@
         }
         catch (Exception)
         {
-            return false;
+            return null;
         }
     }
 
