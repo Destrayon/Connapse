@@ -1087,6 +1087,7 @@
                               @bind-Expanded="showAzureAccess" EditLabel="Update or replace"
                               EasyTitle="Easy setup with Azure Cloud Shell" EasyOpen="true">
                 <Summary>
+                    @RequirementDetail(AccessRequirement)
                     @if (azureProviderSettings.TenantId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -1240,6 +1241,7 @@
                               @bind-Expanded="showAzurePermissions" EditLabel="Update or replace"
                               EasyTitle="Guided setup" EasyOpen="true">
                 <Summary>
+                    @RequirementDetail(PermissionsRequirement)
                     @if (azureAdSettings.ClientId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -1757,6 +1759,34 @@
     /// <summary>Looks up one of the current provider's requirements by name.</summary>
     private ProviderRequirement? Requirement(string name) =>
         Current?.Requirements.FirstOrDefault(requirement => requirement.Name == name);
+
+    /// <summary>
+    /// What the reader found out about a requirement, in the words it chose: the reason Entra gave
+    /// and what to do about it when it failed, why it could not be confirmed, or what was verified
+    /// when it is ready. A failure is announced; the rest is read in place.
+    /// </summary>
+    private static RenderFragment RequirementDetail(ProviderRequirement? requirement) => builder =>
+    {
+        if (requirement?.Detail is not { Length: > 0 } detail) return;
+
+        (string css, string? role, string icon) = requirement.Status switch
+        {
+            RequirementStatus.Failed => ("alert alert-danger py-2 mb-2 small", "alert", "bi-x-circle"),
+            RequirementStatus.Warning => ("alert alert-warning py-2 mb-2 small", "status", "bi-exclamation-triangle"),
+            RequirementStatus.Provisioning => ("alert alert-info py-2 mb-2 small", "status", "bi-hourglass-split"),
+            _ => ("small text-body-secondary mb-2", null, "bi-check-circle"),
+        };
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", css);
+        if (role is not null) builder.AddAttribute(2, "role", role);
+        builder.OpenElement(3, "span");
+        builder.AddAttribute(4, "class", icon + " me-1");
+        builder.AddAttribute(5, "aria-hidden", "true");
+        builder.CloseElement();
+        builder.AddContent(6, detail);
+        builder.CloseElement();
+    };
 
     private ProviderRequirement? AccessRequirement => Requirement("Access");
     private ProviderRequirement? IdentityCenterRequirement => Requirement("IAM Identity Center");

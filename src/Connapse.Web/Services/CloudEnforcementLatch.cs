@@ -109,7 +109,7 @@ public sealed class CloudEnforcementLatch(
             if (live.IsEnforcing != merged.IsEnforcing || live.AzureEnforcing != merged.AzureEnforcing)
             {
                 logger.LogError(
-                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until they are",
+                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until Connapse is restarted with the database reachable",
                     merged.IsEnforcing, merged.AzureEnforcing);
                 return;
             }
