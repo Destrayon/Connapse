@@ -192,8 +192,10 @@ public static class AzureCloudShellSetup
     public static string GraphAppRoleGrantCommands(string managedIdentityPrincipalId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(managedIdentityPrincipalId);
+        // A GUID or nothing: the id lands inside a JSON body in the script, where anything else
+        // would break the request rather than merely fail it.
         return ManagedIdentityGraphGrantCommands
-            .Replace("{{accessMiPrincipalId}}", Shell(managedIdentityPrincipalId.Trim()))
+            .Replace("{{accessMiPrincipalId}}", GuidOrEmpty(managedIdentityPrincipalId))
             .Replace("{{graphAppId}}", GraphAppId);
     }
 

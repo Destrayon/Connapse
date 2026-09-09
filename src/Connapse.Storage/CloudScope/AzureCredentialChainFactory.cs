@@ -19,6 +19,7 @@ public static class AzureCredentialChainFactory
     /// </summary>
     public static bool IsUserAssignedManagedIdentity(AzureProviderSettings settings) =>
         !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+        && !settings.UseHostManagedIdentity
         && string.IsNullOrWhiteSpace(settings.ClientId)
         && string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
         && string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
@@ -42,6 +43,16 @@ public static class AzureCredentialChainFactory
         AzureProviderSettings settings,
         Func<AzureProviderSettings, X509Certificate2?> certLoader)
     {
+        // Two managed identities named at once is a mix the form cannot produce; arriving from
+        // configuration it is a mistake, and picking either side silently would be choosing an
+        // identity nobody asked for.
+        if (settings.UseHostManagedIdentity && !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId))
+        {
+            throw new InvalidOperationException(
+                "Azure settings name both the host's managed identity (UseHostManagedIdentity) and a "
+                + "user-assigned one (UserAssignedManagedIdentityClientId). Keep one; Connapse will not choose.");
+        }
+
         if (IsHostManagedIdentity(settings))
         {
             return new ChainedTokenCredential(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));

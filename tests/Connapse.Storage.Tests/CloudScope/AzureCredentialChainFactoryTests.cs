@@ -66,6 +66,16 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
+    public void Create_HostFlagAndUserAssignedIdTogether_Throws_RatherThanChoosing()
+    {
+        // Neither side is picked: the flag and the id name different identities.
+        var settings = new AzureProviderSettings { UseHostManagedIdentity = true, UserAssignedManagedIdentityClientId = "mi" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => null);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*both*");
+        AzureCredentialChainFactory.IsManagedIdentity(settings).Should().BeFalse();
+    }
+
+    [Fact]
     public void IsHostManagedIdentity_FalseWhenACertificateOrUserAssignedFieldIsSet()
     {
         // The flag beside a certificate field is a mix the form can never produce; if it arrives

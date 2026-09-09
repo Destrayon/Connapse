@@ -71,6 +71,15 @@ public sealed class AzureBlobDiscovery(
             logger.LogWarning(ex, "Connapse's Azure identity cannot be used from this host");
             return AzureProbe<string>.Unusable(ex.Message);
         }
+        catch (CredentialUnavailableException ex) when (AzureCredentialChainFactory.IsManagedIdentity(candidate))
+        {
+            // Settings say "sign in as a managed identity" and the host has none to offer: not a
+            // transport fault to retry, the identity is gone from this host (or the settings came
+            // from another one).
+            logger.LogWarning(ex, "Connapse is configured to use a managed identity, but this host has none");
+            return AzureProbe<string>.Unusable(
+                "No managed identity is available on this host: " + ex.Message);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // Network faults, an inconclusive answer from Entra, or no managed identity on this

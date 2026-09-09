@@ -1245,7 +1245,11 @@
                     <p class="small mb-1">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
-                    @if (hostIdentity is not null)
+                    @if (hostIdentity is null)
+                    {
+                        <p class="mb-2"></p>
+                    }
+                    else if (string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
                     {
                         <p class="small mb-3">
                             <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = false">
@@ -1255,7 +1259,10 @@
                     }
                     else
                     {
-                        <p class="mb-2"></p>
+                        <p class="small text-muted mb-3">
+                            This host has a managed identity. To switch to it, with no certificate, choose
+                            <strong>Reset access</strong> below first; the guide then offers it.
+                        </p>
                     }
 
                         EnsureAzureAccessScript();
@@ -1337,14 +1344,16 @@
                     {
                         <ProviderResetAction Label="Reset access"
                                              ConfirmLabel="Confirm access reset"
-                                             HelpText="Clears the tenant, subscription, and app identity and discards the stored certificate. Azure connections stop working until access is set up again."
+                                             HelpText="@(AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)
+                                                 ? "Clears the tenant, subscription, and managed identity; the roles assigned in Azure stay until you remove them there. Azure connections stop working until access is set up again."
+                                                 : "Clears the tenant, subscription, and app identity and discards the stored certificate. Azure connections stop working until access is set up again.")"
                                              OnReset="ClearAzureAccess" />
                     }
                 </Actions>
             </ProviderStepCard>
 
             <ProviderStepCard Id="azure-permissions" Title="Per-user permissions"
-                              Description="The Entra application people sign in through, so their Azure results are scoped to what that identity may read. Uses the access app above to look people and groups up."
+                              Description="The Entra application people sign in through, so their Azure results are scoped to what that identity may read. Uses the access identity above to look people and groups up."
                               Status="PermissionsStatus" StatusLabel="@RequirementLabel(PermissionsStatus)"
                               @bind-Expanded="showAzurePermissions" EditLabel="Update or replace"
                               EasyTitle="Guided setup" EasyOpen="true">
@@ -1452,9 +1461,22 @@
                     {
                         <div class="alert alert-secondary py-2 small mb-0">
                             <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                            Finish the <strong>Access</strong> step first — this script grants the access identity its
-                            Microsoft Graph permissions. (A user-assigned managed identity entered by hand needs those
-                            permissions granted by hand too; use the manual values here.)
+                            @if (AzureCredentialChainFactory.IsUserAssignedManagedIdentity(azureProviderSettings))
+                            {
+                                <text>
+                                    The access identity is a user-assigned managed identity entered by hand, so its
+                                    Microsoft Graph permissions are granted by hand too: run the two commands from
+                                    <code>docs/azure-setup.md</code> (Graph app roles for a managed identity) as a Global
+                                    Administrator, then set the sign-in application up under Manual values here.
+                                </text>
+                            }
+                            else
+                            {
+                                <text>
+                                    Finish the <strong>Access</strong> step first — this script grants the access identity
+                                    its Microsoft Graph permissions.
+                                </text>
+                            }
                         </div>
                     }
                     else
@@ -1809,11 +1831,16 @@
     {
         if (!firstRender) return;
 
-        // Whether this host has a managed identity, so the Azure guide can offer it. Off Azure the
-        // answer is a quick "no"; on Azure it is remembered for the process after the first look.
-        hostIdentity = await HostIdentity.DetectAsync();
+        // Whether this host has a managed identity, so the Azure guide can offer it — asked only on
+        // the Azure page, and alongside the status read rather than before it, since off Azure the
+        // metadata probe is a second or so of waiting for nothing. A found identity is remembered
+        // for the process after the first look.
+        Task<AzureHostIdentityInfo?> detection = Key == "azure"
+            ? HostIdentity.DetectAsync()
+            : Task.FromResult<AzureHostIdentityInfo?>(null);
 
         setups = await SetupReader.ReadAsync();
+        hostIdentity = await detection;
         await LoadAwsCredentialModeAsync();
 
         // Entra bounced back after the administrator consented: record it, so the pending state
@@ -2501,6 +2528,10 @@
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
             LoadAzureCertificateExpiry();
+            // The permissions script names the access identity and takes a different shape for a
+            // managed identity than for an app; one already generated for the old identity must
+            // not stay on screen under an intro describing the new one.
+            RefreshAzurePermissionsScript();
             await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
                 new
                 {
@@ -2748,11 +2779,21 @@
     /// <summary>The access identity's service principal when it is a managed identity the guided
     /// setup recorded — what the permissions script grants Graph app roles to. Null for a certificate
     /// app, and for a user-assigned identity entered by hand (no principal id was recorded).</summary>
-    private string? AzureAccessManagedIdentityPrincipal =>
-        AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)
-        && azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } principal
-            ? principal
-            : null;
+    private string? AzureAccessManagedIdentityPrincipal
+    {
+        get
+        {
+            if (!AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)) return null;
+            if (azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded) return recorded;
+
+            // The host's own identity entered by hand records no principal, but the page has already
+            // asked the host who it is; that answer is the principal.
+            return AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings)
+                && hostIdentity is { IsUserAssigned: false } host
+                    ? host.PrincipalId
+                    : null;
+        }
+    }
 
     /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
     /// app's reply URL by the Permissions script.</summary>

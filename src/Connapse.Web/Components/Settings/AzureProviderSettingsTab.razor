@@ -236,12 +236,19 @@
                 : string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
             UserAssignedManagedIdentityClientId = userAssigned ? Trim(miClientId) : null,
             UseHostManagedIdentity = mode == AuthMode.HostManagedIdentity,
-            // Only the guided setup learns the principal; a hand-entered identity keeps whatever was
-            // recorded for the same kind, and nothing for a different one.
-            ManagedIdentityPrincipalId = mode != AuthMode.Certificate
-                && (mode == AuthMode.HostManagedIdentity) == Settings.UseHostManagedIdentity
-                    ? Settings.ManagedIdentityPrincipalId
-                    : null,
+            // Only the guided setup learns the principal, and it belongs to one identity: it is kept
+            // only while the identity is the same one — the host's, or the same user-assigned client
+            // id. Carried onto a different identity it would send the permissions script's Graph
+            // grants to the wrong principal.
+            ManagedIdentityPrincipalId = mode switch
+            {
+                AuthMode.HostManagedIdentity when Settings.UseHostManagedIdentity => Settings.ManagedIdentityPrincipalId,
+                AuthMode.UserAssignedManagedIdentity
+                    when !Settings.UseHostManagedIdentity
+                    && string.Equals(Trim(miClientId), Settings.UserAssignedManagedIdentityClientId, StringComparison.OrdinalIgnoreCase)
+                    => Settings.ManagedIdentityPrincipalId,
+                _ => null,
+            },
         });
     }
 
