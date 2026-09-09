@@ -1088,6 +1088,12 @@
                               EasyTitle="Easy setup with Azure Cloud Shell" EasyOpen="true">
                 <Summary>
                     @RequirementDetail(AccessRequirement)
+                    @if (azureAccessCertProblem is { Length: > 0 } accessProblem)
+                    {
+                        <div class="alert alert-danger py-2 mb-2 small" role="alert">
+                            <span class="bi-file-earmark-x me-1" aria-hidden="true"></span>@accessProblem
+                        </div>
+                    }
                     @if (azureProviderSettings.TenantId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -1242,6 +1248,12 @@
                               EasyTitle="Guided setup" EasyOpen="true">
                 <Summary>
                     @RequirementDetail(PermissionsRequirement)
+                    @if (azureSignInCertProblem is { Length: > 0 } signInProblem)
+                    {
+                        <div class="alert alert-danger py-2 mb-2 small" role="alert">
+                            <span class="bi-file-earmark-x me-1" aria-hidden="true"></span>@signInProblem
+                        </div>
+                    }
                     @if (azureAdSettings.ClientId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -2646,7 +2658,7 @@
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
         }
-        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
+        catch (Exception ex) when (AzureCertificateFile.IsUnreadable(ex))
         {
             return null;
         }
@@ -2655,14 +2667,37 @@
     private DateTime? azureAccessCertExpires;
     private DateTime? azureSignInCertExpires;
 
+    /// <summary>Why the certificate a card's settings name could not be read, if it could not; shown on
+    /// that card so the administrator can fix the file or set access up again.</summary>
+    private string? azureAccessCertProblem;
+    private string? azureSignInCertProblem;
+
     /// <summary>Read through the same loader the credentials use, so a PFX with a password shows its
-    /// expiry exactly as a PEM does.</summary>
+    /// expiry exactly as a PEM does. Never throws: a file this process cannot read is a fact to show
+    /// on the card, not a reason for the page — every provider's page — to fail to render.</summary>
     private void LoadAzureCertificateExpiry()
     {
-        azureAccessCertExpires = AzureCertificateFile.Expiry(
+        (azureAccessCertExpires, azureAccessCertProblem) = InspectAzureCertificate(
             azureProviderSettings.ClientCertificatePath, azureProviderSettings.ClientCertificatePassword);
-        azureSignInCertExpires = AzureCertificateFile.Expiry(
+        (azureSignInCertExpires, azureSignInCertProblem) = InspectAzureCertificate(
             azureAdSettings.ClientCertificatePath, azureAdSettings.ClientCertificatePassword);
+    }
+
+    private static (DateTime? Expires, string? Problem) InspectAzureCertificate(string? path, string? password)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return (null, null);
+        try
+        {
+            using var certificate = AzureCertificateFile.Load(path, password);
+            return certificate is null
+                ? (null, $"The certificate file {path} does not exist on this host, so Connapse cannot sign in. Set access up again, or restore the file.")
+                : (certificate.NotAfter.ToUniversalTime(), null);
+        }
+        catch (Exception ex) when (AzureCertificateFile.IsUnreadable(ex))
+        {
+            return (null, $"Connapse cannot read its certificate file {path}: {ex.Message} Check the file's "
+                + "permissions for the user Connapse runs as, or set access up again.");
+        }
     }
 
     /// <summary>

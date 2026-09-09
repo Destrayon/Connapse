@@ -32,11 +32,17 @@ public static class AzureCertificateFile
             using X509Certificate2? certificate = Load(path, password);
             return certificate?.NotAfter.ToUniversalTime();
         }
-        catch (Exception ex) when (ex is CryptographicException or IOException or ArgumentException)
+        catch (Exception ex) when (IsUnreadable(ex))
         {
             return null;
         }
     }
+
+    /// <summary>The ways a certificate file fails to read: not a certificate (or the wrong password),
+    /// an I/O fault, a permission the process lacks, or a path the runtime rejects. None of them is
+    /// a reason for the page showing the file to fail to render.</summary>
+    public static bool IsUnreadable(Exception ex) =>
+        ex is CryptographicException or IOException or UnauthorizedAccessException or ArgumentException;
 
     /// <summary>The SHA-1 thumbprint of a PEM-encoded certificate, upper-case hex with no separators —
     /// the form <c>openssl x509 -fingerprint</c> prints once its colons are stripped, and what Entra
