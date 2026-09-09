@@ -603,6 +603,19 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
+    public async Task Azure_PerUserPermissions_ConsentPending_Warns_NotSatisfied()
+    {
+        // The pending flag is stored with the sign-in settings, so a reload cannot turn a
+        // consent-less setup into a green card.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd() with { AdminConsentPending = true }));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("consent");
+    }
+
+    [Fact]
     public async Task Azure_PerUserPermissions_WithoutSignIn_IsNotConfigured()
     {
         var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),

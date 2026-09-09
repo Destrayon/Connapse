@@ -79,7 +79,7 @@ public class S3Connector : IConnector, IDisposable
                 if (obj.Key == effectivePrefix) continue;
                 // A "folder" made in the S3 console is a zero-byte key ending in "/". It is not a
                 // file, and ingested as one it is an empty document with no extension.
-                if (obj.Key.EndsWith('/')) continue;
+                if (obj.Key.EndsWith('/') && (obj.Size ?? 0) == 0) continue;
                 // Return virtual path: strip config prefix, ensure leading /
                 var virtualPath = StripConfigPrefix(obj.Key);
                 files.Add(new ConnectorFile(

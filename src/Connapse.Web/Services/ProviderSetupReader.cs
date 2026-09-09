@@ -135,6 +135,12 @@ public class ProviderSetupReader(
                 "Sign-in is set, but Providers:Azure SubscriptionId is missing — the RBAC resolver "
                 + "needs it, so Azure filtering fails closed until it is set.");
 
+        if (signIn.AdminConsentPending)
+            return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                "Sign-in is set, but the access app's Microsoft Graph permissions still need an "
+                + "administrator's consent — directory lookups fail until then, so Azure filtering "
+                + "fails closed.");
+
         return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
             $"Tenant {signIn.TenantId}, subscription {provider.SubscriptionId}");
     }

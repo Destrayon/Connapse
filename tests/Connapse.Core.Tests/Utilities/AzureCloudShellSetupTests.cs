@@ -172,12 +172,46 @@ public class AzureCloudShellSetupTests
     }
 
     [Fact]
-    public void Scripts_FindExistingAppsByName_SoReRunsDoNotDuplicate()
+    public void Scripts_NeverDiscoverAppsByDisplayName()
     {
-        AzureCloudShellSetup.GenerateAccessScript(AccessInput())
-            .Should().Contain("az ad app list --display-name \"$ACCESS_APP_NAME\"");
-        AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput())
-            .Should().Contain("az ad app list --display-name \"$SIGNIN_APP_NAME\"");
+        // A display name is not unique or authoritative: a look-alike registered by another tenant
+        // user must never be handed Connapse's roles and Graph permissions.
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput()).Should().NotContain("--display-name \"$ACCESS_APP_NAME\" --query '[0]");
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput()).Should().NotContain("az ad app list");
+        AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()).Should().NotContain("az ad app list");
+    }
+
+    [Fact]
+    public void AccessScript_FirstRun_CreatesAFreshApp_ReRunReusesOnlyTheRecordedId()
+    {
+        string fresh = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+        fresh.Should().Contain("ACCESS_APP_ID=''");
+        fresh.Should().Contain("az ad app create --display-name \"$ACCESS_APP_NAME\"");
+
+        string rerun = AzureCloudShellSetup.GenerateAccessScript(AccessInput() with { ExistingAccessAppClientId = AccessId });
+        rerun.Should().Contain($"ACCESS_APP_ID='{AccessId}'");
+        rerun.Should().Contain("az ad app show --id \"$ACCESS_APP_ID\"");
+
+        // Anything that is not a GUID is treated as "nothing recorded", so it cannot inject shell.
+        AzureCloudShellSetup.GenerateAccessScript(AccessInput() with { ExistingAccessAppClientId = "'; rm -rf / #" })
+            .Should().Contain("ACCESS_APP_ID=''");
+    }
+
+    [Fact]
+    public void PermissionsScript_ReRunReusesOnlyTheRecordedSignInId()
+    {
+        AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()).Should().Contain("SIGNIN_APP_ID=''");
+        AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput() with { ExistingSignInAppClientId = SignInId })
+            .Should().Contain($"SIGNIN_APP_ID='{SignInId}'").And.Contain("az ad app show --id \"$SIGNIN_APP_ID\"");
+    }
+
+    [Fact]
+    public void AccessScript_RoleAssignmentFailsLoudly_InsteadOfPrintingAPasteBlock()
+    {
+        string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
+        s.Should().Contain("assign_role '" + AzureCloudShellSetup.BlobDataRoleName + "' \"$STORAGE_SCOPE\"");
+        s.Should().Contain("after 5 attempts");
+        s.Should().NotContain("&& break || sleep");
     }
 
     [Fact]

@@ -180,6 +180,12 @@ public class ProvidersPageTests
             .And.Contain("Id=\"azure-access\"")
             .And.Contain("Id=\"azure-permissions\"");
         Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(3);
+
+        // Saving Azure sign-in must latch Azure enforcement at save time, like the SAML save does —
+        // relying on the startup latch alone left azblob results unfiltered until the next restart.
+        int azureSave = markup.IndexOf("private async Task SaveAzureAdFromForm(", StringComparison.Ordinal);
+        azureSave.Should().BeGreaterThan(0);
+        markup[azureSave..].Should().Contain("AzureEnforcing = enforcing");
         markup.Should().NotContain("confirmResetAccess")
             .And.NotContain("confirmResetIdentityCenter")
             .And.NotContain("confirmResetSamlApplication");

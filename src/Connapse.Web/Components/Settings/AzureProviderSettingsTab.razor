@@ -52,8 +52,11 @@
             Certificate password <span class="text-muted">(PFX only)</span>
         </label>
         <SecretTextArea Id="az-cert-pw" Multiline="false" @bind-Value="certPassword"
-                        Placeholder="Leave blank for a PEM certificate" DescribedBy="az-cert-pw-help" />
-        <div id="az-cert-pw-help" class="form-text">Only for a password-protected PFX. Stored encrypted.</div>
+                        Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")"
+                        DescribedBy="az-cert-pw-help" />
+        <div id="az-cert-pw-help" class="form-text">
+            Only for a password-protected PFX. The stored value is never shown here; leave it blank to keep it.
+        </div>
     </div>
 
     <div class="col-12">
@@ -94,7 +97,8 @@
         clientId = Settings.ClientId;
         subscriptionId = Settings.SubscriptionId;
         certPath = Settings.ClientCertificatePath;
-        certPassword = Settings.ClientCertificatePassword;
+        // The stored password is never rehydrated into the browser; blank on save keeps it.
+        certPassword = null;
         miClientId = Settings.UserAssignedManagedIdentityClientId;
     }
 
@@ -105,7 +109,7 @@
             ClientId = Trim(clientId),
             SubscriptionId = Trim(subscriptionId),
             ClientCertificatePath = Trim(certPath),
-            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? null : certPassword,
+            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
             UserAssignedManagedIdentityClientId = Trim(miClientId),
         });
 

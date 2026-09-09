@@ -40,8 +40,11 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
     /// <c>hdi_isfolder</c>) or a flat-namespace folder marker (a name ending in <c>/</c>). Either
     /// one ingested as a file is an empty document with no extension.
     /// </summary>
-    internal static bool IsDirectoryPlaceholder(string name, IDictionary<string, string>? metadata)
+    internal static bool IsDirectoryPlaceholder(string name, long? contentLength, IDictionary<string, string>? metadata)
     {
+        // A directory never has content. A blob that does is a file whatever its name or metadata
+        // says — both are application-controlled on a flat-namespace account.
+        if (contentLength is > 0) return false;
         if (name.EndsWith('/')) return true;
         return metadata is not null
             && metadata.TryGetValue("hdi_isfolder", out string? isFolder)
@@ -56,7 +59,7 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
         // listing returns each directory as a zero-byte blob whose only tell is hdi_isfolder=true.
         await foreach (var item in _container.GetBlobsAsync(BlobTraits.Metadata, BlobStates.None, effective, ct))
         {
-            if (IsDirectoryPlaceholder(item.Name, item.Metadata)) continue;
+            if (IsDirectoryPlaceholder(item.Name, item.Properties.ContentLength, item.Metadata)) continue;
 
             files.Add(new ConnectorFile(
                 item.Name,

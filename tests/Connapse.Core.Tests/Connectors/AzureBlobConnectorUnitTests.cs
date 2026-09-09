@@ -15,16 +15,18 @@ public class AzureBlobConnectorUnitTests
             new BlobServiceClient(new Uri("http://127.0.0.1:10000/devstoreaccount1")));
 
     [Theory]
-    [InlineData("reports/", null, true)]                 // flat-namespace folder marker
-    [InlineData("reports/q1", "true", true)]             // Gen2 directory placeholder
-    [InlineData("reports/q1", "True", true)]
-    [InlineData("reports/q1.pdf", "false", false)]
-    [InlineData("reports/q1.pdf", null, false)]
-    [InlineData("README", null, false)]                  // an extension-less real file is still a file
-    public void IsDirectoryPlaceholder_FoldersAreNotFiles(string name, string? hdiIsFolder, bool expected)
+    [InlineData("reports/", 0, null, true)]              // flat-namespace folder marker
+    [InlineData("reports/q1", 0, "true", true)]          // Gen2 directory placeholder
+    [InlineData("reports/q1", 0, "True", true)]
+    [InlineData("reports/q1.pdf", 1234, "false", false)]
+    [InlineData("reports/q1.pdf", 1234, null, false)]
+    [InlineData("README", 0, null, false)]               // an empty extension-less real file is still a file
+    [InlineData("reports/", 512, null, false)]           // a real blob that merely ends in '/' is a file
+    [InlineData("reports/q1", 512, "true", false)]       // content wins over app-controlled metadata
+    public void IsDirectoryPlaceholder_OnlyZeroByteFolderMarkersAreDropped(string name, long length, string? hdiIsFolder, bool expected)
     {
         var metadata = hdiIsFolder is null ? null : new Dictionary<string, string> { ["hdi_isfolder"] = hdiIsFolder };
-        AzureBlobConnector.IsDirectoryPlaceholder(name, metadata).Should().Be(expected);
+        AzureBlobConnector.IsDirectoryPlaceholder(name, length, metadata).Should().Be(expected);
     }
 
     [Fact] public void Type_IsAzureBlob() => Make().Type.Should().Be(ConnectorType.AzureBlob);

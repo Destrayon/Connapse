@@ -645,6 +645,7 @@
                     Blob endpoint <span class="text-muted">(optional)</span>
                 </label>
                 <input id="azure-blob-endpoint" class="form-control font-monospace" @bind="form.BlobEndpoint"
+                       @bind:after="AccountNameChanged"
                        placeholder="@($"https://{(string.IsNullOrWhiteSpace(form.StorageAccountName) ? "account" : form.StorageAccountName)}.blob.core.windows.net")"
                        aria-describedby="azure-blob-endpoint-help" />
                 <div id="azure-blob-endpoint-help" class="form-text">
@@ -1455,6 +1456,10 @@
     private string? accountFilter;
 
     private IReadOnlyList<string>? discoveredContainers;
+
+    /// <summary>The endpoint <see cref="discoveredContainers"/> was listed from. A different endpoint
+    /// — the account name or the override changed — means a different set of containers.</summary>
+    private string? discoveredContainersFor;
     private bool listingContainers;
     private string? containerListMessage;
     private bool containerPickerOpen;
@@ -1550,18 +1555,24 @@
         containerPickerOpen = !containerPickerOpen;
         if (!containerPickerOpen) return;
 
-        if (discoveredContainers is null)
+        if (discoveredContainers is null || discoveredContainersFor != AzureEndpointForForm())
             await ListContainers();
     }
 
     private async Task ListContainers()
     {
+        string endpoint = AzureEndpointForForm() ?? "";
         listingContainers = true;
         containerListMessage = null;
         try
         {
-            var probe = await AzureDiscovery.ListContainersAsync(AzureEndpointForForm() ?? "");
+            var probe = await AzureDiscovery.ListContainersAsync(endpoint);
 
+            // The account may have changed while the request was in flight; a list for the old
+            // endpoint must not be offered as the new one's.
+            if (endpoint != (AzureEndpointForForm() ?? "")) return;
+
+            discoveredContainersFor = endpoint;
             discoveredContainers = probe.Value;
             containerListMessage = probe.Outcome switch
             {

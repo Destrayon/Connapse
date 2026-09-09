@@ -1215,7 +1215,7 @@
                             <dd class="col-sm-9 font-monospace">@azureAdSettings.RedirectUri</dd>
                         </dl>
                     }
-                    @if (azureConsentPending && azureConsentUrl is { Length: > 0 } consentUrl)
+                    @if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
                     {
                         <div class="alert alert-warning mt-2 mb-0" role="alert">
                             <div class="mb-2">
@@ -1232,7 +1232,7 @@
                                 <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => CopyText(consentUrl)">
                                     <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy link
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => azureConsentPending = false">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="MarkAzureConsentGranted">
                                     Consent has been granted
                                 </button>
                             </div>
@@ -1388,8 +1388,9 @@
     private AzureCertificateMaterial? azureSignInCert;
     private string? azurePermissionsPasted;
     private bool azureBusy;
-    private string? azureConsentUrl;
-    private bool azureConsentPending;
+
+    /// <summary>Set when Entra bounced back here after the administrator consented; cleared once recorded.</summary>
+    private bool azureConsentBounce;
 
     private string? grantsCopyMessage;
     private bool grantsCopySucceeded;
@@ -1570,6 +1571,7 @@
         {
             saveMessage = "Admin consent granted — Connapse can now look people and groups up in Entra.";
             saveSuccess = true;
+            azureConsentBounce = true;
         }
         else if (query.TryGetValue("error", out var consentError))
         {
@@ -1593,6 +1595,15 @@
 
         setups = await SetupReader.ReadAsync();
         await LoadAwsCredentialModeAsync();
+
+        // Entra bounced back after the administrator consented: record it, so the pending state
+        // clears for good rather than only for this page view.
+        if (azureConsentBounce && azureAdSettings.AdminConsentPending)
+        {
+            azureConsentBounce = false;
+            await MarkAzureConsentGranted();
+        }
+
         StateHasChanged();
     }
 
@@ -2214,6 +2225,11 @@
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status.</summary>
     private async Task SaveAzureAdFromForm(AzureAdSignInSettings settings)
     {
+        // Latched here, at save time, exactly as SaveSamlSettings does for AWS. The startup latch
+        // alone left a gap: a deployment that configured Azure sign-in and never restarted stayed
+        // NotEnforcing, and every azblob result passed unfiltered until the next process start.
+        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
+
         await SaveSettings("azuread", settings);
 
         if (saveSuccess)
@@ -2221,6 +2237,17 @@
             azureAdSettings = settings;
             await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
                 new { Configured = settings.IsConfigured });
+        }
+
+        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
+        {
+            await SaveSettings(
+                PermissionEnforcementSettings.Category,
+                new PermissionEnforcementSettings
+                {
+                    IsEnforcing = EnforcementOptions.CurrentValue.IsEnforcing,
+                    AzureEnforcing = enforcing,
+                });
         }
 
         await RefreshSetups();
@@ -2235,7 +2262,8 @@
         azureAccessCert = LoadOrMintAzureCertificate(AzureAccessCertFile, "connapse-azure-access", newCertificate);
         azureAccessScript = AzureCloudShellSetup.GenerateAccessScript(new AzureAccessSetupInput(
             AccessAppName: "Connapse-Azure-Access",
-            PublicCertificatePem: azureAccessCert.PublicCertificatePem));
+            PublicCertificatePem: azureAccessCert.PublicCertificatePem,
+            ExistingAccessAppClientId: azureProviderSettings.ClientId));
         azureAccessPasted = null;
         copyMessage = null;
     }
@@ -2260,7 +2288,8 @@
             RedirectUri: easyRedirectUri.Trim(),
             ConsentRedirectUri: AzureConsentLandingUri,
             SignInAppName: "Connapse-Azure-SignIn",
-            PublicCertificatePem: azureSignInCert!.PublicCertificatePem));
+            PublicCertificatePem: azureSignInCert!.PublicCertificatePem,
+            ExistingSignInAppClientId: azureAdSettings.ClientId));
     }
 
     /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
@@ -2292,8 +2321,6 @@
         azurePermissionsScript = null;
         azureSignInCert = null;
         azurePermissionsPasted = null;
-        azureConsentPending = false;
-        azureConsentUrl = null;
     }
 
     private void DeleteAzureCertificate(string fileName)
@@ -2301,6 +2328,16 @@
         string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
         if (File.Exists(path)) File.Delete(path);
     }
+
+    /// <summary>The admin-consent link for the access app — derived from settings, so it survives a
+    /// reload and needs no stored copy.</summary>
+    private string? AzureConsentUrl =>
+        azureProviderSettings is { TenantId: { Length: > 0 } tenant, ClientId: { Length: > 0 } app }
+            ? $"https://login.microsoftonline.com/{tenant}/adminconsent?client_id={app}&redirect_uri={Uri.EscapeDataString(AzureConsentLandingUri)}"
+            : null;
+
+    private Task MarkAzureConsentGranted() =>
+        SaveAzureAdFromForm(azureAdSettings with { AdminConsentPending = false });
 
     private void RefreshAzurePermissionsScript()
     {
@@ -2347,9 +2384,33 @@
         }
 
         AzureCertificateMaterial minted = AzureCertificateGenerator.Generate(commonName);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, minted.CombinedPem);
+        WriteOwnerOnly(path, minted.CombinedPem);
         return minted;
+    }
+
+    /// <summary>
+    /// Writes a private-key file readable by Connapse's own user only: 0600 in a 0700 directory on
+    /// Unix (a default umask would have made it world-readable); on Windows it inherits the app
+    /// directory's ACL. The mode is set again after writing because a create mode only applies to
+    /// a file that did not exist.
+    /// </summary>
+    private static void WriteOwnerOnly(string path, string content)
+    {
+        string dir = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(dir);
+        bool unix = !OperatingSystem.IsWindows();
+        if (unix)
+            File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None };
+        if (unix) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var stream = new FileStream(path, options))
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(content);
+        }
+
+        if (unix) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
     private async Task CopyText(string text)
@@ -2401,13 +2462,11 @@
 
     /// <summary>The private key stays on this host: the cert + key go to the appdata volume, and only
     /// the public certificate was uploaded to Azure by the script.</summary>
-    private async Task<string> WriteAzureCertificateAsync(string fileName, string combinedPem)
+    private Task<string> WriteAzureCertificateAsync(string fileName, string combinedPem)
     {
-        string certDir = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure");
-        Directory.CreateDirectory(certDir);
-        string certPath = Path.Combine(certDir, fileName);
-        await File.WriteAllTextAsync(certPath, combinedPem);
-        return certPath;
+        string certPath = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+        WriteOwnerOnly(certPath, combinedPem);
+        return Task.FromResult(certPath);
     }
 
     /// <summary>
@@ -2433,10 +2492,10 @@
                 ClientId = result.SignInAppClientId,
                 RedirectUri = easyRedirectUri.Trim(),
                 ClientCertificatePath = certPath,
+                // Persisted, so a reload cannot turn "consent still pending" into a green card.
+                AdminConsentPending = !result.ConsentGranted,
             });
 
-            azureConsentPending = !result.ConsentGranted;
-            azureConsentUrl = result.ConsentUrl;
             azurePermissionsScript = null;
             azureSignInCert = null;
             azurePermissionsPasted = null;

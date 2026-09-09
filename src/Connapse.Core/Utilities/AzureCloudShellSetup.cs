@@ -3,7 +3,13 @@ namespace Connapse.Core.Utilities;
 /// <summary>Inputs for the Access step's script: the app name and the PUBLIC certificate it authenticates
 /// with (the private key stays on the host). The subscription is whichever one Cloud Shell is signed
 /// in to — the script reads it and prints it back, so the operator types nothing.</summary>
-public sealed record AzureAccessSetupInput(string AccessAppName, string PublicCertificatePem);
+/// <param name="ExistingAccessAppClientId">The access app Connapse already recorded, when re-running;
+/// the script reuses exactly that app and never looks one up by display name (names are neither
+/// unique nor authoritative, so a pre-registered look-alike could otherwise be granted the roles).</param>
+public sealed record AzureAccessSetupInput(
+    string AccessAppName,
+    string PublicCertificatePem,
+    string? ExistingAccessAppClientId = null);
 
 /// <summary>The non-secret identifiers the Access script prints back.</summary>
 public sealed record AzureAccessResult(string TenantId, string SubscriptionId, string AccessAppClientId);
@@ -17,7 +23,8 @@ public sealed record AzurePermissionsSetupInput(
     string RedirectUri,
     string ConsentRedirectUri,
     string SignInAppName,
-    string PublicCertificatePem);
+    string PublicCertificatePem,
+    string? ExistingSignInAppClientId = null);
 
 /// <summary>What the Per-user permissions script prints back, including whether the operator was able
 /// to grant admin consent (and the URL to hand an administrator when they were not).</summary>
@@ -65,6 +72,7 @@ public static class AzureCloudShellSetup
         ArgumentNullException.ThrowIfNull(input);
         return AccessTemplate
             .Replace("{{accessAppName}}", Shell(input.AccessAppName))
+            .Replace("{{existingAccessAppId}}", Shell(GuidOrEmpty(input.ExistingAccessAppClientId)))
             .Replace("{{blobRoleName}}", BlobDataRoleName)
             .Replace("{{rbacRoleName}}", RbacReadRoleName)
             .Replace("{{beginMarker}}", AccessBeginMarker)
@@ -98,6 +106,7 @@ public static class AzureCloudShellSetup
             .Replace("{{redirectUri}}", Shell(input.RedirectUri))
             .Replace("{{consentRedirectUri}}", Shell(input.ConsentRedirectUri))
             .Replace("{{consentRedirectEncoded}}", Uri.EscapeDataString(input.ConsentRedirectUri))
+            .Replace("{{existingSignInAppId}}", Shell(GuidOrEmpty(input.ExistingSignInAppClientId)))
             .Replace("{{signInAppName}}", Shell(input.SignInAppName))
             .Replace("{{graphAppId}}", GraphAppId)
             .Replace("{{beginMarker}}", PermissionsBeginMarker)
@@ -151,6 +160,10 @@ public static class AzureCloudShellSetup
 
     /// <summary>Escapes a value for safe inclusion inside single quotes in the generated bash.</summary>
     private static string Shell(string value) => value.Replace("'", "'\\''");
+
+    /// <summary>An app id is only ever a GUID; anything else is treated as "none recorded".</summary>
+    private static string GuidOrEmpty(string? value) =>
+        Guid.TryParse(value?.Trim(), out Guid id) ? id.ToString() : string.Empty;
 
     private const string AccessTemplate = """
         #!/usr/bin/env bash
@@ -225,9 +238,16 @@ public static class AzureCloudShellSetup
           \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
         }"
 
-        # --- Access app registration (certificate-authenticated); reused by name on re-runs ---
-        ACCESS_APP_ID=$(az ad app list --display-name "$ACCESS_APP_NAME" --query '[0].appId' -o tsv)
-        [ -n "$ACCESS_APP_ID" ] || ACCESS_APP_ID=$(az ad app create --display-name "$ACCESS_APP_NAME" --query appId -o tsv)
+        # --- Access app registration (certificate-authenticated) ---
+        # Re-runs reuse exactly the app Connapse recorded, by id. Never by display name: names are
+        # not unique, and a look-alike registered by someone else must not be handed these roles.
+        ACCESS_APP_ID='{{existingAccessAppId}}'
+        if [ -n "$ACCESS_APP_ID" ]; then
+          az ad app show --id "$ACCESS_APP_ID" --query appId -o tsv >/dev/null \
+            || { echo "The access app Connapse recorded ($ACCESS_APP_ID) no longer exists. Reset the Access step in Connapse and run again." >&2; exit 1; }
+        else
+          ACCESS_APP_ID=$(az ad app create --display-name "$ACCESS_APP_NAME" --query appId -o tsv)
+        fi
         # Registers the certificate; a re-run with the same certificate is fine, anything else is fatal.
         register_cert() {
           local out
@@ -239,13 +259,20 @@ public static class AzureCloudShellSetup
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
         rm -f "$CERT_FILE"
 
-        # Role assignments wait for the role definitions + service principal to propagate; retry briefly.
-        for i in 1 2 3 4 5; do
-          az role assignment create --assignee "$ACCESS_APP_ID" --role '{{blobRoleName}}' --scope "$STORAGE_SCOPE" >/dev/null 2>&1 && break || sleep 10
-        done
-        for i in 1 2 3 4 5; do
-          az role assignment create --assignee "$ACCESS_APP_ID" --role '{{rbacRoleName}}' --scope "/subscriptions/$SUBSCRIPTION_ID" >/dev/null 2>&1 && break || sleep 10
-        done
+        # Role assignments wait for the role definitions + service principal to propagate; retry
+        # briefly, and fail the script if they never land — a paste block without these grants
+        # would record a setup that cannot read anything.
+        assign_role() {  # $1 role name, $2 scope
+          local i
+          for i in 1 2 3 4 5; do
+            if az role assignment create --assignee "$ACCESS_APP_ID" --role "$1" --scope "$2" >/dev/null 2>&1; then return 0; fi
+            sleep 10
+          done
+          echo "Could not assign '$1' at $2 after 5 attempts." >&2
+          return 1
+        }
+        assign_role '{{blobRoleName}}' "$STORAGE_SCOPE"
+        assign_role '{{rbacRoleName}}' "/subscriptions/$SUBSCRIPTION_ID"
 
         echo
         printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\n%s\n' \
@@ -279,9 +306,15 @@ public static class AzureCloudShellSetup
         {{cert}}
         CONNAPSE_CERT_EOF
 
-        # --- Sign-in app registration (OIDC, certificate client-assertion); reused by name on re-runs ---
-        SIGNIN_APP_ID=$(az ad app list --display-name "$SIGNIN_APP_NAME" --query '[0].appId' -o tsv)
-        [ -n "$SIGNIN_APP_ID" ] || SIGNIN_APP_ID=$(az ad app create --display-name "$SIGNIN_APP_NAME" --query appId -o tsv)
+        # --- Sign-in app registration (OIDC, certificate client-assertion) ---
+        # Reused only by the id Connapse recorded, never by display name (see the Access script).
+        SIGNIN_APP_ID='{{existingSignInAppId}}'
+        if [ -n "$SIGNIN_APP_ID" ]; then
+          az ad app show --id "$SIGNIN_APP_ID" --query appId -o tsv >/dev/null \
+            || { echo "The sign-in app Connapse recorded ($SIGNIN_APP_ID) no longer exists. Reset the sign-in application in Connapse and run again." >&2; exit 1; }
+        else
+          SIGNIN_APP_ID=$(az ad app create --display-name "$SIGNIN_APP_NAME" --query appId -o tsv)
+        fi
         az ad app update --id "$SIGNIN_APP_ID" --web-redirect-uris "$REDIRECT_URI"
         # Registers the certificate; a re-run with the same certificate is fine, anything else is fatal.
         register_cert() {

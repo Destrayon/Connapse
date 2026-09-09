@@ -48,7 +48,7 @@
             Certificate password <span class="text-muted">(PFX only)</span>
         </label>
         <SecretTextArea Id="azad-cert-pw" Multiline="false" @bind-Value="certPassword"
-                        Placeholder="Leave blank for a PEM certificate" />
+                        Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")" />
     </div>
 </div>
 
@@ -70,7 +70,8 @@
         clientId = Settings.ClientId;
         redirectUri = Settings.RedirectUri;
         certPath = Settings.ClientCertificatePath;
-        certPassword = Settings.ClientCertificatePassword;
+        // The stored password is never rehydrated into the browser; blank on save keeps it.
+        certPassword = null;
     }
 
     private Task HandleSubmit() =>
@@ -80,7 +81,8 @@
             ClientId = Trim(clientId),
             RedirectUri = Trim(redirectUri),
             ClientCertificatePath = Trim(certPath),
-            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? null : certPassword,
+            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
+            AdminConsentPending = Settings.AdminConsentPending,
         });
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
