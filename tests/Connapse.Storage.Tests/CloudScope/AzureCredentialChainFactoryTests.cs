@@ -44,6 +44,67 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
+    public void Create_TenantAndUserAssignedManagedIdentity_UsesManagedIdentity()
+    {
+        // The provider page records the tenant for every identity. A tenant beside a managed
+        // identity id is not certificate intent, and must not be refused as a half-filled one.
+        var settings = new AzureProviderSettings { TenantId = "t", UserAssignedManagedIdentityClientId = "mi-client" };
+        var cred = AzureCredentialChainFactory.Create(settings, _ => null);
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
+    }
+
+    [Fact]
+    public void Create_HostManagedIdentityFlag_UsesTheSystemAssignedIdentity_TenantOrNot()
+    {
+        // The guided setup on an Azure host records only the flag (and the tenant, for display);
+        // that must be the host's own identity, never a refusal for a "half-filled" certificate.
+        var settings = new AzureProviderSettings { TenantId = "t", UseHostManagedIdentity = true, ManagedIdentityPrincipalId = "oid" };
+        var cred = AzureCredentialChainFactory.Create(settings, _ => null);
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
+        AzureCredentialChainFactory.IsHostManagedIdentity(settings).Should().BeTrue();
+        AzureCredentialChainFactory.IsManagedIdentity(settings).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_HostFlagAndUserAssignedIdTogether_Throws_RatherThanChoosing()
+    {
+        // Neither side is picked: the flag and the id name different identities.
+        var settings = new AzureProviderSettings { UseHostManagedIdentity = true, UserAssignedManagedIdentityClientId = "mi" };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => null);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*both*");
+        AzureCredentialChainFactory.IsManagedIdentity(settings).Should().BeFalse();
+
+        // The same for the flag beside a certificate app: the certificate must not win silently.
+        var withApp = new AzureProviderSettings { TenantId = "t", UseHostManagedIdentity = true, ClientId = "c", ClientCertificatePath = "x.pem" };
+        var actApp = () => AzureCredentialChainFactory.Create(withApp, _ => SelfSigned());
+        actApp.Should().Throw<InvalidOperationException>().WithMessage("*both*");
+    }
+
+    [Fact]
+    public void IsHostManagedIdentity_FalseWhenACertificateOrUserAssignedFieldIsSet()
+    {
+        // The flag beside a certificate field is a mix the form can never produce; if it arrives
+        // from configuration it is certificate intent and must fail closed like any other mix.
+        AzureCredentialChainFactory.IsHostManagedIdentity(
+            new AzureProviderSettings { UseHostManagedIdentity = true, ClientId = "c" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsHostManagedIdentity(
+            new AzureProviderSettings { UseHostManagedIdentity = true, UserAssignedManagedIdentityClientId = "mi" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsHostManagedIdentity(new AzureProviderSettings { TenantId = "t" }).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsUserAssignedManagedIdentity_FalseWhenAnyCertificateFieldIsSet()
+    {
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { TenantId = "t", UserAssignedManagedIdentityClientId = "mi" }).Should().BeTrue();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { UserAssignedManagedIdentityClientId = "mi", ClientId = "c" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { UserAssignedManagedIdentityClientId = "mi", ClientCertificatePath = "x.pem" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(new AzureProviderSettings { TenantId = "t" }).Should().BeFalse();
+    }
+
+    [Fact]
     public void Create_ClientIdSetButCertMissing_Throws()
     {
         var settings = new AzureProviderSettings { TenantId = "t", ClientId = "c" };

@@ -34,6 +34,9 @@ public record AzureProbe<T>(T? Value, AzureProbeOutcome Outcome, string? Detail 
 
     public static AzureProbe<T> Failed(string? detail = null) =>
         new(default, AzureProbeOutcome.Failed, detail);
+
+    public static AzureProbe<T> Unusable(string? detail = null) =>
+        new(default, AzureProbeOutcome.Unusable, detail);
 }
 
 public enum AzureProbeOutcome
@@ -47,7 +50,12 @@ public enum AzureProbeOutcome
     Denied = 2,
 
     /// <summary>Something else — a timeout, a network fault, an unexpected error.</summary>
-    Failed = 3
+    Failed = 3,
+
+    /// <summary>The identity is configured but cannot be used from this host: its certificate file
+    /// is missing or unreadable, or the configuration is only partly filled in. Nothing was asked of
+    /// Azure; fixing the file or the settings is the whole remedy.</summary>
+    Unusable = 4
 }
 
 /// <summary>
@@ -56,6 +64,27 @@ public enum AzureProbeOutcome
 /// </summary>
 public interface IAzureBlobDiscovery
 {
+    /// <summary>
+    /// Asks Entra for a token as Connapse's own identity, proving the credential is accepted:
+    /// the certificate is registered on the app and not expired, or the managed identity exists.
+    /// </summary>
+    /// <remarks>
+    /// Authentication only — a token is issued whether or not any role is assigned, so a pass
+    /// says "Entra accepts this identity", not "it can read a container". The value is a sentence
+    /// saying what was verified. <see cref="AzureProbeOutcome.Denied"/> means Entra refused the
+    /// credential itself (an <c>AADSTS</c> error), which only setting access up again can fix;
+    /// <see cref="AzureProbeOutcome.Failed"/> means the check could not complete.
+    /// </remarks>
+    Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The same check for settings that are not stored yet — a form about to be saved, or a
+    /// replacement certificate about to be promoted — so nothing that works is replaced by
+    /// something Entra rejects. Also used for the sign-in application, whose identity has the
+    /// same shape. Never answers from a cached token.
+    /// </summary>
+    Task<AzureProbe<string>> CheckAccessAsync(AzureProviderSettings candidate, CancellationToken ct = default);
+
     /// <summary>
     /// Every storage account in the configured subscription the identity may read metadata for.
     /// </summary>

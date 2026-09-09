@@ -102,8 +102,160 @@ public class AzureCloudShellSetupTests
     public void AccessScript_PrintsTheKeys_ParseAccessResultReads()
     {
         string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
-        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=" })
+        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=", "certificateThumbprint=" })
             s.Should().Contain(key);
+    }
+
+    [Fact]
+    public void Scripts_ReadTheThumbprintBeforeDeletingTheCertificateFile()
+    {
+        // The thumbprint is what lets the page refuse to keep a certificate other than the one the
+        // script registered; it has to be taken while the file still exists.
+        foreach (string s in new[]
+                 {
+                     AzureCloudShellSetup.GenerateAccessScript(AccessInput()),
+                     AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()),
+                 })
+        {
+            int thumb = s.IndexOf("CERT_THUMBPRINT=$(openssl x509 -in \"$CERT_FILE\"", StringComparison.Ordinal);
+            int remove = s.IndexOf("rm -f \"$CERT_FILE\"", StringComparison.Ordinal);
+            thumb.Should().BeGreaterThan(0);
+            remove.Should().BeGreaterThan(thumb);
+        }
+    }
+
+    [Theory]
+    [InlineData("ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01", "ABCDEF0123456789ABCDEF0123456789ABCDEF01")]
+    [InlineData("ABCDEF0123456789ABCDEF0123456789ABCDEF01", "ABCDEF0123456789ABCDEF0123456789ABCDEF01")]
+    [InlineData("", null)]
+    [InlineData("not-a-thumbprint", null)]
+    public void ParseAccessResult_ReadsTheThumbprint_NormalisedOrNone(string printed, string? expected)
+    {
+        string block = AzureCloudShellSetup.AccessBeginMarker
+            + $"\ntenantId={Tenant}\nsubscriptionId={Sub}\naccessAppClientId={AccessId}\ncertificateThumbprint={printed}\n"
+            + AzureCloudShellSetup.AccessEndMarker;
+
+        AzureCloudShellSetup.ParseAccessResult(block)!.CertificateThumbprint.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ParseAccessResult_OlderPasteWithoutThumbprint_StillParses() =>
+        AzureCloudShellSetup.ParseAccessResult(AccessBlock())!.CertificateThumbprint.Should().BeNull();
+
+    // ---- Access step on an Azure host: the managed identity ----
+
+    private const string MiPrincipal = "55555555-5555-5555-5555-555555555555";
+    private const string MiClient = "66666666-6666-6666-6666-666666666666";
+
+    private static AzureManagedIdentityAccessSetupInput ManagedIdentityInput(bool userAssigned = false) =>
+        new(MiPrincipal, MiClient, userAssigned);
+
+    [Fact]
+    public void ManagedIdentityAccessScript_AssignsByObjectId_AndNeverRegistersAnApp()
+    {
+        string s = AzureCloudShellSetup.GenerateManagedIdentityAccessScript(ManagedIdentityInput());
+
+        s.Should().Contain($"MI_PRINCIPAL_ID='{MiPrincipal}'");
+        s.Should().Contain("--assignee-object-id \"$MI_PRINCIPAL_ID\" --assignee-principal-type ServicePrincipal");
+        s.Should().Contain(AzureCloudShellSetup.BlobDataRoleName).And.Contain(AzureCloudShellSetup.RbacReadRoleName);
+        // No app registration, no certificate: that is the whole point of this path.
+        s.Should().NotContain("az ad app").And.NotContain("CERT_FILE").And.NotContain("BEGIN CERTIFICATE");
+        s.Should().Contain("MI_KIND='system-assigned'");
+        AzureCloudShellSetup.GenerateManagedIdentityAccessScript(ManagedIdentityInput(userAssigned: true))
+            .Should().Contain("MI_KIND='user-assigned'");
+    }
+
+    [Fact]
+    public void ManagedIdentityAccessScript_PrintsTheKeys_ParseReads()
+    {
+        string s = AzureCloudShellSetup.GenerateManagedIdentityAccessScript(ManagedIdentityInput());
+        foreach (string key in new[] { "tenantId=", "subscriptionId=", "managedIdentityPrincipalId=", "managedIdentityClientId=", "managedIdentityKind=" })
+            s.Should().Contain(key);
+        s.Should().Contain(AzureCloudShellSetup.ManagedIdentityBeginMarker).And.Contain(AzureCloudShellSetup.ManagedIdentityEndMarker);
+    }
+
+    [Fact]
+    public void ManagedIdentityAccessScript_RunsInASubshell_LikeTheOthers()
+    {
+        string s = AzureCloudShellSetup.GenerateManagedIdentityAccessScript(ManagedIdentityInput()).Replace("\r\n", "\n");
+        s.Should().Contain("\n(\nset -euo pipefail\ntrap 'echo; echo \"Connapse setup failed at: $BASH_COMMAND\" >&2' ERR");
+        s.Should().Contain(") || echo \"----- CONNAPSE SETUP FAILED");
+    }
+
+    private static string ManagedIdentityBlock(string principal = MiPrincipal, string kind = "system-assigned") =>
+        AzureCloudShellSetup.ManagedIdentityBeginMarker
+        + $"\ntenantId={Tenant}\nsubscriptionId={Sub}\nmanagedIdentityPrincipalId={principal}\nmanagedIdentityClientId={MiClient}\nmanagedIdentityKind={kind}\n"
+        + AzureCloudShellSetup.ManagedIdentityEndMarker;
+
+    [Fact]
+    public void ParseManagedIdentityAccessResult_WellFormed_ReturnsEverything()
+    {
+        AzureManagedIdentityAccessResult? r = AzureCloudShellSetup.ParseManagedIdentityAccessResult(ManagedIdentityBlock());
+
+        r.Should().NotBeNull();
+        r!.TenantId.Should().Be(Tenant);
+        r.SubscriptionId.Should().Be(Sub);
+        r.PrincipalId.Should().Be(MiPrincipal);
+        r.ClientId.Should().Be(MiClient);
+        r.IsUserAssigned.Should().BeFalse();
+        AzureCloudShellSetup.ParseManagedIdentityAccessResult(ManagedIdentityBlock(kind: "user-assigned"))!.IsUserAssigned.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseManagedIdentityAccessResult_NonGuid_ReturnsNull() =>
+        AzureCloudShellSetup.ParseManagedIdentityAccessResult(ManagedIdentityBlock(principal: "bad")).Should().BeNull();
+
+    [Fact]
+    public void ParseManagedIdentityAccessResult_DoesNotReadTheCertificateAppBlock() =>
+        AzureCloudShellSetup.ParseManagedIdentityAccessResult(AccessBlock()).Should().BeNull();
+
+    [Fact]
+    public void PermissionsScript_ForAManagedIdentity_GrantsAppRolesByRest_AndNeverConsentsAnApp()
+    {
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(
+            PermissionsInput() with { AccessManagedIdentityPrincipalId = MiPrincipal });
+
+        s.Should().Contain($"ACCESS_MI_PRINCIPAL_ID='{MiPrincipal}'");
+        s.Should().Contain("/servicePrincipals/$ACCESS_MI_PRINCIPAL_ID/appRoleAssignments");
+        s.Should().Contain("\\\"principalId\\\":\\\"$ACCESS_MI_PRINCIPAL_ID\\\"")
+            .And.Contain("\\\"resourceId\\\":\\\"$GRAPH_SP_ID\\\"")
+            .And.Contain("\\\"appRoleId\\\":\\\"$1\\\"");
+        s.Should().NotContain("az ad app permission add").And.NotContain("admin-consent");
+        s.Should().Contain("CONSENT_URL=\"\"");
+        // The sign-in app is still a certificate app: people cannot sign in through a managed identity.
+        s.Should().Contain("register_cert \"$SIGNIN_APP_ID\"");
+    }
+
+    [Fact]
+    public void PermissionsScript_ForAnApp_StillAddsPermissionsAndConsents()
+    {
+        string s = AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput());
+
+        s.Should().Contain("az ad app permission add").And.Contain("admin-consent");
+        s.Should().NotContain("appRoleAssignments");
+        s.Should().NotContain("{{graphGrant}}");
+    }
+
+    [Fact]
+    public void GraphAppRoleGrantCommands_NameTheIdentity_AndBothRoles()
+    {
+        string s = AzureCloudShellSetup.GraphAppRoleGrantCommands(MiPrincipal);
+
+        s.Should().Contain($"MI='{MiPrincipal}'");
+        s.Should().Contain("User.Read.All GroupMember.Read.All");
+        s.Should().Contain("appRoleAssignments");
+        s.Should().NotContain("{{");
+    }
+
+    [Fact]
+    public void ParsePermissionsResult_ReadsTheThumbprint()
+    {
+        string block = AzureCloudShellSetup.PermissionsBeginMarker
+            + $"\nsignInAppClientId={SignInId}\nconsentGranted=true\nconsentUrl=\ncertificateThumbprint=abcdef0123456789abcdef0123456789abcdef01\n"
+            + AzureCloudShellSetup.PermissionsEndMarker;
+
+        AzureCloudShellSetup.ParsePermissionsResult(block)!.CertificateThumbprint
+            .Should().Be("ABCDEF0123456789ABCDEF0123456789ABCDEF01");
     }
 
     // ---- Per-user permissions step ----
@@ -160,12 +312,15 @@ public class AzureCloudShellSetupTests
     {
         // `set -e` pasted into an interactive shell closes the session on the first failure, taking
         // the error message with it. Both scripts wrap the body and print what failed.
-        foreach (string s in new[]
+        foreach (string script in new[]
                  {
                      AzureCloudShellSetup.GenerateAccessScript(AccessInput()),
                      AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()),
                  })
         {
+            // The template is a raw string literal, so it carries the source file's line endings;
+            // a CRLF checkout must not fail an assertion about the script's structure.
+            string s = script.Replace("\r\n", "\n");
             s.Should().Contain("\n(\nset -euo pipefail\ntrap 'echo; echo \"Connapse setup failed at: $BASH_COMMAND\" >&2' ERR");
             s.Should().Contain(") || echo \"----- CONNAPSE SETUP FAILED");
         }

@@ -12,23 +12,44 @@ public sealed record AzureAccessSetupInput(
     string? ExistingAccessAppClientId = null);
 
 /// <summary>The non-secret identifiers the Access script prints back.</summary>
-public sealed record AzureAccessResult(string TenantId, string SubscriptionId, string AccessAppClientId);
+/// <param name="CertificateThumbprint">SHA-1 thumbprint (upper-case hex, no separators) of the certificate
+/// the script registered, so the page can refuse to promote a different one; null when the paste
+/// predates the script printing it.</param>
+public sealed record AzureAccessResult(
+    string TenantId, string SubscriptionId, string AccessAppClientId, string? CertificateThumbprint = null);
 
-/// <summary>Inputs for the Per-user permissions step's script: which access app to grant Graph
-/// permissions on, the sign-in app's redirect URI, the page Entra should bounce back to after admin
-/// consent (registered on the access app — without one, the consent endpoint refuses with
-/// AADSTS500113), and the PUBLIC certificate for the sign-in app.</summary>
+/// <summary>Inputs for the Access step's script when Connapse runs on an Azure host with a managed
+/// identity: the identity to grant the roles to. No app registration and no certificate.</summary>
+/// <param name="PrincipalId">The identity's service principal object id — what the roles are assigned to.</param>
+/// <param name="ClientId">The identity's application (client) id, printed back for the record.</param>
+/// <param name="IsUserAssigned">Whether it is a user-assigned identity rather than the host's own.</param>
+public sealed record AzureManagedIdentityAccessSetupInput(string PrincipalId, string ClientId, bool IsUserAssigned);
+
+/// <summary>What the managed-identity Access script prints back.</summary>
+public sealed record AzureManagedIdentityAccessResult(
+    string TenantId, string SubscriptionId, string PrincipalId, string ClientId, bool IsUserAssigned);
+
+/// <summary>Inputs for the Per-user permissions step's script: which access identity to grant Graph
+/// permissions on (an app registration by client id, or a managed identity by principal id), the
+/// sign-in app's redirect URI, the page Entra should bounce back to after admin consent (registered
+/// on the access app — without one, the consent endpoint refuses with AADSTS500113), and the PUBLIC
+/// certificate for the sign-in app.</summary>
+/// <param name="AccessManagedIdentityPrincipalId">Set when the access identity is a managed identity:
+/// the Graph permissions are then granted to it as app roles by REST, since there is no app
+/// registration to consent to, and <paramref name="AccessAppClientId"/> is unused.</param>
 public sealed record AzurePermissionsSetupInput(
     string AccessAppClientId,
     string RedirectUri,
     string ConsentRedirectUri,
     string SignInAppName,
     string PublicCertificatePem,
-    string? ExistingSignInAppClientId = null);
+    string? ExistingSignInAppClientId = null,
+    string? AccessManagedIdentityPrincipalId = null);
 
 /// <summary>What the Per-user permissions script prints back, including whether the operator was able
 /// to grant admin consent (and the URL to hand an administrator when they were not).</summary>
-public sealed record AzurePermissionsResult(string SignInAppClientId, bool ConsentGranted, string? ConsentUrl);
+public sealed record AzurePermissionsResult(
+    string SignInAppClientId, bool ConsentGranted, string? ConsentUrl, string? CertificateThumbprint = null);
 
 /// <summary>
 /// Generates the Azure Cloud Shell (<c>az</c>) scripts that provision Connapse's Azure setup, one per
@@ -44,6 +65,24 @@ public static class AzureCloudShellSetup
     public const string AccessEndMarker = "----- END CONNAPSE AZURE ACCESS -----";
     public const string PermissionsBeginMarker = "----- BEGIN CONNAPSE AZURE PERMISSIONS -----";
     public const string PermissionsEndMarker = "----- END CONNAPSE AZURE PERMISSIONS -----";
+    public const string ManagedIdentityBeginMarker = "----- BEGIN CONNAPSE AZURE MANAGED IDENTITY -----";
+    public const string ManagedIdentityEndMarker = "----- END CONNAPSE AZURE MANAGED IDENTITY -----";
+
+    /// <summary>What whoever runs the managed-identity Access script needs. No application
+    /// registration is involved, so only the subscription-level rights apply.</summary>
+    public static readonly IReadOnlyList<string> ManagedIdentityAccessScriptRequirements =
+    [
+        "Owner or User Access Administrator on the subscription (to create the two custom roles and assign them to the managed identity)",
+    ];
+
+    /// <summary>What whoever runs the Per-user permissions script needs when the access identity is a
+    /// managed identity: the Graph permissions are app-role assignments, which only a directory
+    /// administrator can write.</summary>
+    public static readonly IReadOnlyList<string> ManagedIdentityPermissionsScriptRequirements =
+    [
+        "permission to register applications (for the sign-in app)",
+        "Global Administrator or Privileged Role Administrator to grant the managed identity its two Microsoft Graph permissions (otherwise the script prints the two commands for one to run)",
+    ];
 
     /// <summary>The Microsoft Graph resource app id — stable across tenants.</summary>
     public const string GraphAppId = "00000003-0000-0000-c000-000000000000";
@@ -93,7 +132,71 @@ public static class AzureCloudShellSetup
         if (!Guid.TryParse(tenant, out _) || !Guid.TryParse(subscription, out _) || !Guid.TryParse(accessId, out _))
             return null;
 
-        return new AzureAccessResult(tenant!, subscription!, accessId!);
+        values.TryGetValue("certificateThumbprint", out string? thumbprint);
+        return new AzureAccessResult(tenant!, subscription!, accessId!, Thumbprint(thumbprint));
+    }
+
+    /// <summary>A thumbprint as the scripts print it: 40 hex digits, upper-cased here; anything else
+    /// (an older script that did not print one, or openssl missing) reads as none.</summary>
+    private static string? Thumbprint(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        string cleaned = value.Replace(":", "").Trim().ToUpperInvariant();
+        return cleaned.Length == 40 && cleaned.All(Uri.IsHexDigit) ? cleaned : null;
+    }
+
+    // ---- Access step, for a Connapse running on Azure with a managed identity ----
+
+    /// <summary>The Access script for a host with a managed identity: the same two custom roles,
+    /// assigned to the identity by object id. Nothing is registered and nothing is uploaded.</summary>
+    public static string GenerateManagedIdentityAccessScript(AzureManagedIdentityAccessSetupInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        return ManagedIdentityAccessTemplate
+            .Replace("{{principalId}}", Shell(GuidOrEmpty(input.PrincipalId)))
+            .Replace("{{clientId}}", Shell(GuidOrEmpty(input.ClientId)))
+            .Replace("{{kind}}", input.IsUserAssigned ? "user-assigned" : "system-assigned")
+            .Replace("{{blobRoleName}}", BlobDataRoleName)
+            .Replace("{{rbacRoleName}}", RbacReadRoleName)
+            .Replace("{{beginMarker}}", ManagedIdentityBeginMarker)
+            .Replace("{{endMarker}}", ManagedIdentityEndMarker);
+    }
+
+    /// <summary>Parses the managed-identity Access block. Null unless every id is a well-formed GUID.</summary>
+    public static AzureManagedIdentityAccessResult? ParseManagedIdentityAccessResult(string? pasted)
+    {
+        var values = ExtractBlock(pasted, ManagedIdentityBeginMarker, ManagedIdentityEndMarker);
+        if (values is null) return null;
+
+        values.TryGetValue("tenantId", out string? tenant);
+        values.TryGetValue("subscriptionId", out string? subscription);
+        values.TryGetValue("managedIdentityPrincipalId", out string? principal);
+        values.TryGetValue("managedIdentityClientId", out string? client);
+        values.TryGetValue("managedIdentityKind", out string? kind);
+
+        if (!Guid.TryParse(tenant, out _) || !Guid.TryParse(subscription, out _)
+            || !Guid.TryParse(principal, out _) || !Guid.TryParse(client, out _))
+            return null;
+
+        return new AzureManagedIdentityAccessResult(
+            tenant!, subscription!, principal!, client!,
+            IsUserAssigned: string.Equals(kind, "user-assigned", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The two commands that grant a managed identity its Microsoft Graph permissions, for a
+    /// directory administrator to run when whoever ran the permissions script could not. The Graph
+    /// service principal's object id and the two app-role ids are looked up live, so nothing here
+    /// is tenant-specific except the identity.
+    /// </summary>
+    public static string GraphAppRoleGrantCommands(string managedIdentityPrincipalId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(managedIdentityPrincipalId);
+        // A GUID or nothing: the id lands inside a JSON body in the script, where anything else
+        // would break the request rather than merely fail it.
+        return ManagedIdentityGraphGrantCommands
+            .Replace("{{accessMiPrincipalId}}", GuidOrEmpty(managedIdentityPrincipalId))
+            .Replace("{{graphAppId}}", GraphAppId);
     }
 
     // ---- Per-user permissions step ----
@@ -102,6 +205,10 @@ public static class AzureCloudShellSetup
     {
         ArgumentNullException.ThrowIfNull(input);
         return PermissionsTemplate
+            .Replace("{{graphGrant}}", input.AccessManagedIdentityPrincipalId is { Length: > 0 }
+                ? ManagedIdentityGraphGrant
+                : AppGraphGrant)
+            .Replace("{{accessMiPrincipalId}}", Shell(GuidOrEmpty(input.AccessManagedIdentityPrincipalId)))
             .Replace("{{accessAppId}}", Shell(input.AccessAppClientId))
             .Replace("{{redirectUri}}", Shell(input.RedirectUri))
             .Replace("{{consentRedirectUri}}", Shell(input.ConsentRedirectUri))
@@ -125,11 +232,13 @@ public static class AzureCloudShellSetup
 
         values.TryGetValue("consentGranted", out string? consent);
         values.TryGetValue("consentUrl", out string? url);
+        values.TryGetValue("certificateThumbprint", out string? thumbprint);
 
         return new AzurePermissionsResult(
             signInId!,
             ConsentGranted: string.Equals(consent, "true", StringComparison.OrdinalIgnoreCase),
-            ConsentUrl: string.IsNullOrWhiteSpace(url) ? null : url);
+            ConsentUrl: string.IsNullOrWhiteSpace(url) ? null : url,
+            CertificateThumbprint: Thumbprint(thumbprint));
     }
 
     // ---- shared ----
@@ -257,6 +366,8 @@ public static class AzureCloudShellSetup
         }
         register_cert "$ACCESS_APP_ID"
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
+        # Printed back so Connapse can refuse to keep a different certificate than the one registered.
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g') || true
         rm -f "$CERT_FILE"
 
         # Role assignments wait for the role definitions + service principal to propagate; retry
@@ -275,8 +386,8 @@ public static class AzureCloudShellSetup
         assign_role '{{rbacRoleName}}' "/subscriptions/$SUBSCRIPTION_ID"
 
         echo
-        printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\n%s\n' \
-          "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$ACCESS_APP_ID" "{{endMarker}}"
+        printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\ncertificateThumbprint=%s\n%s\n' \
+          "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$ACCESS_APP_ID" "$CERT_THUMBPRINT" "{{endMarker}}"
         ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 
@@ -325,15 +436,28 @@ public static class AzureCloudShellSetup
         }
         register_cert "$SIGNIN_APP_ID"
         az ad sp create --id "$SIGNIN_APP_ID" >/dev/null 2>&1 || true
+        # Printed back so Connapse can refuse to keep a different certificate than the one registered.
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g') || true
         rm -f "$CERT_FILE"
 
+        USER_READ_ALL=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='User.Read.All'].id | [0]" -o tsv)
+        GROUP_READ_ALL=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='GroupMember.Read.All'].id | [0]" -o tsv)
+        {{graphGrant}}
+
+        echo
+        printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\ncertificateThumbprint=%s\n%s\n' \
+          "{{beginMarker}}" "$SIGNIN_APP_ID" "$CONSENT_GRANTED" "$CONSENT_URL" "$CERT_THUMBPRINT" "{{endMarker}}"
+        ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
+        """;
+
+    /// <summary>The Graph section of the permissions script when the access identity is an app
+    /// registration: application permissions added to the app, then admin consent.</summary>
+    private const string AppGraphGrant = """
         # The admin-consent page bounces back to a reply URL registered on the ACCESS app; without one
         # Entra refuses with AADSTS500113. Connapse's Providers page is that landing spot.
         az ad app update --id "$ACCESS_APP_ID" --web-redirect-uris "$CONSENT_REDIRECT_URI"
 
-        # --- Microsoft Graph application permissions on the ACCESS app (ids resolved live) ---
-        USER_READ_ALL=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='User.Read.All'].id | [0]" -o tsv)
-        GROUP_READ_ALL=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='GroupMember.Read.All'].id | [0]" -o tsv)
+        # --- Microsoft Graph application permissions on the ACCESS app ---
         az ad app permission add --id "$ACCESS_APP_ID" --api "$GRAPH_API" --api-permissions "$USER_READ_ALL=Role" >/dev/null
         az ad app permission add --id "$ACCESS_APP_ID" --api "$GRAPH_API" --api-permissions "$GROUP_READ_ALL=Role" >/dev/null
 
@@ -347,10 +471,134 @@ public static class AzureCloudShellSetup
           az ad app permission grant --id "$SIGNIN_APP_ID" --api "$GRAPH_API" --scope "openid profile offline_access" >/dev/null 2>&1 || true
         fi
         CONSENT_URL="https://login.microsoftonline.com/$TENANT_ID/adminconsent?client_id=$ACCESS_APP_ID&redirect_uri={{consentRedirectEncoded}}"
+        """;
+
+    /// <summary>The Graph section when the access identity is a managed identity: there is no app
+    /// registration to consent to, so the two permissions are app-role assignments on the identity's
+    /// service principal, written by REST. Only a directory administrator can write them; when the
+    /// runner cannot, the script says so and prints false, and the page shows the commands.</summary>
+    private const string ManagedIdentityGraphGrant = """
+        # --- Microsoft Graph application permissions on the ACCESS managed identity (app roles, by REST) ---
+        ACCESS_MI_PRINCIPAL_ID='{{accessMiPrincipalId}}'
+        GRAPH_SP_ID=$(az ad sp show --id "$GRAPH_API" --query id -o tsv)
+        grant_app_role() {  # $1 app role id
+          local out
+          if out=$(az rest -m POST -u "https://graph.microsoft.com/v1.0/servicePrincipals/$ACCESS_MI_PRINCIPAL_ID/appRoleAssignments" \
+                     -b "{\"principalId\":\"$ACCESS_MI_PRINCIPAL_ID\",\"resourceId\":\"$GRAPH_SP_ID\",\"appRoleId\":\"$1\"}" 2>&1 >/dev/null); then return 0; fi
+          if echo "$out" | grep -qi "already exists"; then return 0; fi
+          echo "$out" >&2; return 1
+        }
+        CONSENT_GRANTED=true
+        grant_app_role "$USER_READ_ALL" || CONSENT_GRANTED=false
+        grant_app_role "$GROUP_READ_ALL" || CONSENT_GRANTED=false
+        if [ "$CONSENT_GRANTED" = true ]; then
+          az ad app permission grant --id "$SIGNIN_APP_ID" --api "$GRAPH_API" --scope "openid profile offline_access" >/dev/null 2>&1 || true
+        else
+          echo "Could not grant the managed identity its Graph permissions (a Global Administrator or Privileged Role Administrator must). Connapse shows the two commands to hand them." >&2
+        fi
+        CONSENT_URL=""
+        """;
+
+    /// <summary>The two grants on their own, for an administrator to run when the script's runner could not.</summary>
+    private const string ManagedIdentityGraphGrantCommands = """
+        GRAPH_API='{{graphAppId}}'
+        MI='{{accessMiPrincipalId}}'
+        GRAPH_SP_ID=$(az ad sp show --id "$GRAPH_API" --query id -o tsv)
+        for ROLE in User.Read.All GroupMember.Read.All; do
+          ROLE_ID=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='$ROLE'].id | [0]" -o tsv)
+          az rest -m POST -u "https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments" \
+            -b "{\"principalId\":\"$MI\",\"resourceId\":\"$GRAPH_SP_ID\",\"appRoleId\":\"$ROLE_ID\"}"
+        done
+        """;
+
+    private const string ManagedIdentityAccessTemplate = """
+        #!/usr/bin/env bash
+        # Connapse Azure setup — step 1 of 2 (Access), for a Connapse running on Azure as a managed
+        # identity. Run in Azure Cloud Shell (Bash). Creates two least-privilege custom roles and assigns
+        # them to the managed identity Connapse runs as ({{kind}}, principal {{principalId}}), then prints
+        # a block to paste back into Connapse. Safe to re-run. No app is registered and nothing is uploaded.
+        #
+        # It uses the subscription Cloud Shell is signed in to. To use a different one, run
+        #   az account set --subscription <id>
+        # first. To limit the blob role to one storage account instead of the whole subscription,
+        # set STORAGE_SCOPE below to that storage account's resource id.
+        #
+        # Runs in a subshell so that pasting it into the interactive shell cannot close your
+        # session on an error: the failing command is printed and you stay signed in.
+        (
+        set -euo pipefail
+        trap 'echo; echo "Connapse setup failed at: $BASH_COMMAND" >&2' ERR
+
+        MI_PRINCIPAL_ID='{{principalId}}'
+        MI_CLIENT_ID='{{clientId}}'
+        MI_KIND='{{kind}}'
+        STORAGE_SCOPE=""
+
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        TENANT_ID=$(az account show --query tenantId -o tsv)
+        [ -n "$STORAGE_SCOPE" ] || STORAGE_SCOPE="/subscriptions/$SUBSCRIPTION_ID"
+        echo "Using subscription $SUBSCRIPTION_ID ($(az account show --query name -o tsv))"
+
+        # --- Custom roles (created once, updated in place on re-run) ---
+        upsert_role() {  # $1 role name, $2 definition JSON in the shape `az role definition create` takes
+          local existing
+          existing=$(az role definition list --name "$1" --custom-role-only true -o json 2>/dev/null | jq -c '.[0] // empty')
+          if [ -z "$existing" ]; then
+            az role definition create --role-definition "$2" >/dev/null
+          else
+            # `update` wants the shape `list` returns (roleName, permissions[], id), so patch the
+            # existing definition rather than resending the create-shaped one.
+            az role definition update --role-definition "$(jq -n --argjson e "$existing" --argjson d "$2" '
+              $e | .description = $d.Description
+                 | .permissions = [{actions: $d.Actions, notActions: $d.NotActions,
+                                    dataActions: $d.DataActions, notDataActions: $d.NotDataActions}]
+                 | .assignableScopes = $d.AssignableScopes')" >/dev/null
+          fi
+        }
+
+        upsert_role '{{blobRoleName}}' "{
+          \"Name\": \"{{blobRoleName}}\", \"IsCustom\": true,
+          \"Description\": \"Read blob content, blob index tags, and container names for Connapse.\",
+          \"Actions\": [\"Microsoft.Storage/storageAccounts/blobServices/containers/read\"],
+          \"NotActions\": [], \"NotDataActions\": [],
+          \"DataActions\": [
+            \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read\",
+            \"Microsoft.Storage/storageAccounts/blobServices/containers/blobs/tags/read\"
+          ],
+          \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
+        }"
+
+        upsert_role '{{rbacRoleName}}' "{
+          \"Name\": \"{{rbacRoleName}}\", \"IsCustom\": true,
+          \"Description\": \"Read role and deny assignments and storage account metadata at subscription scope for Connapse.\",
+          \"Actions\": [
+            \"Microsoft.Authorization/roleAssignments/read\",
+            \"Microsoft.Authorization/denyAssignments/read\",
+            \"Microsoft.Storage/storageAccounts/read\"
+          ],
+          \"NotActions\": [], \"DataActions\": [], \"NotDataActions\": [],
+          \"AssignableScopes\": [\"/subscriptions/$SUBSCRIPTION_ID\"]
+        }"
+
+        # --- Role assignments to the managed identity, by object id (no directory lookup needed) ---
+        # Role definitions take a moment to propagate; retry briefly, and fail the script if they never
+        # land — a paste block without these grants would record a setup that cannot read anything.
+        assign_role() {  # $1 role name, $2 scope
+          local i
+          for i in 1 2 3 4 5; do
+            if az role assignment create --assignee-object-id "$MI_PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
+                 --role "$1" --scope "$2" >/dev/null 2>&1; then return 0; fi
+            sleep 10
+          done
+          echo "Could not assign '$1' at $2 after 5 attempts." >&2
+          return 1
+        }
+        assign_role '{{blobRoleName}}' "$STORAGE_SCOPE"
+        assign_role '{{rbacRoleName}}' "/subscriptions/$SUBSCRIPTION_ID"
 
         echo
-        printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\n%s\n' \
-          "{{beginMarker}}" "$SIGNIN_APP_ID" "$CONSENT_GRANTED" "$CONSENT_URL" "{{endMarker}}"
+        printf '%s\ntenantId=%s\nsubscriptionId=%s\nmanagedIdentityPrincipalId=%s\nmanagedIdentityClientId=%s\nmanagedIdentityKind=%s\n%s\n' \
+          "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$MI_PRINCIPAL_ID" "$MI_CLIENT_ID" "$MI_KIND" "{{endMarker}}"
         ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 }

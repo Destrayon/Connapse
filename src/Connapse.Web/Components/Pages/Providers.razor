@@ -19,6 +19,8 @@
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
+@inject IAzureBlobDiscovery AzureDiscovery
+@inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
@@ -204,6 +206,13 @@
                 </div>
             }
         </div>
+        }
+
+        @if (checking)
+        {
+            <div class="text-muted small mb-2" role="status">
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Checking @Current.DisplayName…
+            </div>
         }
 
         @if (!string.IsNullOrEmpty(saveMessage))
@@ -1074,15 +1083,25 @@
                 Two steps: the Azure app identity Connapse reads Blob storage and permissions with, and
                 the Entra application people sign in through. No client secrets — Connapse authenticates
                 with certificates it generates on this host (the private keys never leave it) or a
-                managed identity.
+                managed identity. Every field, where to find its value, and what each error means are in
+                the
+                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md"
+                   target="_blank" rel="noopener">Azure setup guide</a>.
             </p>
 
             <ProviderStepCard Id="azure-access" Title="Access"
                               Description="The Azure app identity Connapse reads Blob storage with, and queries Entra and Azure Resource Manager (role and deny assignments) through."
                               Status="AccessStatus" StatusLabel="@RequirementLabel(AccessStatus)"
                               @bind-Expanded="showAzureAccess" EditLabel="Update or replace"
-                              EasyTitle="Easy setup with Azure Cloud Shell" EasyOpen="true">
+                              EasyTitle="@(UseManagedIdentityGuide ? "Easy setup with this host's managed identity" : "Easy setup with Azure Cloud Shell")" EasyOpen="true">
                 <Summary>
+                    @RequirementDetail(AccessRequirement)
+                    @if (azureAccessCertProblem is { Length: > 0 } accessProblem)
+                    {
+                        <div class="alert alert-danger py-2 mb-2 small" role="alert">
+                            <span class="bi-file-earmark-x me-1" aria-hidden="true"></span>@accessProblem
+                        </div>
+                    }
                     @if (azureProviderSettings.TenantId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -1092,7 +1111,22 @@
                             <dd class="col-sm-9 font-monospace">@(azureProviderSettings.SubscriptionId is { Length: > 0 } sub ? sub : "not set")</dd>
                             <dt class="col-sm-3">Identity</dt>
                             <dd class="col-sm-9 font-monospace">
-                                @if (azureProviderSettings.UserAssignedManagedIdentityClientId is { Length: > 0 } mi)
+                                @if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings))
+                                {
+                                    <text>this host's managed identity@(azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } principal ? $" (principal {principal})" : "")</text>
+                                    @if (azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded
+                                         && hostIdentity is { IsUserAssigned: false } current
+                                         && !string.Equals(recorded, current.PrincipalId, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="alert alert-warning py-2 mt-2 mb-0 small font-sans-serif" role="status">
+                                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                            The host now reports principal <code>@current.PrincipalId</code>; the roles
+                                            were granted to <code>@recorded</code>. The identity was re-created since
+                                            setup — run the Access script again so the new one has the roles.
+                                        </div>
+                                    }
+                                }
+                                else if (azureProviderSettings.UserAssignedManagedIdentityClientId is { Length: > 0 } mi)
                                 {
                                     <text>managed identity @mi</text>
                                 }
@@ -1101,35 +1135,161 @@
                                     <text>app @azureProviderSettings.ClientId (certificate)</text>
                                 }
                             </dd>
+                            @if (azureAccessCertExpires is { } expires)
+                            {
+                                <dt class="col-sm-3">Certificate expires</dt>
+                                <dd class="col-sm-9">@expires.ToString("u")</dd>
+                            }
                         </dl>
+                        @if (azureAccessCertExpires is { } expired && expired <= DateTime.UtcNow)
+                        {
+                            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>
+                                The certificate has expired, so Entra refuses this identity and Azure
+                                sources no longer sync. Set access up again below: choose New certificate,
+                                run the script, and paste back what it prints.
+                            </div>
+                        }
+                        else if (azureAccessCertExpires is { } soon && soon <= DateTime.UtcNow.AddDays(30))
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status">
+                                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                The certificate expires in @((soon - DateTime.UtcNow).Days) days. Choose
+                                New certificate below and run the script before then, or Azure sources
+                                stop syncing.
+                            </div>
+                        }
                     }
                 </Summary>
                 <ManualContent>
                     <details class="border rounded p-3 mb-3">
                         <summary class="fw-semibold">Manual values — use an existing app registration or managed identity</summary>
                         <div class="mt-3">
-                            <AzureProviderSettingsTab Settings="azureProviderSettings" OnSave="SaveAzureProviderFromForm" />
+                            <AzureProviderSettingsTab Settings="azureProviderSettings" OnSave="s => SaveAzureProviderFromForm(s)" />
                         </div>
                     </details>
                 </ManualContent>
                 <EasyContent>
+                    @if (UseManagedIdentityGuide && hostIdentity is { } host)
+                    {
+                        <p class="small text-muted">
+                            This host runs on Azure as a managed identity
+                            (@(host.IsUserAssigned ? "user-assigned" : "system-assigned"), principal
+                            <code>@host.PrincipalId</code>). Nothing to fill in and no certificate to keep: you run one
+                            script in Azure Cloud Shell — it uses whichever subscription Cloud Shell is signed in to,
+                            creates two least-privilege custom roles, and assigns them to that identity — then paste
+                            back what it prints.
+                        </p>
+                        <p class="small mb-1">
+                            <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.ManagedIdentityAccessScriptRequirements).
+                        </p>
+                        <p class="small mb-3">
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = true">
+                                Use a certificate app registration instead
+                            </button>
+                        </p>
+
+                        EnsureAzureManagedIdentityScript(host);
+                        @if (azureManagedIdentityScript is { Length: > 0 } miScript)
+                        {
+                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@miScript</code></pre>
+
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => CopyText(miScript)">
+                                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy command
+                                </button>
+                                <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="https://shell.azure.com">
+                                    <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
+                                    <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
+                                </a>
+                                <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
+                            </div>
+
+                            <label class="form-label small mb-1" for="az-mi-paste">Paste what it printed</label>
+                            <textarea id="az-mi-paste" class="form-control font-monospace" rows="4"
+                                      @bind="azureManagedIdentityPasted" @bind:event="oninput" disabled="@azureBusy"
+                                      placeholder="@AzureCloudShellSetup.ManagedIdentityBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.ManagedIdentityEndMarker"></textarea>
+
+                            @if (!string.IsNullOrWhiteSpace(azureManagedIdentityPasted))
+                            {
+                                var miResult = AzureCloudShellSetup.ParseManagedIdentityAccessResult(azureManagedIdentityPasted);
+                                @if (miResult is null)
+                                {
+                                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                        No valid block found yet. Copy everything the command printed, including
+                                        both <code>-----</code> marker lines.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                        <span class="small flex-grow-1">
+                                            Managed identity <code>@miResult.PrincipalId</code> in tenant
+                                            <code>@miResult.TenantId</code>, subscription <code>@miResult.SubscriptionId</code>.
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                @onclick="() => SaveAzureAccessFromManagedIdentityScript(miResult)" disabled="@azureBusy">
+                                            @if (azureBusy)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="bi-check-lg me-1" aria-hidden="true"></span>
+                                            }
+                                            Save
+                                        </button>
+                                    </div>
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
                     <p class="small text-muted">
                         Nothing to fill in. Connapse generates a certificate on this host; you run one script in Azure
                         Cloud Shell — it uses whichever subscription Cloud Shell is signed in to, creates two
                         least-privilege custom roles and the access app registration, and uploads only the public
                         certificate — then paste back what it prints.
                     </p>
-                    <p class="small mb-3">
+                    <p class="small mb-1">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
+                    @if (detectingHostIdentity)
+                    {
+                        <p class="small text-muted mb-3" role="status">
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                            Checking whether this host has a managed identity to use instead — the guide switches
+                            to it if so…
+                        </p>
+                    }
+                    else if (hostIdentity is not null && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
+                    {
+                        <p class="small mb-3">
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = false">
+                                This host has a managed identity — use it instead, with no certificate
+                            </button>
+                        </p>
+                    }
+                    else if (hostIdentity is not null)
+                    {
+                        <p class="small text-muted mb-3">
+                            This host has a managed identity. To switch to it, with no certificate, choose
+                            <strong>Reset access</strong> below first; the guide then offers it.
+                        </p>
+                    }
 
-                        @{ EnsureAzureAccessScript(); }
+                        // Not while the host is still being asked: a certificate minted now would sit
+                        // unused if the answer is a managed identity.
+                        if (!detectingHostIdentity) EnsureAzureAccessScript();
                         @if (azureAccessScript is { Length: > 0 } accessScript)
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
                                 <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                                Keep this page open until you have pasted the result back — the certificate is held
-                                here until you save. Regenerating makes a fresh one.
+                                The script carries the certificate Connapse holds on this host, so it can be
+                                re-run at any time. New certificate makes a replacement that only takes over
+                                once you save; until then the current one keeps working.
                             </div>
 
                             <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@accessScript</code></pre>
@@ -1142,7 +1302,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureAccessCertificate">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureAccessCertificate" disabled="@azureBusy">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -1150,7 +1310,7 @@
 
                             <label class="form-label small mb-1" for="az-access-paste">Paste what it printed</label>
                             <textarea id="az-access-paste" class="form-control font-monospace" rows="4"
-                                      @bind="azureAccessPasted" @bind:event="oninput"
+                                      @bind="azureAccessPasted" @bind:event="oninput" disabled="@azureBusy"
                                       placeholder="@AzureCloudShellSetup.AccessBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.AccessEndMarker"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureAccessPasted))
@@ -1187,25 +1347,41 @@
                                 }
                             }
                         }
+                    }
                 </EasyContent>
                 <Actions>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    @if (AccessStatus == RequirementStatus.Satisfied)
+                    {
+                        <a class="btn btn-sm btn-primary" href="/connections">
+                            <span class="bi-plug me-1" aria-hidden="true"></span> Add a connection
+                        </a>
+                    }
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     @if (azureProviderSettings.TenantId is { Length: > 0 })
                     {
                         <ProviderResetAction Label="Reset access"
                                              ConfirmLabel="Confirm access reset"
-                                             HelpText="Clears the tenant, subscription, and app identity and discards the stored certificate. Azure connections stop working until access is set up again."
+                                             HelpText="@(AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)
+                                                 ? "Clears the tenant, subscription, and managed identity; the roles assigned in Azure stay until you remove them there. Azure connections stop working until access is set up again."
+                                                 : "Clears the tenant, subscription, and app identity and discards the stored certificate. Azure connections stop working until access is set up again.")"
                                              OnReset="ClearAzureAccess" />
                     }
                 </Actions>
             </ProviderStepCard>
 
             <ProviderStepCard Id="azure-permissions" Title="Per-user permissions"
-                              Description="The Entra application people sign in through, so their Azure results are scoped to what that identity may read. Uses the access app above to look people and groups up."
+                              Description="The Entra application people sign in through, so their Azure results are scoped to what that identity may read. Uses the access identity above to look people and groups up."
                               Status="PermissionsStatus" StatusLabel="@RequirementLabel(PermissionsStatus)"
                               @bind-Expanded="showAzurePermissions" EditLabel="Update or replace"
                               EasyTitle="Guided setup" EasyOpen="true">
                 <Summary>
+                    @RequirementDetail(PermissionsRequirement)
+                    @if (azureSignInCertProblem is { Length: > 0 } signInProblem)
+                    {
+                        <div class="alert alert-danger py-2 mb-2 small" role="alert">
+                            <span class="bi-file-earmark-x me-1" aria-hidden="true"></span>@signInProblem
+                        </div>
+                    }
                     @if (azureAdSettings.ClientId is { Length: > 0 })
                     {
                         <dl class="row small mb-0">
@@ -1213,15 +1389,63 @@
                             <dd class="col-sm-9 font-monospace">@azureAdSettings.ClientId</dd>
                             <dt class="col-sm-3">Redirect URI</dt>
                             <dd class="col-sm-9 font-monospace">@azureAdSettings.RedirectUri</dd>
+                            @if (azureSignInCertExpires is { } expires)
+                            {
+                                <dt class="col-sm-3">Certificate expires</dt>
+                                <dd class="col-sm-9">@expires.ToString("u")</dd>
+                            }
                         </dl>
+                        @if (azureSignInCertExpires is { } expired && expired <= DateTime.UtcNow)
+                        {
+                            <div class="alert alert-danger py-2 mt-2 mb-0 small" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>
+                                The sign-in certificate has expired, so nobody can connect an Entra
+                                identity. Set the application up again below: choose New certificate,
+                                run the script, and paste back what it prints.
+                            </div>
+                        }
+                        else if (azureSignInCertExpires is { } soon && soon <= DateTime.UtcNow.AddDays(30))
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status">
+                                <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                The sign-in certificate expires in @((soon - DateTime.UtcNow).Days) days.
+                                Choose New certificate below and run the script before then, or Entra
+                                sign-in stops working.
+                            </div>
+                        }
                     }
-                    @if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
+                    @if (azureAdSettings.AdminConsentPending && AzureAccessManagedIdentityPrincipal is { } pendingPrincipal)
+                    {
+                        <div class="alert alert-warning mt-2 mb-0" role="alert">
+                            <div class="mb-2">
+                                <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
+                                <strong>One step left — the managed identity's Graph permissions.</strong> The apps are
+                                created, but the two Microsoft Graph permissions Connapse looks people up with —
+                                <code>User.Read.All</code> and <code>GroupMember.Read.All</code>, read-only lookups of who
+                                a person is and which groups they belong to — are app roles on the managed identity, and
+                                only a <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong>
+                                can grant them. Send them these commands to run in Cloud Shell.
+                            </div>
+                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:12rem;overflow:auto"><code>@AzureCloudShellSetup.GraphAppRoleGrantCommands(pendingPrincipal)</code></pre>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => CopyText(AzureCloudShellSetup.GraphAppRoleGrantCommands(pendingPrincipal))">
+                                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy commands
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="MarkAzureConsentGranted">
+                                    The permissions have been granted
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
                     {
                         <div class="alert alert-warning mt-2 mb-0" role="alert">
                             <div class="mb-2">
                                 <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
                                 <strong>One step left — admin consent.</strong> The apps are created, but the two
-                                Microsoft Graph permissions Connapse looks people up with need a
+                                Microsoft Graph permissions Connapse looks people up with —
+                                <code>User.Read.All</code> and <code>GroupMember.Read.All</code>, read-only
+                                lookups of who a person is and which groups they belong to — need a
                                 <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong>
                                 to approve. Send them this link; they sign in and click Accept.
                             </div>
@@ -1238,36 +1462,98 @@
                             </div>
                         </div>
                     }
+                    else if (azureAdSettings.AdminConsentPending)
+                    {
+                        @* The access identity changed after the sign-in app was set up (re-entered by hand,
+                           say), so neither the consent link nor the grant commands can be built. The
+                           pending state still needs a way out. *@
+                        <div class="alert alert-warning mt-2 mb-0" role="alert">
+                            <div class="mb-2">
+                                <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
+                                <strong>One step left — the access identity's Graph permissions.</strong> Grant the
+                                access identity <code>User.Read.All</code> and <code>GroupMember.Read.All</code> (a
+                                Global Administrator consents an app registration; for a managed identity, the
+                                commands are under
+                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                   target="_blank" rel="noopener">Graph permissions for a managed identity</a>),
+                                then confirm here.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="MarkAzureConsentGranted">
+                                The permissions have been granted
+                            </button>
+                        </div>
+                    }
                 </Summary>
                 <ManualContent>
                     <details class="border rounded p-3 mb-3">
                         <summary class="fw-semibold">Manual values — use an existing sign-in app registration</summary>
                         <div class="mt-3">
-                            <AzureAdSignInSettingsTab Settings="azureAdSettings" OnSave="SaveAzureAdFromForm" />
+                            <AzureAdSignInSettingsTab Settings="azureAdSettings" OnSave="s => SaveAzureAdFromForm(s)"
+                                                      DefaultTenantId="@azureProviderSettings.TenantId"
+                                                      DefaultRedirectUri="@easyRedirectUri" />
                         </div>
                     </details>
                 </ManualContent>
                 <EasyContent>
-                    @if (azureProviderSettings.ClientId is not { Length: > 0 })
+                    @if (AzureAccessManagedIdentityPrincipal is null && azureProviderSettings.ClientId is not { Length: > 0 })
                     {
                         <div class="alert alert-secondary py-2 small mb-0">
                             <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                            Finish the <strong>Access</strong> step with an app registration first — this script grants
-                            that access app its Microsoft Graph permissions. (A managed-identity access step needs those
-                            permissions granted by hand; use the manual values.)
+                            @if (AzureCredentialChainFactory.IsUserAssignedManagedIdentity(azureProviderSettings))
+                            {
+                                <text>
+                                    The access identity is a user-assigned managed identity entered by hand, so its
+                                    Microsoft Graph permissions are granted by hand too: run the two commands under
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                       target="_blank" rel="noopener">Graph permissions for a managed identity</a>
+                                    as a Global Administrator, then set the sign-in application up under Manual values here.
+                                </text>
+                            }
+                            else if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings))
+                            {
+                                <text>
+                                    Access is set to this host's managed identity, but the page could not tell which
+                                    identity that is — the host reported none, or a user-assigned one. Grant the Graph
+                                    permissions by hand with the two commands under
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                       target="_blank" rel="noopener">Graph permissions for a managed identity</a>,
+                                    then set the sign-in application up under Manual values here.
+                                </text>
+                            }
+                            else
+                            {
+                                <text>
+                                    Finish the <strong>Access</strong> step first — this script grants the access identity
+                                    its Microsoft Graph permissions.
+                                </text>
+                            }
                         </div>
                     }
                     else
                     {
-                        <p class="small text-muted">
-                            One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
-                            the public half is uploaded), grants the access app
-                            <code>@azureProviderSettings.ClientId</code> the two Graph permissions, and tries to grant
-                            admin consent.
-                        </p>
-                        <p class="small mb-3">
-                            <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.PermissionsScriptRequirements).
-                        </p>
+                        @if (AzureAccessManagedIdentityPrincipal is { } accessPrincipal)
+                        {
+                            <p class="small text-muted">
+                                One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
+                                the public half is uploaded) and grants the managed identity
+                                <code>@accessPrincipal</code> the two Graph permissions as app roles.
+                            </p>
+                            <p class="small mb-3">
+                                <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.ManagedIdentityPermissionsScriptRequirements).
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="small text-muted">
+                                One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
+                                the public half is uploaded), grants the access app
+                                <code>@azureProviderSettings.ClientId</code> the two Graph permissions, and tries to grant
+                                admin consent.
+                            </p>
+                            <p class="small mb-3">
+                                <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.PermissionsScriptRequirements).
+                            </p>
+                        }
 
                         <div class="mb-3" style="max-width:44rem">
                             <label class="form-label small mb-1" for="az-perm-redirect">Sign-in redirect URI</label>
@@ -1284,8 +1570,9 @@
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
                                 <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                                Keep this page open until you have pasted the result back — the sign-in certificate is
-                                held here until you save.
+                                The script carries the sign-in certificate Connapse holds on this host, so it
+                                can be re-run at any time. New certificate makes a replacement that only takes
+                                over once you save.
                             </div>
 
                             <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@permissionsScript</code></pre>
@@ -1298,7 +1585,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureSignInCertificate">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureSignInCertificate" disabled="@azureBusy">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -1306,7 +1593,7 @@
 
                             <label class="form-label small mb-1" for="az-perm-paste">Paste what it printed</label>
                             <textarea id="az-perm-paste" class="form-control font-monospace" rows="4"
-                                      @bind="azurePermissionsPasted" @bind:event="oninput"
+                                      @bind="azurePermissionsPasted" @bind:event="oninput" disabled="@azureBusy"
                                       placeholder="@AzureCloudShellSetup.PermissionsBeginMarker&#10;signInAppClientId=…&#10;@AzureCloudShellSetup.PermissionsEndMarker"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azurePermissionsPasted))
@@ -1345,7 +1632,7 @@
                     }
                 </EasyContent>
                 <Actions>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Re-check</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RefreshSetups">Recheck</button>
                     @if (azureAdSettings.ClientId is { Length: > 0 })
                     {
                         <ProviderResetAction Label="Reset sign-in application"
@@ -1558,10 +1845,11 @@
         identityCenterSettings = IdentityCenterOptions.CurrentValue;
         azureProviderSettings = AzureProviderOptions.CurrentValue;
         azureAdSettings = AzureAdOptions.CurrentValue;
+        LoadAzureCertificateExpiry();
 
         // The sign-in app's redirect URI is Connapse's Entra callback at the address this admin reached
-        // it on; pre-fill the subscription from whatever is already stored.
-        easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + "/api/v1/auth/cloud/azure/callback";
+        // it on.
+        easyRedirectUri = Navigation.BaseUri.TrimEnd('/') + AzureCallbackPath;
 
         // Returning from Entra's admin-consent page: it bounces back here with ?admin_consent=True
         // (or ?error=...&error_description=...). Surface which, so "pending" doesn't linger.
@@ -1694,6 +1982,34 @@
     /// <summary>Looks up one of the current provider's requirements by name.</summary>
     private ProviderRequirement? Requirement(string name) =>
         Current?.Requirements.FirstOrDefault(requirement => requirement.Name == name);
+
+    /// <summary>
+    /// What the reader found out about a requirement, in the words it chose: the reason Entra gave
+    /// and what to do about it when it failed, why it could not be confirmed, or what was verified
+    /// when it is ready. A failure is announced; the rest is read in place.
+    /// </summary>
+    private static RenderFragment RequirementDetail(ProviderRequirement? requirement) => builder =>
+    {
+        if (requirement?.Detail is not { Length: > 0 } detail) return;
+
+        (string css, string? role, string icon) = requirement.Status switch
+        {
+            RequirementStatus.Failed => ("alert alert-danger py-2 mb-2 small", "alert", "bi-x-circle"),
+            RequirementStatus.Warning => ("alert alert-warning py-2 mb-2 small", "status", "bi-exclamation-triangle"),
+            RequirementStatus.Provisioning => ("alert alert-info py-2 mb-2 small", "status", "bi-hourglass-split"),
+            _ => ("small text-body-secondary mb-2", null, "bi-check-circle"),
+        };
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", css);
+        if (role is not null) builder.AddAttribute(2, "role", role);
+        builder.OpenElement(3, "span");
+        builder.AddAttribute(4, "class", icon + " me-1");
+        builder.AddAttribute(5, "aria-hidden", "true");
+        builder.CloseElement();
+        builder.AddContent(6, detail);
+        builder.CloseElement();
+    };
 
     private ProviderRequirement? AccessRequirement => Requirement("Access");
     private ProviderRequirement? IdentityCenterRequirement => Requirement("IAM Identity Center");
@@ -2109,12 +2425,34 @@
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
 
+    /// <summary>Whether a status re-read is in flight, shown beside the page title.</summary>
+    private bool checking;
+
+    /// <summary>
+    /// Re-reads every provider's status. The cards stay mounted while it runs: clearing the list
+    /// first would replace them with a spinner and dispose the forms inside them, and with them
+    /// whatever an operator had typed into a manual form whose save had just been refused.
+    /// </summary>
     private async Task RefreshSetups()
     {
-        setups = null;
+        checking = true;
         StateHasChanged();
-        setups = await SetupReader.ReadAsync();
-        await LoadAwsCredentialModeAsync();
+        try
+        {
+            // The host is asked again as well: a probe that timed out, or an identity re-created
+            // since the process cached it, is what Recheck exists to notice.
+            Task detection = Key == "azure" && hostIdentityRequested
+                ? DetectHostIdentityAsync(refresh: true)
+                : Task.CompletedTask;
+            setups = await SetupReader.ReadAsync();
+            await detection;
+            await LoadAwsCredentialModeAsync();
+            LoadAzureCertificateExpiry();
+        }
+        finally
+        {
+            checking = false;
+        }
     }
 
     /// <summary>What a provider would let you do, for one you have not taken up.</summary>
@@ -2177,19 +2515,28 @@
         // the environment, so copying those values into a row here would shadow them permanently.
         bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing;
 
-        await SaveSettings("samlsignin", settings);
+        // The latch first, and the Azure latch carried along unchanged: the record holds one flag
+        // per provider, and writing it with only this one would switch Azure filtering off. Written
+        // before the sign-in settings for the same reason as the Azure save — a latch that cannot be
+        // written must not leave sign-in configured with filtering off.
+        if (enforcing && !EnforcementOptions.CurrentValue.IsEnforcing)
+        {
+            bool latched = await LatchEnforcementAsync(saml: true);
+            if (!latched || !EnforcementOptions.CurrentValue.IsEnforcing)
+            {
+                saveMessage = "Per-user enforcement for AWS could not be switched on in this process, so "
+                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
+                saveSuccess = false;
+                return;
+            }
+        }
 
-        if (saveSuccess)
+        bool? committed = await SaveSettings("samlsignin", settings);
+
+        if (committed == true)
         {
             await AuditLogger.LogAsync("provider.saml.saved", "provider", "aws",
                 new { settings.EntityId, settings.IdpEntityId, Configured = settings.IsConfigured });
-        }
-
-        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
-        {
-            await SaveSettings(
-                PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings { IsEnforcing = enforcing });
         }
 
         // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
@@ -2201,56 +2548,323 @@
         await RefreshSetups();
     }
 
-    /// <summary>Stores the Azure access app credential (Providers:Azure) and re-checks status.</summary>
-    private async Task SaveAzureProviderFromForm(AzureProviderSettings settings)
+    /// <summary>
+    /// Stores the Azure access app credential (Providers:Azure) and re-checks status. Unless the
+    /// caller has already verified <paramref name="settings"/>, Entra is asked first, and a credential
+    /// it refuses is not stored — the one that works stays in place.
+    /// </summary>
+    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
     {
-        await SaveSettings("azure", settings);
+        // A reset (blank tenant) has nothing to verify.
+        if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
+        {
+            // The host's own identity is in one tenant, and a managed-identity token check cannot
+            // tell whether the tenant typed matches it; the host already said which it is.
+            if (AzureCredentialChainFactory.IsHostManagedIdentity(settings)
+                && hostIdentity is { } host
+                && !string.Equals(host.TenantId, settings.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                saveMessage = $"This host's managed identity is in tenant {host.TenantId}, not {settings.TenantId}. "
+                    + "Nothing was changed; enter that tenant.";
+                saveSuccess = false;
+                return false;
+            }
 
-        if (saveSuccess)
+            var check = await AzureDiscovery.CheckAccessAsync(settings);
+            if (!check.Succeeded)
+            {
+                saveMessage = AzureCheckRefused("access", check);
+                saveSuccess = false;
+                return false;
+            }
+        }
+
+        bool? committed = await SaveSettings("azure", settings);
+
+        if (committed == true)
         {
             // What was posted, not a re-read: the options reload behind SaveSettings may not have
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
-            await AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
+            LoadAzureCertificateExpiry();
+            // The permissions script names the access identity and takes a different shape for a
+            // managed identity than for an app; one already generated for the old identity must
+            // not stay on screen under an intro describing the new one.
+            RefreshAzurePermissionsScript();
+            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
                 new
                 {
                     HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
                     HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
-                });
+                }));
+            // Only after a commit: nothing changed otherwise, so there is nothing to re-read.
+            await AfterAzureCommitAsync(RefreshSetups);
         }
 
-        await RefreshSetups();
+        return committed;
     }
 
-    /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status.</summary>
-    private async Task SaveAzureAdFromForm(AzureAdSignInSettings settings)
+    /// <summary>
+    /// Runs a step that follows a commit — the audit line, the status refresh, a cleanup — so that
+    /// its failure is reported beside the save rather than as the save failing. The settings are
+    /// stored by then; telling the operator otherwise would send them to retry a replacement that
+    /// already happened.
+    /// </summary>
+    private async Task AfterAzureCommitAsync(Func<Task> step)
     {
+        try
+        {
+            await step();
+        }
+        catch (Exception ex)
+        {
+            saveMessage = saveSuccess
+                ? $"{saveMessage} A follow-up step failed afterwards ({ex.Message}); the settings themselves are stored."
+                : $"{saveMessage} A follow-up step also failed ({ex.Message}).";
+        }
+    }
+
+    /// <summary>
+    /// Switches a per-provider enforcement latch on. Written as a merge under the store's lock, never
+    /// as a replace: two administrators saving the two providers at once would otherwise each write
+    /// the whole record from their own stale copy, and one of them would switch the other's filtering
+    /// off. A latch only ever goes on, so the merge is an OR of what is stored, what this process
+    /// sees, and what is being asked for. Returns whether the record was written.
+    /// </summary>
+    private async Task<bool> LatchEnforcementAsync(bool saml = false, bool azure = false)
+    {
+        try
+        {
+            await SettingsStore.UpdateAsync<PermissionEnforcementSettings>(
+                PermissionEnforcementSettings.Category,
+                stored => new PermissionEnforcementSettings
+                {
+                    IsEnforcing = (stored?.IsEnforcing ?? false) || EnforcementOptions.CurrentValue.IsEnforcing || saml,
+                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || EnforcementOptions.CurrentValue.AzureEnforcing || azure,
+                });
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to record per-user enforcement: {ex.Message}";
+            saveSuccess = false;
+            return false;
+        }
+
+        try
+        {
+            ReloadService.Reload();
+        }
+        catch (Exception)
+        {
+            // The live check that follows every latch is what decides; a failed reload shows there.
+        }
+        return true;
+    }
+
+    /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
+    /// the access app, a credential Entra refuses is not stored unless the caller already verified it.
+    /// Returns whether the sign-in settings themselves were committed; the enforcement latch saved
+    /// after them is reported separately and never turns a committed save into a failed one.</summary>
+    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
+    {
+        if (!verified && settings.IsConfigured)
+        {
+            var check = await AzureDiscovery.CheckAccessAsync(ProviderSetupReader.SignInIdentity(settings));
+            if (!check.Succeeded)
+            {
+                saveMessage = AzureCheckRefused("sign-in", check);
+                saveSuccess = false;
+                return false;
+            }
+        }
+
         // Latched here, at save time, exactly as SaveSamlSettings does for AWS. The startup latch
         // alone left a gap: a deployment that configured Azure sign-in and never restarted stayed
         // NotEnforcing, and every azblob result passed unfiltered until the next process start.
-        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
+        //
+        // Latched BEFORE the sign-in settings, never after. With enforcement on and sign-in not yet
+        // stored, Azure searches deny — closed. The other order, sign-in stored and then the latch
+        // failing, would leave sign-in configured with filtering off: every Azure result to everyone.
+        // So a latch that cannot be written stops the save, and the sign-in settings stay as they were.
+        if (settings.IsConfigured && !EnforcementOptions.CurrentValue.AzureEnforcing)
+        {
+            bool latched = await LatchEnforcementAsync(azure: true);
+            // Stored is not enough: the resolver reads the live options, so a latch that was written
+            // but not applied (the reload failed) would let sign-in be saved into an unfiltered
+            // process. Only a latch this process can see counts.
+            if (!latched || !EnforcementOptions.CurrentValue.AzureEnforcing)
+            {
+                saveMessage = "Per-user enforcement for Azure could not be switched on in this process, so "
+                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
+                saveSuccess = false;
+                return false;
+            }
+        }
 
-        await SaveSettings("azuread", settings);
+        bool? committed = await SaveSettings("azuread", settings);
 
-        if (saveSuccess)
+        if (committed == true)
         {
             azureAdSettings = settings;
-            await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
-                new { Configured = settings.IsConfigured });
+            LoadAzureCertificateExpiry();
+            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
+                new { Configured = settings.IsConfigured }));
+            await AfterAzureCommitAsync(RefreshSetups);
         }
 
-        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
+        return committed;
+    }
+
+    // ── The Azure host's managed identity: the guided Access setup without a certificate ──────────
+
+    /// <summary>The managed identity this host runs as, if it has one; null off Azure.</summary>
+    private AzureHostIdentityInfo? hostIdentity;
+
+    /// <summary>Whether the host has been asked, and whether the answer is still on its way.</summary>
+    private bool hostIdentityRequested, detectingHostIdentity;
+
+    /// <summary>Set when the operator asks for a certificate app although the host has a managed identity.</summary>
+    private bool preferCertificateApp;
+
+    /// <summary>
+    /// Asks the host whether it has a managed identity, once, the first time the Azure page is
+    /// shown. From here rather than the first render: the list and the provider page are one
+    /// component, and arriving from the list changes only the route parameter — no first render
+    /// happens again. The answer is awaited off the render path, since off Azure the metadata
+    /// probe is a second or so of waiting for nothing; the guide updates when it lands.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (Key != "azure" || hostIdentityRequested) return;
+        hostIdentityRequested = true;
+        detectingHostIdentity = true;
+        _ = DetectHostIdentityAsync(refresh: false);
+    }
+
+    private async Task DetectHostIdentityAsync(bool refresh)
+    {
+        try
         {
-            await SaveSettings(
-                PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings
+            hostIdentity = await HostIdentity.DetectAsync(refresh);
+        }
+        catch (Exception)
+        {
+            hostIdentity = null;
+        }
+        finally
+        {
+            detectingHostIdentity = false;
+            try
+            {
+                // Scripts generated before the answer landed name whatever principal was known then;
+                // the host's own answer outranks it, so they are rebuilt to match. The Access script
+                // is dropped only when the principal it was built for is no longer the host's — a
+                // paste for that script would be refused, and the refusal says to run the one shown.
+                if (azureManagedIdentityScript is not null
+                    && !string.Equals(azureManagedIdentityScriptFor, hostIdentity?.PrincipalId, StringComparison.OrdinalIgnoreCase))
                 {
-                    IsEnforcing = EnforcementOptions.CurrentValue.IsEnforcing,
-                    AzureEnforcing = enforcing,
-                });
+                    azureManagedIdentityScript = null;
+                    azureManagedIdentityPasted = null;
+                }
+                RefreshAzurePermissionsScript();
+            }
+            catch (Exception)
+            {
+                // A rebuild that fails is regenerated on the next render; the page must still update.
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string? azureManagedIdentityScript;
+    private string? azureManagedIdentityPasted;
+
+    /// <summary>The principal the managed-identity Access script on screen was built for.</summary>
+    private string? azureManagedIdentityScriptFor;
+
+    /// <summary>
+    /// Whether the Access guide offers the host's managed identity rather than a certificate app:
+    /// the host has one, the operator has not asked for a certificate app instead, and Access is
+    /// not already a certificate app being replaced.
+    /// </summary>
+    private bool UseManagedIdentityGuide =>
+        hostIdentity is not null
+        && !preferCertificateApp
+        && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId);
+
+    private void EnsureAzureManagedIdentityScript(AzureHostIdentityInfo host)
+    {
+        if (azureManagedIdentityScript is not null) return;
+        azureManagedIdentityScript = AzureCloudShellSetup.GenerateManagedIdentityAccessScript(
+            new AzureManagedIdentityAccessSetupInput(host.PrincipalId, host.ClientId, host.IsUserAssigned));
+        azureManagedIdentityScriptFor = host.PrincipalId;
+    }
+
+    /// <summary>
+    /// Stores the Access step for a managed identity: the tenant, subscription, and the identity the
+    /// script granted the roles to. No certificate is written; the host itself is the credential,
+    /// and it is asked for a token before anything is stored.
+    /// </summary>
+    private async Task SaveAzureAccessFromManagedIdentityScript(AzureManagedIdentityAccessResult result)
+    {
+        if (hostIdentity is { } host && !string.Equals(host.PrincipalId, result.PrincipalId, StringComparison.OrdinalIgnoreCase))
+        {
+            saveMessage = "The script you ran granted access to a different managed identity than the one this host "
+                + "runs as. Nothing was changed. Copy the command shown now, run it again, and paste that result.";
+            saveSuccess = false;
+            return;
         }
 
-        await RefreshSetups();
+        // The tenant comes from whatever Cloud Shell was signed in to, and a managed-identity token
+        // does not care what tenant is stored, so the credential check cannot catch a wrong one.
+        // The host already said which tenant it is in.
+        if (hostIdentity is { } hostTenant && !string.Equals(hostTenant.TenantId, result.TenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            saveMessage = $"The script ran in tenant {result.TenantId}, but this host's managed identity is in tenant "
+                + $"{hostTenant.TenantId}. Nothing was changed. In Cloud Shell, switch to that tenant (az login --tenant …), "
+                + "run the command again, and paste that result.";
+            saveSuccess = false;
+            return;
+        }
+
+        azureBusy = true;
+        try
+        {
+            // What the host knows about itself outranks what was pasted: the kind and client id come
+            // from the token the host was issued, and the paste is only allowed to agree.
+            bool userAssigned = hostIdentity?.IsUserAssigned ?? result.IsUserAssigned;
+            string clientId = hostIdentity?.ClientId ?? result.ClientId;
+            var candidate = new AzureProviderSettings
+            {
+                TenantId = result.TenantId,
+                SubscriptionId = result.SubscriptionId,
+                UseHostManagedIdentity = !userAssigned,
+                UserAssignedManagedIdentityClientId = userAssigned ? clientId : null,
+                ManagedIdentityPrincipalId = result.PrincipalId,
+            };
+            var check = await AzureDiscovery.CheckAccessAsync(candidate);
+            if (!check.Succeeded)
+            {
+                saveMessage = AzureCheckRefused("access", check);
+                saveSuccess = false;
+                return;
+            }
+
+            if (await SaveAzureProviderFromForm(candidate, verified: true) != true) return;
+
+            azureManagedIdentityScript = null;
+            azureManagedIdentityPasted = null;
+            showAzureAccess = false;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Could not save the Azure access setup: {ex.Message}";
+            saveSuccess = false;
+        }
+        finally
+        {
+            azureBusy = false;
+        }
     }
 
     /// <summary>Generates a fresh certificate on this host and the Access script that uploads only its
@@ -2259,7 +2873,8 @@
 
     private void GenerateAzureAccessScript(bool newCertificate)
     {
-        azureAccessCert = LoadOrMintAzureCertificate(AzureAccessCertFile, "connapse-azure-access", newCertificate);
+        azureAccessCert = LoadOrMintAzureCertificate(
+            AzureAccessCertFile, "connapse-azure-access", newCertificate, azureProviderSettings.ClientCertificatePath);
         azureAccessScript = AzureCloudShellSetup.GenerateAccessScript(new AzureAccessSetupInput(
             AccessAppName: "Connapse-Azure-Access",
             PublicCertificatePem: azureAccessCert.PublicCertificatePem,
@@ -2274,7 +2889,8 @@
 
     private void GenerateAzurePermissionsScript(bool newCertificate)
     {
-        azureSignInCert = LoadOrMintAzureCertificate(AzureSignInCertFile, "connapse-azure-signin", newCertificate);
+        azureSignInCert = LoadOrMintAzureCertificate(
+            AzureSignInCertFile, "connapse-azure-signin", newCertificate, azureAdSettings.ClientCertificatePath);
         BuildAzurePermissionsScript();
         azurePermissionsPasted = null;
         copyMessage = null;
@@ -2289,24 +2905,62 @@
             ConsentRedirectUri: AzureConsentLandingUri,
             SignInAppName: "Connapse-Azure-SignIn",
             PublicCertificatePem: azureSignInCert!.PublicCertificatePem,
-            ExistingSignInAppClientId: azureAdSettings.ClientId));
+            ExistingSignInAppClientId: azureAdSettings.ClientId,
+            AccessManagedIdentityPrincipalId: AzureAccessManagedIdentityPrincipal));
+    }
+
+    /// <summary>The access identity's service principal when it is a managed identity the guided
+    /// setup recorded — what the permissions script grants Graph app roles to. Null for a certificate
+    /// app, and for a user-assigned identity entered by hand (no principal id was recorded).</summary>
+    private string? AzureAccessManagedIdentityPrincipal
+    {
+        get
+        {
+            if (!AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)) return null;
+
+            // For the host's own identity, what the host says now outranks what was recorded: a
+            // system-assigned identity that was removed and re-enabled has a new principal, and
+            // Graph grants must go to the one that exists. A hand-entered host identity records no
+            // principal at all, and this is where it comes from.
+            if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings)
+                && hostIdentity is { IsUserAssigned: false } host)
+                return host.PrincipalId;
+
+            return azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded ? recorded : null;
+        }
     }
 
     /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
     /// app's reply URL by the Permissions script.</summary>
     private string AzureConsentLandingUri => Navigation.BaseUri.TrimEnd('/') + "/admin/providers/azure";
 
+    /// <summary>The path Entra redirects a person back to after sign-in; the sign-in app must register it.</summary>
+    private const string AzureCallbackPath = "/api/v1/auth/cloud/azure/callback";
+
     /// <summary>Clears the access identity and discards its stored certificate, so the next setup mints
     /// a fresh key instead of re-offering one an old app registration may still hold.</summary>
     private async Task ClearAzureAccess()
     {
-        await SaveAzureProviderFromForm(new AzureProviderSettings());
-        if (!saveSuccess) return;
+        // Under the same gate as promotion, so a reset cannot interleave with a save in progress
+        // and remove the key it is about to commit.
+        await AzureCertificateGate.WaitAsync();
+        try
+        {
+            if (await SaveAzureProviderFromForm(new AzureProviderSettings()) != true) return;
 
-        DeleteAzureCertificate(AzureAccessCertFile);
-        azureAccessScript = null;
-        azureAccessCert = null;
-        azureAccessPasted = null;
+            await DeleteAzureCertificatesAsync(AzureAccessCertFile);
+            azureAccessScript = null;
+            azureAccessCert = null;
+            azureAccessPasted = null;
+            // A fresh start offers the host's identity again, as the "Reset access first" note promises.
+            preferCertificateApp = false;
+            azureManagedIdentityScript = null;
+            azureManagedIdentityPasted = null;
+        }
+        finally
+        {
+            AzureCertificateGate.Release();
+        }
     }
 
     private async Task ClearAzureSignIn()
@@ -2314,19 +2968,45 @@
         // Enforcement is deliberately left on (the Azure latch never releases). With sign-in
         // incomplete the verifier denies, so Azure searches return nothing for everyone until the
         // application is set up again, rather than silently widening to the whole corpus.
-        await SaveAzureAdFromForm(new AzureAdSignInSettings());
-        if (!saveSuccess) return;
+        await AzureCertificateGate.WaitAsync();
+        try
+        {
+            if (await SaveAzureAdFromForm(new AzureAdSignInSettings()) != true) return;
 
-        DeleteAzureCertificate(AzureSignInCertFile);
-        azurePermissionsScript = null;
-        azureSignInCert = null;
-        azurePermissionsPasted = null;
+            await DeleteAzureCertificatesAsync(AzureSignInCertFile);
+            azurePermissionsScript = null;
+            azureSignInCert = null;
+            azurePermissionsPasted = null;
+        }
+        finally
+        {
+            AzureCertificateGate.Release();
+        }
     }
 
-    private void DeleteAzureCertificate(string fileName)
+    /// <summary>
+    /// After a reset: the pending copy goes, and so does every file of this kind that nothing committed
+    /// names — read back from the store, since another session may have saved a replacement in the
+    /// meantime — once it is past the grace period. A younger unreferenced file is left for a later
+    /// sweep rather than risk removing a key another process committed a moment ago.
+    /// </summary>
+    private async Task DeleteAzureCertificatesAsync(string fileName)
     {
-        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
-        if (File.Exists(path)) File.Delete(path);
+        string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
+        if (!Directory.Exists(directory)) return;
+
+        string pendingPath = AzurePendingCertificatePath(fileName);
+        if (File.Exists(pendingPath)) File.Delete(pendingPath);
+
+        var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced is null) return;
+        DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
+        foreach (string path in Directory.EnumerateFiles(directory, Path.GetFileNameWithoutExtension(fileName) + "*.pem"))
+        {
+            if (referenced.Contains(Path.GetFullPath(path))) continue;
+            if (File.GetLastWriteTimeUtc(path) > cutoff) continue;
+            File.Delete(path);
+        }
     }
 
     /// <summary>The admin-consent link for the access app — derived from settings, so it survives a
@@ -2345,7 +3025,7 @@
     }
 
     // The scripts embed a certificate Connapse mints here, so each is produced the moment its guide
-    // renders rather than behind a button. Nothing touches disk until Save.
+    // renders rather than behind a button.
     private void EnsureAzureAccessScript()
     {
         if (azureAccessScript is null) GenerateAzureAccessScript(newCertificate: false);
@@ -2359,43 +3039,111 @@
     private const string AzureAccessCertFile = "connapse-azure-access.pem";
     private const string AzureSignInCertFile = "connapse-azure-signin.pem";
 
+    private string AzureCertificatePath(string fileName) =>
+        Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
+
+    /// <summary>The file a certificate waits in between being minted and being saved.</summary>
+    private string AzurePendingCertificatePath(string fileName) =>
+        AzureCertificatePath(Path.GetFileNameWithoutExtension(fileName) + ".pending.pem");
+
     /// <summary>
     /// The certificate a script embeds must be the one Connapse later signs with — across page reloads
-    /// and restarts, which happen between copying a script and pasting its result back. So it lives on
-    /// disk from the moment it is minted, and the guide re-reads that file on later renders instead of
-    /// minting again. Only "New certificate" replaces it. A daemon-app key nothing is registered
-    /// against yet is harmless to keep on disk.
+    /// and restarts, which happen between copying a script and pasting its result back. So a minted
+    /// certificate lives in a pending file from the moment it is made, and the guide re-reads that file
+    /// on later renders instead of minting again. The file the stored settings point at — the key
+    /// Connapse signs with today — is never written here; Save writes the new key to a file of its own
+    /// and commits settings naming it. Until then "New certificate" only replaces the pending one, so
+    /// an Access step that already works keeps working while a replacement is being set up.
     /// </summary>
-    private AzureCertificateMaterial LoadOrMintAzureCertificate(string fileName, string commonName, bool newCertificate)
+    /// <param name="currentPath">The certificate the stored settings name, if any: re-running a script
+    /// with no replacement pending re-registers the key Connapse already holds.</param>
+    private AzureCertificateMaterial LoadOrMintAzureCertificate(
+        string fileName, string commonName, bool newCertificate, string? currentPath)
     {
-        string path = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
-        if (!newCertificate && File.Exists(path))
+        string pendingPath = AzurePendingCertificatePath(fileName);
+        if (!newCertificate)
         {
-            try
-            {
-                string combined = File.ReadAllText(path);
-                using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
-                // A file written before owner-only creation existed keeps its old mode; tighten it.
-                if (!OperatingSystem.IsWindows())
-                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
-            }
-            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
-            {
-                // Unreadable file: fall through and mint a fresh one over it.
-            }
+            // Pending first: a replacement in progress is what the script must embed.
+            if (ReadAzureCertificate(pendingPath) is { } pending) return pending;
+            if (currentPath is { Length: > 0 } && ReadAzureCertificate(currentPath) is { } current) return current;
         }
 
         AzureCertificateMaterial minted = AzureCertificateGenerator.Generate(commonName);
-        WriteOwnerOnly(path, minted.CombinedPem);
+        WriteOwnerOnly(pendingPath, minted.CombinedPem);
         return minted;
+    }
+
+    /// <summary>Whether a path is one of the certificate files Connapse itself writes under appdata/azure.</summary>
+    private bool IsConnapseAzureFile(string path)
+    {
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        string own = Path.GetFullPath(Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure"));
+        return directory is not null && string.Equals(directory, own, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reads a combined PEM back as material, or null when the file is missing or unreadable.</summary>
+    private AzureCertificateMaterial? ReadAzureCertificate(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try
+        {
+            string combined = File.ReadAllText(path);
+            using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
+            // A file Connapse wrote before owner-only creation existed keeps its old mode; tighten
+            // it. Only Connapse's own files: a certificate an operator supplied may be shared with
+            // another service or mounted read-only, and its permissions are theirs to set.
+            if (!OperatingSystem.IsWindows() && IsConnapseAzureFile(path))
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
+        }
+        catch (Exception ex) when (AzureCertificateFile.IsUnreadable(ex))
+        {
+            return null;
+        }
+    }
+
+    private DateTime? azureAccessCertExpires;
+    private DateTime? azureSignInCertExpires;
+
+    /// <summary>Why the certificate a card's settings name could not be read, if it could not; shown on
+    /// that card so the administrator can fix the file or set access up again.</summary>
+    private string? azureAccessCertProblem;
+    private string? azureSignInCertProblem;
+
+    /// <summary>Read through the same loader the credentials use, so a PFX with a password shows its
+    /// expiry exactly as a PEM does. Never throws: a file this process cannot read is a fact to show
+    /// on the card, not a reason for the page — every provider's page — to fail to render.</summary>
+    private void LoadAzureCertificateExpiry()
+    {
+        (azureAccessCertExpires, azureAccessCertProblem) = InspectAzureCertificate(
+            azureProviderSettings.ClientCertificatePath, azureProviderSettings.ClientCertificatePassword);
+        (azureSignInCertExpires, azureSignInCertProblem) = InspectAzureCertificate(
+            azureAdSettings.ClientCertificatePath, azureAdSettings.ClientCertificatePassword);
+    }
+
+    private static (DateTime? Expires, string? Problem) InspectAzureCertificate(string? path, string? password)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return (null, null);
+        try
+        {
+            using var certificate = AzureCertificateFile.Load(path, password);
+            return certificate is null
+                ? (null, $"The certificate file {path} does not exist on this host, so Connapse cannot sign in. Set access up again, or restore the file.")
+                : (certificate.NotAfter.ToUniversalTime(), null);
+        }
+        catch (Exception ex) when (AzureCertificateFile.IsUnreadable(ex))
+        {
+            return (null, $"Connapse cannot read its certificate file {path}: {ex.Message} Check the file's "
+                + "permissions for the user Connapse runs as, or set access up again.");
+        }
     }
 
     /// <summary>
     /// Writes a private-key file readable by Connapse's own user only: 0600 in a 0700 directory on
     /// Unix (a default umask would have made it world-readable); on Windows it inherits the app
-    /// directory's ACL. The mode is set again after writing because a create mode only applies to
-    /// a file that did not exist.
+    /// directory's ACL. Written to a sibling temporary file and moved into place, so an interrupted
+    /// write leaves the previous file intact rather than truncated. The mode is set again after the
+    /// move because a create mode only applies to a file that did not exist.
     /// </summary>
     private static void WriteOwnerOnly(string path, string content)
     {
@@ -2405,14 +3153,18 @@
         if (unix)
             File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
+        string temp = path + ".tmp";
         var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None };
         if (unix) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using (var stream = new FileStream(path, options))
+        using (var stream = new FileStream(temp, options))
         using (var writer = new StreamWriter(stream))
         {
             writer.Write(content);
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
         }
 
+        File.Move(temp, path, overwrite: true);
         if (unix) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
@@ -2428,7 +3180,10 @@
     /// </summary>
     private async Task SaveAzureAccessFromScript(AzureAccessResult result)
     {
-        if (azureAccessCert is null)
+        // A snapshot: the field can be replaced by "New certificate" in another render while the
+        // Entra check below is awaited, and the material verified must be the material stored.
+        AzureCertificateMaterial? material = azureAccessCert;
+        if (material is null)
         {
             saveMessage = "Generate the setup command first, so Connapse has the certificate to store.";
             saveSuccess = false;
@@ -2436,17 +3191,47 @@
         }
 
         azureBusy = true;
+        await AzureCertificateGate.WaitAsync();
         try
         {
-            string certPath = await WriteAzureCertificateAsync("connapse-azure-access.pem", azureAccessCert.CombinedPem);
-            await SaveAzureProviderFromForm(new AzureProviderSettings
+            if (!ThumbprintMatches(result.CertificateThumbprint, material))
+            {
+                saveMessage = AzureThumbprintMismatch;
+                saveSuccess = false;
+                return;
+            }
+
+            // The candidate gets a file of its own, named by its thumbprint, and is verified from
+            // there. The key Connapse signs with today is never moved or overwritten: the stored
+            // settings keep pointing at it until the ones naming the new file are committed.
+            string newPath = AzureVersionedCertificatePath(AzureAccessCertFile, material);
+            WriteOwnerOnly(newPath, material.CombinedPem);
+            var candidate = new AzureProviderSettings
             {
                 TenantId = result.TenantId,
                 ClientId = result.AccessAppClientId,
                 SubscriptionId = result.SubscriptionId,
-                ClientCertificatePath = certPath,
-            });
+                ClientCertificatePath = newPath,
+            };
+            var check = await AzureDiscovery.CheckAccessAsync(candidate);
+            if (!check.Succeeded)
+            {
+                await DeleteAzureCandidateAsync(newPath);
+                saveMessage = AzureCheckRefused("access", check);
+                saveSuccess = false;
+                return;
+            }
 
+            bool? committed = await SaveAzureProviderFromForm(candidate, verified: true);
+            if (committed != true)
+            {
+                // False: not stored, the candidate is surplus. Null: unknown — the file may be the
+                // one the store names by now, so it stays, and so does the paste for a retry.
+                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                return;
+            }
+
+            await AfterAzureCommitAsync(() => SweepAzureCertificatesAsync(AzureAccessCertFile, promotedPem: material.CombinedPem));
             azureAccessScript = null;
             azureAccessCert = null;
             azureAccessPasted = null;
@@ -2459,18 +3244,131 @@
         }
         finally
         {
+            AzureCertificateGate.Release();
             azureBusy = false;
         }
     }
 
-    /// <summary>The private key stays on this host: the cert + key go to the appdata volume, and only
-    /// the public certificate was uploaded to Azure by the script.</summary>
-    private Task<string> WriteAzureCertificateAsync(string fileName, string combinedPem)
+    /// <summary>
+    /// One promotion at a time in this process. Two administrators saving together would otherwise
+    /// interleave the write / verify / commit / sweep steps and sweep each other's files.
+    /// </summary>
+    private static readonly SemaphoreSlim AzureCertificateGate = new(1, 1);
+
+    /// <summary>Where a candidate certificate lives: its own file, named by the thumbprint and a
+    /// per-attempt suffix, so no two attempts — in this session, another, or another process that
+    /// picked up the same pending material — ever share a path with each other or with the key in
+    /// use. One attempt's cleanup can therefore never touch another's file.</summary>
+    private string AzureVersionedCertificatePath(string fileName, AzureCertificateMaterial material)
     {
-        string certPath = Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure", fileName);
-        WriteOwnerOnly(certPath, combinedPem);
-        return Task.FromResult(certPath);
+        string thumbprint = AzureCertificateFile.Thumbprint(material.PublicCertificatePem);
+        string attempt = Guid.NewGuid().ToString("N")[..8];
+        return AzureCertificatePath($"{Path.GetFileNameWithoutExtension(fileName)}-{thumbprint[..12].ToLowerInvariant()}-{attempt}.pem");
     }
+
+    /// <summary>
+    /// The certificate files anything committed names right now: both Azure settings categories, read
+    /// back from the store rather than from this page's copy — another session or process may have
+    /// committed since this page loaded — plus the live options as a floor when the store has no row
+    /// (settings coming from appsettings or the environment).
+    /// </summary>
+    private async Task<HashSet<string>?> PersistedAzureCertificatePathsAsync()
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? path) { if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path)); }
+
+        Add(AzureProviderOptions.CurrentValue.ClientCertificatePath);
+        Add(AzureAdOptions.CurrentValue.ClientCertificatePath);
+        try
+        {
+            Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
+            Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+        }
+        catch (Exception)
+        {
+            // Not knowing what is referenced is not the same as nothing being referenced: with the
+            // store unreadable, nothing is deleted at all.
+            return null;
+        }
+        return paths;
+    }
+
+    /// <summary>
+    /// How long a certificate file is left alone after it was written, whatever else is known. Two
+    /// processes sharing the volume have no lock in common; a candidate one of them wrote seconds ago
+    /// may be committed a moment after the other reads the store. Nothing in flight lives this long.
+    /// </summary>
+    private static readonly TimeSpan AzureCertificateGrace = TimeSpan.FromHours(1);
+
+    /// <summary>Removes a candidate that will not be used — unless something committed names it,
+    /// which happens when two sessions carried the same material and the other one saved it.</summary>
+    private async Task DeleteAzureCandidateAsync(string path)
+    {
+        if (!File.Exists(path)) return;
+        var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced is null || referenced.Contains(Path.GetFullPath(path))) return;
+        File.Delete(path);
+    }
+
+    /// <summary>
+    /// After a commit: certificate files of this kind under appdata/azure that nothing committed names
+    /// and that are past the grace period are superseded and removed — earlier versioned files, the
+    /// single fixed-name file older saves wrote. The pending copy goes only if it is the material just
+    /// promoted, so another session's replacement in progress is left alone. Anything not removed now
+    /// is removed by a later sweep.
+    /// </summary>
+    private async Task SweepAzureCertificatesAsync(string fileName, string promotedPem)
+    {
+        string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
+        if (!Directory.Exists(directory)) return;
+
+        var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced is null) return;
+        string stem = Path.GetFileNameWithoutExtension(fileName);
+        string pendingPath = Path.GetFullPath(AzurePendingCertificatePath(fileName));
+        DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
+
+        // "*.pem*" also catches the ".pem.tmp" a write leaves behind if it is interrupted before
+        // the move: a private key nothing will ever read, and the sweep is the only thing that
+        // knows to remove it.
+        foreach (string path in Directory.EnumerateFiles(directory, stem + "*.pem*"))
+        {
+            string full = Path.GetFullPath(path);
+            if (referenced.Contains(full)) continue;
+            if (string.Equals(full, pendingPath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.ReadAllText(path) == promotedPem) File.Delete(path);
+                continue;
+            }
+            if (File.GetLastWriteTimeUtc(path) > cutoff) continue;
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>Whether the certificate the script registered is the one this page holds. A paste from
+    /// a script that predates the thumbprint cannot be checked and is accepted; the Entra check that
+    /// follows is the backstop.</summary>
+    private static bool ThumbprintMatches(string? printed, AzureCertificateMaterial material) =>
+        printed is null
+        || string.Equals(printed, AzureCertificateFile.Thumbprint(material.PublicCertificatePem), StringComparison.OrdinalIgnoreCase);
+
+    private const string AzureThumbprintMismatch =
+        "The script you ran registered a different certificate from the one this page holds — another "
+        + "tab or session may have made a new one since. Nothing was changed. Copy the command shown "
+        + "now, run it again, and paste that result.";
+
+    /// <summary>What to say when Entra would not accept a credential about to be stored.</summary>
+    private static string AzureCheckRefused(string which, AzureProbe<string> check) => check.Outcome switch
+    {
+        AzureProbeOutcome.Denied =>
+            $"Entra refused the {which} credential, so nothing was changed. {check.Detail} If you just "
+            + "ran the script, Entra may still be registering the certificate — wait a minute and save again.",
+        AzureProbeOutcome.Unusable =>
+            $"The {which} credential cannot be used from this host, so nothing was changed: {check.Detail} "
+            + "For a certificate, check the path and that Connapse can read the file; for a managed identity, "
+            + "that this host has one.",
+        _ => $"Could not confirm the {which} credential with Azure, so nothing was changed. {check.Detail}",
+    };
 
     /// <summary>
     /// Stores the Per-user permissions step: the sign-in app's own certificate and client id (tenant
@@ -2478,7 +3376,8 @@
     /// </summary>
     private async Task SaveAzurePermissionsFromScript(AzurePermissionsResult result)
     {
-        if (azureSignInCert is null)
+        AzureCertificateMaterial? material = azureSignInCert;
+        if (material is null)
         {
             saveMessage = "Generate the setup command first, so Connapse has the certificate to store.";
             saveSuccess = false;
@@ -2486,19 +3385,48 @@
         }
 
         azureBusy = true;
+        await AzureCertificateGate.WaitAsync();
         try
         {
-            string certPath = await WriteAzureCertificateAsync("connapse-azure-signin.pem", azureSignInCert.CombinedPem);
-            await SaveAzureAdFromForm(new AzureAdSignInSettings
+            if (!ThumbprintMatches(result.CertificateThumbprint, material))
+            {
+                saveMessage = AzureThumbprintMismatch;
+                saveSuccess = false;
+                return;
+            }
+
+            string newPath = AzureVersionedCertificatePath(AzureSignInCertFile, material);
+            WriteOwnerOnly(newPath, material.CombinedPem);
+            var check = await AzureDiscovery.CheckAccessAsync(new AzureProviderSettings
+            {
+                TenantId = azureProviderSettings.TenantId,
+                ClientId = result.SignInAppClientId,
+                ClientCertificatePath = newPath,
+            });
+            if (!check.Succeeded)
+            {
+                await DeleteAzureCandidateAsync(newPath);
+                saveMessage = AzureCheckRefused("sign-in", check);
+                saveSuccess = false;
+                return;
+            }
+
+            bool? committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
                 ClientId = result.SignInAppClientId,
                 RedirectUri = easyRedirectUri.Trim(),
-                ClientCertificatePath = certPath,
+                ClientCertificatePath = newPath,
                 // Persisted, so a reload cannot turn "consent still pending" into a green card.
                 AdminConsentPending = !result.ConsentGranted,
-            });
+            }, verified: true);
+            if (committed != true)
+            {
+                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                return;
+            }
 
+            await AfterAzureCommitAsync(() => SweepAzureCertificatesAsync(AzureSignInCertFile, promotedPem: material.CombinedPem));
             azurePermissionsScript = null;
             azureSignInCert = null;
             azurePermissionsPasted = null;
@@ -2511,6 +3439,7 @@
         }
         finally
         {
+            AzureCertificateGate.Release();
             azureBusy = false;
         }
     }
@@ -2569,19 +3498,68 @@
         _ => "bi-question-circle text-secondary"
     };
 
-    private async Task SaveSettings<T>(string category, T settings) where T : class
+    /// <summary>
+    /// Stores a settings category. Returns whether it was committed. The store reloads the options
+    /// after its own commit, so an exception out of it does not say which half failed; the store is
+    /// read back and compared, and a commit whose reload failed is reported as stored-but-not-applied
+    /// rather than as a failure — callers rolling back on false must never undo a commit.
+    /// </summary>
+    /// <returns>True when committed, false when not, null when the store threw and could not be read
+    /// back either — the outcome is unknown, and callers must neither roll back nor report success.</returns>
+    private async Task<bool?> SaveSettings<T>(string category, T settings) where T : class
     {
+        string? reloadProblem = null;
         try
         {
             await SettingsStore.SaveAsync(category, settings);
-            ReloadService.Reload();
-            saveMessage = $"{SettingsName(category)} settings saved successfully!";
-            saveSuccess = true;
         }
         catch (Exception ex)
         {
-            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
-            saveSuccess = false;
+            switch (await IsStoredAsync(category, settings))
+            {
+                case false:
+                    saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
+                    saveSuccess = false;
+                    return false;
+                case null:
+                    saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: "
+                        + $"{ex.Message} Check this card again after a restart before retrying.";
+                    saveSuccess = false;
+                    return null;
+            }
+            reloadProblem = ex.Message;
+        }
+
+        try
+        {
+            if (!ReloadService.Reload()) reloadProblem ??= "the settings reload reported failure";
+        }
+        catch (Exception ex)
+        {
+            reloadProblem ??= ex.Message;
+        }
+
+        saveMessage = reloadProblem is null
+            ? $"{SettingsName(category)} settings saved successfully!"
+            : $"{SettingsName(category)} settings were saved, but applying them without a restart "
+              + $"failed: {reloadProblem}. Restart Connapse to apply them.";
+        saveSuccess = true;
+        return true;
+    }
+
+    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under
+    /// <paramref name="category"/>; null when the store cannot be read, which is not a no.</summary>
+    private async Task<bool?> IsStoredAsync<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            T? stored = await SettingsStore.GetAsync<T>(category);
+            return stored is not null
+                && System.Text.Json.JsonSerializer.Serialize(stored) == System.Text.Json.JsonSerializer.Serialize(settings);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

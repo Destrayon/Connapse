@@ -1,4 +1,6 @@
 using Azure;
+using Azure.Core;
+using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Resources;
 using Azure.ResourceManager.Storage;
@@ -21,6 +23,116 @@ public sealed class AzureBlobDiscovery(
     ILogger<AzureBlobDiscovery> logger) : IAzureBlobDiscovery
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>The audience a token is requested for. Azure Resource Manager issues one to any
+    /// identity in the tenant, so the check tests the credential and nothing else.</summary>
+    private const string ArmScope = "https://management.azure.com/.default";
+
+    public Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default) =>
+        CheckAccessAsync(options.CurrentValue, ct);
+
+    public async Task<AzureProbe<string>> CheckAccessAsync(AzureProviderSettings candidate, CancellationToken ct = default)
+    {
+        if (!IsConfigured(candidate))
+            return AzureProbe<string>.NotConfigured(
+                "No Azure identity is set up — configure it on the Azure provider page.");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(Timeout);
+
+        try
+        {
+            // A credential of its own, never the shared cached one: ClientCertificateCredential
+            // hands back a token it already holds without asking Entra, and a certificate removed
+            // from the app after that would keep reading as accepted until the token expired.
+            TokenCredential fresh = ConnapseAzureCredentials.Build(candidate);
+            AccessToken token = await fresh.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
+
+            // A managed-identity token is issued whatever tenant the settings name, so the tenant
+            // is checked against the token itself: one that names another tenant would only fail
+            // later, in the sign-in defaults and the role-assignment reads.
+            if (AzureCredentialChainFactory.IsManagedIdentity(candidate) && !string.IsNullOrWhiteSpace(candidate.TenantId))
+            {
+                string? issuedFor = AzureHostIdentity.Describe(token.Token)?.TenantId;
+                if (issuedFor is null)
+                    logger.LogDebug("The managed identity's token did not name its tenant; the stored tenant was not checked against it");
+                else if (!string.Equals(issuedFor, candidate.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return AzureProbe<string>.Unusable(
+                        $"The managed identity is in tenant {issuedFor}, but the settings name tenant "
+                        + $"{candidate.TenantId}. Enter tenant {issuedFor}.");
+            }
+
+            string verified = AzureCredentialChainFactory.IsHostManagedIdentity(candidate)
+                ? "Azure issued a token for this host's managed identity"
+                  + (candidate.ManagedIdentityPrincipalId is { Length: > 0 } principal ? $" (principal {principal})." : ".")
+                : AzureCredentialChainFactory.IsUserAssignedManagedIdentity(candidate)
+                    ? $"Azure issued a token for managed identity {candidate.UserAssignedManagedIdentityClientId}."
+                    : $"Entra accepted the certificate for app {candidate.ClientId} in tenant {candidate.TenantId}.";
+            return AzureProbe<string>.Ok(verified);
+        }
+        catch (AuthenticationFailedException ex) when (IsCredentialRefusal(ex))
+        {
+            // Entra answered and said no: the certificate is not registered on the app, has
+            // expired, or the app or tenant no longer exists. Only a new setup fixes it.
+            logger.LogWarning("Entra refused Connapse's Azure credential: {Reason}", ex.Message);
+            return AzureProbe<string>.Denied(ex.Message);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || AzureCertificateFile.IsUnreadable(ex))
+        {
+            // The credential could not even be built: the certificate file is missing or unreadable,
+            // or the settings are only partly filled in. Azure was never asked; this host is what
+            // needs fixing, and the card should say so plainly rather than "could not confirm".
+            logger.LogWarning(ex, "Connapse's Azure identity cannot be used from this host");
+            return AzureProbe<string>.Unusable(ex.Message);
+        }
+        catch (CredentialUnavailableException ex) when (AzureCredentialChainFactory.IsManagedIdentity(candidate))
+        {
+            // Settings say "sign in as a managed identity" and the host has none to offer: not a
+            // transport fault to retry, the identity is gone from this host (or the settings came
+            // from another one).
+            logger.LogWarning(ex, "Connapse is configured to use a managed identity, but this host has none");
+            return AzureProbe<string>.Unusable(
+                "No managed identity is available on this host: " + ex.Message);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // Network faults, an inconclusive answer from Entra, or no managed identity on this
+            // host: the check could not be completed either way.
+            logger.LogWarning(ex, "Checking Connapse's Azure identity failed");
+            return AzureProbe<string>.Failed(Describe(ex));
+        }
+    }
+
+    /// <summary>What to tell the operator when the check could not run, by what stopped it.</summary>
+    private static string Describe(Exception ex) => ex switch
+    {
+        CredentialUnavailableException => "No managed identity is available on this host: " + ex.Message,
+        OperationCanceledException => $"Azure did not answer within {Timeout.TotalSeconds:F0} seconds.",
+        AuthenticationFailedException when ex.Message.Contains("AADSTS", StringComparison.Ordinal) =>
+            "Entra answered but did not judge the credential (a transient fault or throttling); try again. " + ex.Message,
+        _ => ex.Message,
+    };
+
+    /// <summary>
+    /// Whether Entra rejected the credential itself — something only setting access up again fixes —
+    /// as opposed to the request not reaching it or Entra being unable to answer. Only the codes that
+    /// mean the certificate, app, or tenant is wrong count; every other <c>AADSTS</c> code (throttling,
+    /// a transient fault, directory unavailability) is inconclusive, not a verdict.
+    /// </summary>
+    internal static bool IsCredentialRefusal(AuthenticationFailedException ex) =>
+        ex is not CredentialUnavailableException
+        && CredentialRefusalCodes.Any(code => ex.Message.Contains(code, StringComparison.Ordinal));
+
+    /// <summary>Entra error codes that mean the credential is invalid: the certificate is not
+    /// registered on the app or its assertion is not signed by a registered key (700027), the app's
+    /// keys have expired (7000222), the client credential is wrong (7000215), the app has no service
+    /// principal (7000229), the app is disabled (7000112), the app does not exist (700016), or the
+    /// tenant does not (90002).</summary>
+    internal static readonly IReadOnlyList<string> CredentialRefusalCodes =
+    [
+        "AADSTS700027", "AADSTS7000222", "AADSTS7000215", "AADSTS7000229", "AADSTS7000112",
+        "AADSTS700016", "AADSTS90002",
+    ];
 
     public async Task<AzureProbe<IReadOnlyList<AzureStorageAccountInfo>>> ListStorageAccountsAsync(
         CancellationToken ct = default)
@@ -108,11 +220,12 @@ public sealed class AzureBlobDiscovery(
         }
     }
 
-    /// <summary>The same rule the Providers page uses for "Access is set up".</summary>
+    /// <summary>The same rule the Providers page uses for "Access is set up": a tenant, and one of
+    /// a certificate app, a user-assigned managed identity, or the host's own managed identity.</summary>
     internal static bool IsConfigured(AzureProviderSettings s) =>
         !string.IsNullOrWhiteSpace(s.TenantId)
         && ((!string.IsNullOrWhiteSpace(s.ClientId) && !string.IsNullOrWhiteSpace(s.ClientCertificatePath))
-            || !string.IsNullOrWhiteSpace(s.UserAssignedManagedIdentityClientId));
+            || AzureCredentialChainFactory.IsManagedIdentity(s));
 
     internal static bool IsDenial(RequestFailedException ex) => ex.Status is 401 or 403;
 }

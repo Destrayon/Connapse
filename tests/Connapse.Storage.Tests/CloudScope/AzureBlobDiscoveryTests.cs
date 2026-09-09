@@ -1,4 +1,5 @@
 using Azure;
+using Azure.Identity;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
@@ -60,6 +61,67 @@ public class AzureBlobDiscoveryTests
         probe.Detail.Should().Contain("No storage account");
     }
 
+    [Fact]
+    public async Task CheckAccess_NoIdentity_IsNotConfigured_WithoutCallingAzure()
+    {
+        var probe = await Build(new AzureProviderSettings()).CheckAccessAsync();
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.NotConfigured);
+        probe.Detail.Should().Contain("provider page");
+    }
+
+    [Fact]
+    public async Task CheckAccess_CertificateFileMissing_IsUnusable_WithTheReason()
+    {
+        // The credential chain refuses to build without a readable certificate, and refuses to
+        // fall through to a managed identity. Azure was never asked: this host is what needs
+        // fixing, which is neither Entra saying no nor "could not confirm".
+        var probe = await Build(Configured()).CheckAccessAsync();
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.Unusable);
+        probe.Detail.Should().Contain("certificate");
+    }
+
+    [Fact]
+    public async Task CheckAccess_Candidate_IsCheckedInsteadOfTheStoredSettings()
+    {
+        // Stored settings are blank (NotConfigured); the candidate is complete but its certificate
+        // file is missing, so it is the candidate that produced the answer.
+        var probe = await Build(new AzureProviderSettings()).CheckAccessAsync(Configured());
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.Unusable);
+        probe.Detail.Should().Contain("certificate");
+    }
+
+    [Fact]
+    public async Task CheckAccess_Candidate_NotConfigured_NeverCallsAzure()
+    {
+        var probe = await Build(Configured()).CheckAccessAsync(new AzureProviderSettings { TenantId = "t" });
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.NotConfigured);
+    }
+
+    [Theory]
+    [InlineData("AADSTS700027: Client assertion contains an invalid signature", true)]
+    [InlineData("AADSTS7000215: Invalid client secret provided", true)]
+    [InlineData("AADSTS7000222: The provided client secret keys are expired", true)]
+    [InlineData("AADSTS7000229: The client application is missing service principal in the tenant", true)]
+    [InlineData("AADSTS7000112: Application 'x' is disabled", true)]
+    [InlineData("AADSTS700016: Application with identifier 'x' was not found in the directory", true)]
+    [InlineData("AADSTS90002: Tenant 'x' not found", true)]
+    // Entra answered, but about itself, not the credential: transient, throttled, or unavailable.
+    [InlineData("AADSTS90024: The request body must contain the following parameter", false)]
+    [InlineData("AADSTS90033: A transient error has occurred. Please try again.", false)]
+    [InlineData("AADSTS50196: The server terminated an operation because it encountered a client request loop", false)]
+    [InlineData("No such host is known (login.microsoftonline.com:443)", false)]
+    public void IsCredentialRefusal_OnlyForCodesThatMeanTheCredentialIsWrong(string message, bool expected) =>
+        AzureBlobDiscovery.IsCredentialRefusal(new AuthenticationFailedException(message)).Should().Be(expected);
+
+    [Fact]
+    public void IsCredentialRefusal_ManagedIdentityUnavailable_IsNotARefusal() =>
+        AzureBlobDiscovery.IsCredentialRefusal(new CredentialUnavailableException("AADSTS-looking text from the IMDS probe"))
+            .Should().BeFalse();
+
     [Theory]
     [InlineData(401, true)]
     [InlineData(403, true)]
@@ -78,5 +140,11 @@ public class AzureBlobDiscoveryTests
             TenantId = "t", UserAssignedManagedIdentityClientId = "mi",
         }).Should().BeTrue();
         AzureBlobDiscovery.IsConfigured(Configured() with { TenantId = null }).Should().BeFalse();
+        // The host's own managed identity, as the guided setup on an Azure host records it.
+        AzureBlobDiscovery.IsConfigured(new AzureProviderSettings
+        {
+            TenantId = "t", UseHostManagedIdentity = true,
+        }).Should().BeTrue();
+        AzureBlobDiscovery.IsConfigured(new AzureProviderSettings { UseHostManagedIdentity = true }).Should().BeFalse();
     }
 }

@@ -259,6 +259,9 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IAzureBlobDiscovery, CloudScope.AzureBlobDiscovery>();
+        // Remembers the host's managed identity once found, so the provider page's detection is
+        // one metadata call per process, not one per render.
+        services.AddSingleton<IAzureHostIdentity, CloudScope.AzureHostIdentity>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
 

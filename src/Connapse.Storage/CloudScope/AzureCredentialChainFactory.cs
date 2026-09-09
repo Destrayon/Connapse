@@ -12,10 +12,62 @@ namespace Connapse.Storage.CloudScope;
 /// </summary>
 public static class AzureCredentialChainFactory
 {
+    /// <summary>
+    /// Whether <paramref name="settings"/> name a user-assigned managed identity and nothing of a
+    /// certificate app. The tenant is allowed alongside it — the provider page records the tenant
+    /// for every identity, and a tenant alone is not certificate intent.
+    /// </summary>
+    public static bool IsUserAssignedManagedIdentity(AzureProviderSettings settings) =>
+        !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+        && !settings.UseHostManagedIdentity
+        && string.IsNullOrWhiteSpace(settings.ClientId)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
+
+    /// <summary>
+    /// Whether <paramref name="settings"/> name the host's own system-assigned managed identity and
+    /// nothing of a certificate app. As with the user-assigned case, the tenant may sit beside it.
+    /// </summary>
+    public static bool IsHostManagedIdentity(AzureProviderSettings settings) =>
+        settings.UseHostManagedIdentity
+        && string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+        && string.IsNullOrWhiteSpace(settings.ClientId)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
+
+    /// <summary>Either kind of managed identity: the host's own, or a user-assigned one by client id.</summary>
+    public static bool IsManagedIdentity(AzureProviderSettings settings) =>
+        IsHostManagedIdentity(settings) || IsUserAssignedManagedIdentity(settings);
+
     public static TokenCredential Create(
         AzureProviderSettings settings,
         Func<AzureProviderSettings, X509Certificate2?> certLoader)
     {
+        // The host's identity named beside another identity is a mix the form cannot produce;
+        // arriving from configuration it is a mistake, and picking either side silently would be
+        // choosing an identity nobody asked for.
+        if (settings.UseHostManagedIdentity
+            && (!string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+                || !string.IsNullOrWhiteSpace(settings.ClientId)
+                || !string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+                || !string.IsNullOrWhiteSpace(settings.ClientCertificatePassword)))
+        {
+            throw new InvalidOperationException(
+                "Azure settings name both the host's managed identity (UseHostManagedIdentity) and another "
+                + "identity (a user-assigned managed identity or a certificate app). Keep one; Connapse will not choose.");
+        }
+
+        if (IsHostManagedIdentity(settings))
+        {
+            return new ChainedTokenCredential(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
+        }
+
+        if (IsUserAssignedManagedIdentity(settings))
+        {
+            return new ChainedTokenCredential(new ManagedIdentityCredential(
+                ManagedIdentityId.FromUserAssignedClientId(settings.UserAssignedManagedIdentityClientId)));
+        }
+
         bool anyServicePrincipalFieldSet =
             !string.IsNullOrWhiteSpace(settings.TenantId)
             || !string.IsNullOrWhiteSpace(settings.ClientId)
@@ -24,13 +76,8 @@ public static class AzureCredentialChainFactory
 
         if (!anyServicePrincipalFieldSet)
         {
-            // No service-principal intent at all: managed-identity-only chain.
-            TokenCredential managedIdentity = string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
-                ? new ManagedIdentityCredential()
-                : new ManagedIdentityCredential(
-                    ManagedIdentityId.FromUserAssignedClientId(settings.UserAssignedManagedIdentityClientId));
-
-            return new ChainedTokenCredential(managedIdentity);
+            // No service-principal intent at all: the host's system-assigned identity.
+            return new ChainedTokenCredential(new ManagedIdentityCredential());
         }
 
         // Any populated service-principal field is intent to use certificate auth.

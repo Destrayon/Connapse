@@ -471,6 +471,10 @@
                 {
                     <text>Filled in from the first bucket you choose if left blank.</text>
                 }
+                else if (form.Provider == ConnectionProvider.AzureBlob)
+                {
+                    <text>Filled in from the first container you choose if left blank.</text>
+                }
             </div>
         </div>
 
@@ -734,7 +738,7 @@
                                 @bind-Value="form.PrivateKey" />
                 <div id="sftp-key-help" class="form-text">
                     Encrypted at rest and never shown again. This is an SSH key for a server you run —
-                    the rule that Connapse stores no cloud credentials is about AWS
+                    the rule that Connapse stores no cloud credentials is about AWS and Azure
                     identities, which are not stored and are not asked for.
                     @if (!isNew)
                     {
@@ -1079,7 +1083,8 @@
                 <input id="probe-target" class="form-control font-monospace" @bind="probeTarget"
                        placeholder="@ProbePlaceholder()" aria-describedby="probe-target-help" />
                 <div id="probe-target-help" class="form-text">
-                    Not saved. The connection holds no bucket of its own, so testing needs one to probe.
+                    Not saved. The connection holds no @(form.Provider == ConnectionProvider.S3 ? "bucket" : "container")
+                    of its own, so testing needs one to probe.
                 </div>
             </div>
         }

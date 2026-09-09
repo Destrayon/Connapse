@@ -1,5 +1,6 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Web.Services;
@@ -19,6 +20,8 @@ public class ProviderSetupReader(
     IOptionsMonitor<AzureProviderSettings> azureProvider,
     IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IS3Discovery s3Discovery,
+    IAzureBlobDiscovery azureDiscovery,
+    IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
     TimeProvider clock,
@@ -56,8 +59,11 @@ public class ProviderSetupReader(
     {
         var providers = await InUseProvidersAsync(ct);
 
-        var azureAccess = AzureAccess(azureProvider.CurrentValue);
-        var azurePermissions = AzurePerUserPermissions(azureAd.CurrentValue, azureProvider.CurrentValue);
+        // Two round trips to Entra, made together: a page load should not pay for them in series.
+        Task<ProviderRequirement> azureAccessTask = AzureAccessAsync(azureProvider.CurrentValue, ct);
+        Task<ProviderRequirement> azurePermissionsTask = AzurePerUserPermissionsAsync(azureAd.CurrentValue, azureProvider.CurrentValue, ct);
+        var azureAccess = await azureAccessTask;
+        var azurePermissions = await azurePermissionsTask;
 
         return
         [
@@ -80,16 +86,19 @@ public class ProviderSetupReader(
     }
 
     /// <summary>
-    /// Whether Connapse has an Azure app identity to read Blob storage (and Entra/ARM) with.
+    /// Whether Connapse has an Azure app identity to read Blob storage (and Entra/ARM) with, and
+    /// whether Entra still accepts it.
     /// </summary>
     /// <remarks>
-    /// Config-only for now — it reports whether a tenant and a credential are set, not a live probe.
     /// A credential is a certificate-based app registration (<c>ClientId</c> + a certificate) or a
-    /// user-assigned managed identity. An ambient <i>system</i>-assigned managed identity cannot be
-    /// seen from settings, so a deployment relying on one reads as not-configured here even when it
-    /// works; a later iteration adds a live check (parity with AWS's access probe).
+    /// user-assigned managed identity; a deployment relying on an ambient system-assigned identity
+    /// has nothing in settings to check and reads as not set up. Once something is configured the
+    /// answer comes from Entra: a token issued means the certificate is registered and unexpired,
+    /// a refusal carrying an <c>AADSTS</c> code means it is not, and anything else is the check
+    /// failing to complete — reported as a warning, as the AWS probe does, because "cannot confirm"
+    /// is a different claim from "does not work".
     /// </remarks>
-    private static ProviderRequirement AzureAccess(AzureProviderSettings settings)
+    private async Task<ProviderRequirement> AzureAccessAsync(AzureProviderSettings settings, CancellationToken ct)
     {
         const string name = "Access";
         const string description = "The Azure app identity Connapse reads Blob storage with.";
@@ -97,15 +106,37 @@ public class ProviderSetupReader(
         bool hasCredential =
             (!string.IsNullOrWhiteSpace(settings.ClientId)
                 && !string.IsNullOrWhiteSpace(settings.ClientCertificatePath))
-            || !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId);
+            || AzureCredentialChainFactory.IsManagedIdentity(settings);
 
         if (string.IsNullOrWhiteSpace(settings.TenantId) || !hasCredential)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
-                "Set under the Providers:Azure settings — a tenant and either a certificate app "
-                + "registration or a managed identity — so Connapse can read Azure.");
+                "Nothing can read Azure until this is set up: run the script below, or enter an "
+                + "existing app registration or managed identity under Manual values.");
 
-        return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
-            $"Tenant {settings.TenantId}");
+        var probe = await azureDiscovery.CheckAccessAsync(ct);
+
+        return probe.Outcome switch
+        {
+            AzureProbeOutcome.Succeeded => new ProviderRequirement(name, description,
+                RequirementStatus.Satisfied, probe.Value),
+
+            AzureProbeOutcome.Denied => new ProviderRequirement(name, description,
+                RequirementStatus.Failed,
+                "Entra refused Connapse's credential, so Azure sources cannot sync. The certificate "
+                + "is not registered on the app, has expired, or the app no longer exists — set "
+                + $"access up again below. Entra said: {probe.Detail}"),
+
+            AzureProbeOutcome.Unusable => new ProviderRequirement(name, description,
+                RequirementStatus.Failed,
+                "Connapse's Azure identity cannot be used from this host, so Azure sources cannot "
+                + "sync: the certificate file is missing or unreadable, the settings are only partly "
+                + "filled in, or the managed identity they name is not available on this host. Fix the "
+                + $"file or the identity, or set access up again below. Detail: {probe.Detail}"),
+
+            _ => new ProviderRequirement(name, description, RequirementStatus.Warning,
+                "Connapse could not confirm its identity with Azure, so this may or may not "
+                + $"work. Test a connection to be sure. The check reported: {probe.Detail}")
+        };
     }
 
     /// <summary>
@@ -113,13 +144,14 @@ public class ProviderSetupReader(
     /// what they may read.
     /// </summary>
     /// <remarks>
-    /// Two parts: the Entra sign-in application (<c>Identity:AzureAd</c>) and the subscription the
-    /// RBAC resolver queries (<c>Providers:Azure</c> <c>SubscriptionId</c>). Both are needed for
-    /// per-user Azure filtering; sign-in without the subscription fails closed, so that is a warning
-    /// rather than a clean state.
+    /// Three parts: Entra still accepting the sign-in application's certificate (checked live, the
+    /// same way as Access — an expired or removed certificate must not read as Ready), the
+    /// subscription the RBAC resolver queries (<c>Providers:Azure</c> <c>SubscriptionId</c>), and
+    /// admin consent. Sign-in without the subscription or consent fails closed, so those are
+    /// warnings rather than a clean state.
     /// </remarks>
-    private static ProviderRequirement AzurePerUserPermissions(
-        AzureAdSignInSettings signIn, AzureProviderSettings provider)
+    private async Task<ProviderRequirement> AzurePerUserPermissionsAsync(
+        AzureAdSignInSettings signIn, AzureProviderSettings provider, CancellationToken ct)
     {
         const string name = "Per-user permissions";
         const string description =
@@ -128,22 +160,61 @@ public class ProviderSetupReader(
 
         if (!signIn.IsConfigured)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
-                "Set the Identity:AzureAd sign-in application so people can connect their Entra identity.");
+                "Nobody can connect an Entra identity until the sign-in application is set up below.");
+
+        // Sign-in configured with the enforcement latch off is the one state that is open: the
+        // resolver returns every Azure result to everyone. Saving the sign-in application writes
+        // the latch first, and a restart latches it too, so this only shows when both failed.
+        if (!enforcement.CurrentValue.AzureEnforcing)
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                "Sign-in is set, but per-user enforcement for Azure is switched off, so Azure results "
+                + "are not filtered by who is asking. Save the sign-in application again, or restart "
+                + "Connapse, to switch it on.");
+
+        var probe = await azureDiscovery.CheckAccessAsync(SignInIdentity(signIn), ct);
+        switch (probe.Outcome)
+        {
+            case AzureProbeOutcome.Denied:
+                return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                    "Entra refused the sign-in application's credential, so nobody can connect an Entra "
+                    + "identity. The certificate is not registered on the app, has expired, or the app no "
+                    + $"longer exists — set the application up again below. Entra said: {probe.Detail}");
+            case AzureProbeOutcome.Unusable:
+                return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                    "The sign-in application's certificate cannot be used from this host — the file is "
+                    + "missing or unreadable, or the settings are only partly filled in — so nobody can "
+                    + $"connect an Entra identity. Fix the file, or set the application up again below. Detail: {probe.Detail}");
+            case AzureProbeOutcome.Failed:
+                return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                    "Connapse could not confirm the sign-in application's credential with Azure, so "
+                    + $"this may or may not work. The check reported: {probe.Detail}");
+        }
 
         if (string.IsNullOrWhiteSpace(provider.SubscriptionId))
             return new ProviderRequirement(name, description, RequirementStatus.Warning,
-                "Sign-in is set, but Providers:Azure SubscriptionId is missing — the RBAC resolver "
-                + "needs it, so Azure filtering fails closed until it is set.");
+                "Sign-in is set, but the Access step has no subscription ID. Per-user filtering reads "
+                + "role assignments from that subscription, so Azure searches return nothing for "
+                + "anyone until it is set.");
 
         if (signIn.AdminConsentPending)
             return new ProviderRequirement(name, description, RequirementStatus.Warning,
-                "Sign-in is set, but the access app's Microsoft Graph permissions still need an "
-                + "administrator's consent — directory lookups fail until then, so Azure filtering "
-                + "fails closed.");
+                "Sign-in is set, but the access identity's Microsoft Graph permissions still need an "
+                + "administrator's consent (for a managed identity, the two app-role grants). Until then "
+                + "Connapse cannot look people up, so Azure searches return nothing for anyone.");
 
         return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
             $"Tenant {signIn.TenantId}, subscription {provider.SubscriptionId}");
     }
+
+    /// <summary>The sign-in application in the shape the credential check takes: it authenticates
+    /// with a certificate exactly as the access app does, so the same check applies.</summary>
+    public static AzureProviderSettings SignInIdentity(AzureAdSignInSettings signIn) => new()
+    {
+        TenantId = signIn.TenantId,
+        ClientId = signIn.ClientId,
+        ClientCertificatePath = signIn.ClientCertificatePath,
+        ClientCertificatePassword = signIn.ClientCertificatePassword,
+    };
 
     /// <summary>
     /// Which cloud providers this installation has actually taken up.

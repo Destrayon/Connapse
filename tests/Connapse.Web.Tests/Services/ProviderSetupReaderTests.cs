@@ -41,11 +41,25 @@ public class ProviderSetupReaderTests
         IdentityCenterSettings? identityCenter = null,
         AzureProviderSettings? azureProvider = null,
         AzureAdSignInSettings? azureAd = null,
-        IConnectionStore? connections = null)
+        IConnectionStore? connections = null,
+        AzureProbe<string>? azureAccess = null,
+        AzureProbe<string>? azureSignIn = null,
+        PermissionEnforcementSettings? enforcement = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
         discovery.ListBucketsAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(buckets);
+
+        // Defaults to Entra accepting both credentials, so a test about anything else is not also
+        // silently a test about the live checks. The sign-in check is told apart from the access
+        // check by the candidate it is handed: the sign-in app's client id.
+        var azureDiscovery = Substitute.For<IAzureBlobDiscovery>();
+        azureDiscovery.CheckAccessAsync(Arg.Any<CancellationToken>())
+            .Returns(azureAccess ?? AzureProbe<string>.Ok("Entra accepted the certificate."));
+        azureDiscovery.CheckAccessAsync(Arg.Any<AzureProviderSettings>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<AzureProviderSettings>(0).ClientId == (azureAd ?? new AzureAdSignInSettings()).ClientId
+                ? azureSignIn ?? AzureProbe<string>.Ok("Entra accepted the sign-in certificate.")
+                : azureAccess ?? AzureProbe<string>.Ok("Entra accepted the certificate."));
 
         if (credentials is null)
         {
@@ -67,7 +81,11 @@ public class ProviderSetupReaderTests
             Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
             Options.Create(azureProvider ?? new AzureProviderSettings()).AsMonitor(),
             Options.Create(azureAd ?? new AzureAdSignInSettings()).AsMonitor(),
-            discovery, connections, credentials,
+            discovery, azureDiscovery,
+            // Latched by default: a sign-in test is about sign-in, not about the latch. The test
+            // that cares passes the open state explicitly.
+            Options.Create(enforcement ?? new PermissionEnforcementSettings { IsEnforcing = true, AzureEnforcing = true }).AsMonitor(),
+            connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
     }
@@ -309,7 +327,8 @@ public class ProviderSetupReaderTests
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Options.Create(new AzureProviderSettings()).AsMonitor(),
             Options.Create(new AzureAdSignInSettings()).AsMonitor(),
-            Substitute.For<IS3Discovery>(), connections,
+            Substitute.For<IS3Discovery>(), Substitute.For<IAzureBlobDiscovery>(),
+            Options.Create(new PermissionEnforcementSettings()).AsMonitor(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -532,7 +551,7 @@ public class ProviderSetupReaderTests
     {
         TenantId = "11111111-1111-1111-1111-111111111111",
         ClientId = "44444444-4444-4444-4444-444444444444",
-        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/cb",
+        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/callback",
         ClientCertificatePath = "/certs/azure-signin.pem",
     };
 
@@ -575,8 +594,73 @@ public class ProviderSetupReaderTests
         var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
             azureProvider: ConfiguredAzureProvider()));
 
-        azure.Requirements.Single(r => r.Name == "Access").Status
-            .Should().Be(RequirementStatus.Satisfied);
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Satisfied);
+        // A pass says what was verified, in the words the probe used.
+        access.Detail.Should().Contain("Entra accepted");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WhenEntraRefusesTheCredential_IsFailed_AndSaysToSetUpAgain()
+    {
+        // An expired or unregistered certificate is the one thing settings alone cannot see, and
+        // the reason to ask Entra at all. It must read as Failed, not Ready.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Denied("AADSTS700027: The certificate is not registered on application")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Failed);
+        access.Detail.Should().Contain("set access up again").And.Contain("AADSTS700027");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WhenTheIdentityIsUnusableOnThisHost_IsFailed_AndNamesTheFile()
+    {
+        // A missing or unreadable certificate file is not "could not confirm": nothing was asked
+        // of Azure and nothing will work until the file is fixed. Failed, with the remedy.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Unusable("no usable certificate was loaded (ClientCertificatePath='/certs/azure.pem')")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Failed);
+        access.Detail.Should().Contain("cannot be used from this host").And.Contain("/certs/azure.pem");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WhenTheCheckCannotComplete_Warns_RatherThanFails()
+    {
+        // A network fault says nothing about the credential, so it is a warning: "cannot confirm",
+        // which the connection test can still answer.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Failed("No such host is known")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Warning);
+        access.Detail.Should().Contain("could not confirm").And.Contain("No such host");
+    }
+
+    [Fact]
+    public async Task Azure_Access_WithNothingConfigured_NeverAsksEntra()
+    {
+        var azureDiscovery = Substitute.For<IAzureBlobDiscovery>();
+        var reader = new ProviderSetupReader(
+            Options.Create(new SamlSignInSettings()).AsMonitor(),
+            Options.Create(new IdentityCenterSettings()).AsMonitor(),
+            Options.Create(new AzureProviderSettings()).AsMonitor(),
+            Options.Create(new AzureAdSignInSettings()).AsMonitor(),
+            Substitute.For<IS3Discovery>(), azureDiscovery,
+            Options.Create(new PermissionEnforcementSettings()).AsMonitor(), ConnectionsWith(),
+            Substitute.For<IProviderCredentialStore>(),
+            new FixedClock(new DateTimeOffset(Created)),
+            NullLogger<ProviderSetupReader>.Instance);
+
+        var azure = await AzureAsync(reader);
+
+        azure.Requirements.Single(r => r.Name == "Access").Status.Should().Be(RequirementStatus.NotConfigured);
+        await azureDiscovery.DidNotReceive().CheckAccessAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -587,6 +671,60 @@ public class ProviderSetupReaderTests
 
         azure.Requirements.Single(r => r.Name == "Per-user permissions").Status
             .Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_WhenEntraRefusesTheSignInCredential_IsFailed()
+    {
+        // An expired or removed sign-in certificate is invisible to settings, and a Ready card over
+        // it would send people to a sign-in that fails. Failed, with the reason and the fix.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            azureSignIn: AzureProbe<string>.Denied("AADSTS700027: Client assertion contains an invalid signature")));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Failed);
+        requirement.Detail.Should().Contain("sign-in application").And.Contain("AADSTS700027");
+        // The access credential was fine; only the sign-in one was refused.
+        azure.Requirements.Single(r => r.Name == "Access").Status.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_SignInSetButEnforcementOff_IsFailed_BecauseThatStateIsOpen()
+    {
+        // The one combination that returns every Azure result to everyone: sign-in configured, latch
+        // off. It must never read as Ready, and the fix is named.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            enforcement: new PermissionEnforcementSettings { IsEnforcing = true, AzureEnforcing = false }));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Failed);
+        requirement.Detail.Should().Contain("not filtered").And.Contain("Save the sign-in application again");
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_WhenTheSignInCheckCannotComplete_Warns()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            azureSignIn: AzureProbe<string>.Failed("No such host is known")));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("could not confirm");
+    }
+
+    [Fact]
+    public void SignInIdentity_CarriesTheFourFieldsTheCredentialCheckNeeds()
+    {
+        var identity = ProviderSetupReader.SignInIdentity(ConfiguredAzureAd() with { ClientCertificatePassword = "pw" });
+
+        identity.TenantId.Should().Be(ConfiguredAzureAd().TenantId);
+        identity.ClientId.Should().Be(ConfiguredAzureAd().ClientId);
+        identity.ClientCertificatePath.Should().Be(ConfiguredAzureAd().ClientCertificatePath);
+        identity.ClientCertificatePassword.Should().Be("pw");
+        identity.UserAssignedManagedIdentityClientId.Should().BeNull();
     }
 
     [Fact]

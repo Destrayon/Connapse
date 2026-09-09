@@ -89,10 +89,30 @@ public sealed class CloudEnforcementLatch(
             await using var scope = scopes.CreateAsyncScope();
             var settings = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
 
-            await settings.SaveAsync(
+            // A merge under the store's lock, not a replace: a save on the Providers page can be
+            // latching the other provider at this same moment, and a replace from this snapshot
+            // would switch that one back off. A latch only ever goes on, so the merge is an OR.
+            PermissionEnforcementSettings merged = await settings.UpdateAsync<PermissionEnforcementSettings>(
                 PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings { IsEnforcing = samlLatched, AzureEnforcing = azureLatched },
+                stored => new PermissionEnforcementSettings
+                {
+                    IsEnforcing = (stored?.IsEnforcing ?? false) || samlLatched,
+                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || azureLatched,
+                },
                 cancellationToken);
+
+            // Stored is not applied. The resolvers read the live options, and the store's reload
+            // after its commit can fail; completing the migration then would declare a flag that
+            // this process cannot see, and the resolver would answer unfiltered. Undetermined
+            // denies, which is the right posture until the next successful reload.
+            PermissionEnforcementSettings live = enforcement.CurrentValue;
+            if (live.IsEnforcing != merged.IsEnforcing || live.AzureEnforcing != merged.AzureEnforcing)
+            {
+                logger.LogError(
+                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until Connapse is restarted with the database reachable",
+                    merged.IsEnforcing, merged.AzureEnforcing);
+                return;
+            }
 
             migration.Complete();
 
