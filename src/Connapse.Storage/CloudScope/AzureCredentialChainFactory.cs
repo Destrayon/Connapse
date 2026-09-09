@@ -76,8 +76,21 @@ public static class AzureCredentialChainFactory
 
         if (!anyServicePrincipalFieldSet)
         {
-            // No service-principal intent at all: the host's system-assigned identity.
-            return new ChainedTokenCredential(new ManagedIdentityCredential());
+            // Nothing configured is nothing, not the host's identity. Using the host's identity is
+            // an explicit choice (UseHostManagedIdentity); reading it into an empty record would let
+            // a reset, or a lost row, quietly continue as whatever identity the host happens to have.
+            throw new InvalidOperationException(
+                "No Azure identity is configured. Set access up on the Azure provider page: a certificate "
+                + "app registration, a user-assigned managed identity, or the host's own managed identity.");
+        }
+
+        // A certificate app beside a user-assigned identity is the same kind of mix as the host's
+        // identity beside either: nobody asked for a choice, so none is made.
+        if (!string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId))
+        {
+            throw new InvalidOperationException(
+                "Azure settings name both a certificate app registration and a user-assigned managed "
+                + "identity (UserAssignedManagedIdentityClientId). Keep one; Connapse will not choose.");
         }
 
         // Any populated service-principal field is intent to use certificate auth.

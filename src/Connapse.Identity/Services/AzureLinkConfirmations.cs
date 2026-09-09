@@ -61,6 +61,9 @@ public sealed class AzureLinkConfirmations(IMemoryCache cache)
     {
         public readonly PendingAzureLink Link = link;
 
+        /// <summary>When the link was parked, so a disconnect made after it can refuse it.</summary>
+        public readonly DateTime StartedAtUtc = DateTime.UtcNow;
+
         /// <summary>0 until a caller claims it; the winner is the one that moves it to 1.</summary>
         public int Claimed;
     }
@@ -92,6 +95,12 @@ public sealed class AzureLinkConfirmations(IMemoryCache cache)
             return null;
 
         cache.Remove(key);
-        return slot.Link;
+
+        // Parked before the person disconnected: the disconnect was the later decision, and
+        // claiming this now would put back the link it removed.
+        return AzureLinkRevocations.WasRevokedSince(cache, slot.Link.StartedByUserId, slot.StartedAtUtc) ? null : slot.Link;
     }
+
+    /// <summary>Refuses every confirmation parked for this user before now. Called on disconnect.</summary>
+    public void RevokeFor(Guid userId) => AzureLinkRevocations.Record(cache, userId);
 }

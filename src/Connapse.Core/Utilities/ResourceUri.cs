@@ -30,10 +30,16 @@ public static class ResourceUri
     }
 
     /// <summary>An Azure Blob Storage object, as <c>azblob://account/container/path</c>.</summary>
+    /// <remarks>
+    /// The account and container are lower-cased: Azure only allows lowercase names for both, and
+    /// the role and deny assignments the permission checks compare against use that spelling. A
+    /// URI carrying a differently cased account would slip past a deny written for the real one.
+    /// The blob path is kept verbatim, as blob names are case-sensitive.
+    /// </remarks>
     public static string ForAzureBlob(string account, string container, string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(account);
         ArgumentException.ThrowIfNullOrWhiteSpace(container);
-        return $"azblob://{account}/{container}/{path}";
+        return $"azblob://{account.ToLowerInvariant()}/{container.ToLowerInvariant()}/{path}";
     }
 }

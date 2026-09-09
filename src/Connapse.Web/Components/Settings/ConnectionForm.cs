@@ -247,7 +247,9 @@ public sealed record ConnectionForm
                 break;
 
             case ConnectionProvider.AzureBlob:
-                node["accountName"] = StorageAccountName?.Trim() ?? "";
+                // Stored as Azure spells it. Role and deny assignments name the account in lower
+                // case, and the resource URIs the permission checks compare are built from this.
+                node["accountName"] = StorageAccountName?.Trim().ToLowerInvariant() ?? "";
                 if (!Blank(BlobEndpoint)) node["blobEndpoint"] = BlobEndpoint!.Trim();
                 break;
 
@@ -364,6 +366,10 @@ public sealed record ConnectionForm
         return Provider switch
         {
             ConnectionProvider.AzureBlob when Blank(StorageAccountName) => "A storage account name is required.",
+            // The endpoint must be the named account's: documents are labelled and authorised by
+            // the account name, so an endpoint reading a different one would mislabel everything.
+            ConnectionProvider.AzureBlob when AzureBlobEndpoint.Validate(StorageAccountName, BlobEndpoint, out _) is { } endpointProblem =>
+                endpointProblem,
 
             ConnectionProvider.Filesystem when Blank(AllowedRoot) => "Choose an allowed root.",
 

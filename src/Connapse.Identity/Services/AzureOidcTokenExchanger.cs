@@ -18,6 +18,27 @@ public sealed class AzureOidcTokenExchanger(
     IOptionsMonitor<AzureAdSignInSettings> options) : IOidcTokenExchanger
 {
     private const string ClientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+    /// <summary>The <c>error</c> code, the first AADSTS code in the description, and the correlation
+    /// id from an Entra error response — enough to look the failure up, without the response body.</summary>
+    internal static string DescribeError(string body)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement root = document.RootElement;
+            string? error = root.TryGetProperty("error", out JsonElement e) ? e.GetString() : null;
+            string? description = root.TryGetProperty("error_description", out JsonElement d) ? d.GetString() : null;
+            string? correlation = root.TryGetProperty("correlation_id", out JsonElement c) ? c.GetString() : null;
+            string? code = description is null ? null
+                : System.Text.RegularExpressions.Regex.Match(description, "AADSTS[0-9]+").Value is { Length: > 0 } m ? m : null;
+            return $"{error ?? "unknown_error"}{(code is null ? "" : $" ({code})")}{(correlation is null ? "" : $", correlation {correlation}")}";
+        }
+        catch (JsonException)
+        {
+            return "unreadable error response";
+        }
+    }
     private static readonly JsonWebTokenHandler Handler = new();
 
     public async Task<string> ExchangeAsync(string code, string codeVerifier, CancellationToken ct)
@@ -46,8 +67,10 @@ public sealed class AzureOidcTokenExchanger(
 
         if (!response.IsSuccessStatusCode)
         {
+            // The error code and correlation id, not the whole body: callers log this exception,
+            // and a remote response body is not something to copy into logs verbatim.
             throw new InvalidOperationException(
-                $"Entra token exchange failed with status {(int)response.StatusCode}: {body}");
+                $"Entra token exchange failed with status {(int)response.StatusCode}: {DescribeError(body)}");
         }
 
         using JsonDocument doc = JsonDocument.Parse(body);

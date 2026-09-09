@@ -31,7 +31,11 @@ public class AzureIdentityLinkServiceTests
         return factory;
     }
 
-    private static AzureIdentityLinkService CreateService(AzureIdentityLinkStore store) => new(store);
+    private static AzureIdentityLinkService CreateService(AzureIdentityLinkStore store)
+    {
+        var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        return new(store, new AzureSignInRequests(cache), new AzureLinkConfirmations(cache));
+    }
 
     [Fact]
     public async Task Store_Get_Disconnect_RoundTrips()

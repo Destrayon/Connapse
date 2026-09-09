@@ -7,12 +7,15 @@ namespace Connapse.Identity.Services;
 /// The PKCE verifier and nonce travel with the state so the callback can redeem the
 /// authorization code and validate the id token's nonce against the request that asked for it.
 /// </remarks>
+/// <param name="StartedAtUtc">When the sign-in was started, so a disconnect made after it can
+/// refuse it: a flow begun before the person revoked their link must not re-create the link.</param>
 public sealed record AzurePendingSignIn(
     string State,
     string CodeVerifier,
     string Nonce,
     Guid UserId,
-    DateTime ExpiresAtUtc);
+    DateTime ExpiresAtUtc,
+    DateTime StartedAtUtc = default);
 
 /// <summary>
 /// Remembers who started an Entra sign-in, keyed by the OAuth <c>state</c> value, so the
@@ -53,6 +56,34 @@ public sealed class AzureSignInRequests(IMemoryCache cache)
             return null;
 
         cache.Remove(key);
-        return pending;
+
+        // A sign-in started before the person disconnected must not finish: the disconnect was
+        // the later decision, and completing the older flow would re-create the link it removed.
+        return AzureLinkRevocations.WasRevokedSince(cache, pending.UserId, pending.StartedAtUtc) ? null : pending;
     }
+
+    /// <summary>Refuses every sign-in this user started before now. Called on disconnect.</summary>
+    public void RevokeFor(Guid userId) => AzureLinkRevocations.Record(cache, userId);
+}
+
+/// <summary>
+/// The moment a user last disconnected their Entra identity, kept for as long as any flow they
+/// started before it could still complete. Shared by the sign-in and confirmation stores, which
+/// both sit on the same cache; a flow whose start predates the revocation is refused by whichever
+/// store it reaches next.
+/// </summary>
+internal static class AzureLinkRevocations
+{
+    private const string KeyPrefix = "azure-link-revoked:";
+
+    /// <summary>Longer than a sign-in (10 min) or a parked confirmation (5 min) can live.</summary>
+    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(15);
+
+    public static void Record(IMemoryCache cache, Guid userId) =>
+        cache.Set(KeyPrefix + userId, DateTime.UtcNow, Lifetime);
+
+    /// <summary>Whether the user disconnected at or after <paramref name="startedAtUtc"/>. A flow
+    /// with no recorded start (default) is treated as older than any revocation.</summary>
+    public static bool WasRevokedSince(IMemoryCache cache, Guid userId, DateTime startedAtUtc) =>
+        cache.TryGetValue(KeyPrefix + userId, out DateTime revokedAt) && revokedAt >= startedAtUtc;
 }

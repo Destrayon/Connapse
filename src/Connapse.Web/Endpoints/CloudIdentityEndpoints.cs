@@ -270,7 +270,7 @@ public static class CloudIdentityEndpoints
 
             // Recorded before redirecting: the callback below trusts `state` to name a sign-in
             // this deployment actually started, and consumes it exactly once.
-            pending.Add(new AzurePendingSignIn(state, verifier, nonce, userId.Value, DateTime.UtcNow.AddMinutes(10)));
+            pending.Add(new AzurePendingSignIn(state, verifier, nonce, userId.Value, DateTime.UtcNow.AddMinutes(10), StartedAtUtc: DateTime.UtcNow));
 
             return Results.Redirect(AzureAuthorizationUrl.Build(azureAd, state, nonce, challenge));
         }).RequireAuthorization();

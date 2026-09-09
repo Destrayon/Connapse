@@ -29,10 +29,24 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
-    public void Create_NoCert_SystemAssignedManagedIdentity()
+    public void Create_NothingConfigured_Throws_RatherThanUsingWhateverIdentityTheHostHas()
     {
-        var cred = AzureCredentialChainFactory.Create(new AzureProviderSettings(), _ => null);
-        FirstSource(cred).Should().BeOfType<ManagedIdentityCredential>();
+        // An empty record is a reset or a lost row, not a request to use the host's identity;
+        // that request is the explicit flag. Continuing as the host would be a broader identity
+        // nobody chose.
+        var act = () => AzureCredentialChainFactory.Create(new AzureProviderSettings(), _ => null);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*No Azure identity is configured*");
+    }
+
+    [Fact]
+    public void Create_CertificateAppBesideUserAssignedIdentity_Throws_RatherThanPickingTheCertificate()
+    {
+        var settings = new AzureProviderSettings
+        {
+            TenantId = "t", ClientId = "c", ClientCertificatePath = "x.pem", UserAssignedManagedIdentityClientId = "mi",
+        };
+        var act = () => AzureCredentialChainFactory.Create(settings, _ => SelfSigned());
+        act.Should().Throw<InvalidOperationException>().WithMessage("*both*");
     }
 
     [Fact]
@@ -160,9 +174,10 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
-    public void Create_NoServicePrincipalFields_ManagedIdentityOnlyChain()
+    public void Create_HostIdentityFlag_ManagedIdentityOnlyChain()
     {
-        var cred = AzureCredentialChainFactory.Create(new AzureProviderSettings(), _ => null);
+        // The only way to the host's identity is asking for it.
+        var cred = AzureCredentialChainFactory.Create(new AzureProviderSettings { UseHostManagedIdentity = true }, _ => null);
         Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
     }
 

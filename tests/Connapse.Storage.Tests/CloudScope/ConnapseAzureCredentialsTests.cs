@@ -17,16 +17,15 @@ public class ConnapseAzureCredentialsTests
     [Fact]
     public void GetToken_WithNoAzureEnvironment_FailsClosed()
     {
-        // No cert, and no managed identity for this process → the chain cannot produce a token
-        // and throws, rather than returning a bogus token. Which exception depends on where the
-        // test runs: off Azure there is no metadata service (CredentialUnavailableException);
-        // on an Azure VM without an identity — GitHub's hosted runners — the metadata service
-        // answers "Identity not found" (AuthenticationFailedException). Both are closed.
+        // Nothing configured is nothing: the chain refuses to build rather than continuing as
+        // whatever identity the host happens to have (on an Azure VM, GitHub's hosted runners
+        // included, that would be a real request to the metadata service). Deterministic wherever
+        // the test runs, and closed.
         var monitor = new TestOptionsMonitor<AzureProviderSettings>(new AzureProviderSettings());
         var creds = new ConnapseAzureCredentials(monitor);
         var act = () => creds.GetToken(
             new TokenRequestContext(new[] { "https://storage.azure.com/.default" }), default);
-        act.Should().Throw<AuthenticationFailedException>();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*No Azure identity is configured*");
     }
 
     [Fact]
@@ -62,11 +61,11 @@ public class ConnapseAzureCredentialsTests
         var monitor = new TestOptionsMonitor<AzureProviderSettings>(settings);
         var creds = new ConnapseAzureCredentials(monitor);
 
-        // Prime the cache with a valid (managed-identity-only) build. The token request fails
-        // closed either way — see GetToken_WithNoAzureEnvironment_FailsClosed for the two shapes.
+        // Ask once with nothing configured: the build refuses (closed), and the failure must not
+        // leave anything cached that the reload below would then have to clear.
         var act1 = () => creds.GetToken(
             new TokenRequestContext(new[] { "https://storage.azure.com/.default" }), default);
-        act1.Should().Throw<AuthenticationFailedException>();
+        act1.Should().Throw<InvalidOperationException>();
 
         // Reload into a broken partial config; the callback itself must not throw.
         var broken = new AzureProviderSettings { TenantId = "t", ClientCertificatePath = "missing.pfx" };

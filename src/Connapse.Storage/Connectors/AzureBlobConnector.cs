@@ -18,9 +18,14 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
     private readonly AzureBlobConnectorConfig _config;
     private readonly BlobContainerClient _container;
 
+    /// <remarks>
+    /// The endpoint is resolved through <see cref="AzureBlobEndpoint"/>, which refuses an override
+    /// that is not the named account: the documents this connector lists are labelled with
+    /// <c>AccountName</c>, and every permission decision is made against that label.
+    /// </remarks>
     public AzureBlobConnector(AzureBlobConnectorConfig config, TokenCredential credential)
         : this(config, new BlobServiceClient(
-            new Uri(config.BlobEndpoint ?? $"https://{config.AccountName}.blob.core.windows.net"),
+            AzureBlobEndpoint.Resolve(config.AccountName, config.BlobEndpoint),
             credential))
     { }
 

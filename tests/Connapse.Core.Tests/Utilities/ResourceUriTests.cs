@@ -64,6 +64,17 @@ public class ResourceUriTests
 
     [Fact]
     [Trait("Category", "Unit")]
+    public void ForAzureBlob_LowerCasesAccountAndContainer_KeepsThePathAsIs()
+    {
+        // Azure names accounts and containers in lower case, and the deny assignments the
+        // verifier compares against are spelled that way; a URI typed with capitals would miss
+        // them. Blob names are case-sensitive and stay exactly as listed.
+        ResourceUri.ForAzureBlob("ACCT", "Docs", "Reports/Q1.pdf")
+            .Should().Be("azblob://acct/docs/Reports/Q1.pdf");
+    }
+
+    [Fact]
+    [Trait("Category", "Unit")]
     public void ForAzureBlob_BlankAccount_Throws()
     {
         var act = () => ResourceUri.ForAzureBlob("", "docs", "k");

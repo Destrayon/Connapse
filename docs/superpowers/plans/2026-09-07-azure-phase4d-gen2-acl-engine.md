@@ -283,7 +283,7 @@ The pure decision. This is the correctness heart of 4d — the matrix test is ex
 **Algorithm (documented POSIX first-match; class precedence owner > named-user > group-union > other):**
 1. **Owner** — if any principal is the owner, the owner permissions decide; the mask does **not** apply. Terminal.
 2. **Named user** — else if any principal matches a named-user entry, that entry (capped by the mask) decides. Terminal even if it denies.
-3. **Group class** — else gather the owning group (if a principal is in it) and every named-group entry a principal matches; if **any** of them, masked, grants the permission, allow; if there is at least one group match but none grants, deny (do not fall through). 
+3. **Group class** — else gather the owning group (if a principal is in it) and every named-group entry a principal matches; if **any** of them, masked, grants the permission, allow; if there is at least one group match but none grants, deny (do not fall through).
 4. **Other** — else the "other" permissions decide.
 
 - [ ] **Step 1: Write the failing test**

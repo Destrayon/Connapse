@@ -1493,12 +1493,13 @@
             string.Equals(a.Name, form.StorageAccountName?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The endpoint the connection will use: the override if set, else the public default.</summary>
-    private string? AzureEndpointForForm()
-    {
-        if (!string.IsNullOrWhiteSpace(form.BlobEndpoint)) return form.BlobEndpoint.Trim();
-        string? name = form.StorageAccountName?.Trim();
-        return string.IsNullOrWhiteSpace(name) ? null : $"https://{name}.blob.core.windows.net";
-    }
+    /// <summary>The endpoint the container picker lists from — the account's own, or an override
+    /// shown to be that account. An override for some other host gets nothing listed rather than
+    /// Connapse's token sent there.</summary>
+    private string? AzureEndpointForForm() =>
+        AzureBlobEndpoint.Validate(form.StorageAccountName, form.BlobEndpoint, out Uri? endpoint) is null
+            ? endpoint!.ToString().TrimEnd('/')
+            : null;
 
     /// <summary>A different account means a different set of containers.</summary>
     private void AccountNameChanged()

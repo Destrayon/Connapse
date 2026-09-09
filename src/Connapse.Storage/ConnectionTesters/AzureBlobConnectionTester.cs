@@ -28,14 +28,15 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(limit);
 
-        string endpoint = cfg.BlobEndpoint ?? $"https://{cfg.AccountName}.blob.core.windows.net";
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? endpointUri) || endpointUri.Scheme is not ("https" or "http"))
+        // The same rule the connector applies: the endpoint must be the named account's, or the
+        // test would prove access to one account for a connection labelled as another.
+        if (Core.Utilities.AzureBlobEndpoint.Validate(cfg.AccountName, cfg.BlobEndpoint, out Uri? endpointUri) is { } endpointProblem)
         {
             return ConnectionTestResult.CreateFailure(
-                $"'{endpoint}' is not a full https:// address. Fix the Blob endpoint field, or clear it to "
-                + "use the account's default endpoint.",
-                new Dictionary<string, object> { ["error"] = "Invalid blob endpoint", ["endpoint"] = endpoint });
+                endpointProblem,
+                new Dictionary<string, object> { ["error"] = "Invalid storage account or blob endpoint", ["endpoint"] = cfg.BlobEndpoint ?? "" });
         }
+        endpointUri = endpointUri!;
 
         string where = string.IsNullOrEmpty(cfg.Prefix) ? "" : $" under prefix '{cfg.Prefix}'";
         var stopwatch = Stopwatch.StartNew();
