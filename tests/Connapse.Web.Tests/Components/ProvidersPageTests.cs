@@ -185,7 +185,7 @@ public class ProvidersPageTests
         // relying on the startup latch alone left azblob results unfiltered until the next restart.
         int azureSave = markup.IndexOf("private async Task<bool?> SaveAzureAdFromForm(", StringComparison.Ordinal);
         azureSave.Should().BeGreaterThan(0);
-        markup[azureSave..].Should().Contain("AzureEnforcing = enforcing");
+        markup[azureSave..].Should().Contain("LatchEnforcementAsync(azure: true)");
         markup.Should().NotContain("confirmResetAccess")
             .And.NotContain("confirmResetIdentityCenter")
             .And.NotContain("confirmResetSamlApplication");

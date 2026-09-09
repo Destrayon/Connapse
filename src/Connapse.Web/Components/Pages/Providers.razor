@@ -2244,16 +2244,10 @@
         // per provider, and writing it with only this one would switch Azure filtering off. Written
         // before the sign-in settings for the same reason as the Azure save — a latch that cannot be
         // written must not leave sign-in configured with filtering off.
-        if (enforcing != EnforcementOptions.CurrentValue.IsEnforcing)
+        if (enforcing && !EnforcementOptions.CurrentValue.IsEnforcing)
         {
-            bool? latched = await SaveSettings(
-                PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings
-                {
-                    IsEnforcing = enforcing,
-                    AzureEnforcing = EnforcementOptions.CurrentValue.AzureEnforcing,
-                });
-            if (latched != true || EnforcementOptions.CurrentValue.IsEnforcing != enforcing)
+            bool latched = await LatchEnforcementAsync(saml: true);
+            if (!latched || !EnforcementOptions.CurrentValue.IsEnforcing)
             {
                 saveMessage = "Per-user enforcement for AWS could not be switched on in this process, so "
                     + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
@@ -2332,8 +2326,47 @@
         }
         catch (Exception ex)
         {
-            saveMessage = $"{saveMessage} A follow-up step failed afterwards ({ex.Message}); the settings themselves are stored.";
+            saveMessage = saveSuccess
+                ? $"{saveMessage} A follow-up step failed afterwards ({ex.Message}); the settings themselves are stored."
+                : $"{saveMessage} A follow-up step also failed ({ex.Message}).";
         }
+    }
+
+    /// <summary>
+    /// Switches a per-provider enforcement latch on. Written as a merge under the store's lock, never
+    /// as a replace: two administrators saving the two providers at once would otherwise each write
+    /// the whole record from their own stale copy, and one of them would switch the other's filtering
+    /// off. A latch only ever goes on, so the merge is an OR of what is stored, what this process
+    /// sees, and what is being asked for. Returns whether the record was written.
+    /// </summary>
+    private async Task<bool> LatchEnforcementAsync(bool saml = false, bool azure = false)
+    {
+        try
+        {
+            await SettingsStore.UpdateAsync<PermissionEnforcementSettings>(
+                PermissionEnforcementSettings.Category,
+                stored => new PermissionEnforcementSettings
+                {
+                    IsEnforcing = (stored?.IsEnforcing ?? false) || EnforcementOptions.CurrentValue.IsEnforcing || saml,
+                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || EnforcementOptions.CurrentValue.AzureEnforcing || azure,
+                });
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to record per-user enforcement: {ex.Message}";
+            saveSuccess = false;
+            return false;
+        }
+
+        try
+        {
+            ReloadService.Reload();
+        }
+        catch (Exception)
+        {
+            // The live check that follows every latch is what decides; a failed reload shows there.
+        }
+        return true;
     }
 
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
@@ -2361,20 +2394,13 @@
         // stored, Azure searches deny — closed. The other order, sign-in stored and then the latch
         // failing, would leave sign-in configured with filtering off: every Azure result to everyone.
         // So a latch that cannot be written stops the save, and the sign-in settings stay as they were.
-        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
-        if (enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
+        if (settings.IsConfigured && !EnforcementOptions.CurrentValue.AzureEnforcing)
         {
-            bool? latched = await SaveSettings(
-                PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings
-                {
-                    IsEnforcing = EnforcementOptions.CurrentValue.IsEnforcing,
-                    AzureEnforcing = enforcing,
-                });
+            bool latched = await LatchEnforcementAsync(azure: true);
             // Stored is not enough: the resolver reads the live options, so a latch that was written
             // but not applied (the reload failed) would let sign-in be saved into an unfiltered
             // process. Only a latch this process can see counts.
-            if (latched != true || EnforcementOptions.CurrentValue.AzureEnforcing != enforcing)
+            if (!latched || !EnforcementOptions.CurrentValue.AzureEnforcing)
             {
                 saveMessage = "Per-user enforcement for Azure could not be switched on in this process, so "
                     + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";

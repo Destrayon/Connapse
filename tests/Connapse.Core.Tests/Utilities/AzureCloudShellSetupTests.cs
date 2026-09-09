@@ -207,12 +207,15 @@ public class AzureCloudShellSetupTests
     {
         // `set -e` pasted into an interactive shell closes the session on the first failure, taking
         // the error message with it. Both scripts wrap the body and print what failed.
-        foreach (string s in new[]
+        foreach (string script in new[]
                  {
                      AzureCloudShellSetup.GenerateAccessScript(AccessInput()),
                      AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()),
                  })
         {
+            // The template is a raw string literal, so it carries the source file's line endings;
+            // a CRLF checkout must not fail an assertion about the script's structure.
+            string s = script.Replace("\r\n", "\n");
             s.Should().Contain("\n(\nset -euo pipefail\ntrap 'echo; echo \"Connapse setup failed at: $BASH_COMMAND\" >&2' ERR");
             s.Should().Contain(") || echo \"----- CONNAPSE SETUP FAILED");
         }

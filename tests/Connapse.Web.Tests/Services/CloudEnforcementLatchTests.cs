@@ -80,15 +80,37 @@ public class CloudEnforcementLatchTests
             NullLogger<CloudEnforcementLatch>.Instance), migration);
     }
 
+    /// <summary>What the latch asked the store to hold, computed the way the store would: the merge
+    /// function it passed, applied to an empty row.</summary>
     private Task<PermissionEnforcementSettings?> SavedMarker()
     {
         var calls = store.ReceivedCalls()
-            .Where(c => c.GetMethodInfo().Name == nameof(ISettingsStore.SaveAsync))
-            .Select(c => c.GetArguments()[1] as PermissionEnforcementSettings)
-            .Where(v => v is not null)
+            .Where(c => c.GetMethodInfo().Name == nameof(ISettingsStore.UpdateAsync))
+            .Select(c => c.GetArguments()[1] as Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>)
+            .Where(f => f is not null)
+            .Select(f => f!(null))
             .ToList();
 
         return Task.FromResult(calls.LastOrDefault());
+    }
+
+    [Fact]
+    public async Task TheMarkerIsMerged_SoALatchAlreadyStoredIsNeverSwitchedOff()
+    {
+        // Azure was latched by somebody else — the Providers page, another process — and this
+        // deployment only configures SAML. Writing the record from this snapshot would turn Azure
+        // back off; the merge keeps whatever is already on.
+        var (latch, _) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        var merge = store.ReceivedCalls()
+            .Where(c => c.GetMethodInfo().Name == nameof(ISettingsStore.UpdateAsync))
+            .Select(c => c.GetArguments()[1] as Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>)
+            .Single(f => f is not null)!;
+
+        var merged = merge(new PermissionEnforcementSettings { IsEnforcing = false, AzureEnforcing = true });
+        merged.IsEnforcing.Should().BeTrue();
+        merged.AzureEnforcing.Should().BeTrue();
     }
 
     [Fact]
@@ -238,8 +260,8 @@ public class CloudEnforcementLatchTests
     {
         // Which makes the resolver deny. The first version logged this and carried on with
         // enforcement off, so one transient database error at boot opened the whole corpus.
-        store.SaveAsync(Arg.Any<string>(), Arg.Any<PermissionEnforcementSettings>(), Arg.Any<CancellationToken>())
-            .Returns<Task>(_ => throw new InvalidOperationException("database unavailable"));
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<PermissionEnforcementSettings>>(_ => throw new InvalidOperationException("database unavailable"));
 
         var (latch, migration) = Build(Complete());
         await latch.StartAsync(CancellationToken.None);
@@ -252,8 +274,8 @@ public class CloudEnforcementLatchTests
     {
         // Refusing to answer is the version of "never block startup" that does not fail open. The
         // deployment comes up, and searches deny until somebody looks.
-        store.SaveAsync(Arg.Any<string>(), Arg.Any<PermissionEnforcementSettings>(), Arg.Any<CancellationToken>())
-            .Returns<Task>(_ => throw new InvalidOperationException("database unavailable"));
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<PermissionEnforcementSettings>>(_ => throw new InvalidOperationException("database unavailable"));
 
         var (latch, _) = Build(Complete());
 
@@ -270,10 +292,12 @@ public class CloudEnforcementLatchTests
 
         await store.DidNotReceive().SaveAsync(
             Arg.Any<string>(), Arg.Any<SamlSignInSettings>(), Arg.Any<CancellationToken>());
+        await store.DidNotReceive().UpdateAsync(
+            Arg.Any<string>(), Arg.Any<Func<SamlSignInSettings?, SamlSignInSettings>>(), Arg.Any<CancellationToken>());
 
-        await store.Received(1).SaveAsync(
+        await store.Received(1).UpdateAsync(
             PermissionEnforcementSettings.Category,
-            Arg.Any<PermissionEnforcementSettings>(),
+            Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(),
             Arg.Any<CancellationToken>());
     }
 }

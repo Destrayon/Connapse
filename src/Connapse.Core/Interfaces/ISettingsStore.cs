@@ -25,6 +25,17 @@ public interface ISettingsStore
     Task SaveAsync<T>(string category, T settings, CancellationToken cancellationToken = default) where T : class;
 
     /// <summary>
+    /// Changes the stored settings for a category in one atomic step: the current value is read
+    /// under a lock, <paramref name="update"/> derives the new one from it, and that is written
+    /// before the lock is released. Two callers updating the same category can therefore never
+    /// overwrite each other's change, which <see cref="SaveAsync{T}"/> — a replace from whatever
+    /// the caller read earlier — cannot promise.
+    /// </summary>
+    /// <param name="update">Receives what is stored now (null when nothing is) and returns what to store.</param>
+    /// <returns>The value stored.</returns>
+    Task<T> UpdateAsync<T>(string category, Func<T?, T> update, CancellationToken cancellationToken = default) where T : class;
+
+    /// <summary>
     /// Resets settings for a specific category to defaults (removes from store).
     /// </summary>
     /// <param name="category">The settings category identifier.</param>

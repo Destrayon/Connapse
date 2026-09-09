@@ -89,9 +89,16 @@ public sealed class CloudEnforcementLatch(
             await using var scope = scopes.CreateAsyncScope();
             var settings = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
 
-            await settings.SaveAsync(
+            // A merge under the store's lock, not a replace: a save on the Providers page can be
+            // latching the other provider at this same moment, and a replace from this snapshot
+            // would switch that one back off. A latch only ever goes on, so the merge is an OR.
+            await settings.UpdateAsync<PermissionEnforcementSettings>(
                 PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings { IsEnforcing = samlLatched, AzureEnforcing = azureLatched },
+                stored => new PermissionEnforcementSettings
+                {
+                    IsEnforcing = (stored?.IsEnforcing ?? false) || samlLatched,
+                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || azureLatched,
+                },
                 cancellationToken);
 
             migration.Complete();
