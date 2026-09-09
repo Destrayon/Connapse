@@ -46,7 +46,19 @@ public sealed class AzureBlobDiscovery(
             // hands back a token it already holds without asking Entra, and a certificate removed
             // from the app after that would keep reading as accepted until the token expired.
             TokenCredential fresh = ConnapseAzureCredentials.Build(candidate);
-            await fresh.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
+            AccessToken token = await fresh.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
+
+            // A managed-identity token is issued whatever tenant the settings name, so the tenant
+            // is checked against the token itself: one that names another tenant would only fail
+            // later, in the sign-in defaults and the role-assignment reads.
+            if (AzureCredentialChainFactory.IsManagedIdentity(candidate)
+                && !string.IsNullOrWhiteSpace(candidate.TenantId)
+                && AzureHostIdentity.Describe(token.Token)?.TenantId is { } issuedFor
+                && !string.Equals(issuedFor, candidate.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return AzureProbe<string>.Unusable(
+                    $"The managed identity is in tenant {issuedFor}, but the settings name tenant {candidate.TenantId}.");
+            }
 
             string verified = AzureCredentialChainFactory.IsHostManagedIdentity(candidate)
                 ? "Azure issued a token for this host's managed identity"

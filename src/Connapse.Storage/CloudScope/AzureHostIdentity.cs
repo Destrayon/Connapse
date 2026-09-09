@@ -33,14 +33,14 @@ public sealed class AzureHostIdentity(ILogger<AzureHostIdentity> logger) : IAzur
         return token.Token;
     };
 
-    public async Task<AzureHostIdentityInfo?> DetectAsync(CancellationToken ct = default)
+    public async Task<AzureHostIdentityInfo?> DetectAsync(bool refresh = false, CancellationToken ct = default)
     {
-        if (found is not null) return found;
+        if (!refresh && found is not null) return found;
 
         await gate.WaitAsync(ct);
         try
         {
-            if (found is not null) return found;
+            if (!refresh && found is not null) return found;
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(Timeout);
@@ -54,7 +54,9 @@ public sealed class AzureHostIdentity(ILogger<AzureHostIdentity> logger) : IAzur
             }
             catch (CredentialUnavailableException)
             {
-                // The ordinary answer off Azure: no metadata service, so no identity.
+                // The ordinary answer off Azure: no metadata service, so no identity. On a refresh
+                // it also means an identity remembered earlier is gone, and must not be handed out.
+                if (refresh) found = null;
                 return null;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)

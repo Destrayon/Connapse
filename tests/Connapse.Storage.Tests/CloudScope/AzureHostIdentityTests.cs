@@ -105,6 +105,28 @@ public class AzureHostIdentityTests
     }
 
     [Fact]
+    public async Task DetectAsync_Refresh_AsksAgain_AndForgetsAnIdentityThatIsGone()
+    {
+        // Recheck asks with refresh: an identity re-created since the process cached it comes back
+        // new, and one that was removed is not handed out from the cache any more.
+        int calls = 0;
+        var probe = new AzureHostIdentity(NullLogger<AzureHostIdentity>.Instance)
+        {
+            AcquireToken = _ =>
+            {
+                calls++;
+                if (calls == 1) return Task.FromResult(SystemAssignedToken());
+                throw new CredentialUnavailableException("gone");
+            },
+        };
+
+        (await probe.DetectAsync()).Should().NotBeNull();
+        (await probe.DetectAsync(refresh: true)).Should().BeNull();
+        (await probe.DetectAsync()).Should().BeNull("the cache must not resurrect a removed identity");
+        calls.Should().Be(3);
+    }
+
+    [Fact]
     public async Task DetectAsync_NotFound_AsksAgainNextTime()
     {
         // A host that had no identity may gain one (or the metadata service may have been slow);

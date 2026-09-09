@@ -28,6 +28,7 @@ public interface IAzureHostIdentity
 {
     /// <summary>The host's managed identity, or null when the host has none (or the metadata
     /// service did not answer in time). Never throws; a found identity is remembered for the
-    /// process, since a host's identity does not change while it runs.</summary>
-    Task<AzureHostIdentityInfo?> DetectAsync(CancellationToken ct = default);
+    /// process, since a host's identity rarely changes while it runs — <paramref name="refresh"/>
+    /// asks again regardless, for the cases where it has (an identity disabled and re-enabled).</summary>
+    Task<AzureHostIdentityInfo?> DetectAsync(bool refresh = false, CancellationToken ct = default);
 }

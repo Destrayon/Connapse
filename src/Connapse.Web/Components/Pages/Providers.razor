@@ -1260,7 +1260,8 @@
                     {
                         <p class="small text-muted mb-3" role="status">
                             <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
-                            Checking whether this host has a managed identity to use instead…
+                            Checking whether this host has a managed identity to use instead — the guide switches
+                            to it if so…
                         </p>
                     }
                     else if (hostIdentity is not null && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
@@ -1279,7 +1280,9 @@
                         </p>
                     }
 
-                        EnsureAzureAccessScript();
+                        // Not while the host is still being asked: a certificate minted now would sit
+                        // unused if the answer is a managed identity.
+                        if (!detectingHostIdentity) EnsureAzureAccessScript();
                         @if (azureAccessScript is { Length: > 0 } accessScript)
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
@@ -2436,7 +2439,13 @@
         StateHasChanged();
         try
         {
+            // The host is asked again as well: a probe that timed out, or an identity re-created
+            // since the process cached it, is what Recheck exists to notice.
+            Task detection = Key == "azure" && hostIdentityRequested
+                ? DetectHostIdentityAsync(refresh: true)
+                : Task.CompletedTask;
             setups = await SetupReader.ReadAsync();
+            await detection;
             await LoadAwsCredentialModeAsync();
             LoadAzureCertificateExpiry();
         }
@@ -2729,14 +2738,14 @@
         if (Key != "azure" || hostIdentityRequested) return;
         hostIdentityRequested = true;
         detectingHostIdentity = true;
-        _ = DetectHostIdentityAsync();
+        _ = DetectHostIdentityAsync(refresh: false);
     }
 
-    private async Task DetectHostIdentityAsync()
+    private async Task DetectHostIdentityAsync(bool refresh)
     {
         try
         {
-            hostIdentity = await HostIdentity.DetectAsync();
+            hostIdentity = await HostIdentity.DetectAsync(refresh);
         }
         catch (Exception)
         {
@@ -2745,6 +2754,9 @@
         finally
         {
             detectingHostIdentity = false;
+            // A permissions script generated before the answer landed names whatever principal was
+            // recorded; the host's own answer outranks it, so the script is rebuilt to match.
+            RefreshAzurePermissionsScript();
             await InvokeAsync(StateHasChanged);
         }
     }
