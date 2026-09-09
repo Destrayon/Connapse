@@ -49,19 +49,14 @@ public sealed class ConnapseAzureCredentials : TokenCredential, IDisposable
     public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken ct) =>
         Current.GetTokenAsync(requestContext, ct);
 
-    private static TokenCredential Build(AzureProviderSettings settings) =>
+    /// <summary>A credential built from <paramref name="settings"/> alone, sharing nothing with the
+    /// cached one — so a check made with it always goes to Entra rather than answering from a token
+    /// the shared credential still holds.</summary>
+    public static TokenCredential Build(AzureProviderSettings settings) =>
         AzureCredentialChainFactory.Create(settings, LoadCertificate);
 
-    private static X509Certificate2? LoadCertificate(AzureProviderSettings s)
-    {
-        if (string.IsNullOrWhiteSpace(s.ClientCertificatePath)) return null;
-        if (!File.Exists(s.ClientCertificatePath)) return null;
-
-        string ext = Path.GetExtension(s.ClientCertificatePath).ToLowerInvariant();
-        return ext is ".pem" or ".crt"
-            ? X509Certificate2.CreateFromPemFile(s.ClientCertificatePath)
-            : X509CertificateLoader.LoadPkcs12FromFile(s.ClientCertificatePath, s.ClientCertificatePassword);
-    }
+    private static X509Certificate2? LoadCertificate(AzureProviderSettings s) =>
+        AzureCertificateFile.Load(s.ClientCertificatePath, s.ClientCertificatePassword);
 
     public void Dispose() => _reload?.Dispose();
 }

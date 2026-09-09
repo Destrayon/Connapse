@@ -42,17 +42,23 @@ public class ProviderSetupReaderTests
         AzureProviderSettings? azureProvider = null,
         AzureAdSignInSettings? azureAd = null,
         IConnectionStore? connections = null,
-        AzureProbe<string>? azureAccess = null)
+        AzureProbe<string>? azureAccess = null,
+        AzureProbe<string>? azureSignIn = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
         discovery.ListBucketsAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(buckets);
 
-        // Defaults to Entra accepting the credential, so a test about anything else is not also
-        // silently a test about the live check.
+        // Defaults to Entra accepting both credentials, so a test about anything else is not also
+        // silently a test about the live checks. The sign-in check is told apart from the access
+        // check by the candidate it is handed: the sign-in app's client id.
         var azureDiscovery = Substitute.For<IAzureBlobDiscovery>();
         azureDiscovery.CheckAccessAsync(Arg.Any<CancellationToken>())
             .Returns(azureAccess ?? AzureProbe<string>.Ok("Entra accepted the certificate."));
+        azureDiscovery.CheckAccessAsync(Arg.Any<AzureProviderSettings>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<AzureProviderSettings>(0).ClientId == (azureAd ?? new AzureAdSignInSettings()).ClientId
+                ? azureSignIn ?? AzureProbe<string>.Ok("Entra accepted the sign-in certificate.")
+                : azureAccess ?? AzureProbe<string>.Ok("Entra accepted the certificate."));
 
         if (credentials is null)
         {
@@ -644,6 +650,46 @@ public class ProviderSetupReaderTests
 
         azure.Requirements.Single(r => r.Name == "Per-user permissions").Status
             .Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_WhenEntraRefusesTheSignInCredential_IsFailed()
+    {
+        // An expired or removed sign-in certificate is invisible to settings, and a Ready card over
+        // it would send people to a sign-in that fails. Failed, with the reason and the fix.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            azureSignIn: AzureProbe<string>.Denied("AADSTS700027: Client assertion contains an invalid signature")));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Failed);
+        requirement.Detail.Should().Contain("sign-in application").And.Contain("AADSTS700027");
+        // The access credential was fine; only the sign-in one was refused.
+        azure.Requirements.Single(r => r.Name == "Access").Status.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_WhenTheSignInCheckCannotComplete_Warns()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            azureSignIn: AzureProbe<string>.Failed("No such host is known")));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("could not reach Azure");
+    }
+
+    [Fact]
+    public void SignInIdentity_CarriesTheFourFieldsTheCredentialCheckNeeds()
+    {
+        var identity = ProviderSetupReader.SignInIdentity(ConfiguredAzureAd() with { ClientCertificatePassword = "pw" });
+
+        identity.TenantId.Should().Be(ConfiguredAzureAd().TenantId);
+        identity.ClientId.Should().Be(ConfiguredAzureAd().ClientId);
+        identity.ClientCertificatePath.Should().Be(ConfiguredAzureAd().ClientCertificatePath);
+        identity.ClientCertificatePassword.Should().Be("pw");
+        identity.UserAssignedManagedIdentityClientId.Should().BeNull();
     }
 
     [Fact]

@@ -28,10 +28,12 @@ public sealed class AzureBlobDiscovery(
     /// identity in the tenant, so the check tests the credential and nothing else.</summary>
     private const string ArmScope = "https://management.azure.com/.default";
 
-    public async Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default)
+    public Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default) =>
+        CheckAccessAsync(options.CurrentValue, ct);
+
+    public async Task<AzureProbe<string>> CheckAccessAsync(AzureProviderSettings candidate, CancellationToken ct = default)
     {
-        AzureProviderSettings settings = options.CurrentValue;
-        if (!IsConfigured(settings))
+        if (!IsConfigured(candidate))
             return AzureProbe<string>.NotConfigured(
                 "No Azure identity is set up — configure it on the Azure provider page.");
 
@@ -40,11 +42,15 @@ public sealed class AzureBlobDiscovery(
 
         try
         {
-            await credentials.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
+            // A credential of its own, never the shared cached one: ClientCertificateCredential
+            // hands back a token it already holds without asking Entra, and a certificate removed
+            // from the app after that would keep reading as accepted until the token expired.
+            TokenCredential fresh = ConnapseAzureCredentials.Build(candidate);
+            await fresh.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
 
-            string verified = string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
-                ? $"Entra accepted the certificate for app {settings.ClientId} in tenant {settings.TenantId}."
-                : $"Azure issued a token for managed identity {settings.UserAssignedManagedIdentityClientId}.";
+            string verified = AzureCredentialChainFactory.IsUserAssignedManagedIdentity(candidate)
+                ? $"Azure issued a token for managed identity {candidate.UserAssignedManagedIdentityClientId}."
+                : $"Entra accepted the certificate for app {candidate.ClientId} in tenant {candidate.TenantId}.";
             return AzureProbe<string>.Ok(verified);
         }
         catch (AuthenticationFailedException ex) when (IsCredentialRefusal(ex))
@@ -59,9 +65,17 @@ public sealed class AzureBlobDiscovery(
             // Network faults, an unreadable certificate file, a partially configured identity, or
             // no managed identity on this host: the check could not be completed either way.
             logger.LogWarning(ex, "Checking Connapse's Azure identity failed");
-            return AzureProbe<string>.Failed(ex.Message);
+            return AzureProbe<string>.Failed(Describe(ex));
         }
     }
+
+    /// <summary>What to tell the operator when the check could not run, by what stopped it.</summary>
+    private static string Describe(Exception ex) => ex switch
+    {
+        CredentialUnavailableException => "No managed identity is available on this host: " + ex.Message,
+        OperationCanceledException => $"Azure did not answer within {Timeout.TotalSeconds:F0} seconds.",
+        _ => ex.Message,
+    };
 
     /// <summary>Whether Entra itself rejected the credential, as opposed to the request not
     /// reaching it. Entra's rejections carry an <c>AADSTS</c> code; transport failures do not.</summary>

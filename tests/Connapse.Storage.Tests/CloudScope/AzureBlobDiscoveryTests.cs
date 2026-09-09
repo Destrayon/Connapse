@@ -82,6 +82,25 @@ public class AzureBlobDiscoveryTests
         probe.Detail.Should().Contain("certificate");
     }
 
+    [Fact]
+    public async Task CheckAccess_Candidate_IsCheckedInsteadOfTheStoredSettings()
+    {
+        // Stored settings are blank (NotConfigured); the candidate is complete but its certificate
+        // file is missing, so it is the candidate that produced the answer.
+        var probe = await Build(new AzureProviderSettings()).CheckAccessAsync(Configured());
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.Failed);
+        probe.Detail.Should().Contain("certificate");
+    }
+
+    [Fact]
+    public async Task CheckAccess_Candidate_NotConfigured_NeverCallsAzure()
+    {
+        var probe = await Build(Configured()).CheckAccessAsync(new AzureProviderSettings { TenantId = "t" });
+
+        probe.Outcome.Should().Be(AzureProbeOutcome.NotConfigured);
+    }
+
     [Theory]
     [InlineData("AADSTS700027: Client assertion contains an invalid signature", true)]
     [InlineData("AADSTS7000215: Invalid client secret provided", true)]

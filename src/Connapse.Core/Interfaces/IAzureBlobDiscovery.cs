@@ -70,6 +70,14 @@ public interface IAzureBlobDiscovery
     Task<AzureProbe<string>> CheckAccessAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// The same check for settings that are not stored yet — a form about to be saved, or a
+    /// replacement certificate about to be promoted — so nothing that works is replaced by
+    /// something Entra rejects. Also used for the sign-in application, whose identity has the
+    /// same shape. Never answers from a cached token.
+    /// </summary>
+    Task<AzureProbe<string>> CheckAccessAsync(AzureProviderSettings candidate, CancellationToken ct = default);
+
+    /// <summary>
     /// Every storage account in the configured subscription the identity may read metadata for.
     /// </summary>
     /// <remarks>Needs <c>Microsoft.Storage/storageAccounts/read</c> at subscription scope. A denial

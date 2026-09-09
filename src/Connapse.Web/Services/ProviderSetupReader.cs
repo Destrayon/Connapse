@@ -57,8 +57,11 @@ public class ProviderSetupReader(
     {
         var providers = await InUseProvidersAsync(ct);
 
-        var azureAccess = await AzureAccessAsync(azureProvider.CurrentValue, ct);
-        var azurePermissions = AzurePerUserPermissions(azureAd.CurrentValue, azureProvider.CurrentValue);
+        // Two round trips to Entra, made together: a page load should not pay for them in series.
+        Task<ProviderRequirement> azureAccessTask = AzureAccessAsync(azureProvider.CurrentValue, ct);
+        Task<ProviderRequirement> azurePermissionsTask = AzurePerUserPermissionsAsync(azureAd.CurrentValue, azureProvider.CurrentValue, ct);
+        var azureAccess = await azureAccessTask;
+        var azurePermissions = await azurePermissionsTask;
 
         return
         [
@@ -132,13 +135,14 @@ public class ProviderSetupReader(
     /// what they may read.
     /// </summary>
     /// <remarks>
-    /// Two parts: the Entra sign-in application (<c>Identity:AzureAd</c>) and the subscription the
-    /// RBAC resolver queries (<c>Providers:Azure</c> <c>SubscriptionId</c>). Both are needed for
-    /// per-user Azure filtering; sign-in without the subscription fails closed, so that is a warning
-    /// rather than a clean state.
+    /// Three parts: Entra still accepting the sign-in application's certificate (checked live, the
+    /// same way as Access — an expired or removed certificate must not read as Ready), the
+    /// subscription the RBAC resolver queries (<c>Providers:Azure</c> <c>SubscriptionId</c>), and
+    /// admin consent. Sign-in without the subscription or consent fails closed, so those are
+    /// warnings rather than a clean state.
     /// </remarks>
-    private static ProviderRequirement AzurePerUserPermissions(
-        AzureAdSignInSettings signIn, AzureProviderSettings provider)
+    private async Task<ProviderRequirement> AzurePerUserPermissionsAsync(
+        AzureAdSignInSettings signIn, AzureProviderSettings provider, CancellationToken ct)
     {
         const string name = "Per-user permissions";
         const string description =
@@ -148,6 +152,20 @@ public class ProviderSetupReader(
         if (!signIn.IsConfigured)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
                 "Nobody can connect an Entra identity until the sign-in application is set up below.");
+
+        var probe = await azureDiscovery.CheckAccessAsync(SignInIdentity(signIn), ct);
+        switch (probe.Outcome)
+        {
+            case AzureProbeOutcome.Denied:
+                return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                    "Entra refused the sign-in application's credential, so nobody can connect an Entra "
+                    + "identity. The certificate is not registered on the app, has expired, or the app no "
+                    + $"longer exists — set the application up again below. Entra said: {probe.Detail}");
+            case AzureProbeOutcome.Failed:
+                return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                    "Connapse could not reach Azure to confirm the sign-in application's credential, so "
+                    + $"this may or may not work. The check reported: {probe.Detail}");
+        }
 
         if (string.IsNullOrWhiteSpace(provider.SubscriptionId))
             return new ProviderRequirement(name, description, RequirementStatus.Warning,
@@ -164,6 +182,16 @@ public class ProviderSetupReader(
         return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
             $"Tenant {signIn.TenantId}, subscription {provider.SubscriptionId}");
     }
+
+    /// <summary>The sign-in application in the shape the credential check takes: it authenticates
+    /// with a certificate exactly as the access app does, so the same check applies.</summary>
+    public static AzureProviderSettings SignInIdentity(AzureAdSignInSettings signIn) => new()
+    {
+        TenantId = signIn.TenantId,
+        ClientId = signIn.ClientId,
+        ClientCertificatePath = signIn.ClientCertificatePath,
+        ClientCertificatePassword = signIn.ClientCertificatePassword,
+    };
 
     /// <summary>
     /// Which cloud providers this installation has actually taken up.

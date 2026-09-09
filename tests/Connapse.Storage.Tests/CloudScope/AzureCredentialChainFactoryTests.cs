@@ -44,6 +44,28 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
+    public void Create_TenantAndUserAssignedManagedIdentity_UsesManagedIdentity()
+    {
+        // The provider page records the tenant for every identity. A tenant beside a managed
+        // identity id is not certificate intent, and must not be refused as a half-filled one.
+        var settings = new AzureProviderSettings { TenantId = "t", UserAssignedManagedIdentityClientId = "mi-client" };
+        var cred = AzureCredentialChainFactory.Create(settings, _ => null);
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
+    }
+
+    [Fact]
+    public void IsUserAssignedManagedIdentity_FalseWhenAnyCertificateFieldIsSet()
+    {
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { TenantId = "t", UserAssignedManagedIdentityClientId = "mi" }).Should().BeTrue();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { UserAssignedManagedIdentityClientId = "mi", ClientId = "c" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(
+            new AzureProviderSettings { UserAssignedManagedIdentityClientId = "mi", ClientCertificatePath = "x.pem" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsUserAssignedManagedIdentity(new AzureProviderSettings { TenantId = "t" }).Should().BeFalse();
+    }
+
+    [Fact]
     public void Create_ClientIdSetButCertMissing_Throws()
     {
         var settings = new AzureProviderSettings { TenantId = "t", ClientId = "c" };

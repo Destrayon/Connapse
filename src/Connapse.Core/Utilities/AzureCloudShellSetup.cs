@@ -12,7 +12,11 @@ public sealed record AzureAccessSetupInput(
     string? ExistingAccessAppClientId = null);
 
 /// <summary>The non-secret identifiers the Access script prints back.</summary>
-public sealed record AzureAccessResult(string TenantId, string SubscriptionId, string AccessAppClientId);
+/// <param name="CertificateThumbprint">SHA-1 thumbprint (upper-case hex, no separators) of the certificate
+/// the script registered, so the page can refuse to promote a different one; null when the paste
+/// predates the script printing it.</param>
+public sealed record AzureAccessResult(
+    string TenantId, string SubscriptionId, string AccessAppClientId, string? CertificateThumbprint = null);
 
 /// <summary>Inputs for the Per-user permissions step's script: which access app to grant Graph
 /// permissions on, the sign-in app's redirect URI, the page Entra should bounce back to after admin
@@ -28,7 +32,8 @@ public sealed record AzurePermissionsSetupInput(
 
 /// <summary>What the Per-user permissions script prints back, including whether the operator was able
 /// to grant admin consent (and the URL to hand an administrator when they were not).</summary>
-public sealed record AzurePermissionsResult(string SignInAppClientId, bool ConsentGranted, string? ConsentUrl);
+public sealed record AzurePermissionsResult(
+    string SignInAppClientId, bool ConsentGranted, string? ConsentUrl, string? CertificateThumbprint = null);
 
 /// <summary>
 /// Generates the Azure Cloud Shell (<c>az</c>) scripts that provision Connapse's Azure setup, one per
@@ -93,7 +98,17 @@ public static class AzureCloudShellSetup
         if (!Guid.TryParse(tenant, out _) || !Guid.TryParse(subscription, out _) || !Guid.TryParse(accessId, out _))
             return null;
 
-        return new AzureAccessResult(tenant!, subscription!, accessId!);
+        values.TryGetValue("certificateThumbprint", out string? thumbprint);
+        return new AzureAccessResult(tenant!, subscription!, accessId!, Thumbprint(thumbprint));
+    }
+
+    /// <summary>A thumbprint as the scripts print it: 40 hex digits, upper-cased here; anything else
+    /// (an older script that did not print one, or openssl missing) reads as none.</summary>
+    private static string? Thumbprint(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        string cleaned = value.Replace(":", "").Trim().ToUpperInvariant();
+        return cleaned.Length == 40 && cleaned.All(Uri.IsHexDigit) ? cleaned : null;
     }
 
     // ---- Per-user permissions step ----
@@ -125,11 +140,13 @@ public static class AzureCloudShellSetup
 
         values.TryGetValue("consentGranted", out string? consent);
         values.TryGetValue("consentUrl", out string? url);
+        values.TryGetValue("certificateThumbprint", out string? thumbprint);
 
         return new AzurePermissionsResult(
             signInId!,
             ConsentGranted: string.Equals(consent, "true", StringComparison.OrdinalIgnoreCase),
-            ConsentUrl: string.IsNullOrWhiteSpace(url) ? null : url);
+            ConsentUrl: string.IsNullOrWhiteSpace(url) ? null : url,
+            CertificateThumbprint: Thumbprint(thumbprint));
     }
 
     // ---- shared ----
@@ -257,6 +274,8 @@ public static class AzureCloudShellSetup
         }
         register_cert "$ACCESS_APP_ID"
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
+        # Printed back so Connapse can refuse to keep a different certificate than the one registered.
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')
         rm -f "$CERT_FILE"
 
         # Role assignments wait for the role definitions + service principal to propagate; retry
@@ -275,8 +294,8 @@ public static class AzureCloudShellSetup
         assign_role '{{rbacRoleName}}' "/subscriptions/$SUBSCRIPTION_ID"
 
         echo
-        printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\n%s\n' \
-          "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$ACCESS_APP_ID" "{{endMarker}}"
+        printf '%s\ntenantId=%s\nsubscriptionId=%s\naccessAppClientId=%s\ncertificateThumbprint=%s\n%s\n' \
+          "{{beginMarker}}" "$TENANT_ID" "$SUBSCRIPTION_ID" "$ACCESS_APP_ID" "$CERT_THUMBPRINT" "{{endMarker}}"
         ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 
@@ -325,6 +344,8 @@ public static class AzureCloudShellSetup
         }
         register_cert "$SIGNIN_APP_ID"
         az ad sp create --id "$SIGNIN_APP_ID" >/dev/null 2>&1 || true
+        # Printed back so Connapse can refuse to keep a different certificate than the one registered.
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')
         rm -f "$CERT_FILE"
 
         # The admin-consent page bounces back to a reply URL registered on the ACCESS app; without one
@@ -349,8 +370,8 @@ public static class AzureCloudShellSetup
         CONSENT_URL="https://login.microsoftonline.com/$TENANT_ID/adminconsent?client_id=$ACCESS_APP_ID&redirect_uri={{consentRedirectEncoded}}"
 
         echo
-        printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\n%s\n' \
-          "{{beginMarker}}" "$SIGNIN_APP_ID" "$CONSENT_GRANTED" "$CONSENT_URL" "{{endMarker}}"
+        printf '%s\nsignInAppClientId=%s\nconsentGranted=%s\nconsentUrl=%s\ncertificateThumbprint=%s\n%s\n' \
+          "{{beginMarker}}" "$SIGNIN_APP_ID" "$CONSENT_GRANTED" "$CONSENT_URL" "$CERT_THUMBPRINT" "{{endMarker}}"
         ) || echo "----- CONNAPSE SETUP FAILED: read the error above. Nothing to paste back yet. -----"
         """;
 }

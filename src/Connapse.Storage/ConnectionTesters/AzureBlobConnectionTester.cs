@@ -62,15 +62,32 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
                 },
                 stopwatch.Elapsed);
         }
-        catch (AuthenticationFailedException ex)
+        catch (AuthenticationFailedException ex) when (AzureBlobDiscovery.IsCredentialRefusal(ex))
         {
-            // Entra would not issue a token: the certificate is not registered on the app, has
-            // expired, or no managed identity exists on this host. Nothing on the connection form
-            // fixes that.
+            // Entra answered and would not issue a token: the certificate is not registered on the
+            // app, has expired, or the app is gone. Nothing on the connection form fixes that.
             stopwatch.Stop();
             return Failure(
                 "Entra rejected Connapse's identity, so nothing on this account can be read. Check "
                 + "the Access step on the Azure provider page — Recheck there says why.",
+                ex, stopwatch.Elapsed);
+        }
+        catch (CredentialUnavailableException ex)
+        {
+            stopwatch.Stop();
+            return Failure(
+                "No managed identity is available on this host, so Connapse has nothing to sign in "
+                + "with. Check the Access step on the Azure provider page.",
+                ex, stopwatch.Elapsed);
+        }
+        catch (AuthenticationFailedException ex)
+        {
+            // The sign-in request never got an answer from Entra — a transport fault, not a
+            // verdict on the credential.
+            stopwatch.Stop();
+            return Failure(
+                "Could not reach Entra to sign Connapse in, so the credential was not checked. Confirm "
+                + "this server can reach login.microsoftonline.com, then try again.",
                 ex, stopwatch.Elapsed);
         }
         catch (InvalidOperationException ex)

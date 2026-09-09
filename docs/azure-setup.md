@@ -47,6 +47,12 @@ the script it produces (which registers the new public certificate alongside the
 back, Save. The old certificate keeps working until you save, and the private keys are stored
 only under `appdata/azure` on the Connapse host, readable by Connapse's own user.
 
+Save is a check first: Connapse asks Entra for a token with the new certificate before it
+replaces the one in use, and refuses to save anything Entra rejects — the working setup stays as
+it was. The script also prints the thumbprint of the certificate it registered; if it differs
+from the one the page holds (another tab made a new certificate in between), Save refuses and
+asks you to run the command shown now. The same check runs when Manual values are saved.
+
 ## Manual values
 
 Use these when the identity already exists. Every value is read from the Azure portal or the
@@ -96,8 +102,22 @@ and the two Graph permissions above, with admin consent.
 certificate: open the guide, choose **New certificate**, run the script, paste back, Save.
 `AADSTS700016` (application not found): the app was deleted — Reset access and set it up again.
 
-**Access card shows Unconfirmed** — Azure could not be reached from this server. Check outbound
-access to `login.microsoftonline.com`, then Recheck. Test a connection to be sure.
+**Access card shows Unconfirmed** — Azure could not be reached from this server, or, for a
+managed identity, no identity is available on this host. Check outbound access to
+`login.microsoftonline.com`, then Recheck. Test a connection to be sure.
+
+**Per-user permissions card shows Failed** — Entra refused the sign-in application's
+certificate; the card quotes the reason. Open the card's guide, choose **New certificate**, run
+the script, paste back, Save.
+
+**Save says "Entra refused the … credential, so nothing was changed"** — the certificate or
+identity you are about to store does not work, and the current one was left in place. Right
+after running a script, Entra can take up to a minute to register the certificate: wait, then
+Save again. If it persists, the certificate on the app is not the one Connapse holds — re-run the
+command shown on the page.
+
+**Test connection: "Could not reach Entra to sign Connapse in"** — the request never got an
+answer from Entra; the credential was not judged. Check outbound access, then try again.
 
 **`AADSTS700027: The certificate ... is not registered on application`** — the certificate
 Connapse signs with is not the one uploaded to that app. Open the step's guide on the Azure

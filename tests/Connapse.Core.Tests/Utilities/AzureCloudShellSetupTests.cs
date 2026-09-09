@@ -102,8 +102,55 @@ public class AzureCloudShellSetupTests
     public void AccessScript_PrintsTheKeys_ParseAccessResultReads()
     {
         string s = AzureCloudShellSetup.GenerateAccessScript(AccessInput());
-        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=" })
+        foreach (string key in new[] { "tenantId=", "subscriptionId=", "accessAppClientId=", "certificateThumbprint=" })
             s.Should().Contain(key);
+    }
+
+    [Fact]
+    public void Scripts_ReadTheThumbprintBeforeDeletingTheCertificateFile()
+    {
+        // The thumbprint is what lets the page refuse to keep a certificate other than the one the
+        // script registered; it has to be taken while the file still exists.
+        foreach (string s in new[]
+                 {
+                     AzureCloudShellSetup.GenerateAccessScript(AccessInput()),
+                     AzureCloudShellSetup.GeneratePermissionsScript(PermissionsInput()),
+                 })
+        {
+            int thumb = s.IndexOf("CERT_THUMBPRINT=$(openssl x509 -in \"$CERT_FILE\"", StringComparison.Ordinal);
+            int remove = s.IndexOf("rm -f \"$CERT_FILE\"", StringComparison.Ordinal);
+            thumb.Should().BeGreaterThan(0);
+            remove.Should().BeGreaterThan(thumb);
+        }
+    }
+
+    [Theory]
+    [InlineData("ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01", "ABCDEF0123456789ABCDEF0123456789ABCDEF01")]
+    [InlineData("ABCDEF0123456789ABCDEF0123456789ABCDEF01", "ABCDEF0123456789ABCDEF0123456789ABCDEF01")]
+    [InlineData("", null)]
+    [InlineData("not-a-thumbprint", null)]
+    public void ParseAccessResult_ReadsTheThumbprint_NormalisedOrNone(string printed, string? expected)
+    {
+        string block = AzureCloudShellSetup.AccessBeginMarker
+            + $"\ntenantId={Tenant}\nsubscriptionId={Sub}\naccessAppClientId={AccessId}\ncertificateThumbprint={printed}\n"
+            + AzureCloudShellSetup.AccessEndMarker;
+
+        AzureCloudShellSetup.ParseAccessResult(block)!.CertificateThumbprint.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ParseAccessResult_OlderPasteWithoutThumbprint_StillParses() =>
+        AzureCloudShellSetup.ParseAccessResult(AccessBlock())!.CertificateThumbprint.Should().BeNull();
+
+    [Fact]
+    public void ParsePermissionsResult_ReadsTheThumbprint()
+    {
+        string block = AzureCloudShellSetup.PermissionsBeginMarker
+            + $"\nsignInAppClientId={SignInId}\nconsentGranted=true\nconsentUrl=\ncertificateThumbprint=abcdef0123456789abcdef0123456789abcdef01\n"
+            + AzureCloudShellSetup.PermissionsEndMarker;
+
+        AzureCloudShellSetup.ParsePermissionsResult(block)!.CertificateThumbprint
+            .Should().Be("ABCDEF0123456789ABCDEF0123456789ABCDEF01");
     }
 
     // ---- Per-user permissions step ----
