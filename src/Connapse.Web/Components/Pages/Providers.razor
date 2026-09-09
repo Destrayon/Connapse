@@ -2375,6 +2375,9 @@
             {
                 string combined = File.ReadAllText(path);
                 using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
+                // A file written before owner-only creation existed keeps its old mode; tighten it.
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
             }
             catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or IOException)
