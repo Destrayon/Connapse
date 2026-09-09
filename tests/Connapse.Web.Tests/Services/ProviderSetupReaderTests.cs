@@ -43,7 +43,8 @@ public class ProviderSetupReaderTests
         AzureAdSignInSettings? azureAd = null,
         IConnectionStore? connections = null,
         AzureProbe<string>? azureAccess = null,
-        AzureProbe<string>? azureSignIn = null)
+        AzureProbe<string>? azureSignIn = null,
+        PermissionEnforcementSettings? enforcement = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
@@ -80,7 +81,11 @@ public class ProviderSetupReaderTests
             Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
             Options.Create(azureProvider ?? new AzureProviderSettings()).AsMonitor(),
             Options.Create(azureAd ?? new AzureAdSignInSettings()).AsMonitor(),
-            discovery, azureDiscovery, connections, credentials,
+            discovery, azureDiscovery,
+            // Latched by default: a sign-in test is about sign-in, not about the latch. The test
+            // that cares passes the open state explicitly.
+            Options.Create(enforcement ?? new PermissionEnforcementSettings { IsEnforcing = true, AzureEnforcing = true }).AsMonitor(),
+            connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
     }
@@ -322,7 +327,8 @@ public class ProviderSetupReaderTests
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Options.Create(new AzureProviderSettings()).AsMonitor(),
             Options.Create(new AzureAdSignInSettings()).AsMonitor(),
-            Substitute.For<IS3Discovery>(), Substitute.For<IAzureBlobDiscovery>(), connections,
+            Substitute.For<IS3Discovery>(), Substitute.For<IAzureBlobDiscovery>(),
+            Options.Create(new PermissionEnforcementSettings()).AsMonitor(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -631,7 +637,8 @@ public class ProviderSetupReaderTests
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
             Options.Create(new AzureProviderSettings()).AsMonitor(),
             Options.Create(new AzureAdSignInSettings()).AsMonitor(),
-            Substitute.For<IS3Discovery>(), azureDiscovery, ConnectionsWith(),
+            Substitute.For<IS3Discovery>(), azureDiscovery,
+            Options.Create(new PermissionEnforcementSettings()).AsMonitor(), ConnectionsWith(),
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -666,6 +673,20 @@ public class ProviderSetupReaderTests
         requirement.Detail.Should().Contain("sign-in application").And.Contain("AADSTS700027");
         // The access credential was fine; only the sign-in one was refused.
         azure.Requirements.Single(r => r.Name == "Access").Status.Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_SignInSetButEnforcementOff_IsFailed_BecauseThatStateIsOpen()
+    {
+        // The one combination that returns every Azure result to everyone: sign-in configured, latch
+        // off. It must never read as Ready, and the fix is named.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd(),
+            enforcement: new PermissionEnforcementSettings { IsEnforcing = true, AzureEnforcing = false }));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Failed);
+        requirement.Detail.Should().Contain("not filtered").And.Contain("Save the sign-in application again");
     }
 
     [Fact]

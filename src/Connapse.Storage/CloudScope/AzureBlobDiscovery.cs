@@ -90,10 +90,12 @@ public sealed class AzureBlobDiscovery(
     /// <summary>Entra error codes that mean the credential is invalid: the certificate is not
     /// registered on the app or its assertion is not signed by a registered key (700027), the app's
     /// keys have expired (7000222), the client credential is wrong (7000215), the app has no service
-    /// principal (7000229), the app does not exist (700016), or the tenant does not (90002).</summary>
+    /// principal (7000229), the app is disabled (7000112), the app does not exist (700016), or the
+    /// tenant does not (90002).</summary>
     internal static readonly IReadOnlyList<string> CredentialRefusalCodes =
     [
-        "AADSTS700027", "AADSTS7000222", "AADSTS7000215", "AADSTS7000229", "AADSTS700016", "AADSTS90002",
+        "AADSTS700027", "AADSTS7000222", "AADSTS7000215", "AADSTS7000229", "AADSTS7000112",
+        "AADSTS700016", "AADSTS90002",
     ];
 
     public async Task<AzureProbe<IReadOnlyList<AzureStorageAccountInfo>>> ListStorageAccountsAsync(

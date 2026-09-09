@@ -106,6 +106,7 @@ public class AzureBlobDiscoveryTests
     [InlineData("AADSTS7000215: Invalid client secret provided", true)]
     [InlineData("AADSTS7000222: The provided client secret keys are expired", true)]
     [InlineData("AADSTS7000229: The client application is missing service principal in the tenant", true)]
+    [InlineData("AADSTS7000112: Application 'x' is disabled", true)]
     [InlineData("AADSTS700016: Application with identifier 'x' was not found in the directory", true)]
     [InlineData("AADSTS90002: Tenant 'x' not found", true)]
     // Entra answered, but about itself, not the credential: transient, throttled, or unavailable.

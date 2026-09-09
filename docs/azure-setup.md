@@ -56,10 +56,16 @@ holds (another tab made a new certificate in between), Save refuses and asks you
 command shown now. The same Entra check runs when Manual values are saved.
 
 Only Entra errors that mean the credential itself is wrong — certificate not registered
-(`AADSTS700027`), keys expired (`AADSTS7000222`), app or tenant not found (`AADSTS700016`,
-`AADSTS90002`), missing service principal (`AADSTS7000229`) — count as a refusal. Throttling,
-transient faults, and outages read as *Unconfirmed* with a retry, never as a demand to set up
-again.
+(`AADSTS700027`), keys expired (`AADSTS7000222`), app disabled (`AADSTS7000112`), app or tenant
+not found (`AADSTS700016`, `AADSTS90002`), missing service principal (`AADSTS7000229`) — count as
+a refusal. Throttling, transient faults, and outages read as *Unconfirmed* with a retry, never as
+a demand to set up again.
+
+Old certificate files are removed only once nothing stored names them and they are more than an
+hour old, so two Connapse processes sharing one volume cannot delete each other's key. Saving
+the sign-in application switches per-user enforcement on *before* storing the application; if
+the switch cannot be written the application is not saved, and if it is somehow off while sign-in
+is configured the Per-user permissions card shows Failed and says how to switch it on.
 
 ## Manual values
 

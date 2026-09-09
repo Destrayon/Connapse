@@ -20,6 +20,7 @@ public class ProviderSetupReader(
     IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IS3Discovery s3Discovery,
     IAzureBlobDiscovery azureDiscovery,
+    IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     IConnectionStore connections,
     IProviderCredentialStore credentials,
     TimeProvider clock,
@@ -152,6 +153,15 @@ public class ProviderSetupReader(
         if (!signIn.IsConfigured)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
                 "Nobody can connect an Entra identity until the sign-in application is set up below.");
+
+        // Sign-in configured with the enforcement latch off is the one state that is open: the
+        // resolver returns every Azure result to everyone. Saving the sign-in application writes
+        // the latch first, and a restart latches it too, so this only shows when both failed.
+        if (!enforcement.CurrentValue.AzureEnforcing)
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                "Sign-in is set, but per-user enforcement for Azure is switched off, so Azure results "
+                + "are not filtered by who is asking. Save the sign-in application again, or restart "
+                + "Connapse, to switch it on.");
 
         var probe = await azureDiscovery.CheckAccessAsync(SignInIdentity(signIn), ct);
         switch (probe.Outcome)

@@ -2323,21 +2323,14 @@
         // Latched here, at save time, exactly as SaveSamlSettings does for AWS. The startup latch
         // alone left a gap: a deployment that configured Azure sign-in and never restarted stayed
         // NotEnforcing, and every azblob result passed unfiltered until the next process start.
+        //
+        // Latched BEFORE the sign-in settings, never after. With enforcement on and sign-in not yet
+        // stored, Azure searches deny — closed. The other order, sign-in stored and then the latch
+        // failing, would leave sign-in configured with filtering off: every Azure result to everyone.
+        // So a latch that cannot be written stops the save, and the sign-in settings stay as they were.
         bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
-
-        bool committed = await SaveSettings("azuread", settings);
-
-        if (committed)
+        if (enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
         {
-            azureAdSettings = settings;
-            LoadAzureCertificateExpiry();
-            await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
-                new { Configured = settings.IsConfigured });
-        }
-
-        if (committed && enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
-        {
-            string savedMessage = saveMessage ?? string.Empty;
             bool latched = await SaveSettings(
                 PermissionEnforcementSettings.Category,
                 new PermissionEnforcementSettings
@@ -2347,12 +2340,21 @@
                 });
             if (!latched)
             {
-                // The sign-in settings are stored; only the latch is not. Say both, and keep the
-                // save reported as what it is — committed.
-                saveMessage = $"{savedMessage} Per-user enforcement could not be switched on, though: "
-                    + $"{saveMessage} Save the sign-in application again to retry.";
-                saveSuccess = true;
+                saveMessage = "Per-user enforcement for Azure could not be switched on, so the sign-in "
+                    + $"application was not saved: {saveMessage}";
+                saveSuccess = false;
+                return false;
             }
+        }
+
+        bool committed = await SaveSettings("azuread", settings);
+
+        if (committed)
+        {
+            azureAdSettings = settings;
+            LoadAzureCertificateExpiry();
+            await AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
+                new { Configured = settings.IsConfigured });
         }
 
         await RefreshSetups();
@@ -2411,12 +2413,22 @@
     /// a fresh key instead of re-offering one an old app registration may still hold.</summary>
     private async Task ClearAzureAccess()
     {
-        if (!await SaveAzureProviderFromForm(new AzureProviderSettings())) return;
+        // Under the same gate as promotion, so a reset cannot interleave with a save in progress
+        // and remove the key it is about to commit.
+        await AzureCertificateGate.WaitAsync();
+        try
+        {
+            if (!await SaveAzureProviderFromForm(new AzureProviderSettings())) return;
 
-        DeleteAzureCertificate(AzureAccessCertFile);
-        azureAccessScript = null;
-        azureAccessCert = null;
-        azureAccessPasted = null;
+            await DeleteAzureCertificatesAsync(AzureAccessCertFile);
+            azureAccessScript = null;
+            azureAccessCert = null;
+            azureAccessPasted = null;
+        }
+        finally
+        {
+            AzureCertificateGate.Release();
+        }
     }
 
     private async Task ClearAzureSignIn()
@@ -2424,23 +2436,44 @@
         // Enforcement is deliberately left on (the Azure latch never releases). With sign-in
         // incomplete the verifier denies, so Azure searches return nothing for everyone until the
         // application is set up again, rather than silently widening to the whole corpus.
-        if (!await SaveAzureAdFromForm(new AzureAdSignInSettings())) return;
+        await AzureCertificateGate.WaitAsync();
+        try
+        {
+            if (!await SaveAzureAdFromForm(new AzureAdSignInSettings())) return;
 
-        DeleteAzureCertificate(AzureSignInCertFile);
-        azurePermissionsScript = null;
-        azureSignInCert = null;
-        azurePermissionsPasted = null;
+            await DeleteAzureCertificatesAsync(AzureSignInCertFile);
+            azurePermissionsScript = null;
+            azureSignInCert = null;
+            azurePermissionsPasted = null;
+        }
+        finally
+        {
+            AzureCertificateGate.Release();
+        }
     }
 
-    /// <summary>After a reset: nothing references any certificate of this kind, so every file of it
-    /// under appdata/azure goes — versioned, fixed-name, and pending alike.</summary>
-    private void DeleteAzureCertificate(string fileName)
+    /// <summary>
+    /// After a reset: the pending copy goes, and so does every file of this kind that nothing committed
+    /// names — read back from the store, since another session may have saved a replacement in the
+    /// meantime — once it is past the grace period. A younger unreferenced file is left for a later
+    /// sweep rather than risk removing a key another process committed a moment ago.
+    /// </summary>
+    private async Task DeleteAzureCertificatesAsync(string fileName)
     {
         string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
         if (!Directory.Exists(directory)) return;
 
+        string pendingPath = AzurePendingCertificatePath(fileName);
+        if (File.Exists(pendingPath)) File.Delete(pendingPath);
+
+        var referenced = await PersistedAzureCertificatePathsAsync();
+        DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
         foreach (string path in Directory.EnumerateFiles(directory, Path.GetFileNameWithoutExtension(fileName) + "*.pem"))
+        {
+            if (referenced.Contains(Path.GetFullPath(path))) continue;
+            if (File.GetLastWriteTimeUtc(path) > cutoff) continue;
             File.Delete(path);
+        }
     }
 
     /// <summary>The admin-consent link for the access app — derived from settings, so it survives a
@@ -2617,20 +2650,19 @@
             var check = await AzureDiscovery.CheckAccessAsync(candidate);
             if (!check.Succeeded)
             {
-                DeleteAzureCertificateUnlessReferenced(newPath, azureProviderSettings.ClientCertificatePath);
+                await DeleteAzureCandidateAsync(newPath);
                 saveMessage = AzureCheckRefused("access", check);
                 saveSuccess = false;
                 return;
             }
 
-            string? previousPath = azureProviderSettings.ClientCertificatePath;
             if (!await SaveAzureProviderFromForm(candidate, verified: true))
             {
-                DeleteAzureCertificateUnlessReferenced(newPath, previousPath);
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
-            SweepAzureCertificates(AzureAccessCertFile, keep: newPath, promotedPem: material.CombinedPem);
+            await SweepAzureCertificatesAsync(AzureAccessCertFile, promotedPem: material.CombinedPem);
             azureAccessScript = null;
             azureAccessCert = null;
             azureAccessPasted = null;
@@ -2663,32 +2695,68 @@
         return AzureCertificatePath($"{Path.GetFileNameWithoutExtension(fileName)}-{thumbprint[..12].ToLowerInvariant()}.pem");
     }
 
-    /// <summary>Removes a candidate file that will not be used, unless the stored settings already
-    /// name it — a re-save of the certificate in use must not delete it.</summary>
-    private static void DeleteAzureCertificateUnlessReferenced(string path, string? referencedPath)
+    /// <summary>
+    /// The certificate files anything committed names right now: both Azure settings categories, read
+    /// back from the store rather than from this page's copy — another session or process may have
+    /// committed since this page loaded — plus the live options as a floor when the store has no row
+    /// (settings coming from appsettings or the environment).
+    /// </summary>
+    private async Task<HashSet<string>> PersistedAzureCertificatePathsAsync()
     {
-        if (string.Equals(path, referencedPath, StringComparison.OrdinalIgnoreCase)) return;
-        if (File.Exists(path)) File.Delete(path);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? path) { if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path)); }
+
+        Add(AzureProviderOptions.CurrentValue.ClientCertificatePath);
+        Add(AzureAdOptions.CurrentValue.ClientCertificatePath);
+        Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
+        Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+        return paths;
     }
 
     /// <summary>
-    /// After settings naming <paramref name="keep"/> are committed: every other certificate file of
-    /// this kind under appdata/azure is superseded and removed — earlier versioned files, the single
-    /// fixed-name file older saves wrote — and the pending copy goes only if it is the material just
-    /// promoted, so another session's replacement in progress is left alone.
+    /// How long a certificate file is left alone after it was written, whatever else is known. Two
+    /// processes sharing the volume have no lock in common; a candidate one of them wrote seconds ago
+    /// may be committed a moment after the other reads the store. Nothing in flight lives this long.
     /// </summary>
-    private void SweepAzureCertificates(string fileName, string keep, string promotedPem)
+    private static readonly TimeSpan AzureCertificateGrace = TimeSpan.FromHours(1);
+
+    /// <summary>Removes a candidate that will not be used — unless something committed names it,
+    /// which happens when two sessions carried the same material and the other one saved it.</summary>
+    private async Task DeleteAzureCandidateAsync(string path)
+    {
+        if (!File.Exists(path)) return;
+        var referenced = await PersistedAzureCertificatePathsAsync();
+        if (referenced.Contains(Path.GetFullPath(path))) return;
+        File.Delete(path);
+    }
+
+    /// <summary>
+    /// After a commit: certificate files of this kind under appdata/azure that nothing committed names
+    /// and that are past the grace period are superseded and removed — earlier versioned files, the
+    /// single fixed-name file older saves wrote. The pending copy goes only if it is the material just
+    /// promoted, so another session's replacement in progress is left alone. Anything not removed now
+    /// is removed by a later sweep.
+    /// </summary>
+    private async Task SweepAzureCertificatesAsync(string fileName, string promotedPem)
     {
         string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
         if (!Directory.Exists(directory)) return;
 
+        var referenced = await PersistedAzureCertificatePathsAsync();
         string stem = Path.GetFileNameWithoutExtension(fileName);
-        string pendingPath = AzurePendingCertificatePath(fileName);
+        string pendingPath = Path.GetFullPath(AzurePendingCertificatePath(fileName));
+        DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
+
         foreach (string path in Directory.EnumerateFiles(directory, stem + "*.pem"))
         {
-            if (string.Equals(path, keep, StringComparison.OrdinalIgnoreCase)) continue;
-            if (string.Equals(path, pendingPath, StringComparison.OrdinalIgnoreCase)
-                && File.ReadAllText(path) != promotedPem) continue;
+            string full = Path.GetFullPath(path);
+            if (referenced.Contains(full)) continue;
+            if (string.Equals(full, pendingPath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.ReadAllText(path) == promotedPem) File.Delete(path);
+                continue;
+            }
+            if (File.GetLastWriteTimeUtc(path) > cutoff) continue;
             File.Delete(path);
         }
     }
@@ -2749,13 +2817,12 @@
             });
             if (!check.Succeeded)
             {
-                DeleteAzureCertificateUnlessReferenced(newPath, azureAdSettings.ClientCertificatePath);
+                await DeleteAzureCandidateAsync(newPath);
                 saveMessage = AzureCheckRefused("sign-in", check);
                 saveSuccess = false;
                 return;
             }
 
-            string? previousPath = azureAdSettings.ClientCertificatePath;
             bool committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
@@ -2767,11 +2834,11 @@
             }, verified: true);
             if (!committed)
             {
-                DeleteAzureCertificateUnlessReferenced(newPath, previousPath);
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
-            SweepAzureCertificates(AzureSignInCertFile, keep: newPath, promotedPem: material.CombinedPem);
+            await SweepAzureCertificatesAsync(AzureSignInCertFile, promotedPem: material.CombinedPem);
             azurePermissionsScript = null;
             azureSignInCert = null;
             azurePermissionsPasted = null;
@@ -2843,34 +2910,60 @@
         _ => "bi-question-circle text-secondary"
     };
 
-    /// <summary>Stores a settings category. Returns whether it was committed — a reload that fails
-    /// after the commit is reported, but the settings are stored and callers must treat them as such.</summary>
+    /// <summary>
+    /// Stores a settings category. Returns whether it was committed. The store reloads the options
+    /// after its own commit, so an exception out of it does not say which half failed; the store is
+    /// read back and compared, and a commit whose reload failed is reported as stored-but-not-applied
+    /// rather than as a failure — callers rolling back on false must never undo a commit.
+    /// </summary>
     private async Task<bool> SaveSettings<T>(string category, T settings) where T : class
     {
+        string? reloadProblem = null;
         try
         {
             await SettingsStore.SaveAsync(category, settings);
         }
         catch (Exception ex)
         {
-            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
-            saveSuccess = false;
-            return false;
+            if (!await IsStoredAsync(category, settings))
+            {
+                saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
+                saveSuccess = false;
+                return false;
+            }
+            reloadProblem = ex.Message;
         }
 
         try
         {
-            ReloadService.Reload();
-            saveMessage = $"{SettingsName(category)} settings saved successfully!";
+            if (!ReloadService.Reload()) reloadProblem ??= "the settings reload reported failure";
         }
         catch (Exception ex)
         {
-            saveMessage = $"{SettingsName(category)} settings were saved, but applying them without a "
-                + $"restart failed: {ex.Message} Restart Connapse to apply them.";
+            reloadProblem ??= ex.Message;
         }
 
+        saveMessage = reloadProblem is null
+            ? $"{SettingsName(category)} settings saved successfully!"
+            : $"{SettingsName(category)} settings were saved, but applying them without a restart "
+              + $"failed: {reloadProblem}. Restart Connapse to apply them.";
         saveSuccess = true;
         return true;
+    }
+
+    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under <paramref name="category"/>.</summary>
+    private async Task<bool> IsStoredAsync<T>(string category, T settings) where T : class
+    {
+        try
+        {
+            T? stored = await SettingsStore.GetAsync<T>(category);
+            return stored is not null
+                && System.Text.Json.JsonSerializer.Serialize(stored) == System.Text.Json.JsonSerializer.Serialize(settings);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>What to call a settings category in a sentence.</summary>
