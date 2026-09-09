@@ -129,8 +129,9 @@ public class ProviderSetupReader(
             AzureProbeOutcome.Unusable => new ProviderRequirement(name, description,
                 RequirementStatus.Failed,
                 "Connapse's Azure identity cannot be used from this host, so Azure sources cannot "
-                + "sync: the certificate file is missing or unreadable, or the settings are only "
-                + $"partly filled in. Fix the file, or set access up again below. Detail: {probe.Detail}"),
+                + "sync: the certificate file is missing or unreadable, the settings are only partly "
+                + "filled in, or the managed identity they name is not available on this host. Fix the "
+                + $"file or the identity, or set access up again below. Detail: {probe.Detail}"),
 
             _ => new ProviderRequirement(name, description, RequirementStatus.Warning,
                 "Connapse could not confirm its identity with Azure, so this may or may not "
@@ -197,9 +198,9 @@ public class ProviderSetupReader(
 
         if (signIn.AdminConsentPending)
             return new ProviderRequirement(name, description, RequirementStatus.Warning,
-                "Sign-in is set, but the access app's Microsoft Graph permissions still need an "
-                + "administrator's consent. Until then Connapse cannot look people up, so Azure "
-                + "searches return nothing for anyone.");
+                "Sign-in is set, but the access identity's Microsoft Graph permissions still need an "
+                + "administrator's consent (for a managed identity, the two app-role grants). Until then "
+                + "Connapse cannot look people up, so Azure searches return nothing for anyone.");
 
         return new ProviderRequirement(name, description, RequirementStatus.Satisfied,
             $"Tenant {signIn.TenantId}, subscription {provider.SubscriptionId}");

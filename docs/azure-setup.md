@@ -16,8 +16,8 @@ Admin → Providers → Azure. Two steps, each with an **Easy setup** guide and 
    - *Connapse RBAC Authorization Reader* — read role and deny assignments and storage-account
      metadata at subscription scope.
    Whoever runs it needs Owner or User Access Administrator on the subscription and permission
-   to register applications. The script is safe to re-run: it finds existing apps by name and
-   updates the roles in place.
+   to register applications. The script is safe to re-run: it reuses the app Connapse recorded
+   (never one found by display name) and updates the roles in place.
 2. **Per-user permissions.** A second script registers the sign-in app people link their Entra
    identity through, grants the access app the two Microsoft Graph permissions
    (`User.Read.All`, `GroupMember.Read.All` — read-only lookups of who a person is and which
@@ -40,7 +40,9 @@ creates the same two custom roles and assigns them to that identity by object id
 paste-back records the identity (tenant, subscription, principal). Whoever runs it needs only
 Owner or User Access Administrator on the subscription. A link under the guide switches back to
 a certificate app if you prefer one; the manual form also offers "This host's managed identity"
-as a choice, needing only the tenant.
+as a choice, needing only the tenant. Detection asks for the host's system-assigned identity; a
+host that has only user-assigned identities may report none — enter such an identity by hand
+under Manual values, by its client ID.
 
 The Per-user permissions guide then grants the identity its two Graph permissions as app roles
 (a REST call per permission) instead of consenting an app. If the person running it is not a

@@ -1114,6 +1114,17 @@
                                 @if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings))
                                 {
                                     <text>this host's managed identity@(azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } principal ? $" (principal {principal})" : "")</text>
+                                    @if (azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded
+                                         && hostIdentity is { IsUserAssigned: false } current
+                                         && !string.Equals(recorded, current.PrincipalId, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div class="alert alert-warning py-2 mt-2 mb-0 small font-sans-serif" role="status">
+                                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                            The host now reports principal <code>@current.PrincipalId</code>; the roles
+                                            were granted to <code>@recorded</code>. The identity was re-created since
+                                            setup — run the Access script again so the new one has the roles.
+                                        </div>
+                                    }
                                 }
                                 else if (azureProviderSettings.UserAssignedManagedIdentityClientId is { Length: > 0 } mi)
                                 {
@@ -1245,7 +1256,14 @@
                     <p class="small mb-1">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
-                    @if (hostIdentity is not null && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
+                    @if (detectingHostIdentity)
+                    {
+                        <p class="small text-muted mb-3" role="status">
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                            Checking whether this host has a managed identity to use instead…
+                        </p>
+                    }
+                    else if (hostIdentity is not null && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
                     {
                         <p class="small mb-3">
                             <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = false">
@@ -1439,6 +1457,27 @@
                                     Consent has been granted
                                 </button>
                             </div>
+                        </div>
+                    }
+                    else if (azureAdSettings.AdminConsentPending)
+                    {
+                        @* The access identity changed after the sign-in app was set up (re-entered by hand,
+                           say), so neither the consent link nor the grant commands can be built. The
+                           pending state still needs a way out. *@
+                        <div class="alert alert-warning mt-2 mb-0" role="alert">
+                            <div class="mb-2">
+                                <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
+                                <strong>One step left — the access identity's Graph permissions.</strong> Grant the
+                                access identity <code>User.Read.All</code> and <code>GroupMember.Read.All</code> (a
+                                Global Administrator consents an app registration; for a managed identity, the
+                                commands are under
+                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                   target="_blank" rel="noopener">Graph permissions for a managed identity</a>),
+                                then confirm here.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="MarkAzureConsentGranted">
+                                The permissions have been granted
+                            </button>
                         </div>
                     }
                 </Summary>
@@ -1839,16 +1878,7 @@
     {
         if (!firstRender) return;
 
-        // Whether this host has a managed identity, so the Azure guide can offer it — asked only on
-        // the Azure page, and alongside the status read rather than before it, since off Azure the
-        // metadata probe is a second or so of waiting for nothing. A found identity is remembered
-        // for the process after the first look.
-        Task<AzureHostIdentityInfo?> detection = Key == "azure"
-            ? HostIdentity.DetectAsync()
-            : Task.FromResult<AzureHostIdentityInfo?>(null);
-
         setups = await SetupReader.ReadAsync();
-        hostIdentity = await detection;
         await LoadAwsCredentialModeAsync();
 
         // Entra bounced back after the administrator consented: record it, so the pending state
@@ -2519,6 +2549,18 @@
         // A reset (blank tenant) has nothing to verify.
         if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
         {
+            // The host's own identity is in one tenant, and a managed-identity token check cannot
+            // tell whether the tenant typed matches it; the host already said which it is.
+            if (AzureCredentialChainFactory.IsHostManagedIdentity(settings)
+                && hostIdentity is { } host
+                && !string.Equals(host.TenantId, settings.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                saveMessage = $"This host's managed identity is in tenant {host.TenantId}, not {settings.TenantId}. "
+                    + "Nothing was changed; enter that tenant.";
+                saveSuccess = false;
+                return false;
+            }
+
             var check = await AzureDiscovery.CheckAccessAsync(settings);
             if (!check.Succeeded)
             {
@@ -2669,8 +2711,43 @@
     /// <summary>The managed identity this host runs as, if it has one; null off Azure.</summary>
     private AzureHostIdentityInfo? hostIdentity;
 
+    /// <summary>Whether the host has been asked, and whether the answer is still on its way.</summary>
+    private bool hostIdentityRequested, detectingHostIdentity;
+
     /// <summary>Set when the operator asks for a certificate app although the host has a managed identity.</summary>
     private bool preferCertificateApp;
+
+    /// <summary>
+    /// Asks the host whether it has a managed identity, once, the first time the Azure page is
+    /// shown. From here rather than the first render: the list and the provider page are one
+    /// component, and arriving from the list changes only the route parameter — no first render
+    /// happens again. The answer is awaited off the render path, since off Azure the metadata
+    /// probe is a second or so of waiting for nothing; the guide updates when it lands.
+    /// </summary>
+    protected override void OnParametersSet()
+    {
+        if (Key != "azure" || hostIdentityRequested) return;
+        hostIdentityRequested = true;
+        detectingHostIdentity = true;
+        _ = DetectHostIdentityAsync();
+    }
+
+    private async Task DetectHostIdentityAsync()
+    {
+        try
+        {
+            hostIdentity = await HostIdentity.DetectAsync();
+        }
+        catch (Exception)
+        {
+            hostIdentity = null;
+        }
+        finally
+        {
+            detectingHostIdentity = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     private string? azureManagedIdentityScript;
     private string? azureManagedIdentityPasted;
@@ -2808,14 +2885,16 @@
         get
         {
             if (!AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)) return null;
-            if (azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded) return recorded;
 
-            // The host's own identity entered by hand records no principal, but the page has already
-            // asked the host who it is; that answer is the principal.
-            return AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings)
-                && hostIdentity is { IsUserAssigned: false } host
-                    ? host.PrincipalId
-                    : null;
+            // For the host's own identity, what the host says now outranks what was recorded: a
+            // system-assigned identity that was removed and re-enabled has a new principal, and
+            // Graph grants must go to the one that exists. A hand-entered host identity records no
+            // principal at all, and this is where it comes from.
+            if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings)
+                && hostIdentity is { IsUserAssigned: false } host)
+                return host.PrincipalId;
+
+            return azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } recorded ? recorded : null;
         }
     }
 
@@ -2841,6 +2920,10 @@
             azureAccessScript = null;
             azureAccessCert = null;
             azureAccessPasted = null;
+            // A fresh start offers the host's identity again, as the "Reset access first" note promises.
+            preferCertificateApp = false;
+            azureManagedIdentityScript = null;
+            azureManagedIdentityPasted = null;
         }
         finally
         {
@@ -3250,7 +3333,8 @@
             + "ran the script, Entra may still be registering the certificate — wait a minute and save again.",
         AzureProbeOutcome.Unusable =>
             $"The {which} credential cannot be used from this host, so nothing was changed: {check.Detail} "
-            + "Check the certificate path and that Connapse can read the file.",
+            + "For a certificate, check the path and that Connapse can read the file; for a managed identity, "
+            + "that this host has one.",
         _ => $"Could not confirm the {which} credential with Azure, so nothing was changed. {check.Detail}",
     };
 
