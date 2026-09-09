@@ -29,6 +29,24 @@ public class CloudEnforcementLatchTests
     /// <summary>Reads the database successfully unless a test says otherwise.</summary>
     private readonly ISettingsReloader reloader = Substitute.For<ISettingsReloader>();
 
+    /// <summary>The live options the resolvers read. The store's reload after a commit is what
+    /// moves them; the default stub below plays that part, and a test can leave it out to stand
+    /// in for a reload that failed.</summary>
+    private readonly IOptionsMonitor<PermissionEnforcementSettings> enforcement =
+        Substitute.For<IOptionsMonitor<PermissionEnforcementSettings>>();
+
+    public CloudEnforcementLatchTests()
+    {
+        // Configured here, before any test's own stub, so a test that makes the store throw wins.
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var merged = call.ArgAt<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(1)(null);
+                enforcement.CurrentValue.Returns(merged);
+                return merged;
+            });
+    }
+
     private static SamlSignInSettings Complete() => new()
     {
         EntityId = "https://connapse.example.com/saml/connapse",
@@ -65,16 +83,17 @@ public class CloudEnforcementLatchTests
 
         var migration = new EnforcementMigration();
         reloader.Reload().Returns(settingsReadable);
+        enforcement.CurrentValue.Returns(new PermissionEnforcementSettings
+        {
+            IsEnforcing = alreadyEnforcing,
+            AzureEnforcing = azureAlreadyEnforcing,
+        });
 
         return (new CloudEnforcementLatch(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             Monitor(signIn),
             Monitor(azureAd ?? new AzureAdSignInSettings()),
-            Monitor(new PermissionEnforcementSettings
-            {
-                IsEnforcing = alreadyEnforcing,
-                AzureEnforcing = azureAlreadyEnforcing,
-            }),
+            enforcement,
             migration,
             reloader,
             NullLogger<CloudEnforcementLatch>.Instance), migration);
@@ -267,6 +286,22 @@ public class CloudEnforcementLatchTests
         await latch.StartAsync(CancellationToken.None);
 
         migration.Determined.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task WhenTheCommitSucceedsButTheReloadDoesNot_LeavesTheStateUndetermined()
+    {
+        // The store commits the marker and then fails to reload it into this process. The resolvers
+        // read the live options, which still say "not enforcing"; completing the migration would
+        // let them answer unfiltered. Undetermined denies until a later reload lands.
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(1)(null));
+
+        var (latch, migration) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        (await SavedMarker())!.IsEnforcing.Should().BeTrue("the marker was committed");
+        migration.Determined.Should().BeFalse("the live options never showed it");
     }
 
     [Fact]
