@@ -1170,7 +1170,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureAccessCertificate">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureAccessCertificate" disabled="@azureBusy">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -1178,7 +1178,7 @@
 
                             <label class="form-label small mb-1" for="az-access-paste">Paste what it printed</label>
                             <textarea id="az-access-paste" class="form-control font-monospace" rows="4"
-                                      @bind="azureAccessPasted" @bind:event="oninput"
+                                      @bind="azureAccessPasted" @bind:event="oninput" disabled="@azureBusy"
                                       placeholder="@AzureCloudShellSetup.AccessBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.AccessEndMarker"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azureAccessPasted))
@@ -1360,7 +1360,7 @@
                                     <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
                                     <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
                                 </a>
-                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureSignInCertificate">
+                                <button type="button" class="btn btn-sm btn-link text-secondary" @onclick="NewAzureSignInCertificate" disabled="@azureBusy">
                                     <span class="bi-arrow-repeat me-1" aria-hidden="true"></span> New certificate
                                 </button>
                                 <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
@@ -1368,7 +1368,7 @@
 
                             <label class="form-label small mb-1" for="az-perm-paste">Paste what it printed</label>
                             <textarea id="az-perm-paste" class="form-control font-monospace" rows="4"
-                                      @bind="azurePermissionsPasted" @bind:event="oninput"
+                                      @bind="azurePermissionsPasted" @bind:event="oninput" disabled="@azureBusy"
                                       placeholder="@AzureCloudShellSetup.PermissionsBeginMarker&#10;signInAppClientId=…&#10;@AzureCloudShellSetup.PermissionsEndMarker"></textarea>
 
                             @if (!string.IsNullOrWhiteSpace(azurePermissionsPasted))
@@ -2269,7 +2269,7 @@
     /// caller has already verified <paramref name="settings"/>, Entra is asked first, and a credential
     /// it refuses is not stored — the one that works stays in place.
     /// </summary>
-    private async Task SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
+    private async Task<bool> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
     {
         // A reset (blank tenant) has nothing to verify.
         if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
@@ -2279,13 +2279,13 @@
             {
                 saveMessage = AzureCheckRefused("access", check);
                 saveSuccess = false;
-                return;
+                return false;
             }
         }
 
-        await SaveSettings("azure", settings);
+        bool committed = await SaveSettings("azure", settings);
 
-        if (saveSuccess)
+        if (committed)
         {
             // What was posted, not a re-read: the options reload behind SaveSettings may not have
             // landed yet, so a stale read would hand the form back the previous values.
@@ -2300,11 +2300,14 @@
         }
 
         await RefreshSetups();
+        return committed;
     }
 
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
-    /// the access app, a credential Entra refuses is not stored unless the caller already verified it.</summary>
-    private async Task SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
+    /// the access app, a credential Entra refuses is not stored unless the caller already verified it.
+    /// Returns whether the sign-in settings themselves were committed; the enforcement latch saved
+    /// after them is reported separately and never turns a committed save into a failed one.</summary>
+    private async Task<bool> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
     {
         if (!verified && settings.IsConfigured)
         {
@@ -2313,7 +2316,7 @@
             {
                 saveMessage = AzureCheckRefused("sign-in", check);
                 saveSuccess = false;
-                return;
+                return false;
             }
         }
 
@@ -2322,9 +2325,9 @@
         // NotEnforcing, and every azblob result passed unfiltered until the next process start.
         bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.AzureEnforcing;
 
-        await SaveSettings("azuread", settings);
+        bool committed = await SaveSettings("azuread", settings);
 
-        if (saveSuccess)
+        if (committed)
         {
             azureAdSettings = settings;
             LoadAzureCertificateExpiry();
@@ -2332,18 +2335,28 @@
                 new { Configured = settings.IsConfigured });
         }
 
-        if (saveSuccess && enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
+        if (committed && enforcing != EnforcementOptions.CurrentValue.AzureEnforcing)
         {
-            await SaveSettings(
+            string savedMessage = saveMessage ?? string.Empty;
+            bool latched = await SaveSettings(
                 PermissionEnforcementSettings.Category,
                 new PermissionEnforcementSettings
                 {
                     IsEnforcing = EnforcementOptions.CurrentValue.IsEnforcing,
                     AzureEnforcing = enforcing,
                 });
+            if (!latched)
+            {
+                // The sign-in settings are stored; only the latch is not. Say both, and keep the
+                // save reported as what it is — committed.
+                saveMessage = $"{savedMessage} Per-user enforcement could not be switched on, though: "
+                    + $"{saveMessage} Save the sign-in application again to retry.";
+                saveSuccess = true;
+            }
         }
 
         await RefreshSetups();
+        return committed;
     }
 
     /// <summary>Generates a fresh certificate on this host and the Access script that uploads only its
@@ -2352,7 +2365,8 @@
 
     private void GenerateAzureAccessScript(bool newCertificate)
     {
-        azureAccessCert = LoadOrMintAzureCertificate(AzureAccessCertFile, "connapse-azure-access", newCertificate);
+        azureAccessCert = LoadOrMintAzureCertificate(
+            AzureAccessCertFile, "connapse-azure-access", newCertificate, azureProviderSettings.ClientCertificatePath);
         azureAccessScript = AzureCloudShellSetup.GenerateAccessScript(new AzureAccessSetupInput(
             AccessAppName: "Connapse-Azure-Access",
             PublicCertificatePem: azureAccessCert.PublicCertificatePem,
@@ -2367,7 +2381,8 @@
 
     private void GenerateAzurePermissionsScript(bool newCertificate)
     {
-        azureSignInCert = LoadOrMintAzureCertificate(AzureSignInCertFile, "connapse-azure-signin", newCertificate);
+        azureSignInCert = LoadOrMintAzureCertificate(
+            AzureSignInCertFile, "connapse-azure-signin", newCertificate, azureAdSettings.ClientCertificatePath);
         BuildAzurePermissionsScript();
         azurePermissionsPasted = null;
         copyMessage = null;
@@ -2396,8 +2411,7 @@
     /// a fresh key instead of re-offering one an old app registration may still hold.</summary>
     private async Task ClearAzureAccess()
     {
-        await SaveAzureProviderFromForm(new AzureProviderSettings());
-        if (!saveSuccess) return;
+        if (!await SaveAzureProviderFromForm(new AzureProviderSettings())) return;
 
         DeleteAzureCertificate(AzureAccessCertFile);
         azureAccessScript = null;
@@ -2410,8 +2424,7 @@
         // Enforcement is deliberately left on (the Azure latch never releases). With sign-in
         // incomplete the verifier denies, so Azure searches return nothing for everyone until the
         // application is set up again, rather than silently widening to the whole corpus.
-        await SaveAzureAdFromForm(new AzureAdSignInSettings());
-        if (!saveSuccess) return;
+        if (!await SaveAzureAdFromForm(new AzureAdSignInSettings())) return;
 
         DeleteAzureCertificate(AzureSignInCertFile);
         azurePermissionsScript = null;
@@ -2419,12 +2432,15 @@
         azurePermissionsPasted = null;
     }
 
+    /// <summary>After a reset: nothing references any certificate of this kind, so every file of it
+    /// under appdata/azure goes — versioned, fixed-name, and pending alike.</summary>
     private void DeleteAzureCertificate(string fileName)
     {
-        foreach (string path in new[] { AzureCertificatePath(fileName), AzurePendingCertificatePath(fileName), AzurePreviousCertificatePath(fileName) })
-        {
-            if (File.Exists(path)) File.Delete(path);
-        }
+        string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
+        if (!Directory.Exists(directory)) return;
+
+        foreach (string path in Directory.EnumerateFiles(directory, Path.GetFileNameWithoutExtension(fileName) + "*.pem"))
+            File.Delete(path);
     }
 
     /// <summary>The admin-consent link for the access app — derived from settings, so it survives a
@@ -2468,22 +2484,22 @@
     /// The certificate a script embeds must be the one Connapse later signs with — across page reloads
     /// and restarts, which happen between copying a script and pasting its result back. So a minted
     /// certificate lives in a pending file from the moment it is made, and the guide re-reads that file
-    /// on later renders instead of minting again. The live file — the one the stored settings point at
-    /// and Connapse signs with today — is never written here; <see cref="WriteAzureCertificateAsync"/>
-    /// replaces it on Save. Until then "New certificate" only replaces the pending one, so an Access
-    /// step that already works keeps working while a replacement is being set up.
+    /// on later renders instead of minting again. The file the stored settings point at — the key
+    /// Connapse signs with today — is never written here; Save writes the new key to a file of its own
+    /// and commits settings naming it. Until then "New certificate" only replaces the pending one, so
+    /// an Access step that already works keeps working while a replacement is being set up.
     /// </summary>
-    private AzureCertificateMaterial LoadOrMintAzureCertificate(string fileName, string commonName, bool newCertificate)
+    /// <param name="currentPath">The certificate the stored settings name, if any: re-running a script
+    /// with no replacement pending re-registers the key Connapse already holds.</param>
+    private AzureCertificateMaterial LoadOrMintAzureCertificate(
+        string fileName, string commonName, bool newCertificate, string? currentPath)
     {
         string pendingPath = AzurePendingCertificatePath(fileName);
         if (!newCertificate)
         {
-            // Pending first: a replacement in progress is what the script must embed. Otherwise the
-            // live certificate, so re-running a script re-registers the key Connapse already holds.
-            foreach (string path in new[] { pendingPath, AzureCertificatePath(fileName) })
-            {
-                if (ReadAzureCertificate(path) is { } existing) return existing;
-            }
+            // Pending first: a replacement in progress is what the script must embed.
+            if (ReadAzureCertificate(pendingPath) is { } pending) return pending;
+            if (currentPath is { Length: > 0 } && ReadAzureCertificate(currentPath) is { } current) return current;
         }
 
         AzureCertificateMaterial minted = AzureCertificateGenerator.Generate(commonName);
@@ -2553,14 +2569,6 @@
         if (unix) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
-    /// <summary>Moves a private-key file, keeping it readable by Connapse's own user only.</summary>
-    private static void MoveOwnerOnly(string from, string to)
-    {
-        File.Move(from, to, overwrite: true);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(to, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-    }
-
     private async Task CopyText(string text)
     {
         copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", text);
@@ -2573,7 +2581,10 @@
     /// </summary>
     private async Task SaveAzureAccessFromScript(AzureAccessResult result)
     {
-        if (azureAccessCert is null)
+        // A snapshot: the field can be replaced by "New certificate" in another render while the
+        // Entra check below is awaited, and the material verified must be the material stored.
+        AzureCertificateMaterial? material = azureAccessCert;
+        if (material is null)
         {
             saveMessage = "Generate the setup command first, so Connapse has the certificate to store.";
             saveSuccess = false;
@@ -2581,43 +2592,45 @@
         }
 
         azureBusy = true;
+        await AzureCertificateGate.WaitAsync();
         try
         {
-            if (!ThumbprintMatches(result.CertificateThumbprint, azureAccessCert))
+            if (!ThumbprintMatches(result.CertificateThumbprint, material))
             {
                 saveMessage = AzureThumbprintMismatch;
                 saveSuccess = false;
                 return;
             }
 
-            // Verified from the pending file, before anything live is touched: only a certificate
-            // Entra already accepts replaces the one Connapse signs with today.
-            string pendingPath = AzurePendingCertificatePath(AzureAccessCertFile);
-            WriteOwnerOnly(pendingPath, azureAccessCert.CombinedPem);
+            // The candidate gets a file of its own, named by its thumbprint, and is verified from
+            // there. The key Connapse signs with today is never moved or overwritten: the stored
+            // settings keep pointing at it until the ones naming the new file are committed.
+            string newPath = AzureVersionedCertificatePath(AzureAccessCertFile, material);
+            WriteOwnerOnly(newPath, material.CombinedPem);
             var candidate = new AzureProviderSettings
             {
                 TenantId = result.TenantId,
                 ClientId = result.AccessAppClientId,
                 SubscriptionId = result.SubscriptionId,
-                ClientCertificatePath = pendingPath,
+                ClientCertificatePath = newPath,
             };
             var check = await AzureDiscovery.CheckAccessAsync(candidate);
             if (!check.Succeeded)
             {
+                DeleteAzureCertificateUnlessReferenced(newPath, azureProviderSettings.ClientCertificatePath);
                 saveMessage = AzureCheckRefused("access", check);
                 saveSuccess = false;
                 return;
             }
 
-            string certPath = PromoteAzureCertificate(AzureAccessCertFile, azureAccessCert.CombinedPem);
-            await SaveAzureProviderFromForm(candidate with { ClientCertificatePath = certPath }, verified: true);
-            if (!saveSuccess)
+            string? previousPath = azureProviderSettings.ClientCertificatePath;
+            if (!await SaveAzureProviderFromForm(candidate, verified: true))
             {
-                RestoreAzureCertificate(AzureAccessCertFile);
+                DeleteAzureCertificateUnlessReferenced(newPath, previousPath);
                 return;
             }
 
-            DiscardAzureCertificateCopies(AzureAccessCertFile, azureAccessCert.CombinedPem);
+            SweepAzureCertificates(AzureAccessCertFile, keep: newPath, promotedPem: material.CombinedPem);
             azureAccessScript = null;
             azureAccessCert = null;
             azureAccessPasted = null;
@@ -2630,50 +2643,55 @@
         }
         finally
         {
+            AzureCertificateGate.Release();
             azureBusy = false;
         }
     }
 
     /// <summary>
-    /// Makes <paramref name="combinedPem"/> the live certificate — the file the stored settings point
-    /// at and Connapse signs with. The private key stays on this host; only the public certificate was
-    /// uploaded to Azure by the script. The key being replaced is kept beside it until the settings
-    /// that reference the new one are saved, so a failed save can put it back.
+    /// One promotion at a time in this process. Two administrators saving together would otherwise
+    /// interleave the write / verify / commit / sweep steps and sweep each other's files.
     /// </summary>
-    private string PromoteAzureCertificate(string fileName, string combinedPem)
+    private static readonly SemaphoreSlim AzureCertificateGate = new(1, 1);
+
+    /// <summary>Where a candidate certificate lives: its own file, named by the thumbprint, so no two
+    /// candidates — from this session or another — ever share a path with each other or with the key
+    /// in use.</summary>
+    private string AzureVersionedCertificatePath(string fileName, AzureCertificateMaterial material)
     {
-        string livePath = AzureCertificatePath(fileName);
-        string previousPath = AzurePreviousCertificatePath(fileName);
-        if (File.Exists(livePath)) MoveOwnerOnly(livePath, previousPath);
-        WriteOwnerOnly(livePath, combinedPem);
-        return livePath;
+        string thumbprint = AzureCertificateFile.Thumbprint(material.PublicCertificatePem);
+        return AzureCertificatePath($"{Path.GetFileNameWithoutExtension(fileName)}-{thumbprint[..12].ToLowerInvariant()}.pem");
     }
 
-    /// <summary>Undoes <see cref="PromoteAzureCertificate"/> after the settings save failed: the
-    /// previous key goes back, or, when there was none, the unreferenced new one is removed.</summary>
-    private void RestoreAzureCertificate(string fileName)
+    /// <summary>Removes a candidate file that will not be used, unless the stored settings already
+    /// name it — a re-save of the certificate in use must not delete it.</summary>
+    private static void DeleteAzureCertificateUnlessReferenced(string path, string? referencedPath)
     {
-        string livePath = AzureCertificatePath(fileName);
-        string previousPath = AzurePreviousCertificatePath(fileName);
-        if (File.Exists(previousPath)) MoveOwnerOnly(previousPath, livePath);
-        else if (File.Exists(livePath)) File.Delete(livePath);
+        if (string.Equals(path, referencedPath, StringComparison.OrdinalIgnoreCase)) return;
+        if (File.Exists(path)) File.Delete(path);
     }
 
-    /// <summary>After a successful save: the replaced key is no longer needed, and the pending copy is
-    /// removed only if it is the material just promoted — another session's replacement in progress
-    /// is left alone.</summary>
-    private void DiscardAzureCertificateCopies(string fileName, string promotedPem)
+    /// <summary>
+    /// After settings naming <paramref name="keep"/> are committed: every other certificate file of
+    /// this kind under appdata/azure is superseded and removed — earlier versioned files, the single
+    /// fixed-name file older saves wrote — and the pending copy goes only if it is the material just
+    /// promoted, so another session's replacement in progress is left alone.
+    /// </summary>
+    private void SweepAzureCertificates(string fileName, string keep, string promotedPem)
     {
-        string previousPath = AzurePreviousCertificatePath(fileName);
-        if (File.Exists(previousPath)) File.Delete(previousPath);
+        string directory = Path.GetDirectoryName(AzureCertificatePath(fileName))!;
+        if (!Directory.Exists(directory)) return;
 
+        string stem = Path.GetFileNameWithoutExtension(fileName);
         string pendingPath = AzurePendingCertificatePath(fileName);
-        if (File.Exists(pendingPath) && File.ReadAllText(pendingPath) == promotedPem) File.Delete(pendingPath);
+        foreach (string path in Directory.EnumerateFiles(directory, stem + "*.pem"))
+        {
+            if (string.Equals(path, keep, StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.Equals(path, pendingPath, StringComparison.OrdinalIgnoreCase)
+                && File.ReadAllText(path) != promotedPem) continue;
+            File.Delete(path);
+        }
     }
-
-    /// <summary>Where the key being replaced waits between promotion and the settings save.</summary>
-    private string AzurePreviousCertificatePath(string fileName) =>
-        AzureCertificatePath(Path.GetFileNameWithoutExtension(fileName) + ".previous.pem");
 
     /// <summary>Whether the certificate the script registered is the one this page holds. A paste from
     /// a script that predates the thumbprint cannot be checked and is accepted; the Entra check that
@@ -2702,7 +2720,8 @@
     /// </summary>
     private async Task SaveAzurePermissionsFromScript(AzurePermissionsResult result)
     {
-        if (azureSignInCert is null)
+        AzureCertificateMaterial? material = azureSignInCert;
+        if (material is null)
         {
             saveMessage = "Generate the setup command first, so Connapse has the certificate to store.";
             saveSuccess = false;
@@ -2710,47 +2729,49 @@
         }
 
         azureBusy = true;
+        await AzureCertificateGate.WaitAsync();
         try
         {
-            if (!ThumbprintMatches(result.CertificateThumbprint, azureSignInCert))
+            if (!ThumbprintMatches(result.CertificateThumbprint, material))
             {
                 saveMessage = AzureThumbprintMismatch;
                 saveSuccess = false;
                 return;
             }
 
-            string pendingPath = AzurePendingCertificatePath(AzureSignInCertFile);
-            WriteOwnerOnly(pendingPath, azureSignInCert.CombinedPem);
+            string newPath = AzureVersionedCertificatePath(AzureSignInCertFile, material);
+            WriteOwnerOnly(newPath, material.CombinedPem);
             var check = await AzureDiscovery.CheckAccessAsync(new AzureProviderSettings
             {
                 TenantId = azureProviderSettings.TenantId,
                 ClientId = result.SignInAppClientId,
-                ClientCertificatePath = pendingPath,
+                ClientCertificatePath = newPath,
             });
             if (!check.Succeeded)
             {
+                DeleteAzureCertificateUnlessReferenced(newPath, azureAdSettings.ClientCertificatePath);
                 saveMessage = AzureCheckRefused("sign-in", check);
                 saveSuccess = false;
                 return;
             }
 
-            string certPath = PromoteAzureCertificate(AzureSignInCertFile, azureSignInCert.CombinedPem);
-            await SaveAzureAdFromForm(new AzureAdSignInSettings
+            string? previousPath = azureAdSettings.ClientCertificatePath;
+            bool committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
                 ClientId = result.SignInAppClientId,
                 RedirectUri = easyRedirectUri.Trim(),
-                ClientCertificatePath = certPath,
+                ClientCertificatePath = newPath,
                 // Persisted, so a reload cannot turn "consent still pending" into a green card.
                 AdminConsentPending = !result.ConsentGranted,
             }, verified: true);
-            if (!saveSuccess)
+            if (!committed)
             {
-                RestoreAzureCertificate(AzureSignInCertFile);
+                DeleteAzureCertificateUnlessReferenced(newPath, previousPath);
                 return;
             }
 
-            DiscardAzureCertificateCopies(AzureSignInCertFile, azureSignInCert.CombinedPem);
+            SweepAzureCertificates(AzureSignInCertFile, keep: newPath, promotedPem: material.CombinedPem);
             azurePermissionsScript = null;
             azureSignInCert = null;
             azurePermissionsPasted = null;
@@ -2763,6 +2784,7 @@
         }
         finally
         {
+            AzureCertificateGate.Release();
             azureBusy = false;
         }
     }
@@ -2821,20 +2843,34 @@
         _ => "bi-question-circle text-secondary"
     };
 
-    private async Task SaveSettings<T>(string category, T settings) where T : class
+    /// <summary>Stores a settings category. Returns whether it was committed — a reload that fails
+    /// after the commit is reported, but the settings are stored and callers must treat them as such.</summary>
+    private async Task<bool> SaveSettings<T>(string category, T settings) where T : class
     {
         try
         {
             await SettingsStore.SaveAsync(category, settings);
-            ReloadService.Reload();
-            saveMessage = $"{SettingsName(category)} settings saved successfully!";
-            saveSuccess = true;
         }
         catch (Exception ex)
         {
             saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
             saveSuccess = false;
+            return false;
         }
+
+        try
+        {
+            ReloadService.Reload();
+            saveMessage = $"{SettingsName(category)} settings saved successfully!";
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"{SettingsName(category)} settings were saved, but applying them without a "
+                + $"restart failed: {ex.Message} Restart Connapse to apply them.";
+        }
+
+        saveSuccess = true;
+        return true;
     }
 
     /// <summary>What to call a settings category in a sentence.</summary>

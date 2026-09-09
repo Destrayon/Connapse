@@ -104,8 +104,16 @@ public class AzureBlobDiscoveryTests
     [Theory]
     [InlineData("AADSTS700027: Client assertion contains an invalid signature", true)]
     [InlineData("AADSTS7000215: Invalid client secret provided", true)]
+    [InlineData("AADSTS7000222: The provided client secret keys are expired", true)]
+    [InlineData("AADSTS7000229: The client application is missing service principal in the tenant", true)]
+    [InlineData("AADSTS700016: Application with identifier 'x' was not found in the directory", true)]
+    [InlineData("AADSTS90002: Tenant 'x' not found", true)]
+    // Entra answered, but about itself, not the credential: transient, throttled, or unavailable.
+    [InlineData("AADSTS90024: The request body must contain the following parameter", false)]
+    [InlineData("AADSTS90033: A transient error has occurred. Please try again.", false)]
+    [InlineData("AADSTS50196: The server terminated an operation because it encountered a client request loop", false)]
     [InlineData("No such host is known (login.microsoftonline.com:443)", false)]
-    public void IsCredentialRefusal_OnlyWhenEntraAnswered(string message, bool expected) =>
+    public void IsCredentialRefusal_OnlyForCodesThatMeanTheCredentialIsWrong(string message, bool expected) =>
         AzureBlobDiscovery.IsCredentialRefusal(new AuthenticationFailedException(message)).Should().Be(expected);
 
     [Fact]

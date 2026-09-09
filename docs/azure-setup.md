@@ -47,11 +47,19 @@ the script it produces (which registers the new public certificate alongside the
 back, Save. The old certificate keeps working until you save, and the private keys are stored
 only under `appdata/azure` on the Connapse host, readable by Connapse's own user.
 
-Save is a check first: Connapse asks Entra for a token with the new certificate before it
-replaces the one in use, and refuses to save anything Entra rejects — the working setup stays as
-it was. The script also prints the thumbprint of the certificate it registered; if it differs
-from the one the page holds (another tab made a new certificate in between), Save refuses and
-asks you to run the command shown now. The same check runs when Manual values are saved.
+Save is a check first: Connapse writes the new certificate to a file of its own (named by its
+thumbprint), asks Entra for a token with it, and only then commits settings naming that file.
+The key in use is never moved or overwritten; it is removed only after the new settings are
+stored, and anything Entra rejects is deleted again with the working setup untouched. The script
+also prints the thumbprint of the certificate it registered; if it differs from the one the page
+holds (another tab made a new certificate in between), Save refuses and asks you to run the
+command shown now. The same Entra check runs when Manual values are saved.
+
+Only Entra errors that mean the credential itself is wrong — certificate not registered
+(`AADSTS700027`), keys expired (`AADSTS7000222`), app or tenant not found (`AADSTS700016`,
+`AADSTS90002`), missing service principal (`AADSTS7000229`) — count as a refusal. Throttling,
+transient faults, and outages read as *Unconfirmed* with a retry, never as a demand to set up
+again.
 
 ## Manual values
 
