@@ -2,7 +2,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Identity.Services;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
@@ -18,6 +22,14 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     public const string AdminEmail = "admin@integration-tests.connapse.io";
     public const string AdminPassword = "SharedAdminTest1!";
     public const string TestJwtSecret = "shared-test-jwt-secret-for-integration-tests-64chars!!";
+
+    // Fake Entra AD application identity — good enough to make AzureAdSignInSettings.IsConfigured
+    // true and to build the token issuer/audience the fake id_tokens in CloudIdentityEndpointTests
+    // assert against. Nothing ever dials out to login.microsoftonline.com with these: the token
+    // exchange and JWKS lookup are both replaced below with in-process fakes.
+    public const string AzureTestTenantId = "11111111-1111-1111-1111-111111111111";
+    public const string AzureTestClientId = "22222222-2222-2222-2222-222222222222";
+    public const string AzureTestRedirectUri = "https://localhost/api/v1/auth/cloud/azure/callback";
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -69,6 +81,28 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                 builder.UseSetting("RateLimiting:AuthPermitLimit", "100000");
                 builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
                 builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
+
+                // Entra AD sign-in configuration for the Azure identity-link flow
+                // (CloudIdentityEndpointTests). IsConfigured only checks these are non-empty — no
+                // certificate is ever actually loaded, because the token exchange itself is faked
+                // below rather than performed for real.
+                builder.UseSetting("Identity:AzureAd:TenantId", AzureTestTenantId);
+                builder.UseSetting("Identity:AzureAd:ClientId", AzureTestClientId);
+                builder.UseSetting("Identity:AzureAd:RedirectUri", AzureTestRedirectUri);
+                builder.UseSetting("Identity:AzureAd:ClientCertificatePath", "unused-in-tests.pem");
+
+                builder.ConfigureTestServices(services =>
+                {
+                    // Replaces the real AzureOidcTokenExchanger (dials login.microsoftonline.com)
+                    // and the real JWKS lookup (fetches the tenant's signing keys) with in-process
+                    // fakes, so the callback endpoint can be driven end to end without a real
+                    // Entra tenant. See AzureOidcTestDoubles.cs.
+                    services.RemoveAll<IOidcTokenExchanger>();
+                    services.AddSingleton<IOidcTokenExchanger, FakeOidcTokenExchanger>();
+
+                    services.RemoveAll<IAzureSigningKeySource>();
+                    services.AddSingleton<IAzureSigningKeySource, FakeAzureSigningKeySource>();
+                });
             });
 
         AdminClient = Factory.CreateClient();

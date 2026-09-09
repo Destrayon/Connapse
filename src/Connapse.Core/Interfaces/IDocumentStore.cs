@@ -48,4 +48,12 @@ public interface IDocumentStore
     /// to catch any containers missed by event-driven rollup triggering.
     /// </summary>
     Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The <c>resource_uri</c> of each requested document (null when it has none — uploads and non-cloud
+    /// connectors — or the id is unknown). One batched lookup, for the search verifier which must map
+    /// ranked hits back to their governing URIs.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(
+        IReadOnlyCollection<string> documentIds, CancellationToken ct = default);
 }

@@ -35,14 +35,19 @@ namespace Connapse.Web.Services;
 /// It only ever turns enforcement on, and only when the effective configuration is complete.
 /// Switching it off is an administrator's decision and has its own path through the UI.
 /// </para>
+/// <para>
+/// Enforcement is opt-in via SAML or Azure AD, either one. A deployment that configured either
+/// identity provider had per-user permissions working, so either configuration latches it.
+/// </para>
 /// </remarks>
-public sealed class SamlEnforcementLatch(
+public sealed class CloudEnforcementLatch(
     IServiceScopeFactory scopes,
     IOptionsMonitor<SamlSignInSettings> signIn,
+    IOptionsMonitor<AzureAdSignInSettings> azureAd,
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
     ISettingsReloader settingsReloader,
-    ILogger<SamlEnforcementLatch> logger) : IHostedService
+    ILogger<CloudEnforcementLatch> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -62,35 +67,58 @@ public sealed class SamlEnforcementLatch(
                 return;
             }
 
-            // Already recorded, by a previous boot or by an administrator saving the settings.
-            if (enforcement.CurrentValue.IsEnforcing)
-            {
-                migration.Complete();
-                return;
-            }
+            // Enforcement is opt-in and latches PER identity provider, independently. Each provider
+            // that is configured now, or was already marked as enforcing, stays enforcing; a provider
+            // that was never configured stays unfiltered. The two markers must not be conflated:
+            // sharing one bit would make configuring Azure AD flip SAML/AWS into "enforcing but
+            // unusable", hiding every S3 document (and vice versa).
+            PermissionEnforcementSettings current = enforcement.CurrentValue;
+            bool samlLatched = current.IsEnforcing || signIn.CurrentValue.IsConfigured;
+            bool azureLatched = current.AzureEnforcing || azureAd.CurrentValue.IsConfigured;
 
-            // Never set this up. A deployment that does not filter stays unrestricted, which is the
-            // documented default and the only legitimate one.
-            if (!signIn.CurrentValue.IsConfigured)
+            // Nothing new to latch (a fresh install, or a steady-state boot): leave the stored row
+            // untouched so no SAML/Azure value is ever copied into a shadowing row.
+            if (samlLatched == current.IsEnforcing && azureLatched == current.AzureEnforcing)
             {
                 migration.Complete();
                 return;
             }
 
             // Configured but unmarked: filtering was in force under the old rule, so it stays in
-            // force. Only the marker is written -- no SAML value is copied anywhere.
+            // force. Only the markers are written -- no sign-in value is copied anywhere.
             await using var scope = scopes.CreateAsyncScope();
             var settings = scope.ServiceProvider.GetRequiredService<ISettingsStore>();
 
-            await settings.SaveAsync(
+            // A merge under the store's lock, not a replace: a save on the Providers page can be
+            // latching the other provider at this same moment, and a replace from this snapshot
+            // would switch that one back off. A latch only ever goes on, so the merge is an OR.
+            PermissionEnforcementSettings merged = await settings.UpdateAsync<PermissionEnforcementSettings>(
                 PermissionEnforcementSettings.Category,
-                new PermissionEnforcementSettings { IsEnforcing = true },
+                stored => new PermissionEnforcementSettings
+                {
+                    IsEnforcing = (stored?.IsEnforcing ?? false) || samlLatched,
+                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || azureLatched,
+                },
                 cancellationToken);
+
+            // Stored is not applied. The resolvers read the live options, and the store's reload
+            // after its commit can fail; completing the migration then would declare a flag that
+            // this process cannot see, and the resolver would answer unfiltered. Undetermined
+            // denies, which is the right posture until the next successful reload.
+            PermissionEnforcementSettings live = enforcement.CurrentValue;
+            if (live.IsEnforcing != merged.IsEnforcing || live.AzureEnforcing != merged.AzureEnforcing)
+            {
+                logger.LogError(
+                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until Connapse is restarted with the database reachable",
+                    merged.IsEnforcing, merged.AzureEnforcing);
+                return;
+            }
 
             migration.Complete();
 
             logger.LogInformation(
-                "Per-user search permissions were already configured; recorded that this deployment enforces them");
+                "Per-user search permissions were already configured; recorded that this deployment enforces them (SAML={SamlEnforcing}, Azure={AzureEnforcing})",
+                samlLatched, azureLatched);
         }
         catch (Exception ex)
         {

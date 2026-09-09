@@ -644,6 +644,51 @@ namespace Connapse.Identity.Migrations
                     b.ToTable("user_aws_identity_links", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAzureIdentityLinkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("ConnectedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("connected_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("ObjectId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_id");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_azure_identity_links_user_id");
+
+                    b.ToTable("user_azure_identity_links", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserInvitation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -902,6 +947,17 @@ namespace Connapse.Identity.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserAzureIdentityLinkEntity", b =>
+                {
+                    b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
+                        .WithMany("AzureIdentityLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserInvitation", b =>
                 {
                     b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "AcceptedByUser")
@@ -979,6 +1035,8 @@ namespace Connapse.Identity.Migrations
             modelBuilder.Entity("Connapse.Identity.Data.Entities.ConnapseUser", b =>
                 {
                     b.Navigation("AuditLogs");
+
+                    b.Navigation("AzureIdentityLinks");
 
                     b.Navigation("PersonalAccessTokens");
 

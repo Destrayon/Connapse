@@ -55,6 +55,11 @@ public sealed record SourceForm
                 if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
                 break;
 
+            case ConnectionProvider.AzureBlob:
+                node["containerName"] = Container?.Trim() ?? "";
+                if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
+                break;
+
             // One case for both. The SFTP scope was deliberately given the same shape as the
             // filesystem one so that this form, the preflight and the scope summary each gained
             // a provider here rather than a parallel implementation to keep in step.
@@ -93,6 +98,9 @@ public sealed record SourceForm
 
         if (provider is ConnectionProvider.S3 && Blank(Container))
             return "A bucket name is required.";
+
+        if (provider is ConnectionProvider.AzureBlob && Blank(Container))
+            return "A container name is required.";
 
         if (SyncIntervalSeconds is { } interval && interval < 60)
             return "Sync interval must be at least 60 seconds.";

@@ -106,6 +106,15 @@ public class HybridSearchService : IKnowledgeSearch
         var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
         var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
 
+        // Per-hit verify (Phase 4e). Resolved once per search alongside the other scoped services
+        // above. Retrieval over-fetches by CandidateMultiplier so the verifier's drop+backfill has
+        // material to work with; VerifyAsync narrows back down to options.TopK after ranking. For
+        // AWS-only/non-cloud deployments (Azure AD not configured) the multiplier is 1, so this
+        // costs nothing extra and VerifyAsync passes every hit through untouched.
+        var verifier = scope.ServiceProvider.GetRequiredService<ISearchResultVerifier>();
+        int overFetch = Math.Max(1, verifier.CandidateMultiplier);
+        SearchOptions retrieveOptions = options with { TopK = options.TopK * overFetch };
+
         // One resolution per search, taken here because this is where the query fans out. Doing it
         // inside each leaf would mean two answers for one query, and hybrid would be the mode in
         // which they could disagree — half a result set from one set of permissions and half from
@@ -131,16 +140,16 @@ public class HybridSearchService : IKnowledgeSearch
         switch (mode)
         {
             case SearchMode.Semantic:
-                hits = await vectorSearch.SearchAsync(query, options, scopes, ct);
+                hits = await vectorSearch.SearchAsync(query, retrieveOptions, scopes, ct);
                 break;
 
             case SearchMode.Keyword:
-                hits = await keywordSearch.SearchAsync(query, options, scopes, ct);
+                hits = await keywordSearch.SearchAsync(query, retrieveOptions, scopes, ct);
                 break;
 
             case SearchMode.Hybrid:
             default:
-                hits = await PerformHybridSearchAsync(query, options, scopes, ct);
+                hits = await PerformHybridSearchAsync(query, retrieveOptions, scopes, ct);
                 break;
         }
 
@@ -164,12 +173,18 @@ public class HybridSearchService : IKnowledgeSearch
             }
         }
 
-        // Apply final score threshold, auto-cut, and limit
-        var filtered = hits
+        // Apply final score threshold and rank order
+        var ordered = hits
             .Where(h => h.Score >= options.MinScore)
             .OrderByDescending(h => h.Score)
             .ToList();
 
+        // Per-hit verify + backfill: drops hits the searcher may not read and backfills from the
+        // over-fetched, lower-ranked candidates so up to options.TopK survivors come back where
+        // possible. Passes s3/non-cloud hits and everything else untouched when not enforcing.
+        IReadOnlyList<SearchHit> verified = await verifier.VerifyAsync(ordered, options.UserId, options.TopK, ct);
+
+        var filtered = verified.ToList();
         if (searchSettings.AutoCut)
             filtered = ApplyAutoCut(filtered);
 
