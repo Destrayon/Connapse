@@ -198,6 +198,10 @@
     {
         if (string.IsNullOrWhiteSpace(tenantId))
             return ("Enter the Directory (tenant) ID.", "az-tenant");
+        // A managed identity's token names its tenant by id, and the check that compares the two
+        // needs an id on this side too; a certificate app may also use a verified domain name.
+        if (mode != AuthMode.Certificate && !Guid.TryParse(tenantId.Trim(), out _))
+            return ("Enter the Directory (tenant) ID as its ID — the GUID shown on the tenant overview.", "az-tenant");
         return mode switch
         {
             AuthMode.HostManagedIdentity => null,

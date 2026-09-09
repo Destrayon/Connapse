@@ -2754,15 +2754,33 @@
         finally
         {
             detectingHostIdentity = false;
-            // A permissions script generated before the answer landed names whatever principal was
-            // recorded; the host's own answer outranks it, so the script is rebuilt to match.
-            RefreshAzurePermissionsScript();
+            try
+            {
+                // Scripts generated before the answer landed name whatever principal was known then;
+                // the host's own answer outranks it, so they are rebuilt to match. The Access script
+                // is dropped only when the principal it was built for is no longer the host's — a
+                // paste for that script would be refused, and the refusal says to run the one shown.
+                if (azureManagedIdentityScript is not null
+                    && !string.Equals(azureManagedIdentityScriptFor, hostIdentity?.PrincipalId, StringComparison.OrdinalIgnoreCase))
+                {
+                    azureManagedIdentityScript = null;
+                    azureManagedIdentityPasted = null;
+                }
+                RefreshAzurePermissionsScript();
+            }
+            catch (Exception)
+            {
+                // A rebuild that fails is regenerated on the next render; the page must still update.
+            }
             await InvokeAsync(StateHasChanged);
         }
     }
 
     private string? azureManagedIdentityScript;
     private string? azureManagedIdentityPasted;
+
+    /// <summary>The principal the managed-identity Access script on screen was built for.</summary>
+    private string? azureManagedIdentityScriptFor;
 
     /// <summary>
     /// Whether the Access guide offers the host's managed identity rather than a certificate app:
@@ -2776,8 +2794,10 @@
 
     private void EnsureAzureManagedIdentityScript(AzureHostIdentityInfo host)
     {
-        azureManagedIdentityScript ??= AzureCloudShellSetup.GenerateManagedIdentityAccessScript(
+        if (azureManagedIdentityScript is not null) return;
+        azureManagedIdentityScript = AzureCloudShellSetup.GenerateManagedIdentityAccessScript(
             new AzureManagedIdentityAccessSetupInput(host.PrincipalId, host.ClientId, host.IsUserAssigned));
+        azureManagedIdentityScriptFor = host.PrincipalId;
     }
 
     /// <summary>

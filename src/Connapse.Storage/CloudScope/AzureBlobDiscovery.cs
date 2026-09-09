@@ -51,13 +51,15 @@ public sealed class AzureBlobDiscovery(
             // A managed-identity token is issued whatever tenant the settings name, so the tenant
             // is checked against the token itself: one that names another tenant would only fail
             // later, in the sign-in defaults and the role-assignment reads.
-            if (AzureCredentialChainFactory.IsManagedIdentity(candidate)
-                && !string.IsNullOrWhiteSpace(candidate.TenantId)
-                && AzureHostIdentity.Describe(token.Token)?.TenantId is { } issuedFor
-                && !string.Equals(issuedFor, candidate.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (AzureCredentialChainFactory.IsManagedIdentity(candidate) && !string.IsNullOrWhiteSpace(candidate.TenantId))
             {
-                return AzureProbe<string>.Unusable(
-                    $"The managed identity is in tenant {issuedFor}, but the settings name tenant {candidate.TenantId}.");
+                string? issuedFor = AzureHostIdentity.Describe(token.Token)?.TenantId;
+                if (issuedFor is null)
+                    logger.LogDebug("The managed identity's token did not name its tenant; the stored tenant was not checked against it");
+                else if (!string.Equals(issuedFor, candidate.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return AzureProbe<string>.Unusable(
+                        $"The managed identity is in tenant {issuedFor}, but the settings name tenant "
+                        + $"{candidate.TenantId}. Enter tenant {issuedFor}.");
             }
 
             string verified = AzureCredentialChainFactory.IsHostManagedIdentity(candidate)
