@@ -275,7 +275,7 @@ public static class AzureCloudShellSetup
         register_cert "$ACCESS_APP_ID"
         az ad sp create --id "$ACCESS_APP_ID" >/dev/null 2>&1 || true
         # Printed back so Connapse can refuse to keep a different certificate than the one registered.
-        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g') || true
         rm -f "$CERT_FILE"
 
         # Role assignments wait for the role definitions + service principal to propagate; retry
@@ -345,7 +345,7 @@ public static class AzureCloudShellSetup
         register_cert "$SIGNIN_APP_ID"
         az ad sp create --id "$SIGNIN_APP_ID" >/dev/null 2>&1 || true
         # Printed back so Connapse can refuse to keep a different certificate than the one registered.
-        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g')
+        CERT_THUMBPRINT=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha1 2>/dev/null | sed 's/.*=//; s/://g') || true
         rm -f "$CERT_FILE"
 
         # The admin-consent page bounces back to a reply URL registered on the ACCESS app; without one

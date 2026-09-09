@@ -207,6 +207,13 @@
         </div>
         }
 
+        @if (checking)
+        {
+            <div class="text-muted small mb-2" role="status">
+                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Checking @Current.DisplayName…
+            </div>
+        }
+
         @if (!string.IsNullOrEmpty(saveMessage))
         {
             <div class="alert @(saveSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
@@ -2214,12 +2221,28 @@
         await JS.InvokeVoidAsync("connapse.scrollToId", elementId);
     }
 
+    /// <summary>Whether a status re-read is in flight, shown beside the page title.</summary>
+    private bool checking;
+
+    /// <summary>
+    /// Re-reads every provider's status. The cards stay mounted while it runs: clearing the list
+    /// first would replace them with a spinner and dispose the forms inside them, and with them
+    /// whatever an operator had typed into a manual form whose save had just been refused.
+    /// </summary>
     private async Task RefreshSetups()
     {
-        setups = null;
+        checking = true;
         StateHasChanged();
-        setups = await SetupReader.ReadAsync();
-        await LoadAwsCredentialModeAsync();
+        try
+        {
+            setups = await SetupReader.ReadAsync();
+            await LoadAwsCredentialModeAsync();
+            LoadAzureCertificateExpiry();
+        }
+        finally
+        {
+            checking = false;
+        }
     }
 
     /// <summary>What a provider would let you do, for one you have not taken up.</summary>
@@ -2348,9 +2371,10 @@
                     HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
                     HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
                 }));
+            // Only after a commit: nothing changed otherwise, so there is nothing to re-read.
+            await AfterAzureCommitAsync(RefreshSetups);
         }
 
-        await AfterAzureCommitAsync(RefreshSetups);
         return committed;
     }
 
@@ -2459,9 +2483,9 @@
             LoadAzureCertificateExpiry();
             await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
                 new { Configured = settings.IsConfigured }));
+            await AfterAzureCommitAsync(RefreshSetups);
         }
 
-        await AfterAzureCommitAsync(RefreshSetups);
         return committed;
     }
 
@@ -2645,16 +2669,26 @@
         return minted;
     }
 
+    /// <summary>Whether a path is one of the certificate files Connapse itself writes under appdata/azure.</summary>
+    private bool IsConnapseAzureFile(string path)
+    {
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        string own = Path.GetFullPath(Path.Combine(WebHostEnvironment.ContentRootPath, "appdata", "azure"));
+        return directory is not null && string.Equals(directory, own, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Reads a combined PEM back as material, or null when the file is missing or unreadable.</summary>
-    private static AzureCertificateMaterial? ReadAzureCertificate(string path)
+    private AzureCertificateMaterial? ReadAzureCertificate(string path)
     {
         if (!File.Exists(path)) return null;
         try
         {
             string combined = File.ReadAllText(path);
             using var existing = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPem(combined);
-            // A file written before owner-only creation existed keeps its old mode; tighten it.
-            if (!OperatingSystem.IsWindows())
+            // A file Connapse wrote before owner-only creation existed keeps its old mode; tighten
+            // it. Only Connapse's own files: a certificate an operator supplied may be shared with
+            // another service or mounted read-only, and its permissions are theirs to set.
+            if (!OperatingSystem.IsWindows() && IsConnapseAzureFile(path))
                 File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             return new AzureCertificateMaterial(existing.ExportCertificatePem(), combined);
         }
@@ -2890,7 +2924,10 @@
         string pendingPath = Path.GetFullPath(AzurePendingCertificatePath(fileName));
         DateTime cutoff = DateTime.UtcNow - AzureCertificateGrace;
 
-        foreach (string path in Directory.EnumerateFiles(directory, stem + "*.pem"))
+        // "*.pem*" also catches the ".pem.tmp" a write leaves behind if it is interrupted before
+        // the move: a private key nothing will ever read, and the sweep is the only thing that
+        // knows to remove it.
+        foreach (string path in Directory.EnumerateFiles(directory, stem + "*.pem*"))
         {
             string full = Path.GetFullPath(path);
             if (referenced.Contains(full)) continue;
@@ -2922,6 +2959,9 @@
         AzureProbeOutcome.Denied =>
             $"Entra refused the {which} credential, so nothing was changed. {check.Detail} If you just "
             + "ran the script, Entra may still be registering the certificate — wait a minute and save again.",
+        AzureProbeOutcome.Unusable =>
+            $"The {which} credential cannot be used from this host, so nothing was changed: {check.Detail} "
+            + "Check the certificate path and that Connapse can read the file.",
         _ => $"Could not confirm the {which} credential with Azure, so nothing was changed. {check.Detail}",
     };
 

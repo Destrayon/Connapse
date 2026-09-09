@@ -125,8 +125,14 @@ public class ProviderSetupReader(
                 + "is not registered on the app, has expired, or the app no longer exists — set "
                 + $"access up again below. Entra said: {probe.Detail}"),
 
+            AzureProbeOutcome.Unusable => new ProviderRequirement(name, description,
+                RequirementStatus.Failed,
+                "Connapse's Azure identity cannot be used from this host, so Azure sources cannot "
+                + "sync: the certificate file is missing or unreadable, or the settings are only "
+                + $"partly filled in. Fix the file, or set access up again below. Detail: {probe.Detail}"),
+
             _ => new ProviderRequirement(name, description, RequirementStatus.Warning,
-                "Connapse could not reach Azure to confirm its identity, so this may or may not "
+                "Connapse could not confirm its identity with Azure, so this may or may not "
                 + $"work. Test a connection to be sure. The check reported: {probe.Detail}")
         };
     }
@@ -171,9 +177,14 @@ public class ProviderSetupReader(
                     "Entra refused the sign-in application's credential, so nobody can connect an Entra "
                     + "identity. The certificate is not registered on the app, has expired, or the app no "
                     + $"longer exists — set the application up again below. Entra said: {probe.Detail}");
+            case AzureProbeOutcome.Unusable:
+                return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                    "The sign-in application's certificate cannot be used from this host — the file is "
+                    + "missing or unreadable, or the settings are only partly filled in — so nobody can "
+                    + $"connect an Entra identity. Fix the file, or set the application up again below. Detail: {probe.Detail}");
             case AzureProbeOutcome.Failed:
                 return new ProviderRequirement(name, description, RequirementStatus.Warning,
-                    "Connapse could not reach Azure to confirm the sign-in application's credential, so "
+                    "Connapse could not confirm the sign-in application's credential with Azure, so "
                     + $"this may or may not work. The check reported: {probe.Detail}");
         }
 

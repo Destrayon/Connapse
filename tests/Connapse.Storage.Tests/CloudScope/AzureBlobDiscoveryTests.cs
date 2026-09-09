@@ -71,14 +71,14 @@ public class AzureBlobDiscoveryTests
     }
 
     [Fact]
-    public async Task CheckAccess_CertificateFileMissing_Fails_WithTheReason()
+    public async Task CheckAccess_CertificateFileMissing_IsUnusable_WithTheReason()
     {
         // The credential chain refuses to build without a readable certificate, and refuses to
-        // fall through to a managed identity. That is a check that could not run, not Entra
-        // saying no — so Failed, carrying the message the operator needs.
+        // fall through to a managed identity. Azure was never asked: this host is what needs
+        // fixing, which is neither Entra saying no nor "could not confirm".
         var probe = await Build(Configured()).CheckAccessAsync();
 
-        probe.Outcome.Should().Be(AzureProbeOutcome.Failed);
+        probe.Outcome.Should().Be(AzureProbeOutcome.Unusable);
         probe.Detail.Should().Contain("certificate");
     }
 
@@ -89,7 +89,7 @@ public class AzureBlobDiscoveryTests
         // file is missing, so it is the candidate that produced the answer.
         var probe = await Build(new AzureProviderSettings()).CheckAccessAsync(Configured());
 
-        probe.Outcome.Should().Be(AzureProbeOutcome.Failed);
+        probe.Outcome.Should().Be(AzureProbeOutcome.Unusable);
         probe.Detail.Should().Contain("certificate");
     }
 

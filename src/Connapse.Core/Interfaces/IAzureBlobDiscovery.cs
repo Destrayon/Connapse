@@ -34,6 +34,9 @@ public record AzureProbe<T>(T? Value, AzureProbeOutcome Outcome, string? Detail 
 
     public static AzureProbe<T> Failed(string? detail = null) =>
         new(default, AzureProbeOutcome.Failed, detail);
+
+    public static AzureProbe<T> Unusable(string? detail = null) =>
+        new(default, AzureProbeOutcome.Unusable, detail);
 }
 
 public enum AzureProbeOutcome
@@ -47,7 +50,12 @@ public enum AzureProbeOutcome
     Denied = 2,
 
     /// <summary>Something else — a timeout, a network fault, an unexpected error.</summary>
-    Failed = 3
+    Failed = 3,
+
+    /// <summary>The identity is configured but cannot be used from this host: its certificate file
+    /// is missing or unreadable, or the configuration is only partly filled in. Nothing was asked of
+    /// Azure; fixing the file or the settings is the whole remedy.</summary>
+    Unusable = 4
 }
 
 /// <summary>

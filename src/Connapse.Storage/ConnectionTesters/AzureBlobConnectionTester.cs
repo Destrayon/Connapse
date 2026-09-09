@@ -29,12 +29,20 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
         cts.CancelAfter(limit);
 
         string endpoint = cfg.BlobEndpoint ?? $"https://{cfg.AccountName}.blob.core.windows.net";
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? endpointUri) || endpointUri.Scheme is not ("https" or "http"))
+        {
+            return ConnectionTestResult.CreateFailure(
+                $"'{endpoint}' is not a full https:// address. Fix the Blob endpoint field, or clear it to "
+                + "use the account's default endpoint.",
+                new Dictionary<string, object> { ["error"] = "Invalid blob endpoint", ["endpoint"] = endpoint });
+        }
+
         string where = string.IsNullOrEmpty(cfg.Prefix) ? "" : $" under prefix '{cfg.Prefix}'";
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
-            var service = new BlobServiceClient(new Uri(endpoint), credentials);
+            var service = new BlobServiceClient(endpointUri, credentials);
             var container = service.GetBlobContainerClient(cfg.ContainerName);
 
             int seen = 0;
@@ -78,6 +86,16 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
             return Failure(
                 "No managed identity is available on this host, so Connapse has nothing to sign in "
                 + "with. Check the Access step on the Azure provider page.",
+                ex, stopwatch.Elapsed);
+        }
+        catch (AuthenticationFailedException ex) when (ex.Message.Contains("AADSTS", StringComparison.Ordinal))
+        {
+            // Entra answered, but with a code that is not a verdict on the credential — a transient
+            // fault, throttling, clock skew. Retrying is the remedy, not re-setup or the network.
+            stopwatch.Stop();
+            return Failure(
+                "Entra answered but did not judge Connapse's credential (a transient fault or throttling), "
+                + "so the test is inconclusive. Try again in a moment; the raw reply is below.",
                 ex, stopwatch.Elapsed);
         }
         catch (AuthenticationFailedException ex)
@@ -132,7 +150,7 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
             stopwatch.Stop();
             return ConnectionTestResult.CreateFailure(
                 $"Azure did not answer within {limit.TotalSeconds:F0} seconds. Check that this server can "
-                + $"reach {new Uri(endpoint).Host}, then try again.",
+                + $"reach {endpointUri.Host}, then try again.",
                 new Dictionary<string, object>
                 {
                     ["error"] = "Timeout",
@@ -144,7 +162,7 @@ public sealed class AzureBlobConnectionTester(ConnapseAzureCredentials credentia
         {
             stopwatch.Stop();
             return Failure(
-                $"Could not reach '{new Uri(endpoint).Host}': {ex.Message} Check the storage account name "
+                $"Could not reach '{endpointUri.Host}': {ex.Message} Check the storage account name "
                 + "and, if one is set, the blob endpoint.",
                 ex, stopwatch.Elapsed);
         }

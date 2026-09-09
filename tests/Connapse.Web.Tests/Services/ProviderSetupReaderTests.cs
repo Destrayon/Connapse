@@ -615,6 +615,20 @@ public class ProviderSetupReaderTests
     }
 
     [Fact]
+    public async Task Azure_Access_WhenTheIdentityIsUnusableOnThisHost_IsFailed_AndNamesTheFile()
+    {
+        // A missing or unreadable certificate file is not "could not confirm": nothing was asked
+        // of Azure and nothing will work until the file is fixed. Failed, with the remedy.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(),
+            azureAccess: AzureProbe<string>.Unusable("no usable certificate was loaded (ClientCertificatePath='/certs/azure.pem')")));
+
+        var access = azure.Requirements.Single(r => r.Name == "Access");
+        access.Status.Should().Be(RequirementStatus.Failed);
+        access.Detail.Should().Contain("cannot be used from this host").And.Contain("/certs/azure.pem");
+    }
+
+    [Fact]
     public async Task Azure_Access_WhenTheCheckCannotComplete_Warns_RatherThanFails()
     {
         // A network fault says nothing about the credential, so it is a warning: "cannot confirm",
@@ -625,7 +639,7 @@ public class ProviderSetupReaderTests
 
         var access = azure.Requirements.Single(r => r.Name == "Access");
         access.Status.Should().Be(RequirementStatus.Warning);
-        access.Detail.Should().Contain("could not reach Azure").And.Contain("No such host");
+        access.Detail.Should().Contain("could not confirm").And.Contain("No such host");
     }
 
     [Fact]
@@ -698,7 +712,7 @@ public class ProviderSetupReaderTests
 
         var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
         requirement.Status.Should().Be(RequirementStatus.Warning);
-        requirement.Detail.Should().Contain("could not reach Azure");
+        requirement.Detail.Should().Contain("could not confirm");
     }
 
     [Fact]

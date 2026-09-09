@@ -60,10 +60,18 @@ public sealed class AzureBlobDiscovery(
             logger.LogWarning("Entra refused Connapse's Azure credential: {Reason}", ex.Message);
             return AzureProbe<string>.Denied(ex.Message);
         }
+        catch (Exception ex) when (ex is InvalidOperationException || AzureCertificateFile.IsUnreadable(ex))
+        {
+            // The credential could not even be built: the certificate file is missing or unreadable,
+            // or the settings are only partly filled in. Azure was never asked; this host is what
+            // needs fixing, and the card should say so plainly rather than "could not confirm".
+            logger.LogWarning(ex, "Connapse's Azure identity cannot be used from this host");
+            return AzureProbe<string>.Unusable(ex.Message);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            // Network faults, an unreadable certificate file, a partially configured identity, or
-            // no managed identity on this host: the check could not be completed either way.
+            // Network faults, an inconclusive answer from Entra, or no managed identity on this
+            // host: the check could not be completed either way.
             logger.LogWarning(ex, "Checking Connapse's Azure identity failed");
             return AzureProbe<string>.Failed(Describe(ex));
         }
@@ -74,6 +82,8 @@ public sealed class AzureBlobDiscovery(
     {
         CredentialUnavailableException => "No managed identity is available on this host: " + ex.Message,
         OperationCanceledException => $"Azure did not answer within {Timeout.TotalSeconds:F0} seconds.",
+        AuthenticationFailedException when ex.Message.Contains("AADSTS", StringComparison.Ordinal) =>
+            "Entra answered but did not judge the credential (a transient fault or throttling); try again. " + ex.Message,
         _ => ex.Message,
     };
 
