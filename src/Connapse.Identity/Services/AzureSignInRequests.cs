@@ -42,8 +42,16 @@ public sealed class AzureSignInRequests(IMemoryCache cache)
     /// The entry is set to expire at the request's own <see cref="AzurePendingSignIn.ExpiresAtUtc"/>,
     /// so it is reclaimed automatically whether or not the callback ever arrives.
     /// </remarks>
-    public void Add(AzurePendingSignIn pending) =>
+    public void Add(AzurePendingSignIn pending)
+    {
+        // A request recorded without a start time started now. Left at its default it would read
+        // as older than every revocation, and one disconnect would refuse the user's sign-ins for
+        // as long as the revocation is remembered.
+        if (pending.StartedAtUtc == default)
+            pending = pending with { StartedAtUtc = DateTime.UtcNow };
+
         cache.Set(KeyPrefix + pending.State, pending, new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
+    }
 
     /// <summary>
     /// Removes and returns the pending sign-in for <paramref name="state"/>, or null if it does
