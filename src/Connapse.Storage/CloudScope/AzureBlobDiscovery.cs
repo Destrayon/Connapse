@@ -48,9 +48,12 @@ public sealed class AzureBlobDiscovery(
             TokenCredential fresh = ConnapseAzureCredentials.Build(candidate);
             await fresh.GetTokenAsync(new TokenRequestContext([ArmScope]), timeout.Token);
 
-            string verified = AzureCredentialChainFactory.IsUserAssignedManagedIdentity(candidate)
-                ? $"Azure issued a token for managed identity {candidate.UserAssignedManagedIdentityClientId}."
-                : $"Entra accepted the certificate for app {candidate.ClientId} in tenant {candidate.TenantId}.";
+            string verified = AzureCredentialChainFactory.IsHostManagedIdentity(candidate)
+                ? "Azure issued a token for this host's managed identity"
+                  + (candidate.ManagedIdentityPrincipalId is { Length: > 0 } principal ? $" (principal {principal})." : ".")
+                : AzureCredentialChainFactory.IsUserAssignedManagedIdentity(candidate)
+                    ? $"Azure issued a token for managed identity {candidate.UserAssignedManagedIdentityClientId}."
+                    : $"Entra accepted the certificate for app {candidate.ClientId} in tenant {candidate.TenantId}.";
             return AzureProbe<string>.Ok(verified);
         }
         catch (AuthenticationFailedException ex) when (IsCredentialRefusal(ex))
@@ -194,11 +197,12 @@ public sealed class AzureBlobDiscovery(
         }
     }
 
-    /// <summary>The same rule the Providers page uses for "Access is set up".</summary>
+    /// <summary>The same rule the Providers page uses for "Access is set up": a tenant, and one of
+    /// a certificate app, a user-assigned managed identity, or the host's own managed identity.</summary>
     internal static bool IsConfigured(AzureProviderSettings s) =>
         !string.IsNullOrWhiteSpace(s.TenantId)
         && ((!string.IsNullOrWhiteSpace(s.ClientId) && !string.IsNullOrWhiteSpace(s.ClientCertificatePath))
-            || !string.IsNullOrWhiteSpace(s.UserAssignedManagedIdentityClientId));
+            || AzureCredentialChainFactory.IsManagedIdentity(s));
 
     internal static bool IsDenial(RequestFailedException ex) => ex.Status is 401 or 403;
 }

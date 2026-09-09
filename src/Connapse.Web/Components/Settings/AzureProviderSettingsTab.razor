@@ -1,10 +1,12 @@
 @using Connapse.Core
+@using Connapse.Storage.CloudScope
 @using Connapse.Web.Components.Shared
 
 @*
     Connapse's own Azure app identity — what it reads Blob storage with, and queries Entra and Azure
-    Resource Manager (role/deny assignments) through. A certificate-based app registration or a
-    managed identity; never a client secret. Stored under the Providers:Azure settings.
+    Resource Manager (role/deny assignments) through. A certificate-based app registration, a
+    user-assigned managed identity, or the managed identity of the host Connapse runs on; never a
+    client secret. Stored under the Providers:Azure settings.
 *@
 
 <p class="small text-muted mb-3">
@@ -33,27 +35,38 @@
             <legend class="form-label fs-6 mb-2">How Connapse signs in to Azure</legend>
             <div class="form-check">
                 <input class="form-check-input" type="radio" name="az-auth" id="az-auth-cert"
-                       checked="@(!useManagedIdentity)" @onchange="() => ChooseAuth(managedIdentity: false)" />
+                       checked="@(mode == AuthMode.Certificate)" @onchange="() => ChooseAuth(AuthMode.Certificate)" />
                 <label class="form-check-label" for="az-auth-cert">
                     App registration with a certificate
                 </label>
             </div>
             <div class="form-check">
+                <input class="form-check-input" type="radio" name="az-auth" id="az-auth-host"
+                       checked="@(mode == AuthMode.HostManagedIdentity)" @onchange="() => ChooseAuth(AuthMode.HostManagedIdentity)"
+                       aria-describedby="az-auth-host-help" />
+                <label class="form-check-label" for="az-auth-host">
+                    This host's managed identity — Connapse runs on Azure with a system-assigned identity
+                </label>
+            </div>
+            <div id="az-auth-host-help" class="form-text">
+                Nothing else to enter: Azure gives the host its identity. Assign the roles above to the
+                identity shown on the host's <strong>Identity</strong> page in the Azure portal.
+            </div>
+            <div class="form-check">
                 <input class="form-check-input" type="radio" name="az-auth" id="az-auth-mi"
-                       checked="@useManagedIdentity" @onchange="() => ChooseAuth(managedIdentity: true)"
+                       checked="@(mode == AuthMode.UserAssignedManagedIdentity)" @onchange="() => ChooseAuth(AuthMode.UserAssignedManagedIdentity)"
                        aria-describedby="az-auth-mi-help" />
                 <label class="form-check-label" for="az-auth-mi">
-                    User-assigned managed identity — Connapse runs on Azure
+                    A user-assigned managed identity attached to this host
                 </label>
             </div>
             <div id="az-auth-mi-help" class="form-text">
-                A managed identity attached to the Connapse host needs no certificate: Azure gives the
-                host its identity.
+                Also no certificate; the identity is named by its client ID.
             </div>
         </fieldset>
     </div>
 
-    @if (!useManagedIdentity)
+    @if (mode == AuthMode.Certificate)
     {
         <div class="col-12">
             <label class="form-label" for="az-client">Application (client) ID</label>
@@ -90,7 +103,7 @@
             </div>
         </div>
     }
-    else
+    else if (mode == AuthMode.UserAssignedManagedIdentity)
     {
         <div class="col-12">
             <label class="form-label" for="az-mi">Managed identity client ID</label>
@@ -136,19 +149,32 @@
     [Parameter] public AzureProviderSettings Settings { get; set; } = new();
     [Parameter] public EventCallback<AzureProviderSettings> OnSave { get; set; }
 
+    private enum AuthMode { Certificate, HostManagedIdentity, UserAssignedManagedIdentity }
+
     // Local strings rather than binding the record directly: AzureProviderSettings is init-only, so
     // it cannot be @bound; the record is rebuilt on save.
     private string? tenantId, clientId, subscriptionId, certPath, certPassword, miClientId;
 
-    /// <summary>Which branch of the form is shown. A stored managed-identity id selects that branch;
-    /// otherwise the certificate app, which is what the easy setup produces.</summary>
-    private bool useManagedIdentity;
+    /// <summary>Which branch of the form is shown, read from what is stored; the certificate app,
+    /// which is what the easy setup off Azure produces, when nothing says otherwise.</summary>
+    private AuthMode mode;
 
     /// <summary>The first thing stopping a save, and the id of the field it is about; null until Save is tried.</summary>
     private string? problem, problemField;
 
+    /// <summary>Which stored settings this form was last loaded from. Parameters arrive again on every
+    /// parent render; only a different record means the values on screen should be replaced.</summary>
+    private AzureProviderSettings? loadedFrom;
+
     protected override void OnParametersSet()
     {
+        if (ReferenceEquals(Settings, loadedFrom)) return;
+        Load();
+    }
+
+    private void Load()
+    {
+        loadedFrom = Settings;
         tenantId = Settings.TenantId;
         clientId = Settings.ClientId;
         subscriptionId = Settings.SubscriptionId;
@@ -156,13 +182,14 @@
         // The stored password is never rehydrated into the browser; blank on save keeps it.
         certPassword = null;
         miClientId = Settings.UserAssignedManagedIdentityClientId;
-        useManagedIdentity = !string.IsNullOrWhiteSpace(Settings.UserAssignedManagedIdentityClientId)
-            && string.IsNullOrWhiteSpace(Settings.ClientId);
+        mode = AzureCredentialChainFactory.IsHostManagedIdentity(Settings) ? AuthMode.HostManagedIdentity
+            : AzureCredentialChainFactory.IsUserAssignedManagedIdentity(Settings) ? AuthMode.UserAssignedManagedIdentity
+            : AuthMode.Certificate;
     }
 
-    private void ChooseAuth(bool managedIdentity)
+    private void ChooseAuth(AuthMode chosen)
     {
-        useManagedIdentity = managedIdentity;
+        mode = chosen;
         problem = problemField = null;
     }
 
@@ -171,21 +198,22 @@
     {
         if (string.IsNullOrWhiteSpace(tenantId))
             return ("Enter the Directory (tenant) ID.", "az-tenant");
-        if (useManagedIdentity)
-            return string.IsNullOrWhiteSpace(miClientId)
-                ? ("Enter the managed identity's client ID.", "az-mi")
-                : null;
-        if (string.IsNullOrWhiteSpace(clientId))
-            return ("Enter the Application (client) ID.", "az-client");
-        if (string.IsNullOrWhiteSpace(certPath))
-            return ("Enter the path to the client certificate on the Connapse host.", "az-cert");
-        return null;
+        return mode switch
+        {
+            AuthMode.HostManagedIdentity => null,
+            AuthMode.UserAssignedManagedIdentity when string.IsNullOrWhiteSpace(miClientId) =>
+                ("Enter the managed identity's client ID.", "az-mi"),
+            AuthMode.UserAssignedManagedIdentity => null,
+            _ when string.IsNullOrWhiteSpace(clientId) => ("Enter the Application (client) ID.", "az-client"),
+            _ when string.IsNullOrWhiteSpace(certPath) => ("Enter the path to the client certificate on the Connapse host.", "az-cert"),
+            _ => null,
+        };
     }
 
     /// <summary>
     /// Saves only the chosen branch. The credential chain refuses a half-filled certificate setup
     /// rather than falling back to a managed identity, so switching branches must clear the other
-    /// one's fields instead of leaving them to trip that check.
+    /// ones' fields instead of leaving them to trip that check.
     /// </summary>
     private Task HandleSubmit()
     {
@@ -196,15 +224,24 @@
         }
 
         problem = problemField = null;
+        bool certificate = mode == AuthMode.Certificate;
+        bool userAssigned = mode == AuthMode.UserAssignedManagedIdentity;
         return OnSave.InvokeAsync(new AzureProviderSettings
         {
             TenantId = Trim(tenantId),
             SubscriptionId = Trim(subscriptionId),
-            ClientId = useManagedIdentity ? null : Trim(clientId),
-            ClientCertificatePath = useManagedIdentity ? null : Trim(certPath),
-            ClientCertificatePassword = useManagedIdentity ? null
+            ClientId = certificate ? Trim(clientId) : null,
+            ClientCertificatePath = certificate ? Trim(certPath) : null,
+            ClientCertificatePassword = !certificate ? null
                 : string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
-            UserAssignedManagedIdentityClientId = useManagedIdentity ? Trim(miClientId) : null,
+            UserAssignedManagedIdentityClientId = userAssigned ? Trim(miClientId) : null,
+            UseHostManagedIdentity = mode == AuthMode.HostManagedIdentity,
+            // Only the guided setup learns the principal; a hand-entered identity keeps whatever was
+            // recorded for the same kind, and nothing for a different one.
+            ManagedIdentityPrincipalId = mode != AuthMode.Certificate
+                && (mode == AuthMode.HostManagedIdentity) == Settings.UseHostManagedIdentity
+                    ? Settings.ManagedIdentityPrincipalId
+                    : null,
         });
     }
 
@@ -212,7 +249,7 @@
 
     private void Reset()
     {
-        OnParametersSet();
+        Load();
         problem = problemField = null;
     }
 }

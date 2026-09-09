@@ -1,5 +1,6 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.CloudScope;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Web.Services;
@@ -105,7 +106,7 @@ public class ProviderSetupReader(
         bool hasCredential =
             (!string.IsNullOrWhiteSpace(settings.ClientId)
                 && !string.IsNullOrWhiteSpace(settings.ClientCertificatePath))
-            || !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId);
+            || AzureCredentialChainFactory.IsManagedIdentity(settings);
 
         if (string.IsNullOrWhiteSpace(settings.TenantId) || !hasCredential)
             return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,

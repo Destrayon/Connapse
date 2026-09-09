@@ -23,10 +23,30 @@ public static class AzureCredentialChainFactory
         && string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
         && string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
 
+    /// <summary>
+    /// Whether <paramref name="settings"/> name the host's own system-assigned managed identity and
+    /// nothing of a certificate app. As with the user-assigned case, the tenant may sit beside it.
+    /// </summary>
+    public static bool IsHostManagedIdentity(AzureProviderSettings settings) =>
+        settings.UseHostManagedIdentity
+        && string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+        && string.IsNullOrWhiteSpace(settings.ClientId)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+        && string.IsNullOrWhiteSpace(settings.ClientCertificatePassword);
+
+    /// <summary>Either kind of managed identity: the host's own, or a user-assigned one by client id.</summary>
+    public static bool IsManagedIdentity(AzureProviderSettings settings) =>
+        IsHostManagedIdentity(settings) || IsUserAssignedManagedIdentity(settings);
+
     public static TokenCredential Create(
         AzureProviderSettings settings,
         Func<AzureProviderSettings, X509Certificate2?> certLoader)
     {
+        if (IsHostManagedIdentity(settings))
+        {
+            return new ChainedTokenCredential(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
+        }
+
         if (IsUserAssignedManagedIdentity(settings))
         {
             return new ChainedTokenCredential(new ManagedIdentityCredential(

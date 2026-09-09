@@ -32,6 +32,21 @@ from the lists (or type them), Test connection, Save. People link their Entra id
 Integrations → Microsoft Entra ID; their search results are then limited to what that identity
 may read.
 
+### Connapse running on Azure
+
+If the Connapse host is an Azure VM, App Service, or container with a managed identity, the
+Access guide notices and switches to it: no app registration and no certificate. Its script
+creates the same two custom roles and assigns them to that identity by object id, and the
+paste-back records the identity (tenant, subscription, principal). Whoever runs it needs only
+Owner or User Access Administrator on the subscription. A link under the guide switches back to
+a certificate app if you prefer one; the manual form also offers "This host's managed identity"
+as a choice, needing only the tenant.
+
+The Per-user permissions guide then grants the identity its two Graph permissions as app roles
+(a REST call per permission) instead of consenting an app. If the person running it is not a
+Global Administrator or Privileged Role Administrator, the script reports that and the card
+shows the two commands to hand to one; press "The permissions have been granted" once they have.
+
 ### What Recheck verifies
 
 **Recheck** on the Access card asks Entra for a token as Connapse's identity. *Ready* means Entra
@@ -83,11 +98,11 @@ Microsoft Entra admin center; nothing here is a secret except an optional PFX pa
 | Field | Where to find it |
 |---|---|
 | Directory (tenant) ID | Entra admin center → Overview (the tenant overview). |
-| How Connapse signs in | *App registration with a certificate* — an app you registered and uploaded a certificate to. *User-assigned managed identity* — an identity attached to the host Connapse runs on. |
+| How Connapse signs in | *App registration with a certificate* — an app you registered and uploaded a certificate to. *This host's managed identity* — the system-assigned identity of the Azure host Connapse runs on; nothing else to enter. *A user-assigned managed identity* — an identity attached to the host, named by its client ID. |
 | Application (client) ID | Entra admin center → App registrations → the app → Overview. Certificate app only. |
 | Client certificate path | A path on the Connapse host to a PEM (certificate plus private key) or PFX. Its public certificate must be uploaded under the app's Certificates & secrets. Certificate app only. |
 | Certificate password | Optional; only for a password-protected PFX. Never shown again once stored; leave blank to keep it. |
-| Managed identity client ID | Azure portal → Managed Identities → the identity → Overview → Client ID. Managed identity only. A system-assigned identity cannot be selected here. |
+| Managed identity client ID | Azure portal → Managed Identities → the identity → Overview → Client ID. User-assigned identity only; the host's own identity needs no ID. |
 | Subscription ID | Optional. Azure portal → Subscriptions. Needed for per-user permissions (role assignments are read from it) and for the storage-account list on the connection form. |
 
 The identity needs a role that can read blobs on each storage account — Storage Blob Data

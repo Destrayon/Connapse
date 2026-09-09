@@ -20,6 +20,7 @@
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
 @inject IAzureBlobDiscovery AzureDiscovery
+@inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
@@ -1092,7 +1093,7 @@
                               Description="The Azure app identity Connapse reads Blob storage with, and queries Entra and Azure Resource Manager (role and deny assignments) through."
                               Status="AccessStatus" StatusLabel="@RequirementLabel(AccessStatus)"
                               @bind-Expanded="showAzureAccess" EditLabel="Update or replace"
-                              EasyTitle="Easy setup with Azure Cloud Shell" EasyOpen="true">
+                              EasyTitle="@(UseManagedIdentityGuide ? "Easy setup with this host's managed identity" : "Easy setup with Azure Cloud Shell")" EasyOpen="true">
                 <Summary>
                     @RequirementDetail(AccessRequirement)
                     @if (azureAccessCertProblem is { Length: > 0 } accessProblem)
@@ -1110,7 +1111,11 @@
                             <dd class="col-sm-9 font-monospace">@(azureProviderSettings.SubscriptionId is { Length: > 0 } sub ? sub : "not set")</dd>
                             <dt class="col-sm-3">Identity</dt>
                             <dd class="col-sm-9 font-monospace">
-                                @if (azureProviderSettings.UserAssignedManagedIdentityClientId is { Length: > 0 } mi)
+                                @if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings))
+                                {
+                                    <text>this host's managed identity@(azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } principal ? $" (principal {principal})" : "")</text>
+                                }
+                                else if (azureProviderSettings.UserAssignedManagedIdentityClientId is { Length: > 0 } mi)
                                 {
                                     <text>managed identity @mi</text>
                                 }
@@ -1154,17 +1159,106 @@
                     </details>
                 </ManualContent>
                 <EasyContent>
+                    @if (UseManagedIdentityGuide && hostIdentity is { } host)
+                    {
+                        <p class="small text-muted">
+                            This host runs on Azure as a managed identity
+                            (@(host.IsUserAssigned ? "user-assigned" : "system-assigned"), principal
+                            <code>@host.PrincipalId</code>). Nothing to fill in and no certificate to keep: you run one
+                            script in Azure Cloud Shell — it uses whichever subscription Cloud Shell is signed in to,
+                            creates two least-privilege custom roles, and assigns them to that identity — then paste
+                            back what it prints.
+                        </p>
+                        <p class="small mb-1">
+                            <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.ManagedIdentityAccessScriptRequirements).
+                        </p>
+                        <p class="small mb-3">
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = true">
+                                Use a certificate app registration instead
+                            </button>
+                        </p>
+
+                        EnsureAzureManagedIdentityScript(host);
+                        @if (azureManagedIdentityScript is { Length: > 0 } miScript)
+                        {
+                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:18rem;overflow:auto"><code>@miScript</code></pre>
+
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => CopyText(miScript)">
+                                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy command
+                                </button>
+                                <a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="https://shell.azure.com">
+                                    <span class="bi-terminal me-1" aria-hidden="true"></span> Open Cloud Shell
+                                    <span class="bi-box-arrow-up-right ms-1 small" aria-hidden="true"></span>
+                                </a>
+                                <span class="align-self-center small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
+                            </div>
+
+                            <label class="form-label small mb-1" for="az-mi-paste">Paste what it printed</label>
+                            <textarea id="az-mi-paste" class="form-control font-monospace" rows="4"
+                                      @bind="azureManagedIdentityPasted" @bind:event="oninput" disabled="@azureBusy"
+                                      placeholder="@AzureCloudShellSetup.ManagedIdentityBeginMarker&#10;tenantId=…&#10;@AzureCloudShellSetup.ManagedIdentityEndMarker"></textarea>
+
+                            @if (!string.IsNullOrWhiteSpace(azureManagedIdentityPasted))
+                            {
+                                var miResult = AzureCloudShellSetup.ParseManagedIdentityAccessResult(azureManagedIdentityPasted);
+                                @if (miResult is null)
+                                {
+                                    <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                                        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                                        No valid block found yet. Copy everything the command printed, including
+                                        both <code>-----</code> marker lines.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                        <span class="small flex-grow-1">
+                                            Managed identity <code>@miResult.PrincipalId</code> in tenant
+                                            <code>@miResult.TenantId</code>, subscription <code>@miResult.SubscriptionId</code>.
+                                        </span>
+                                        <button type="button" class="btn btn-sm btn-primary"
+                                                @onclick="() => SaveAzureAccessFromManagedIdentityScript(miResult)" disabled="@azureBusy">
+                                            @if (azureBusy)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                            }
+                                            else
+                                            {
+                                                <span class="bi-check-lg me-1" aria-hidden="true"></span>
+                                            }
+                                            Save
+                                        </button>
+                                    </div>
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
                     <p class="small text-muted">
                         Nothing to fill in. Connapse generates a certificate on this host; you run one script in Azure
                         Cloud Shell — it uses whichever subscription Cloud Shell is signed in to, creates two
                         least-privilege custom roles and the access app registration, and uploads only the public
                         certificate — then paste back what it prints.
                     </p>
-                    <p class="small mb-3">
+                    <p class="small mb-1">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
+                    @if (hostIdentity is not null)
+                    {
+                        <p class="small mb-3">
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = false">
+                                This host has a managed identity — use it instead, with no certificate
+                            </button>
+                        </p>
+                    }
+                    else
+                    {
+                        <p class="mb-2"></p>
+                    }
 
-                        @{ EnsureAzureAccessScript(); }
+                        EnsureAzureAccessScript();
                         @if (azureAccessScript is { Length: > 0 } accessScript)
                         {
                             <div class="alert alert-secondary py-2 small mb-2">
@@ -1229,6 +1323,7 @@
                                 }
                             }
                         }
+                    }
                 </EasyContent>
                 <Actions>
                     @if (AccessStatus == RequirementStatus.Satisfied)
@@ -1293,7 +1388,30 @@
                             </div>
                         }
                     }
-                    @if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
+                    @if (azureAdSettings.AdminConsentPending && AzureAccessManagedIdentityPrincipal is { } pendingPrincipal)
+                    {
+                        <div class="alert alert-warning mt-2 mb-0" role="alert">
+                            <div class="mb-2">
+                                <span class="bi-shield-exclamation me-1" aria-hidden="true"></span>
+                                <strong>One step left — the managed identity's Graph permissions.</strong> The apps are
+                                created, but the two Microsoft Graph permissions Connapse looks people up with —
+                                <code>User.Read.All</code> and <code>GroupMember.Read.All</code>, read-only lookups of who
+                                a person is and which groups they belong to — are app roles on the managed identity, and
+                                only a <strong>Global Administrator</strong> or <strong>Privileged Role Administrator</strong>
+                                can grant them. Send them these commands to run in Cloud Shell.
+                            </div>
+                            <pre class="bg-body-tertiary border rounded p-2 small mb-2" style="max-height:12rem;overflow:auto"><code>@AzureCloudShellSetup.GraphAppRoleGrantCommands(pendingPrincipal)</code></pre>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => CopyText(AzureCloudShellSetup.GraphAppRoleGrantCommands(pendingPrincipal))">
+                                    <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy commands
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="MarkAzureConsentGranted">
+                                    The permissions have been granted
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else if (azureAdSettings.AdminConsentPending && AzureConsentUrl is { Length: > 0 } consentUrl)
                     {
                         <div class="alert alert-warning mt-2 mb-0" role="alert">
                             <div class="mb-2">
@@ -1330,26 +1448,40 @@
                     </details>
                 </ManualContent>
                 <EasyContent>
-                    @if (azureProviderSettings.ClientId is not { Length: > 0 })
+                    @if (AzureAccessManagedIdentityPrincipal is null && azureProviderSettings.ClientId is not { Length: > 0 })
                     {
                         <div class="alert alert-secondary py-2 small mb-0">
                             <span class="bi-info-circle me-1" aria-hidden="true"></span>
-                            Finish the <strong>Access</strong> step with an app registration first — this script grants
-                            that access app its Microsoft Graph permissions. (A managed-identity access step needs those
-                            permissions granted by hand; use the manual values.)
+                            Finish the <strong>Access</strong> step first — this script grants the access identity its
+                            Microsoft Graph permissions. (A user-assigned managed identity entered by hand needs those
+                            permissions granted by hand too; use the manual values here.)
                         </div>
                     }
                     else
                     {
-                        <p class="small text-muted">
-                            One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
-                            the public half is uploaded), grants the access app
-                            <code>@azureProviderSettings.ClientId</code> the two Graph permissions, and tries to grant
-                            admin consent.
-                        </p>
-                        <p class="small mb-3">
-                            <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.PermissionsScriptRequirements).
-                        </p>
+                        @if (AzureAccessManagedIdentityPrincipal is { } accessPrincipal)
+                        {
+                            <p class="small text-muted">
+                                One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
+                                the public half is uploaded) and grants the managed identity
+                                <code>@accessPrincipal</code> the two Graph permissions as app roles.
+                            </p>
+                            <p class="small mb-3">
+                                <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.ManagedIdentityPermissionsScriptRequirements).
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="small text-muted">
+                                One more Cloud Shell script: it registers the sign-in app (with its own certificate — only
+                                the public half is uploaded), grants the access app
+                                <code>@azureProviderSettings.ClientId</code> the two Graph permissions, and tries to grant
+                                admin consent.
+                            </p>
+                            <p class="small mb-3">
+                                <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.PermissionsScriptRequirements).
+                            </p>
+                        }
 
                         <div class="mb-3" style="max-width:44rem">
                             <label class="form-label small mb-1" for="az-perm-redirect">Sign-in redirect URI</label>
@@ -1676,6 +1808,10 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+
+        // Whether this host has a managed identity, so the Azure guide can offer it. Off Azure the
+        // answer is a quick "no"; on Azure it is remembered for the process after the first look.
+        hostIdentity = await HostIdentity.DetectAsync();
 
         setups = await SetupReader.ReadAsync();
         await LoadAwsCredentialModeAsync();
@@ -2489,6 +2625,84 @@
         return committed;
     }
 
+    // ── The Azure host's managed identity: the guided Access setup without a certificate ──────────
+
+    /// <summary>The managed identity this host runs as, if it has one; null off Azure.</summary>
+    private AzureHostIdentityInfo? hostIdentity;
+
+    /// <summary>Set when the operator asks for a certificate app although the host has a managed identity.</summary>
+    private bool preferCertificateApp;
+
+    private string? azureManagedIdentityScript;
+    private string? azureManagedIdentityPasted;
+
+    /// <summary>
+    /// Whether the Access guide offers the host's managed identity rather than a certificate app:
+    /// the host has one, the operator has not asked for a certificate app instead, and Access is
+    /// not already a certificate app being replaced.
+    /// </summary>
+    private bool UseManagedIdentityGuide =>
+        hostIdentity is not null
+        && !preferCertificateApp
+        && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId);
+
+    private void EnsureAzureManagedIdentityScript(AzureHostIdentityInfo host)
+    {
+        azureManagedIdentityScript ??= AzureCloudShellSetup.GenerateManagedIdentityAccessScript(
+            new AzureManagedIdentityAccessSetupInput(host.PrincipalId, host.ClientId, host.IsUserAssigned));
+    }
+
+    /// <summary>
+    /// Stores the Access step for a managed identity: the tenant, subscription, and the identity the
+    /// script granted the roles to. No certificate is written; the host itself is the credential,
+    /// and it is asked for a token before anything is stored.
+    /// </summary>
+    private async Task SaveAzureAccessFromManagedIdentityScript(AzureManagedIdentityAccessResult result)
+    {
+        if (hostIdentity is { } host && !string.Equals(host.PrincipalId, result.PrincipalId, StringComparison.OrdinalIgnoreCase))
+        {
+            saveMessage = "The script you ran granted access to a different managed identity than the one this host "
+                + "runs as. Nothing was changed. Copy the command shown now, run it again, and paste that result.";
+            saveSuccess = false;
+            return;
+        }
+
+        azureBusy = true;
+        try
+        {
+            var candidate = new AzureProviderSettings
+            {
+                TenantId = result.TenantId,
+                SubscriptionId = result.SubscriptionId,
+                UseHostManagedIdentity = !result.IsUserAssigned,
+                UserAssignedManagedIdentityClientId = result.IsUserAssigned ? result.ClientId : null,
+                ManagedIdentityPrincipalId = result.PrincipalId,
+            };
+            var check = await AzureDiscovery.CheckAccessAsync(candidate);
+            if (!check.Succeeded)
+            {
+                saveMessage = AzureCheckRefused("access", check);
+                saveSuccess = false;
+                return;
+            }
+
+            if (await SaveAzureProviderFromForm(candidate, verified: true) != true) return;
+
+            azureManagedIdentityScript = null;
+            azureManagedIdentityPasted = null;
+            showAzureAccess = false;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Could not save the Azure access setup: {ex.Message}";
+            saveSuccess = false;
+        }
+        finally
+        {
+            azureBusy = false;
+        }
+    }
+
     /// <summary>Generates a fresh certificate on this host and the Access script that uploads only its
     /// public half. The material is held until the operator saves the pasted-back result.</summary>
     private void NewAzureAccessCertificate() => GenerateAzureAccessScript(newCertificate: true);
@@ -2527,8 +2741,18 @@
             ConsentRedirectUri: AzureConsentLandingUri,
             SignInAppName: "Connapse-Azure-SignIn",
             PublicCertificatePem: azureSignInCert!.PublicCertificatePem,
-            ExistingSignInAppClientId: azureAdSettings.ClientId));
+            ExistingSignInAppClientId: azureAdSettings.ClientId,
+            AccessManagedIdentityPrincipalId: AzureAccessManagedIdentityPrincipal));
     }
+
+    /// <summary>The access identity's service principal when it is a managed identity the guided
+    /// setup recorded — what the permissions script grants Graph app roles to. Null for a certificate
+    /// app, and for a user-assigned identity entered by hand (no principal id was recorded).</summary>
+    private string? AzureAccessManagedIdentityPrincipal =>
+        AzureCredentialChainFactory.IsManagedIdentity(azureProviderSettings)
+        && azureProviderSettings.ManagedIdentityPrincipalId is { Length: > 0 } principal
+            ? principal
+            : null;
 
     /// <summary>Where Entra sends the administrator after consent — this page, registered as the access
     /// app's reply URL by the Permissions script.</summary>

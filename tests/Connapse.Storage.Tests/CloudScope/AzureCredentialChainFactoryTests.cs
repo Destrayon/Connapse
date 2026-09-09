@@ -54,6 +54,30 @@ public class AzureCredentialChainFactoryTests
     }
 
     [Fact]
+    public void Create_HostManagedIdentityFlag_UsesTheSystemAssignedIdentity_TenantOrNot()
+    {
+        // The guided setup on an Azure host records only the flag (and the tenant, for display);
+        // that must be the host's own identity, never a refusal for a "half-filled" certificate.
+        var settings = new AzureProviderSettings { TenantId = "t", UseHostManagedIdentity = true, ManagedIdentityPrincipalId = "oid" };
+        var cred = AzureCredentialChainFactory.Create(settings, _ => null);
+        Sources(cred).Should().ContainSingle().Which.Should().BeOfType<ManagedIdentityCredential>();
+        AzureCredentialChainFactory.IsHostManagedIdentity(settings).Should().BeTrue();
+        AzureCredentialChainFactory.IsManagedIdentity(settings).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsHostManagedIdentity_FalseWhenACertificateOrUserAssignedFieldIsSet()
+    {
+        // The flag beside a certificate field is a mix the form can never produce; if it arrives
+        // from configuration it is certificate intent and must fail closed like any other mix.
+        AzureCredentialChainFactory.IsHostManagedIdentity(
+            new AzureProviderSettings { UseHostManagedIdentity = true, ClientId = "c" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsHostManagedIdentity(
+            new AzureProviderSettings { UseHostManagedIdentity = true, UserAssignedManagedIdentityClientId = "mi" }).Should().BeFalse();
+        AzureCredentialChainFactory.IsHostManagedIdentity(new AzureProviderSettings { TenantId = "t" }).Should().BeFalse();
+    }
+
+    [Fact]
     public void IsUserAssignedManagedIdentity_FalseWhenAnyCertificateFieldIsSet()
     {
         AzureCredentialChainFactory.IsUserAssignedManagedIdentity(

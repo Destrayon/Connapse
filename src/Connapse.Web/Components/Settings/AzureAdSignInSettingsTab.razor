@@ -107,8 +107,19 @@
     /// <summary>The first thing stopping a save, and the id of the field it is about; null until Save is tried.</summary>
     private string? problem, problemField;
 
+    /// <summary>Which stored settings this form was last loaded from. Parameters arrive again on every
+    /// parent render; only a different record means the values on screen should be replaced.</summary>
+    private AzureAdSignInSettings? loadedFrom;
+
     protected override void OnParametersSet()
     {
+        if (ReferenceEquals(Settings, loadedFrom)) return;
+        Load();
+    }
+
+    private void Load()
+    {
+        loadedFrom = Settings;
         tenantId = Settings.TenantId ?? DefaultTenantId;
         clientId = Settings.ClientId;
         redirectUri = Settings.RedirectUri ?? DefaultRedirectUri;
@@ -154,7 +165,7 @@
 
     private void Reset()
     {
-        OnParametersSet();
+        Load();
         problem = problemField = null;
     }
 }
