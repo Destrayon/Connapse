@@ -540,17 +540,19 @@ public static class AzureCloudShellSetup
         echo "Using subscription $SUBSCRIPTION_ID ($(az account show --query name -o tsv))"
 
         # --- Custom roles (created once, updated in place on re-run) ---
-        upsert_role() {  # $1 name, $2 definition json
+        upsert_role() {  # $1 role name, $2 definition JSON in the shape `az role definition create` takes
           local existing
           existing=$(az role definition list --name "$1" --custom-role-only true -o json 2>/dev/null | jq -c '.[0] // empty')
           if [ -z "$existing" ]; then
             az role definition create --role-definition "$2" >/dev/null
           else
+            # `update` wants the shape `list` returns (roleName, permissions[], id), so patch the
+            # existing definition rather than resending the create-shaped one.
             az role definition update --role-definition "$(jq -n --argjson e "$existing" --argjson d "$2" '
-                 $e | .Name = $d.Name | .Description = $d.Description
-                    | .Actions = $d.Actions | .NotActions = $d.NotActions
-                    | .DataActions = $d.DataActions | .NotDataActions = $d.NotDataActions
-                    | .assignableScopes = $d.AssignableScopes')" >/dev/null
+              $e | .description = $d.Description
+                 | .permissions = [{actions: $d.Actions, notActions: $d.NotActions,
+                                    dataActions: $d.DataActions, notDataActions: $d.NotDataActions}]
+                 | .assignableScopes = $d.AssignableScopes')" >/dev/null
           fi
         }
 

@@ -47,6 +47,30 @@ The Per-user permissions guide then grants the identity its two Graph permission
 Global Administrator or Privileged Role Administrator, the script reports that and the card
 shows the two commands to hand to one; press "The permissions have been granted" once they have.
 
+### Graph permissions for a managed identity
+
+A managed identity has no app registration to consent to, so its two Microsoft Graph
+permissions are app-role assignments on its service principal. The guided Per-user permissions
+script makes them; when it cannot (the runner is not a Global Administrator or Privileged Role
+Administrator), or when the access identity was entered by hand, a directory administrator runs
+these in Cloud Shell, with the identity's **Object (principal) ID** from its Overview page in
+the Azure portal (for a host's own identity, the host's **Identity** page):
+
+```bash
+GRAPH_API='00000003-0000-0000-c000-000000000000'
+MI='<managed-identity-object-id>'
+GRAPH_SP_ID=$(az ad sp show --id "$GRAPH_API" --query id -o tsv)
+for ROLE in User.Read.All GroupMember.Read.All; do
+  ROLE_ID=$(az ad sp show --id "$GRAPH_API" --query "appRoles[?value=='$ROLE'].id | [0]" -o tsv)
+  az rest -m POST -u "https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments" \
+    -b "{\"principalId\":\"$MI\",\"resourceId\":\"$GRAPH_SP_ID\",\"appRoleId\":\"$ROLE_ID\"}"
+done
+```
+
+"Permission being assigned already exists" means that grant was already in place. Once both are
+made, press **The permissions have been granted** on the Per-user permissions card (or, for a
+hand-entered identity, set the sign-in application up under Manual values).
+
 ### What Recheck verifies
 
 **Recheck** on the Access card asks Entra for a token as Connapse's identity. *Ready* means Entra
@@ -137,9 +161,13 @@ and the two Graph permissions above, with admin consent.
 certificate: open the guide, choose **New certificate**, run the script, paste back, Save.
 `AADSTS700016` (application not found): the app was deleted — Reset access and set it up again.
 
-**Access card shows Unconfirmed** — Azure could not be reached from this server, or, for a
-managed identity, no identity is available on this host. Check outbound access to
-`login.microsoftonline.com`, then Recheck. Test a connection to be sure.
+**Access card shows Unconfirmed** — Azure could not be reached from this server. Check outbound
+access to `login.microsoftonline.com`, then Recheck. Test a connection to be sure.
+
+**Access card shows Failed: "cannot be used from this host"** — the certificate file is missing
+or unreadable, the settings are only partly filled in, or Access is set to a managed identity and
+this host has none (the identity was removed, or the settings came from another host). Fix the
+file or the identity, or set access up again.
 
 **Per-user permissions card shows Failed** — Entra refused the sign-in application's
 certificate; the card quotes the reason. Open the card's guide, choose **New certificate**, run

@@ -73,6 +73,11 @@ public class AzureCredentialChainFactoryTests
         var act = () => AzureCredentialChainFactory.Create(settings, _ => null);
         act.Should().Throw<InvalidOperationException>().WithMessage("*both*");
         AzureCredentialChainFactory.IsManagedIdentity(settings).Should().BeFalse();
+
+        // The same for the flag beside a certificate app: the certificate must not win silently.
+        var withApp = new AzureProviderSettings { TenantId = "t", UseHostManagedIdentity = true, ClientId = "c", ClientCertificatePath = "x.pem" };
+        var actApp = () => AzureCredentialChainFactory.Create(withApp, _ => SelfSigned());
+        actApp.Should().Throw<InvalidOperationException>().WithMessage("*both*");
     }
 
     [Fact]

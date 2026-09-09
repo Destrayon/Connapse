@@ -1245,11 +1245,7 @@
                     <p class="small mb-1">
                         <strong>Whoever runs it needs:</strong> @string.Join("; ", AzureCloudShellSetup.AccessScriptRequirements).
                     </p>
-                    @if (hostIdentity is null)
-                    {
-                        <p class="mb-2"></p>
-                    }
-                    else if (string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
+                    @if (hostIdentity is not null && string.IsNullOrWhiteSpace(azureProviderSettings.ClientId))
                     {
                         <p class="small mb-3">
                             <button type="button" class="btn btn-link btn-sm p-0 align-baseline" @onclick="() => preferCertificateApp = false">
@@ -1257,7 +1253,7 @@
                             </button>
                         </p>
                     }
-                    else
+                    else if (hostIdentity is not null)
                     {
                         <p class="small text-muted mb-3">
                             This host has a managed identity. To switch to it, with no certificate, choose
@@ -1465,9 +1461,21 @@
                             {
                                 <text>
                                     The access identity is a user-assigned managed identity entered by hand, so its
-                                    Microsoft Graph permissions are granted by hand too: run the two commands from
-                                    <code>docs/azure-setup.md</code> (Graph app roles for a managed identity) as a Global
-                                    Administrator, then set the sign-in application up under Manual values here.
+                                    Microsoft Graph permissions are granted by hand too: run the two commands under
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                       target="_blank" rel="noopener">Graph permissions for a managed identity</a>
+                                    as a Global Administrator, then set the sign-in application up under Manual values here.
+                                </text>
+                            }
+                            else if (AzureCredentialChainFactory.IsHostManagedIdentity(azureProviderSettings))
+                            {
+                                <text>
+                                    Access is set to this host's managed identity, but the page could not tell which
+                                    identity that is — the host reported none, or a user-assigned one. Grant the Graph
+                                    permissions by hand with the two commands under
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                       target="_blank" rel="noopener">Graph permissions for a managed identity</a>,
+                                    then set the sign-in application up under Manual values here.
                                 </text>
                             }
                             else
@@ -2698,15 +2706,31 @@
             return;
         }
 
+        // The tenant comes from whatever Cloud Shell was signed in to, and a managed-identity token
+        // does not care what tenant is stored, so the credential check cannot catch a wrong one.
+        // The host already said which tenant it is in.
+        if (hostIdentity is { } hostTenant && !string.Equals(hostTenant.TenantId, result.TenantId, StringComparison.OrdinalIgnoreCase))
+        {
+            saveMessage = $"The script ran in tenant {result.TenantId}, but this host's managed identity is in tenant "
+                + $"{hostTenant.TenantId}. Nothing was changed. In Cloud Shell, switch to that tenant (az login --tenant …), "
+                + "run the command again, and paste that result.";
+            saveSuccess = false;
+            return;
+        }
+
         azureBusy = true;
         try
         {
+            // What the host knows about itself outranks what was pasted: the kind and client id come
+            // from the token the host was issued, and the paste is only allowed to agree.
+            bool userAssigned = hostIdentity?.IsUserAssigned ?? result.IsUserAssigned;
+            string clientId = hostIdentity?.ClientId ?? result.ClientId;
             var candidate = new AzureProviderSettings
             {
                 TenantId = result.TenantId,
                 SubscriptionId = result.SubscriptionId,
-                UseHostManagedIdentity = !result.IsUserAssigned,
-                UserAssignedManagedIdentityClientId = result.IsUserAssigned ? result.ClientId : null,
+                UseHostManagedIdentity = !userAssigned,
+                UserAssignedManagedIdentityClientId = userAssigned ? clientId : null,
                 ManagedIdentityPrincipalId = result.PrincipalId,
             };
             var check = await AzureDiscovery.CheckAccessAsync(candidate);

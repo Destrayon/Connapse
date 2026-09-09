@@ -43,14 +43,18 @@ public static class AzureCredentialChainFactory
         AzureProviderSettings settings,
         Func<AzureProviderSettings, X509Certificate2?> certLoader)
     {
-        // Two managed identities named at once is a mix the form cannot produce; arriving from
-        // configuration it is a mistake, and picking either side silently would be choosing an
-        // identity nobody asked for.
-        if (settings.UseHostManagedIdentity && !string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId))
+        // The host's identity named beside another identity is a mix the form cannot produce;
+        // arriving from configuration it is a mistake, and picking either side silently would be
+        // choosing an identity nobody asked for.
+        if (settings.UseHostManagedIdentity
+            && (!string.IsNullOrWhiteSpace(settings.UserAssignedManagedIdentityClientId)
+                || !string.IsNullOrWhiteSpace(settings.ClientId)
+                || !string.IsNullOrWhiteSpace(settings.ClientCertificatePath)
+                || !string.IsNullOrWhiteSpace(settings.ClientCertificatePassword)))
         {
             throw new InvalidOperationException(
-                "Azure settings name both the host's managed identity (UseHostManagedIdentity) and a "
-                + "user-assigned one (UserAssignedManagedIdentityClientId). Keep one; Connapse will not choose.");
+                "Azure settings name both the host's managed identity (UseHostManagedIdentity) and another "
+                + "identity (a user-assigned managed identity or a certificate app). Keep one; Connapse will not choose.");
         }
 
         if (IsHostManagedIdentity(settings))

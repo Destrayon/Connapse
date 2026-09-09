@@ -111,18 +111,42 @@
     /// parent render; only a different record means the values on screen should be replaced.</summary>
     private AzureAdSignInSettings? loadedFrom;
 
+    /// <summary>The defaults last applied, so a changed default (the Access step saved after this form
+    /// first rendered) can replace a field that still holds the old one or nothing — never something typed.</summary>
+    private string? appliedDefaultTenant, appliedDefaultRedirect;
+
     protected override void OnParametersSet()
     {
-        if (ReferenceEquals(Settings, loadedFrom)) return;
-        Load();
+        if (!ReferenceEquals(Settings, loadedFrom))
+        {
+            Load();
+            return;
+        }
+
+        // Same stored record, but the defaults may have moved: this card is visible before Access is
+        // saved, so the tenant arrives after the form exists.
+        if (Settings.TenantId is null && DefaultTenantId != appliedDefaultTenant
+            && (string.IsNullOrWhiteSpace(tenantId) || tenantId == appliedDefaultTenant))
+        {
+            tenantId = DefaultTenantId;
+            appliedDefaultTenant = DefaultTenantId;
+        }
+        if (Settings.RedirectUri is null && DefaultRedirectUri != appliedDefaultRedirect
+            && (string.IsNullOrWhiteSpace(redirectUri) || redirectUri == appliedDefaultRedirect))
+        {
+            redirectUri = DefaultRedirectUri;
+            appliedDefaultRedirect = DefaultRedirectUri;
+        }
     }
 
     private void Load()
     {
         loadedFrom = Settings;
         tenantId = Settings.TenantId ?? DefaultTenantId;
+        appliedDefaultTenant = DefaultTenantId;
         clientId = Settings.ClientId;
         redirectUri = Settings.RedirectUri ?? DefaultRedirectUri;
+        appliedDefaultRedirect = DefaultRedirectUri;
         certPath = Settings.ClientCertificatePath;
         // The stored password is never rehydrated into the browser; blank on save keeps it.
         certPassword = null;
