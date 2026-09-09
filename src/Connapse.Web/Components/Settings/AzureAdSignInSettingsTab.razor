@@ -1,0 +1,91 @@
+@using Connapse.Core
+@using Connapse.Web.Components.Shared
+
+@*
+    The Entra (Azure AD) application people sign in through to prove which directory user they are,
+    so their Azure results are scoped to what that identity may read. Connapse authenticates to
+    Entra with a certificate, never a client secret. Stored under the Identity:AzureAd settings.
+*@
+
+<div class="row g-3" style="max-width:44rem">
+    <div class="col-12">
+        <label class="form-label" for="azad-tenant">Directory (tenant) ID</label>
+        <input id="azad-tenant" class="form-control font-monospace" @bind="tenantId"
+               placeholder="00000000-0000-0000-0000-000000000000" />
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="azad-client">Application (client) ID</label>
+        <input id="azad-client" class="form-control font-monospace" @bind="clientId"
+               placeholder="00000000-0000-0000-0000-000000000000" aria-describedby="azad-client-help" />
+        <div id="azad-client-help" class="form-text">
+            The Entra app registration people sign in through — separate from the access app above.
+        </div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="azad-redirect">Redirect URI</label>
+        <input id="azad-redirect" class="form-control font-monospace" @bind="redirectUri"
+               placeholder="https://connapse.example.com/api/v1/auth/cloud/azure/cb"
+               aria-describedby="azad-redirect-help" />
+        <div id="azad-redirect-help" class="form-text">
+            Registered on the app registration as a redirect URI. Change Connapse's address and this
+            must be updated in Entra too, or sign-in stops with a redirect mismatch.
+        </div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="azad-cert">Client certificate path</label>
+        <input id="azad-cert" class="form-control font-monospace" @bind="certPath"
+               placeholder="/certs/azure-signin.pem" aria-describedby="azad-cert-help" />
+        <div id="azad-cert-help" class="form-text">
+            Path on the Connapse host to the PEM or PFX registered on the sign-in app registration.
+        </div>
+    </div>
+
+    <div class="col-12">
+        <label class="form-label" for="azad-cert-pw">
+            Certificate password <span class="text-muted">(PFX only)</span>
+        </label>
+        <SecretTextArea Id="azad-cert-pw" Multiline="false" @bind-Value="certPassword"
+                        Placeholder="@(Settings.ClientCertificatePassword is { Length: > 0 } ? "Leave blank to keep the stored password" : "Leave blank for a PEM certificate")" />
+    </div>
+</div>
+
+<div class="d-flex gap-2 mt-3">
+    <button type="button" class="btn btn-primary" @onclick="HandleSubmit">Save</button>
+    <button type="button" class="btn btn-outline-secondary" @onclick="Reset">Reset</button>
+</div>
+
+@code {
+    [Parameter] public AzureAdSignInSettings Settings { get; set; } = new();
+    [Parameter] public EventCallback<AzureAdSignInSettings> OnSave { get; set; }
+
+    // Local strings: AzureAdSignInSettings is an init-only record, rebuilt on save.
+    private string? tenantId, clientId, redirectUri, certPath, certPassword;
+
+    protected override void OnParametersSet()
+    {
+        tenantId = Settings.TenantId;
+        clientId = Settings.ClientId;
+        redirectUri = Settings.RedirectUri;
+        certPath = Settings.ClientCertificatePath;
+        // The stored password is never rehydrated into the browser; blank on save keeps it.
+        certPassword = null;
+    }
+
+    private Task HandleSubmit() =>
+        OnSave.InvokeAsync(new AzureAdSignInSettings
+        {
+            TenantId = Trim(tenantId),
+            ClientId = Trim(clientId),
+            RedirectUri = Trim(redirectUri),
+            ClientCertificatePath = Trim(certPath),
+            ClientCertificatePassword = string.IsNullOrWhiteSpace(certPassword) ? Settings.ClientCertificatePassword : certPassword,
+            AdminConsentPending = Settings.AdminConsentPending,
+        });
+
+    private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private void Reset() => OnParametersSet();
+}

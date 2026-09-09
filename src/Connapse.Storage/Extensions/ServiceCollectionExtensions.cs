@@ -258,6 +258,7 @@ public static class ServiceCollectionExtensions
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
+        services.AddSingleton<IAzureBlobDiscovery, CloudScope.AzureBlobDiscovery>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
 

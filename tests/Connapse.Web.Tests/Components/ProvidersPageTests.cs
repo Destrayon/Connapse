@@ -172,11 +172,20 @@ public class ProvidersPageTests
         string markup = File.ReadAllText(Path.Combine(
             PageTestPaths.RepositoryRoot(), "src", "Connapse.Web", "Components", "Pages", "Providers.razor"));
 
-        Regex.Matches(markup, "<ProviderStepCard").Should().HaveCount(3);
+        // Three AWS step cards plus the two Azure ones built on the same component.
+        Regex.Matches(markup, "<ProviderStepCard").Should().HaveCount(5);
         markup.Should().Contain("Id=\"access\"")
             .And.Contain("Id=\"identity-center\"")
-            .And.Contain("Id=\"permissions\"");
+            .And.Contain("Id=\"permissions\"")
+            .And.Contain("Id=\"azure-access\"")
+            .And.Contain("Id=\"azure-permissions\"");
         Regex.Matches(markup, "<ProviderResetAction").Count.Should().BeGreaterThanOrEqualTo(3);
+
+        // Saving Azure sign-in must latch Azure enforcement at save time, like the SAML save does —
+        // relying on the startup latch alone left azblob results unfiltered until the next restart.
+        int azureSave = markup.IndexOf("private async Task SaveAzureAdFromForm(", StringComparison.Ordinal);
+        azureSave.Should().BeGreaterThan(0);
+        markup[azureSave..].Should().Contain("AzureEnforcing = enforcing");
         markup.Should().NotContain("confirmResetAccess")
             .And.NotContain("confirmResetIdentityCenter")
             .And.NotContain("confirmResetSamlApplication");

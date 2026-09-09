@@ -38,7 +38,10 @@ public class ProviderSetupReaderTests
         TimeSpan? sinceCreated = null,
         IProviderCredentialStore? credentials = null,
         SamlSignInSettings? samlSignIn = null,
-        IdentityCenterSettings? identityCenter = null)
+        IdentityCenterSettings? identityCenter = null,
+        AzureProviderSettings? azureProvider = null,
+        AzureAdSignInSettings? azureAd = null,
+        IConnectionStore? connections = null)
     {
         var discovery = Substitute.For<IS3Discovery>();
         discovery.WhoAmIAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(identity);
@@ -50,15 +53,20 @@ public class ProviderSetupReaderTests
             credentials.GetStatusAsync("aws", Arg.Any<CancellationToken>()).Returns(stored);
         }
 
-        var connections = Substitute.For<IConnectionStore>();
-        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns([]);
+        if (connections is null)
+        {
+            connections = Substitute.For<IConnectionStore>();
+            connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns([]);
+        }
 
         return new ProviderSetupReader(
             Options.Create(samlSignIn ?? new SamlSignInSettings()).AsMonitor(),
             // Defaults to located, so a test that varies one thing is not also silently varying
             // this one. The tests that care pass an empty instance explicitly.
             Options.Create(identityCenter ?? LocatedInstance()).AsMonitor(),
+            Options.Create(azureProvider ?? new AzureProviderSettings()).AsMonitor(),
+            Options.Create(azureAd ?? new AzureAdSignInSettings()).AsMonitor(),
             discovery, connections, credentials,
             new FixedClock(new DateTimeOffset(Created) + (sinceCreated ?? TimeSpan.Zero)),
             NullLogger<ProviderSetupReader>.Instance);
@@ -299,6 +307,8 @@ public class ProviderSetupReaderTests
         var reader = new ProviderSetupReader(
             Options.Create(new SamlSignInSettings()).AsMonitor(),
             Options.Create(new IdentityCenterSettings()).AsMonitor(),
+            Options.Create(new AzureProviderSettings()).AsMonitor(),
+            Options.Create(new AzureAdSignInSettings()).AsMonitor(),
             Substitute.For<IS3Discovery>(), connections,
             Substitute.For<IProviderCredentialStore>(),
             new FixedClock(new DateTimeOffset(Created)),
@@ -506,6 +516,152 @@ public class ProviderSetupReaderTests
         ]);
 
         setup.Overall.Should().Be(RequirementStatus.Failed);
+    }
+
+    // ── Azure provider (surfaced on the Providers page) ───────────────
+
+    private static AzureProviderSettings ConfiguredAzureProvider() => new()
+    {
+        TenantId = "11111111-1111-1111-1111-111111111111",
+        ClientId = "22222222-2222-2222-2222-222222222222",
+        ClientCertificatePath = "/certs/azure.pem",
+        SubscriptionId = "33333333-3333-3333-3333-333333333333",
+    };
+
+    private static AzureAdSignInSettings ConfiguredAzureAd() => new()
+    {
+        TenantId = "11111111-1111-1111-1111-111111111111",
+        ClientId = "44444444-4444-4444-4444-444444444444",
+        RedirectUri = "https://connapse.example.com/api/v1/auth/cloud/azure/cb",
+        ClientCertificatePath = "/certs/azure-signin.pem",
+    };
+
+    private static async Task<ProviderSetup> AzureAsync(ProviderSetupReader reader) =>
+        (await reader.ReadAsync()).Single(p => p.Key == "azure");
+
+    private static IConnectionStore ConnectionsWith(params ConnectionProvider[] providers)
+    {
+        var store = Substitute.For<IConnectionStore>();
+        IReadOnlyList<Connection> page = providers
+            .Select(p => new Connection(Guid.NewGuid(), $"{p}", p, null, null, Created, Created))
+            .ToList();
+        // All-matcher stub with a callback: mixing a literal skip (0) with Arg matchers makes
+        // NSubstitute ignore the stub entirely (every page then comes back null).
+        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<int>(0) == 0 ? page : []);
+        return store;
+    }
+
+    [Fact]
+    public async Task Azure_IsListedAsAProvider()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one")));
+
+        azure.DisplayName.Should().Be("Azure");
+    }
+
+    [Fact]
+    public async Task Azure_WithNothingConfigured_IsNotInUseAndAllRequirementsNotConfigured()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one")));
+
+        azure.InUse.Should().BeFalse();
+        azure.Requirements.Should().OnlyContain(r => r.Status == RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public async Task Azure_Access_WithTenantAndCredential_IsSatisfied()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider()));
+
+        azure.Requirements.Single(r => r.Name == "Access").Status
+            .Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_SignInAndSubscription_IsSatisfied()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd()));
+
+        azure.Requirements.Single(r => r.Name == "Per-user permissions").Status
+            .Should().Be(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_SignInButNoSubscription_Warns()
+    {
+        // The RBAC resolver needs the subscription, so sign-in alone fails closed at query time —
+        // a warning, not a clean state.
+        var noSub = ConfiguredAzureProvider() with { SubscriptionId = null };
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: noSub, azureAd: ConfiguredAzureAd()));
+
+        azure.Requirements.Single(r => r.Name == "Per-user permissions").Status
+            .Should().Be(RequirementStatus.Warning);
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_ConsentPending_Warns_NotSatisfied()
+    {
+        // The pending flag is stored with the sign-in settings, so a reload cannot turn a
+        // consent-less setup into a green card.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider(), azureAd: ConfiguredAzureAd() with { AdminConsentPending = true }));
+
+        var requirement = azure.Requirements.Single(r => r.Name == "Per-user permissions");
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("consent");
+    }
+
+    [Fact]
+    public async Task Azure_PerUserPermissions_WithoutSignIn_IsNotConfigured()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider()));
+
+        azure.Requirements.Single(r => r.Name == "Per-user permissions").Status
+            .Should().Be(RequirementStatus.NotConfigured);
+    }
+
+    [Fact]
+    public async Task Azure_WithAnAzureBlobConnection_IsInUse()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            connections: ConnectionsWith(ConnectionProvider.AzureBlob)));
+
+        azure.InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Azure_WithAccessSavedButNoConnection_IsInUse_SoTheListShowsItsState()
+    {
+        // Saving the Access step is an explicit choice (Azure access is settings-only, nothing ambient
+        // can make it read as configured), so the list must show status rather than an offer.
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureProvider: ConfiguredAzureProvider()));
+
+        azure.InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Aws_WithSignInConfiguredButNoConnection_IsInUse()
+    {
+        // The documented rule: sign-in configured, or a connection built on it.
+        var setups = await Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            samlSignIn: ConfiguredSignIn()).ReadAsync();
+
+        setups.Single(p => p.Key == "aws").InUse.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Azure_WithSignInConfiguredButNoConnection_IsInUse()
+    {
+        var azure = await AzureAsync(Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            azureAd: ConfiguredAzureAd()));
+
+        azure.InUse.Should().BeTrue();
     }
 }
 

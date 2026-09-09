@@ -35,6 +35,13 @@ public record AzureAdSignInSettings
     /// </summary>
     public string? ClientCertificatePassword { get; init; }
 
+    /// <summary>
+    /// True while the access app's Microsoft Graph permissions still await an administrator's
+    /// consent. Recorded by the setup flow so the state survives a reload; until it clears, the
+    /// directory lookups per-user filtering depends on will fail, and filtering fails closed.
+    /// </summary>
+    public bool AdminConsentPending { get; init; }
+
     /// <summary>True once every field sign-in needs — other than the certificate password — is set.</summary>
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(TenantId)
