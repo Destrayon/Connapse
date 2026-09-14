@@ -92,6 +92,11 @@ public static class SourcesEndpoints
 
             string name = request.Name.Trim();
 
+            if (request.ConnectionId is not null && request.Provider is not null)
+            {
+                return Results.BadRequest(new { error = "a source must have exactly one of a connectionId or a provider" });
+            }
+
             if (request.ConnectionId is Guid cid)
             {
                 // Checked before anything else touches the database: a source whose connection

@@ -320,6 +320,22 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CreateSource_BothConnectionAndProvider_Returns400()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+
+        var response = await Admin.PostAsJsonAsync("/api/sources", new
+        {
+            name = ShortName("src"),
+            connectionId,
+            provider = "GitHub",
+            scopeJson = "{}",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task CreateSource_DuplicateName_IsConflict()
     {
         Guid connectionId = await SeedConnectionAsync();

@@ -31,6 +31,9 @@ public class PostgresSourceStore(
         if (request.ConnectionId is null && request.Provider is null)
             throw new ArgumentException("a source needs a connection or a provider", nameof(request));
 
+        if (request.ConnectionId is not null && request.Provider is not null)
+            throw new ArgumentException("a source must have exactly one of a connection or a provider", nameof(request));
+
         await using var context = await factory.CreateDbContextAsync(ct);
 
         if (request.ConnectionId is Guid cid)

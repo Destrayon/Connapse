@@ -230,4 +230,19 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
+
+    [Fact]
+    public async Task CreateAsync_BothConnectionAndProvider_ThrowsArgumentException()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = async () => await sources.CreateAsync(new CreateSourceRequest(
+            Name: $"s-{Guid.NewGuid():N}"[..24],
+            ConnectionId: Guid.NewGuid(),
+            ScopeJson: "{}",
+            Provider: ConnectionProvider.GitHub));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
 }

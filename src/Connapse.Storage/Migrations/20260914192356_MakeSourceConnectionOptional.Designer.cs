@@ -661,7 +661,10 @@ namespace Connapse.Storage.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_sources_name");
 
-                    b.ToTable("sources", (string)null);
+                    b.ToTable("sources", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_sources_connection_xor_provider", "(connection_id IS NULL) <> (provider IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>
