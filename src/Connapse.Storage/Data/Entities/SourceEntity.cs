@@ -7,7 +7,8 @@ public class SourceEntity
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public Guid ConnectionId { get; set; }
+    public Guid? ConnectionId { get; set; }
+    public int? Provider { get; set; } // maps ConnectionProvider?
     public JsonDocument ScopeJson { get; set; } = null!; // JSONB: bucket prefix, root subpath, space key
     public JsonDocument? SettingsOverridesJson { get; set; }
     public bool Enabled { get; set; } = true;
@@ -35,6 +36,6 @@ public class SourceEntity
     public DateTime UpdatedAt { get; set; }
 
     // Navigation properties
-    public ConnectionEntity Connection { get; set; } = null!;
+    public ConnectionEntity? Connection { get; set; }
     public List<DocumentEntity> Documents { get; set; } = [];
 }

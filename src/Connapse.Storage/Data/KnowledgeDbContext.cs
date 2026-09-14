@@ -553,8 +553,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("description");
 
             entity.Property(e => e.ConnectionId)
-                .HasColumnName("connection_id")
-                .IsRequired();
+                .HasColumnName("connection_id");
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider");
 
             entity.Property(e => e.ScopeJson)
                 .HasColumnName("scope")
