@@ -323,6 +323,13 @@ Part of #508"
 
 - [ ] Run `dotnet build` (0 errors), `dotnet test --filter "Category=Unit"`, and the Storage integration tests. Confirm a full-host-start integration test still passes (proves the migration + DI wiring, which a clean container start alone would not). Append the phase summary to this plan file: what changed, files touched, what is verified, next action.
 
+### Phase 1 status — COMPLETE (2026-09-14)
+- Done: `GitHub=6` in both enums; `Source`/`CreateSourceRequest` nullable `ConnectionId` + `Provider`; `SourceEntity`/`KnowledgeDbContext` nullable `connection_id` + `provider` column; migration `MakeSourceConnectionOptional` with a `ck_sources_connection_xor_provider` CHECK (mirrors `ck_documents_single_owner`); `PostgresSourceStore` XOR-guarded connection-less create + map; `IConnectorFactory.Create(Source)` overload (GitHub arm throws, Phase 2); REST create endpoint accepts connection-less with 400s for both-null and both-set; sync loop distinguishes connection-less from dangling.
+- Files: `ConnectionModels.cs`, `StorageModels.cs`, `SourceModels.cs`, `SourceEntity.cs`, `KnowledgeDbContext.cs`, `Migrations/*MakeSourceConnectionOptional*`, `PostgresSourceStore.cs`, `IConnectorFactory.cs`, `ConnectorFactory.cs`, `SourcesEndpoints.cs`, `SourceSyncService.cs`, + tests.
+- Verified: clean build; unit suite green; 45 host/schema/sync + 33 store/endpoint integration tests green vs real Postgres; CHECK constraint verified to reject a contradictory row on a fresh DB.
+- Deferred (in ledger): endpoint/razor "missing connection" wording for connection-less sources (Phase 5 UX); undefined-enum-int for Provider (fail-closed downstream); `SourceResponse` lacks `Provider` (Phase 5). Carry-forward to Phase 2: `SourceSyncService` and the sync route must route a connection-less source through `IConnectorFactory.Create(Source)`.
+- Next action: expand Phase 2's detailed steps (per the expand-on-land convention) and implement the docs source.
+
 ---
 
 ## Phase 2 — GitHub connector skeleton + docs source
