@@ -654,13 +654,14 @@
         }
     }
 
-    private string ConnectionName(Guid connectionId) =>
-        connectionNames.TryGetValue(connectionId, out var name)
+    private string ConnectionName(Guid? connectionId) =>
+        connectionId is Guid id && connectionNames.TryGetValue(id, out var name)
             ? name
-            // The FK makes this unreachable through normal deletion, but a source whose
-            // connection vanished is skipped silently by the sync service — worth naming
+            // Null here is a connection-less (Provider-based) source; connector UI for those
+            // is later work in epic #508. A non-null id missing from the dictionary means the
+            // FK target vanished — the sync service skips it silently, so it's worth naming
             // rather than rendering a blank cell.
-            : "(missing connection)";
+            : connectionId is null ? "(no connection)" : "(missing connection)";
 
     private static string DescribeScope(Source source) =>
         SourceScopeSummary.Describe(source.ScopeJson) ?? "—";
@@ -694,7 +695,9 @@
 
         try
         {
-            var connection = await ConnectionStore.GetAsync(source.ConnectionId);
+            var connection = source.ConnectionId is Guid connectionId
+                ? await ConnectionStore.GetAsync(connectionId)
+                : null;
             if (connection is null)
             {
                 Fail($"'{source.Name}' references a connection that no longer exists.");

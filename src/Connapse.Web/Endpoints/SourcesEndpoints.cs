@@ -203,7 +203,9 @@ public static class SourcesEndpoints
             if (!source.Enabled)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' is disabled" });
 
-            var connection = await connectionStore.GetAsync(source.ConnectionId, ct);
+            var connection = source.ConnectionId is Guid connectionId
+                ? await connectionStore.GetAsync(connectionId, ct)
+                : null;
             if (connection is null)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
 

@@ -265,7 +265,7 @@ public static class CloudIdentityEndpoints
                     if (matching.Count > 0)
                     {
                         var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
-                        foreach (var s in sources.Where(s => matching.Contains(s.ConnectionId)))
+                        foreach (var s in sources.Where(s => s.ConnectionId is Guid cid && matching.Contains(cid)))
                             scopeCache.Invalidate(userId.Value, s.Id);
                     }
                 }

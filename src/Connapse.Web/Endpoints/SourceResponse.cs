@@ -16,7 +16,7 @@ public record SourceResponse(
     Guid Id,
     string Name,
     string? Description,
-    Guid ConnectionId,
+    Guid? ConnectionId,
     bool Enabled,
     SyncStatus LastSyncStatus,
     DateTime? LastSyncedAt,

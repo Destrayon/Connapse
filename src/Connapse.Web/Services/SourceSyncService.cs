@@ -77,7 +77,9 @@ public class SourceSyncService(
 
         foreach (var source in sources.Where(s => s.Enabled))
         {
-            var connection = await connectionStore.GetAsync(source.ConnectionId, ct);
+            var connection = source.ConnectionId is Guid connectionId
+                ? await connectionStore.GetAsync(connectionId, ct)
+                : null;
             if (connection is null)
             {
                 logger.LogWarning(

@@ -71,7 +71,7 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
-        var connection = (await connections.GetAsync(source.ConnectionId))!;
+        var connection = (await connections.GetAsync(source.ConnectionId!.Value))!;
 
         var service = new SourceSyncService(
             scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),

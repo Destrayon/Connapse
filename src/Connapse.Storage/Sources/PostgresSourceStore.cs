@@ -43,7 +43,10 @@ public class PostgresSourceStore(
             Id = Guid.NewGuid(),
             Name = name,
             Description = request.Description?.Trim(),
-            ConnectionId = request.ConnectionId,
+            // SourceEntity.ConnectionId is still non-nullable: connection-less (Provider-based)
+            // sources are a later task's schema change. The existence check above already
+            // guards against a null ConnectionId reaching here (no connection has a null id).
+            ConnectionId = request.ConnectionId!.Value,
             ScopeJson = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson),
             SyncIntervalSeconds = request.SyncIntervalSeconds,
             Enabled = true,
