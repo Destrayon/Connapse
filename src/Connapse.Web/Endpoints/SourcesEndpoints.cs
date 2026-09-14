@@ -92,12 +92,19 @@ public static class SourcesEndpoints
 
             string name = request.Name.Trim();
 
-            // Checked before anything else touches the database: a source whose connection
-            // does not exist is skipped silently by SourceSyncService, so it would look
-            // created and never sync.
-            var connection = await connectionStore.GetAsync(request.ConnectionId, ct);
-            if (connection is null)
-                return Results.BadRequest(new { error = $"Connection {request.ConnectionId} not found" });
+            if (request.ConnectionId is Guid cid)
+            {
+                // Checked before anything else touches the database: a source whose connection
+                // does not exist is skipped silently by SourceSyncService, so it would look
+                // created and never sync.
+                var connection = await connectionStore.GetAsync(cid, ct);
+                if (connection is null)
+                    return Results.BadRequest(new { error = $"Connection {cid} not found" });
+            }
+            else if (request.Provider is null)
+            {
+                return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
+            }
 
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {
@@ -117,7 +124,7 @@ public static class SourcesEndpoints
                 created = await sourceStore.CreateAsync(
                     new CreateSourceRequest(
                         name, request.ConnectionId, request.ScopeJson ?? "{}",
-                        request.Description, request.SyncIntervalSeconds), ct);
+                        request.Description, request.SyncIntervalSeconds, request.Provider), ct);
             }
             catch (ArgumentException ex)
             {
@@ -258,7 +265,8 @@ public static class SourcesEndpoints
 /// </summary>
 public record CreateSourceApiRequest(
     string Name,
-    Guid ConnectionId,
+    Guid? ConnectionId,
     string? ScopeJson = null,
     string? Description = null,
-    int? SyncIntervalSeconds = null);
+    int? SyncIntervalSeconds = null,
+    ConnectionProvider? Provider = null);
