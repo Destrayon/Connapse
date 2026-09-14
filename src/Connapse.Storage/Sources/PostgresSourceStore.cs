@@ -28,11 +28,17 @@ public class PostgresSourceStore(
         if (string.IsNullOrEmpty(name) || name.Length > 128)
             throw new ArgumentException("Source name must be 1-128 characters.", nameof(request));
 
+        if (request.ConnectionId is null && request.Provider is null)
+            throw new ArgumentException("a source needs a connection or a provider", nameof(request));
+
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        bool connectionExists = await context.Connections.AnyAsync(c => c.Id == request.ConnectionId, ct);
-        if (!connectionExists)
-            throw new InvalidOperationException($"Connection '{request.ConnectionId}' does not exist.");
+        if (request.ConnectionId is Guid cid)
+        {
+            bool connectionExists = await context.Connections.AnyAsync(c => c.Id == cid, ct);
+            if (!connectionExists)
+                throw new InvalidOperationException($"Connection '{request.ConnectionId}' does not exist.");
+        }
 
         bool nameTaken = await context.Sources.AnyAsync(s => s.Name == name, ct);
         if (nameTaken)
@@ -43,10 +49,8 @@ public class PostgresSourceStore(
             Id = Guid.NewGuid(),
             Name = name,
             Description = request.Description?.Trim(),
-            // SourceEntity.ConnectionId is still non-nullable: connection-less (Provider-based)
-            // sources are a later task's schema change. The existence check above already
-            // guards against a null ConnectionId reaching here (no connection has a null id).
-            ConnectionId = request.ConnectionId!.Value,
+            ConnectionId = request.ConnectionId,
+            Provider = (int?)request.Provider,
             ScopeJson = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson),
             SyncIntervalSeconds = request.SyncIntervalSeconds,
             Enabled = true,
@@ -315,7 +319,8 @@ public class PostgresSourceStore(
         SummaryDocSetHash: entity.SummaryDocSetHash,
         DocumentCount: documentCount,
         WithheldDeletions: entity.WithheldDeletions,
-        FailedDocumentCount: failedDocumentCount);
+        FailedDocumentCount: failedDocumentCount,
+        Provider: (ConnectionProvider?)entity.Provider);
 
     public async Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default)
     {
