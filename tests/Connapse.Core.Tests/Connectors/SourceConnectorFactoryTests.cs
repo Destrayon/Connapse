@@ -595,5 +595,39 @@ public class SourceConnectorFactoryTests
         withSecret.Type.Should().Be(without.Type,
             "a secret must not change how a cloud connector authenticates");
     }
+
+    // ── Connection-less sources (Create(Source), epic #508) ──────────────────
+
+    /// <summary>
+    /// The GitHub connector itself arrives in epic #508 phase 2 — until then the switch arm
+    /// must fail loudly rather than fall through to the default case's generic message.
+    /// </summary>
+    [Fact]
+    public void Create_ConnectionLessGitHub_ThrowsNotSupported()
+    {
+        var source = MakeSource(Guid.NewGuid(), "{}") with
+        {
+            ConnectionId = null,
+            Provider = ConnectionProvider.GitHub,
+        };
+
+        Action act = () => _factory.Create(source);
+
+        act.Should().Throw<NotSupportedException>();
+    }
+
+    [Fact]
+    public void Create_ConnectionLessWithoutProvider_ThrowsArgument()
+    {
+        var source = MakeSource(Guid.NewGuid(), "{}") with
+        {
+            ConnectionId = null,
+            Provider = null,
+        };
+
+        Action act = () => _factory.Create(source);
+
+        act.Should().Throw<ArgumentException>();
+    }
 }
 
