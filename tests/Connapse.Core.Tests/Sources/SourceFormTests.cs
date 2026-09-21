@@ -117,10 +117,45 @@ public class SourceFormTests
 
     [Theory]
     [InlineData(ConnectionProvider.S3, "bucket")]
+    [InlineData(ConnectionProvider.AzureBlob, "container")]
     public void Validate_CloudProviderWithoutAContainer_IsRejected(ConnectionProvider provider, string noun)
     {
         var form = new SourceForm { Name = "n", ConnectionId = Guid.NewGuid() };
         form.Validate(provider).Should().Contain(noun);
+    }
+
+    // ── AzureBlob ────────────────────────────────────────────────────────
+
+    [Fact]
+    [Trait("Category", "Unit")]
+    public void SourceForm_AzureBlob_BuildsScopeJson()
+    {
+        var form = new SourceForm { Container = "docs", Prefix = "reports/" };
+        form.ToScopeJson(ConnectionProvider.AzureBlob)
+            .Should().Contain("\"containerName\":\"docs\"").And.Contain("\"prefix\":\"reports/\"");
+    }
+
+    [Fact]
+    public void ToScopeJson_AzureBlob_WritesContainerNameNotBucketName()
+    {
+        var scope = Parse(Filled().ToScopeJson(ConnectionProvider.AzureBlob));
+
+        scope.GetProperty("containerName").GetString().Should().Be("company-knowledge");
+        scope.GetProperty("prefix").GetString().Should().Be("docs/");
+
+        // The S3 key must not leak into an Azure scope: the connector reads one or the other,
+        // so a stray key is silently ignored rather than rejected.
+        scope.TryGetProperty("bucketName", out _).Should().BeFalse();
+        scope.TryGetProperty("subPath", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ToScopeJson_AzureBlobBlankPrefix_IsOmittedRatherThanWrittenEmpty()
+    {
+        var form = new SourceForm { Name = "n", Container = "c", Prefix = "   " };
+
+        Parse(form.ToScopeJson(ConnectionProvider.AzureBlob))
+            .TryGetProperty("prefix", out _).Should().BeFalse();
     }
 
     [Fact]

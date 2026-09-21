@@ -14,6 +14,7 @@ public class ConnectorFactory(
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
     ISshHostKeyStore hostKeyStore,
     CloudScope.ConnapseAwsCredentials awsCredentials,
+    CloudScope.ConnapseAzureCredentials azureCredentials,
     ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -69,6 +70,22 @@ public class ConnectorFactory(
             // The identity an administrator configured, so a sync runs as whatever the
             // Providers page reports rather than as whatever the container is carrying.
             awsCredentials),
+
+            ConnectionProvider.AzureBlob => new AzureBlobConnector(new AzureBlobConnectorConfig
+            {
+                AccountName = Str(credential, "accountName")
+                    ?? throw new InvalidOperationException(
+                        $"Connection '{connection.Name}' has no accountName."),
+                BlobEndpoint = Str(credential, "blobEndpoint"),
+                ContainerName = RequirePermittedLocation(
+                    StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
+                    Str(scope, "containerName")
+                        ?? throw new InvalidOperationException(
+                            $"Source '{source.Name}' has no containerName in its scope."),
+                    Str(scope, "prefix"),
+                    connection.Name, source.Name),
+                Prefix = Str(scope, "prefix"),
+            }, azureCredentials),
 
             ConnectionProvider.Filesystem => new FilesystemConnector(new FilesystemConnectorConfig
             {

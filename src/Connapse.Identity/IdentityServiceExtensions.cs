@@ -72,6 +72,12 @@ public static class IdentityServiceExtensions
         services.AddScoped<AwsIdentityLinkStore>();
         services.AddScoped<IAwsIdentityLinkReader>(sp => sp.GetRequiredService<AwsIdentityLinkStore>());
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
+        services.AddScoped<AzureIdentityLinkStore>();
+        services.AddScoped<IAzureIdentityLinkReader>(sp => sp.GetRequiredService<AzureIdentityLinkStore>());
+        services.AddScoped<IAzureIdentityLinkService, AzureIdentityLinkService>();
+        services.AddScoped<AzureIdTokenValidator>();
+        services.AddHttpClient<IAzureSigningKeySource, AzureAdSigningKeySource>();
+        services.AddHttpClient<IOidcTokenExchanger, AzureOidcTokenExchanger>();
 
         // All three are single-process by design and documented as such: one remembers assertion
         // ids so a signed assertion cannot be posted twice, one remembers who started a sign-in so
@@ -81,6 +87,8 @@ public static class IdentityServiceExtensions
         services.AddSingleton<ISamlReplayGuard, MemorySamlReplayGuard>();
         services.AddSingleton<SamlSignInRequests>();
         services.AddSingleton<SamlLinkConfirmations>();
+        services.AddSingleton<AzureSignInRequests>();
+        services.AddSingleton<AzureLinkConfirmations>();
 
         services.AddHttpContextAccessor();
 
@@ -88,6 +96,8 @@ public static class IdentityServiceExtensions
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<SamlSignInSettings>(
             configuration.GetSection(SamlSignInSettings.SectionName));
+        services.Configure<AzureAdSignInSettings>(
+            configuration.GetSection(AzureAdSignInSettings.SectionName));
         services.Configure<IdentityCenterSettings>(
             configuration.GetSection(IdentityCenterSettings.SectionName));
         services.Configure<PermissionEnforcementSettings>(

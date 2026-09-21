@@ -106,3 +106,14 @@ public record AwsIdentityLinkDto(
 /// </remarks>
 public record AwsIdentityLinkDisconnectResult(
     bool Deleted, bool LinkChangedDuringDisconnect = false);
+
+/// <summary>
+/// A user's connected Microsoft Entra identity, as the integrations page needs to show it.
+/// </summary>
+public record AzureIdentityLinkDto(string ObjectId, string TenantId, string DisplayName, DateTime ConnectedAt);
+
+/// <summary>
+/// The oid + tid pair that fully qualifies an Entra identity — the join key permissions are read
+/// with, independent of the mutable display name.
+/// </summary>
+public record AzureIdentityRef(string ObjectId, string TenantId);

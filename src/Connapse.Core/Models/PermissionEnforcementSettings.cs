@@ -49,37 +49,63 @@ public class PermissionEnforcementSettings
     public const string Category = "permissionenforcement";
 
     /// <summary>
-    /// True once this deployment has had per-user permissions working.
+    /// True once this deployment has had SAML per-user permissions working.
     /// </summary>
     /// <remarks>
-    /// Latches. It is set when a complete sign-in configuration is first saved, or by the startup
-    /// migration for a deployment that was already filtering before this flag existed, and is
+    /// Latches. It is set when a complete SAML sign-in configuration is first saved, or by the
+    /// startup migration for a deployment that was already filtering before this flag existed, and is
     /// cleared only by an administrator deciding to stop enforcing. Once set, an incomplete
     /// configuration denies rather than opens.
+    /// <para>
+    /// This marker is <b>per identity provider</b>: it governs SAML/AWS only, and Azure has its own
+    /// <see cref="AzureEnforcing"/>. They must stay independent — a single shared bit would make
+    /// configuring one provider silently switch the OTHER's corpus from unfiltered to denied (once
+    /// latched, an unconfigured provider's resolver returns
+    /// <see cref="EnforcementState.EnforcingButUnusable"/>), which both changes that provider's
+    /// behaviour and hides documents that were meant to be visible.
+    /// </para>
     /// </remarks>
     public bool IsEnforcing { get; set; }
 
-    /// <summary>
-    /// What a resolver should do, given the sign-in settings it has to work with.
-    /// </summary>
-    /// <param name="signIn">The sign-in configuration, from wherever it was configured.</param>
+    /// <summary>True once this deployment has had Azure AD per-user permissions working.</summary>
+    /// <remarks>
+    /// The Azure counterpart to <see cref="IsEnforcing"/>, latched independently so that configuring
+    /// Azure AD never disturbs the SAML/AWS enforcement state, and vice versa. See the remarks on
+    /// <see cref="IsEnforcing"/> for why the two markers must not be shared.
+    /// </remarks>
+    public bool AzureEnforcing { get; set; }
+
+    /// <summary>What a resolver should do, given its own latch and whether its provider is configured.</summary>
+    /// <param name="latched">True once this provider has had per-user permissions working.</param>
+    /// <param name="providerConfigured">True when the provider has a complete sign-in configuration.</param>
     /// <param name="determined">
     /// False when the startup migration could not establish whether this deployment was already
     /// enforcing. An undetermined deployment enforces: not knowing is not permission to open.
     /// </param>
-    public EnforcementState StateFor(SamlSignInSettings signIn, bool determined = true)
+    private static EnforcementState StateFrom(bool latched, bool providerConfigured, bool determined)
     {
-        ArgumentNullException.ThrowIfNull(signIn);
-
         if (!determined)
             return EnforcementState.EnforcingButUnusable;
 
-        if (!IsEnforcing)
+        if (!latched)
             return EnforcementState.NotEnforcing;
 
-        return signIn.IsConfigured
+        return providerConfigured
             ? EnforcementState.Enforcing
             : EnforcementState.EnforcingButUnusable;
+    }
+
+    /// <summary>What the Azure resolver should do, given whether Azure AD sign-in is configured.
+    /// Reads the independent <see cref="AzureEnforcing"/> latch.</summary>
+    public EnforcementState StateForAzure(bool azureConfigured, bool determined = true) =>
+        StateFrom(AzureEnforcing, azureConfigured, determined);
+
+    /// <summary>What the AWS resolver should do, given the SAML sign-in settings it has. Reads the
+    /// SAML latch (<see cref="IsEnforcing"/>) — behaviour is unchanged from before Azure existed.</summary>
+    public EnforcementState StateFor(SamlSignInSettings signIn, bool determined = true)
+    {
+        ArgumentNullException.ThrowIfNull(signIn);
+        return StateFrom(IsEnforcing, signIn.IsConfigured, determined);
     }
 }
 

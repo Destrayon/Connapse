@@ -20,6 +20,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<OAuthClientEntity> OAuthClients => Set<OAuthClientEntity>();
     public DbSet<OAuthAuthCodeEntity> OAuthAuthCodes => Set<OAuthAuthCodeEntity>();
     public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
+    public DbSet<UserAzureIdentityLinkEntity> UserAzureIdentityLinks => Set<UserAzureIdentityLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +36,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureOAuthClients(modelBuilder);
         ConfigureOAuthAuthCodes(modelBuilder);
         ConfigureUserAwsIdentityLinks(modelBuilder);
+        ConfigureUserAzureIdentityLinks(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -638,6 +640,55 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAzureIdentityLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAzureIdentityLinkEntity>(entity =>
+        {
+            entity.ToTable("user_azure_identity_links");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id")
+                .HasDefaultValueSql("gen_random_uuid()");
+
+            entity.Property(e => e.UserId)
+                .HasColumnName("user_id")
+                .IsRequired();
+
+            // Entra object id (oid) — immutable per-tenant user identifier.
+            entity.Property(e => e.ObjectId)
+                .HasColumnName("object_id")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            // Entra tenant id (tid), stored with ObjectId as the fully-qualified key.
+            entity.Property(e => e.TenantId)
+                .HasColumnName("tenant_id")
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(e => e.DisplayName)
+                .HasColumnName("display_name")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.Property(e => e.ConnectedAt)
+                .HasColumnName("connected_at")
+                .HasDefaultValueSql("now()");
+
+            // One link per user: connecting again replaces it, so nothing has to decide which of
+            // two stored identities is the current one.
+            entity.HasIndex(e => e.UserId)
+                .HasDatabaseName("ix_user_azure_identity_links_user_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.AzureIdentityLinks)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

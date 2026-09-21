@@ -53,6 +53,7 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         return connection.Provider switch
         {
             ConnectionProvider.S3 => CheckLocation(credential, scope, "bucketName", "bucket", connection.Name),
+            ConnectionProvider.AzureBlob => CheckLocation(credential, scope, "containerName", "container", connection.Name),
             ConnectionProvider.Filesystem => CheckRoot(credential, scope, connection.Name),
             ConnectionProvider.Sftp => CheckSftpScope(credential, scope, connection.Name),
             _ => ScopePreflightResult.Refuse(

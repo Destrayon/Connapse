@@ -189,6 +189,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<OllamaConnectionTester>();
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
+        services.AddScoped<AzureBlobConnectionTester>();
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
@@ -214,7 +215,53 @@ public static class ServiceCollectionExtensions
         // credential provider therefore takes IServiceScopeFactory and opens a scope per refresh
         // rather than holding the store.
         services.AddSingleton<CloudScope.ConnapseAwsCredentials>();
+
+        // Connapse's own Azure app identity — bound from Providers:Azure, consumed by
+        // ConnectorFactory and AzureBlobConnectionTester. Singleton for the same reason as
+        // ConnapseAwsCredentials: it caches/rebuilds its own credential chain on settings
+        // reload, so one instance per process is the correct shape, not one per scope.
+        services.Configure<AzureProviderSettings>(
+            configuration.GetSection(AzureProviderSettings.SectionName));
+        services.AddSingleton<CloudScope.ConnapseAzureCredentials>();
+
+        // Expose Connapse's Azure identity as the ambient TokenCredential for Azure control-plane
+        // readers (Graph, and ARM in 4b). Nothing else resolves a bare TokenCredential today —
+        // connectors take ConnapseAzureCredentials directly — so this mapping is unambiguous.
+        services.TryAddSingleton<Azure.Core.TokenCredential>(
+            sp => sp.GetRequiredService<CloudScope.ConnapseAzureCredentials>());
+
+        // Reads the Entra directory (deprovisioning gate + transitive groups) over Graph $batch.
+        // Typed HttpClient; the 5-minute decision cache is the shared IMemoryCache singleton, so a
+        // transient reader instance per resolve still shares one cache across the process.
+        services.AddHttpClient<Connapse.Core.Interfaces.IAzureDirectoryReader, CloudScope.GraphDirectoryReader>();
+
+        // Reads the searcher's effective RBAC-readable azblob scopes from ARM (role assignments
+        // minus deny assignments). Typed HttpClient; the 5-minute decision cache is the shared
+        // IMemoryCache singleton. TokenCredential is already mapped to ConnapseAzureCredentials (4a).
+        services.AddHttpClient<Connapse.Core.Interfaces.IAzureRbacReader, CloudScope.ArmRbacReader>();
+
+        // Gen2 permission engine (Phase 4d), consumed by the Phase 4e per-hit verifier below.
+        // DataLakeGen2DirectoryReader implements both IGen2DirectoryReader (mode bits for ancestor
+        // traverse checks) and IGen2FileAclReader (a file's own ACL) — one singleton serves both
+        // interfaces so directory reads share the client construction and any future caching.
+        services.AddSingleton<DataLakeGen2DirectoryReader>();
+        services.AddSingleton<IGen2DirectoryReader>(sp => sp.GetRequiredService<DataLakeGen2DirectoryReader>());
+        services.AddSingleton<IGen2FileAclReader>(sp => sp.GetRequiredService<DataLakeGen2DirectoryReader>());
+        services.AddSingleton<AncestorTraverseResolver>();
+
+        // Live per-hit permission verify (Phase 4e), wired into HybridSearchService's search
+        // pipeline. Always registered — it self-no-ops (CandidateMultiplier=1, VerifyAsync passes
+        // everything through) when Azure AD isn't configured, so AWS-only/non-cloud deployments
+        // pay nothing extra.
+        services.AddSingleton<IBlobTagReader, BlobTagReader>();
+        services.AddScoped<ISearchResultVerifier, AzureSearchResultVerifier>();
+        services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
+
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
+        services.AddSingleton<IAzureBlobDiscovery, CloudScope.AzureBlobDiscovery>();
+        // Remembers the host's managed identity once found, so the provider page's detection is
+        // one metadata call per process, not one per render.
+        services.AddSingleton<IAzureHostIdentity, CloudScope.AzureHostIdentity>();
         services.AddSingleton<IDirectoryUserLookup, CloudScope.IdentityStoreUserLookup>();
         services.AddSingleton<IAccessGrantsReader, CloudScope.S3AccessGrantsReader>();
 
@@ -223,10 +270,18 @@ public static class ServiceCollectionExtensions
         services.AddMemoryCache();
         // Starts undetermined, so a host that never runs the startup migration refuses to answer
         // rather than assuming nothing was being enforced. Connapse.Web completes it from
-        // SamlEnforcementLatch; nothing else resolves this today.
+        // CloudEnforcementLatch; nothing else resolves this today.
         services.TryAddSingleton(new EnforcementMigration());
 
-        services.AddScoped<ISearchScopeResolver, CloudScope.AwsSearchScopeResolver>();
+        // The composite is THE resolver; it unions the AWS and Azure resolvers per cloud/scheme.
+        // AWS keeps its exact behavior as one inner resolver. Wired via an explicit factory that
+        // passes the two concrete resolvers, so the composite's ISearchScopeResolver parameters do
+        // not resolve back to the composite itself (no self-reference).
+        services.AddScoped<CloudScope.AwsSearchScopeResolver>();
+        services.AddScoped<CloudScope.AzureSearchScopeResolver>();
+        services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
+            sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(),
+            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>()));
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();

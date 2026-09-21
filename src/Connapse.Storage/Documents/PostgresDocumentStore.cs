@@ -353,6 +353,26 @@ public class PostgresDocumentStore : IDocumentStore
             stats.LastIndexedAt);
     }
 
+    public async Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(
+        IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, string?>();
+        if (documentIds.Count == 0) return result;
+
+        Guid[] ids = documentIds.Select(Guid.Parse).ToArray();
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var rows = await context.Documents
+            .Where(d => ids.Contains(d.Id))
+            .Select(d => new { d.Id, d.ResourceUri })
+            .ToListAsync(ct);
+
+        foreach (var row in rows)
+            result[row.Id.ToString()] = row.ResourceUri;
+
+        return result;
+    }
+
     private static Document MapToModel(DocumentEntity entity)
     {
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());

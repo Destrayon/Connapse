@@ -4,3 +4,8 @@ namespace Connapse.Integration.Tests;
 public class S3ConnectorTestCollection : ICollectionFixture<LocalStackFixture>
 {
 }
+
+[CollectionDefinition("AzureBlobConnector")]
+public class AzureBlobConnectorTestCollection : ICollectionFixture<AzuriteFixture>
+{
+}
