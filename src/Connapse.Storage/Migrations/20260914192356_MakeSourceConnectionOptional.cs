@@ -34,6 +34,20 @@ namespace Connapse.Storage.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Rolling back re-requires connection_id. A provider-owned source
+            // (connection_id NULL) has no connection to restore, and we never delete or
+            // silently reassign one. Fail early with an actionable message — before the
+            // provider column is dropped, while those rows can still be identified — so the
+            // operator resolves them first, rather than hitting a bare NOT NULL violation.
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM sources WHERE connection_id IS NULL) THEN
+        RAISE EXCEPTION 'Cannot roll back MakeSourceConnectionOptional: % provider-owned source(s) have connection_id NULL. Reassign or remove them before rolling back.',
+            (SELECT count(*) FROM sources WHERE connection_id IS NULL);
+    END IF;
+END $$;");
+
             migrationBuilder.DropCheckConstraint(
                 name: "ck_sources_connection_xor_provider",
                 table: "sources");

@@ -376,7 +376,7 @@ Part of #508"
 - Deletion reconciliation: a since-sweep cannot see hard deletes, so schedule a periodic full re-list (page all `state=all`, diff ids) — document the cadence.
 
 ### Task 3.3: Edge capture as metadata
-- Capture `closes`/`closed_by`, `cross_referenced`, sub-issue `parent`/`children`, `files` touched, labels, milestone into the document metadata dictionary. Use REST timeline and a hand-rolled GraphQL POST (installation-token-free, unauthenticated) for `closingIssuesReferences`.
+- Capture `closes`/`closed_by`, `cross_referenced`, `connected`/`disconnected` (explicit link/unlink timeline events), sub-issue `parent`/`children`, `files` touched, labels, milestone into the document metadata dictionary — the full edge set from the spec's edge table. Use REST timeline and a hand-rolled GraphQL POST (installation-token-free, unauthenticated) for `closingIssuesReferences`. Assert `connected`/`disconnected` alongside the other edges in the integration test; if the unauthenticated timeline budget forces deferral (Open item 2), capture them in the later edge-backfill rather than dropping them.
 - **Open item (resolve here):** confirm the unauthenticated GraphQL/timeline budget is workable for a medium repo under 60/hour; if not, defer edge capture per record and backfill later.
 
 ### Task 3.4: Integration test + Task 3.5: Phase-exit verification + plan update.
