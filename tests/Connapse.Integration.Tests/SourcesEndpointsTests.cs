@@ -290,6 +290,52 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CreateSource_ConnectionLessGitHub_Returns201WithNoConnection()
+    {
+        var response = await Admin.PostAsJsonAsync("/api/sources", new
+        {
+            name = ShortName("gh"),
+            connectionId = (Guid?)null,
+            provider = "GitHub",
+            scopeJson = """{"owner":"anthropics","repo":"claude-code"}""",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        created.GetProperty("connectionId").ValueKind.Should().Be(JsonValueKind.Null,
+            "a connection-less source has no connection to point at");
+    }
+
+    [Fact]
+    public async Task CreateSource_NoConnectionAndNoProvider_Returns400()
+    {
+        var response = await Admin.PostAsJsonAsync("/api/sources", new
+        {
+            name = ShortName("src"),
+            connectionId = (Guid?)null,
+            scopeJson = "{}",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task CreateSource_BothConnectionAndProvider_Returns400()
+    {
+        Guid connectionId = await SeedConnectionAsync();
+
+        var response = await Admin.PostAsJsonAsync("/api/sources", new
+        {
+            name = ShortName("src"),
+            connectionId,
+            provider = "GitHub",
+            scopeJson = "{}",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task CreateSource_DuplicateName_IsConflict()
     {
         Guid connectionId = await SeedConnectionAsync();

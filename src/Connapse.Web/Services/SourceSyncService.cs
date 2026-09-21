@@ -77,12 +77,24 @@ public class SourceSyncService(
 
         foreach (var source in sources.Where(s => s.Enabled))
         {
-            var connection = await connectionStore.GetAsync(source.ConnectionId, ct);
+            if (source.ConnectionId is not Guid connectionId)
+            {
+                // Expected interim state, not a dangling reference: a connection-less
+                // (Provider-based) source — e.g. public GitHub, epic #508 — has no Connection
+                // to sync through yet. #508 Phase 2 will route these through
+                // IConnectorFactory.Create(Source) instead of skipping them here.
+                logger.LogDebug(
+                    "Source {SourceId} has no connection (Provider {Provider}); skipping until #508 Phase 2 wires up connector-less sync",
+                    source.Id, source.Provider);
+                continue;
+            }
+
+            var connection = await connectionStore.GetAsync(connectionId, ct);
             if (connection is null)
             {
                 logger.LogWarning(
                     "Source {SourceId} references missing connection {ConnectionId}; skipping",
-                    source.Id, source.ConnectionId);
+                    source.Id, connectionId);
                 continue;
             }
 

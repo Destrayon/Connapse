@@ -64,6 +64,8 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     private sealed class FixedConnectorFactory(IConnector connector) : IConnectorFactory
     {
         public IConnector Create(Source source, Connection connection, string? secret = null) => connector;
+        public IConnector Create(Source source) =>
+            throw new NotSupportedException("connection-less sources are not exercised by this fixture");
     }
 
     private async Task<SourceSyncResult> SyncWithConnectorAsync(
@@ -71,7 +73,7 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     {
         using var scope = fixture.Factory.Services.CreateScope();
         var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
-        var connection = (await connections.GetAsync(source.ConnectionId))!;
+        var connection = (await connections.GetAsync(source.ConnectionId!.Value))!;
 
         var service = new SourceSyncService(
             scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),

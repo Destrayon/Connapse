@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Connectors;
 using FluentAssertions;
@@ -62,5 +63,16 @@ public class ConnectorCapabilityTests
     {
         typeof(IDisposable).IsAssignableFrom(typeof(SftpConnector))
             .Should().BeTrue("it owns an SSH session that a five-minute poll would otherwise abandon");
+    }
+}
+
+[Trait("Category", "Unit")]
+public class GitHubEnumTests
+{
+    [Fact]
+    public void GitHub_ProviderAndConnectorType_ShareValue()
+    {
+        ((int)ConnectionProvider.GitHub).Should().Be(6);
+        ((int)ConnectorType.GitHub).Should().Be((int)ConnectionProvider.GitHub);
     }
 }

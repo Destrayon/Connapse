@@ -553,8 +553,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("description");
 
             entity.Property(e => e.ConnectionId)
-                .HasColumnName("connection_id")
-                .IsRequired();
+                .HasColumnName("connection_id");
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider");
 
             entity.Property(e => e.ScopeJson)
                 .HasColumnName("scope")
@@ -616,6 +618,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .WithMany(c => c.Sources)
                 .HasForeignKey(e => e.ConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Exactly one of a connection or a provider identifies a source. Postgres treats
+            // "(a IS NULL) <> (b IS NULL)" as XOR.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "ck_sources_connection_xor_provider",
+                "(connection_id IS NULL) <> (provider IS NULL)"));
         });
     }
 }

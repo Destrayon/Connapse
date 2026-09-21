@@ -63,3 +63,8 @@ aws/*
 
 # Playwright MCP session artifacts (snapshots, traces)
 .playwright-mcp/
+
+# Local Docker env (secrets) — never commit
+.env
+.env.*
+!.env.example

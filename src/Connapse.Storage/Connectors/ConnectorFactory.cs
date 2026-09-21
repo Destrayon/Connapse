@@ -135,6 +135,27 @@ public class ConnectorFactory(
         };
     }
 
+    public IConnector Create(Source source)
+    {
+        if (source.Provider is null)
+            throw new ArgumentException(
+                "a connection-less source must have a Provider", nameof(source));
+
+        using var scope = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(source.ScopeJson) ? "{}" : source.ScopeJson);
+
+        RequireJsonObject(scope, $"Source '{source.Name}' has a scope that");
+
+        return source.Provider.Value switch
+        {
+            ConnectionProvider.GitHub => throw new NotSupportedException(
+                "GitHub connector arrives in epic #508 phase 2"),
+
+            _ => throw new NotSupportedException(
+                $"Provider {source.Provider} is not supported for connection-less sources")
+        };
+    }
+
     private static void RequireJsonObject(JsonDocument doc, string subject)
     {
         if (doc.RootElement.ValueKind != JsonValueKind.Object)

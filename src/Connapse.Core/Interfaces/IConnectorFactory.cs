@@ -23,4 +23,11 @@ public interface IConnectorFactory
     /// </para>
     /// </param>
     IConnector Create(Source source, Connection connection, string? secret = null);
+
+    /// <summary>
+    /// Builds a read-only connector for a connection-less source (one with no owning Connection),
+    /// using the source's own <see cref="Source.Provider"/>. For providers that read public,
+    /// unauthenticated resources (public GitHub). Throws ArgumentException if the source has no Provider.
+    /// </summary>
+    IConnector Create(Source source);
 }

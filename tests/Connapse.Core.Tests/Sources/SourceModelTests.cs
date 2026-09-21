@@ -45,6 +45,26 @@ public class SourceModelTests
     }
 
     [Fact]
+    public void Source_ConnectionLess_SetsProviderInsteadOfConnectionId()
+    {
+        // A connection-less source (e.g. public GitHub, epic #508) has no stored
+        // Connection to point at, so it carries its own Provider and leaves
+        // ConnectionId null instead.
+        var source = new Source(
+            Id: Guid.NewGuid(),
+            Name: "public-repo",
+            Description: null,
+            ConnectionId: null,
+            ScopeJson: """{"owner":"octocat","repo":"hello-world"}""",
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow,
+            Provider: ConnectionProvider.GitHub);
+
+        source.ConnectionId.Should().BeNull();
+        source.Provider.Should().Be(ConnectionProvider.GitHub);
+    }
+
+    [Fact]
     public void Connection_NeverExposesSecret()
     {
         // The Connection read model is returned to callers, so the secret VALUE must

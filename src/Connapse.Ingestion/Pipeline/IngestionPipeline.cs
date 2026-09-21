@@ -607,9 +607,16 @@ public class IngestionPipeline : IKnowledgeIngester
             ?? throw new InvalidOperationException(
                 $"IngestByIdAsync: source {sourceId} not found for document {documentId}");
 
-        Connection connection = await _connectionStore.GetAsync(source.ConnectionId, ct)
+        // Connection-less (Provider-based) sources are not wired into this path yet — that is
+        // later work in epic #508 — so a null ConnectionId here is treated as not-found rather
+        // than silently ingesting through the wrong connector.
+        Guid connectionId = source.ConnectionId
             ?? throw new InvalidOperationException(
-                $"IngestByIdAsync: connection {source.ConnectionId} not found for source {sourceId}");
+                $"IngestByIdAsync: source {sourceId} has no ConnectionId for document {documentId}");
+
+        Connection connection = await _connectionStore.GetAsync(connectionId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: connection {connectionId} not found for source {sourceId}");
 
         // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
         // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job

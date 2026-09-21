@@ -197,4 +197,52 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
         var reloaded = await sources.GetAsync(source.Id);
         reloaded!.Enabled.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task CreateAsync_ConnectionLessGitHubSource_PersistsProviderAndNullConnection()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        var created = await store.CreateAsync(new CreateSourceRequest(
+            Name: $"gh-docs-{Guid.NewGuid():N}",
+            ConnectionId: null,
+            ScopeJson: "{\"owner\":\"octocat\",\"repo\":\"Hello-World\",\"kind\":\"Docs\"}",
+            Provider: ConnectionProvider.GitHub));
+        created.ConnectionId.Should().BeNull();
+        created.Provider.Should().Be(ConnectionProvider.GitHub);
+
+        var fetched = await store.GetAsync(created.Id);
+        fetched!.ConnectionId.Should().BeNull();
+        fetched.Provider.Should().Be(ConnectionProvider.GitHub);
+    }
+
+    [Fact]
+    public async Task CreateAsync_NoConnectionAndNoProvider_ThrowsArgumentException()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = async () => await sources.CreateAsync(new CreateSourceRequest(
+            Name: $"s-{Guid.NewGuid():N}"[..24],
+            ConnectionId: null,
+            ScopeJson: "{}"));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_BothConnectionAndProvider_ThrowsArgumentException()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = async () => await sources.CreateAsync(new CreateSourceRequest(
+            Name: $"s-{Guid.NewGuid():N}"[..24],
+            ConnectionId: Guid.NewGuid(),
+            ScopeJson: "{}",
+            Provider: ConnectionProvider.GitHub));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
 }
