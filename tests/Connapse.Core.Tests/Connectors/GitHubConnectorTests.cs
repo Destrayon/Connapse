@@ -250,11 +250,11 @@ public sealed class GitHubConnectorTests : IDisposable
     }
 
     [Fact]
-    public async Task GetChangesAsync_IssuesKind_IsNotSupportedYet()
+    public void Constructor_IssuesKindWithoutHttpClient_Throws()
     {
-        Func<Task> act = () => Connector(kind: GitHubContentKind.IssuesAndPullRequests).GetChangesAsync(null);
+        Action act = () => Connector(kind: GitHubContentKind.IssuesAndPullRequests);
 
-        await act.Should().ThrowAsync<NotSupportedException>();
+        act.Should().Throw<ArgumentNullException>();
     }
 
     [Theory]

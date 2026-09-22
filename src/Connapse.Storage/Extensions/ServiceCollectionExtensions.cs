@@ -179,6 +179,9 @@ public static class ServiceCollectionExtensions
         services.Configure<GitHubSourceSettings>(
             configuration.GetSection(GitHubSourceSettings.SectionName));
 
+        // GitHub issues sources read the REST API anonymously; headers are set per request.
+        services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
+
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.
         services.AddSingleton<ISshHostKeyStore, ConnectionSshHostKeyStore>();

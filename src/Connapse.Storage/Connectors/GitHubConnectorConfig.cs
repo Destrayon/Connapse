@@ -49,7 +49,9 @@ public partial record GitHubConnectorConfig
 
     public IReadOnlyList<string> ExcludePatterns { get; init; } = [];
 
-    /// <summary>The bare git mirror this source fetches into and reads from.</summary>
+    /// <summary>
+    /// This source's local directory: the bare git mirror for docs, the record store for issues.
+    /// </summary>
     public string MirrorPath { get; init; } = "";
 
     /// <summary>
@@ -60,6 +62,18 @@ public partial record GitHubConnectorConfig
     public string? RemoteUrl { get; init; }
 
     public string EffectiveRemoteUrl => RemoteUrl ?? $"https://{Host}/{Owner}/{Repo}.git";
+
+    /// <summary>
+    /// The REST API the issues kind reads. Like <see cref="RemoteUrl"/>, only tests change it;
+    /// the factory always leaves the public API.
+    /// </summary>
+    public string ApiBaseUrl { get; init; } = "https://api.github.com";
+
+    /// <summary>
+    /// Whether an issue's comments are assembled into its document. On by default: the
+    /// discussion is most of what an issue knows that the code does not.
+    /// </summary>
+    public bool IncludeComments { get; init; } = true;
 
     /// <summary>The repository's web address, which a document's citation link hangs off.</summary>
     public string WebUrl => $"https://{Host}/{Owner}/{Repo}";
