@@ -77,6 +77,12 @@ public class SourceSyncService(
 
         foreach (var source in sources.Where(s => s.Enabled))
         {
+            // The timer ticks for every source; a source that asked for a longer interval sits
+            // out the ticks in between. A public GitHub issues source depends on it: every
+            // cycle spends from an anonymous budget of 60 requests an hour.
+            if (!IsDue(source, DateTime.UtcNow))
+                continue;
+
             if (source.ConnectionId is not Guid connectionId)
             {
                 // A connection-less source (public GitHub) builds its connector from its own
@@ -106,6 +112,21 @@ public class SourceSyncService(
             await SyncSourceAsync(source, connection, ct);
         }
     }
+
+    /// <summary>
+    /// Whether a source's own interval has elapsed since its last cycle. No interval, or no
+    /// cycle yet, means every tick. A failed cycle counts as a cycle, so a source whose remote
+    /// is down is not retried faster than it asked to be polled.
+    /// </summary>
+    /// <remarks>
+    /// Half a minute of slack, because the last cycle is stamped when it ends and the timer
+    /// ticks on a fixed schedule: without it, a 15-minute interval would land a few seconds
+    /// short on its third tick and slip to the fourth.
+    /// </remarks>
+    internal static bool IsDue(Source source, DateTime utcNow) =>
+        source.SyncIntervalSeconds is not int seconds
+        || source.LastSyncedAt is not DateTime last
+        || utcNow - last >= TimeSpan.FromSeconds(seconds) - TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
