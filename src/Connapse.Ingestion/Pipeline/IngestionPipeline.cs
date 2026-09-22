@@ -607,25 +607,7 @@ public class IngestionPipeline : IKnowledgeIngester
             ?? throw new InvalidOperationException(
                 $"IngestByIdAsync: source {sourceId} not found for document {documentId}");
 
-        // Connection-less (Provider-based) sources are not wired into this path yet — that is
-        // later work in epic #508 — so a null ConnectionId here is treated as not-found rather
-        // than silently ingesting through the wrong connector.
-        Guid connectionId = source.ConnectionId
-            ?? throw new InvalidOperationException(
-                $"IngestByIdAsync: source {sourceId} has no ConnectionId for document {documentId}");
-
-        Connection connection = await _connectionStore.GetAsync(connectionId, ct)
-            ?? throw new InvalidOperationException(
-                $"IngestByIdAsync: connection {connectionId} not found for source {sourceId}");
-
-        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
-        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
-        // rather than being swallowed.
-        string? secret = connection.HasSecret
-            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
-            : null;
-
-        IConnector connector = _connectorFactory.Create(source, connection, secret);
+        IConnector connector = await CreateSourceConnectorAsync(source, documentId, ct);
         try
         {
             await using Stream stream = await connector.ReadFileAsync(path, ct);
@@ -637,6 +619,34 @@ public class IngestionPipeline : IKnowledgeIngester
             // per file, so skipping this abandons a connection per document.
             if (connector is IDisposable disposable) disposable.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Builds the connector a source-owned document is read through: from its connection when
+    /// it has one, otherwise from its own provider (a connection-less public GitHub source).
+    /// </summary>
+    private async Task<IConnector> CreateSourceConnectorAsync(Source source, string documentId, CancellationToken ct)
+    {
+        if (source.ConnectionId is not Guid connectionId)
+        {
+            return source.Provider is not null
+                ? _connectorFactory.Create(source)
+                : throw new InvalidOperationException(
+                    $"IngestByIdAsync: source {source.Id} has neither a connection nor a provider for document {documentId}");
+        }
+
+        Connection connection = await _connectionStore.GetAsync(connectionId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: connection {connectionId} not found for source {source.Id}");
+
+        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
+        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
+        // rather than being swallowed.
+        string? secret = connection.HasSecret
+            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+            : null;
+
+        return _connectorFactory.Create(source, connection, secret);
     }
 
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(

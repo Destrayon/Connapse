@@ -10,10 +10,10 @@ using Xunit;
 namespace Connapse.Core.Tests.Services;
 
 /// <summary>
-/// SyncAllAsync's connection lookup has two failure shapes that must not read alike: a
-/// connection-less (Provider-based) source such as public GitHub (epic #508) is an expected
-/// interim state pending Phase 2 wiring, while a source whose ConnectionId points at a
-/// deleted Connection is a genuinely dangling reference an operator should notice.
+/// SyncAllAsync's connection lookup has shapes that must not read alike: a connection-less
+/// (Provider-based) source such as public GitHub (epic #508) is synced through its provider,
+/// while a source whose ConnectionId points at a deleted Connection is a genuinely dangling
+/// reference an operator should notice.
 /// </summary>
 [Trait("Category", "Unit")]
 public class SourceSyncServiceLoggingTests
@@ -47,7 +47,7 @@ public class SourceSyncServiceLoggingTests
         Provider: provider);
 
     private static (SourceSyncService Service, RecordingLogger<SourceSyncService> Logger) Build(
-        ISourceStore sourceStore, IConnectionStore connectionStore)
+        ISourceStore sourceStore, IConnectionStore connectionStore, IConnectorFactory? connectorFactory = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(sourceStore);
@@ -57,7 +57,7 @@ public class SourceSyncServiceLoggingTests
         var logger = new RecordingLogger<SourceSyncService>();
         var service = new SourceSyncService(
             scopeFactory,
-            Substitute.For<IConnectorFactory>(),
+            connectorFactory ?? Substitute.For<IConnectorFactory>(),
             Substitute.For<IIngestionQueue>(),
             logger);
 
@@ -65,7 +65,7 @@ public class SourceSyncServiceLoggingTests
     }
 
     [Fact]
-    public async Task SyncAllAsync_ConnectionLessSource_LogsDebugWithoutMissingConnectionWarning()
+    public async Task SyncAllAsync_ConnectionLessSource_SyncsThroughItsProvider()
     {
         var source = MakeSource(connectionId: null, provider: ConnectionProvider.GitHub);
 
@@ -74,18 +74,40 @@ public class SourceSyncServiceLoggingTests
             .Returns([source]);
         var connectionStore = Substitute.For<IConnectionStore>();
 
-        var (service, logger) = Build(sourceStore, connectionStore);
+        // Fails the cycle straight after the factory call, which is all this test is about;
+        // the sync paths themselves are covered by the integration tests.
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+        connectorFactory.Create(source).Returns(_ => throw new IOException("remote unavailable"));
+
+        var (service, logger) = Build(sourceStore, connectionStore, connectorFactory);
+
+        await service.SyncAllAsync(CancellationToken.None);
+
+        connectorFactory.Received(1).Create(source);
+        logger.Entries.Should().NotContain(e => e.Message.Contains("references missing connection"));
+
+        // Never looked up: there is no ConnectionId to look up.
+        await connectionStore.DidNotReceiveWithAnyArgs().GetAsync(default, default);
+    }
+
+    [Fact]
+    public async Task SyncAllAsync_SourceWithNeitherConnectionNorProvider_IsSkippedWithAWarning()
+    {
+        var source = MakeSource(connectionId: null, provider: null);
+
+        var sourceStore = Substitute.For<ISourceStore>();
+        sourceStore.ListAsync(skip: 0, take: int.MaxValue, ct: Arg.Any<CancellationToken>())
+            .Returns([source]);
+        var connectorFactory = Substitute.For<IConnectorFactory>();
+
+        var (service, logger) = Build(sourceStore, Substitute.For<IConnectionStore>(), connectorFactory);
 
         await service.SyncAllAsync(CancellationToken.None);
 
         logger.Entries.Should().ContainSingle();
-        logger.Entries[0].Level.Should().Be(LogLevel.Debug,
-            "a connection-less source is an expected interim state, not an alarm");
-        logger.Entries[0].Message.Should().NotContain("references missing connection");
-        logger.Entries[0].Message.Should().Contain("#508");
-
-        // Never looked up: there is no ConnectionId to look up.
-        await connectionStore.DidNotReceiveWithAnyArgs().GetAsync(default, default);
+        logger.Entries[0].Level.Should().Be(LogLevel.Warning);
+        logger.Entries[0].Message.Should().Contain("neither a connection nor a provider");
+        connectorFactory.ReceivedCalls().Should().BeEmpty();
     }
 
     [Fact]

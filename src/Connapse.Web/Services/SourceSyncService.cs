@@ -79,13 +79,18 @@ public class SourceSyncService(
         {
             if (source.ConnectionId is not Guid connectionId)
             {
-                // Expected interim state, not a dangling reference: a connection-less
-                // (Provider-based) source — e.g. public GitHub, epic #508 — has no Connection
-                // to sync through yet. #508 Phase 2 will route these through
-                // IConnectorFactory.Create(Source) instead of skipping them here.
-                logger.LogDebug(
-                    "Source {SourceId} has no connection (Provider {Provider}); skipping until #508 Phase 2 wires up connector-less sync",
-                    source.Id, source.Provider);
+                // A connection-less source (public GitHub) builds its connector from its own
+                // Provider. The store's CHECK constraint guarantees one of the two is set, so
+                // a row with neither is not expected — but skipping it beats throwing for
+                // every other source in the cycle.
+                if (source.Provider is null)
+                {
+                    logger.LogWarning(
+                        "Source {SourceId} has neither a connection nor a provider; skipping", source.Id);
+                    continue;
+                }
+
+                await SyncSourceAsync(source, connection: null, ct);
                 continue;
             }
 
@@ -106,6 +111,10 @@ public class SourceSyncService(
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
+    /// <param name="connection">
+    /// The source's connection, or null for a connection-less source (public GitHub), whose
+    /// connector is built from its own <see cref="Source.Provider"/>.
+    /// </param>
     /// <param name="applyWithheldDeletions">
     /// Applies deletions an administrator has already approved. The vanished set is recomputed
     /// rather than replayed, so a source whose remote recovered in the meantime deletes
@@ -114,7 +123,7 @@ public class SourceSyncService(
     /// Inert when nothing was withheld: the flag cannot lift a guard that never tripped.
     /// </param>
     internal async Task<SourceSyncResult> SyncSourceAsync(
-        Source source, Connection connection, CancellationToken ct, bool applyWithheldDeletions = false)
+        Source source, Connection? connection, CancellationToken ct, bool applyWithheldDeletions = false)
     {
         if (!source.Enabled)
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null);
@@ -153,12 +162,21 @@ public class SourceSyncService(
             // read model, so the common providers cost no query and no decrypt per cycle. A
             // key ring that cannot decrypt throws, which the catch below records as a sync
             // failure — the right outcome, since retrying will not help.
-            string? secret = connection.HasSecret
-                ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
-                    .GetSecretAsync(connection.Id, ct)
-                : null;
+            //
+            // A null connection is a connection-less source, which has no secret to fetch.
+            if (connection is null)
+            {
+                connector = connectorFactory.Create(source);
+            }
+            else
+            {
+                string? secret = connection.HasSecret
+                    ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
+                        .GetSecretAsync(connection.Id, ct)
+                    : null;
 
-            connector = connectorFactory.Create(source, connection, secret);
+                connector = connectorFactory.Create(source, connection, secret);
+            }
 
             return connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
