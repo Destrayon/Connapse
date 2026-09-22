@@ -338,6 +338,38 @@ public class ProviderSetupReaderTests
         aws.InUse.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(0, RequirementStatus.NotConfigured, false)]
+    [InlineData(2, RequirementStatus.Satisfied, true)]
+    public async Task ReadAsync_GitHub_IsInUseOnceARepositoryIsAdded(int sourceCount, RequirementStatus status, bool inUse)
+    {
+        // Two sources for one repository — docs and issues — count as one repository.
+        var sources = Substitute.For<ISourceStore>();
+        sources.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(
+            Enumerable.Range(0, sourceCount).Select(i => new Source(
+                Guid.NewGuid(), "s" + i, null, ConnectionId: null,
+                ScopeJson: $$"""{"owner":"octocat","repo":"hello","kind":"{{(i == 0 ? "Docs" : "IssuesAndPullRequests")}}"}""",
+                DateTime.UtcNow, DateTime.UtcNow, Provider: ConnectionProvider.GitHub)).ToList());
+
+        var reader = new ProviderSetupReader(
+            Options.Create(new SamlSignInSettings()).AsMonitor(),
+            Options.Create(new IdentityCenterSettings()).AsMonitor(),
+            Options.Create(new AzureProviderSettings()).AsMonitor(),
+            Options.Create(new AzureAdSignInSettings()).AsMonitor(),
+            Substitute.For<IS3Discovery>(), Substitute.For<IAzureBlobDiscovery>(),
+            Options.Create(new PermissionEnforcementSettings()).AsMonitor(), ConnectionsWith(),
+            Substitute.For<IProviderCredentialStore>(),
+            new FixedClock(new DateTimeOffset(Created)),
+            NullLogger<ProviderSetupReader>.Instance,
+            sources);
+
+        var github = (await reader.ReadAsync()).Single(p => p.Key == "github");
+
+        github.InUse.Should().Be(inUse);
+        github.Requirements.Single().Status.Should().Be(status);
+        if (inUse) github.Requirements.Single().Detail.Should().Be("1 repository indexed.");
+    }
+
     [Fact]
     public void Overall_TakesTheWorstRequirement_AndFailedIsTheWorst()
     {

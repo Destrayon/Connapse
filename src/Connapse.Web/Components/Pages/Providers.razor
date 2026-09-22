@@ -30,6 +30,7 @@
 @inject NavigationManager Navigation
 @inject ILogger<Providers> Logger
 @inject IAuditLogger AuditLogger
+@inject ISourceStore SourceStore
 @using System.Security.Claims
 @using System.Security.Cryptography.X509Certificates
 @using Microsoft.AspNetCore.Components.Authorization
@@ -160,7 +161,7 @@
         @* AWS renders status and setup together below. Repeating these cards above those sections
            made the page read like two separate checklists for the same work. Azure does the same
            (its setup cards below), so it is excluded here too. *@
-        @if (Key != "aws" && Key != "azure")
+        @if (Key != "aws" && Key != "azure" && Key != "github")
         {
         @* Requirements first: someone arriving here is asking what is left to do, and answering
            that before showing forms is the reason this page exists. *@
@@ -1643,6 +1644,75 @@
                 </Actions>
             </ProviderStepCard>
         }
+        else if (Key == "github")
+        {
+            <p class="text-muted">
+                Public repositories need no setup: Connapse reads them without an account, token, or
+                app. Each repository becomes two sources — its markdown docs, fetched with git, and its
+                issues and pull requests with their discussions, read from GitHub's API. Private
+                repositories arrive with GitHub App support.
+            </p>
+
+            <ProviderStepCard Id="github-repository" Title="Add a public repository"
+                              Description="Creates the repository's docs source and its issues-and-pull-requests source. Both sync on the next cycle; find them under Sources."
+                              Status="GitHubStatus" StatusLabel="@RequirementLabel(GitHubStatus)"
+                              @bind-Expanded="showGitHubAdd" EditLabel="Add another repository"
+                              EasyTitle="Easy setup from a repository address" EasyOpen="true">
+                <Summary>
+                    @if (GitHubRequirement?.Detail is { Length: > 0 } detail)
+                    {
+                        <div>@detail <a href="/admin/sources">View sources</a></div>
+                    }
+                </Summary>
+                <ManualContent>
+                    <details class="border rounded p-3 mb-3">
+                        <summary class="fw-semibold small">Manual values — choose what to index</summary>
+                        <div class="mt-3">
+                            <div class="form-check">
+                                <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
+                                <label for="github-docs" class="form-check-label small">Docs — markdown files on the default branch</label>
+                            </div>
+                            <div class="ms-4 mb-2">
+                                <label for="github-patterns" class="form-label small text-muted mb-1">File patterns, one per line (blank for *.md and *.markdown)</label>
+                                <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2"
+                                          disabled="@(!githubForm.IncludeDocs)" @bind="githubForm.DocPatterns"></textarea>
+                            </div>
+                            <div class="form-check">
+                                <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
+                                <label for="github-issues" class="form-check-label small">Issues and pull requests</label>
+                            </div>
+                            <div class="form-check ms-4">
+                                <input id="github-comments" type="checkbox" class="form-check-input"
+                                       disabled="@(!githubForm.IncludeIssues)" @bind="githubForm.IncludeComments" />
+                                <label for="github-comments" class="form-check-label small">Include their comments</label>
+                            </div>
+                            <div class="form-text">
+                                Issues are checked every 15 minutes: GitHub allows 60 anonymous API requests an
+                                hour for this whole server, and each check spends one.
+                            </div>
+                        </div>
+                    </details>
+                </ManualContent>
+                <EasyContent>
+                    <label for="github-repo" class="form-label small">Repository address</label>
+                    <div class="input-group mb-2">
+                        <input id="github-repo" class="form-control" placeholder="https://github.com/owner/repo"
+                               @bind="githubForm.Repository" @bind:event="oninput" />
+                        <button type="button" class="btn btn-primary" disabled="@githubAdding" @onclick="AddGitHubRepository">
+                            @if (githubAdding)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                            }
+                            Add repository
+                        </button>
+                    </div>
+                    <div class="form-text">
+                        Paste the address from your browser, or type <code>owner/repo</code>. The choices
+                        under Manual values apply; by default both sources are created.
+                    </div>
+                </EasyContent>
+            </ProviderStepCard>
+        }
 
     }
 </div>
@@ -1833,6 +1903,77 @@
 
     /// <summary>Null while the providers are still being checked.</summary>
     private IReadOnlyList<ProviderSetup>? setups;
+
+    private GitHubRepositoryForm githubForm = new();
+    private bool showGitHubAdd;
+    private bool githubAdding;
+
+    private ProviderRequirement? GitHubRequirement =>
+        setups?.FirstOrDefault(p => p.Key == "github")?.Requirements.FirstOrDefault();
+
+    private RequirementStatus GitHubStatus => GitHubRequirement?.Status ?? RequirementStatus.Unknown;
+
+    /// <summary>
+    /// Creates the repository's sources. Each is created on its own, so a name clash on one (the
+    /// repository was added before) still creates the other and says which was skipped.
+    /// </summary>
+    private async Task AddGitHubRepository()
+    {
+        saveMessage = null;
+        if (githubForm.Validate() is { } invalid)
+        {
+            saveSuccess = false;
+            saveMessage = invalid;
+            return;
+        }
+
+        githubAdding = true;
+        var created = new List<string>();
+        var skipped = new List<string>();
+
+        try
+        {
+            foreach (var request in githubForm.ToRequests())
+            {
+                try
+                {
+                    var source = await SourceStore.CreateAsync(request);
+                    created.Add(source.Name);
+                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
+                        new { source.Name, source.Provider });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // A duplicate name: this repository's source of that kind already exists.
+                    skipped.Add(ex.Message);
+                }
+            }
+
+            saveSuccess = created.Count > 0;
+            saveMessage = created.Count > 0
+                ? $"Added {string.Join(" and ", created)}. They sync on the next cycle."
+                    + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : "")
+                : "Nothing added. " + string.Join(" ", skipped);
+
+            if (created.Count > 0)
+            {
+                githubForm = new GitHubRepositoryForm();
+                showGitHubAdd = false;
+            }
+
+            await RefreshSetups();
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit.
+            saveSuccess = false;
+            saveMessage = $"Could not add the repository: {ex.Message}";
+        }
+        finally
+        {
+            githubAdding = false;
+        }
+    }
 
     private ProviderSetup? Current =>
         Key is null ? null : setups?.FirstOrDefault(p => p.Key == Key);
@@ -2465,6 +2606,7 @@
     {
         "aws" => "Read files from S3.",
         "azure" => "Read files from Azure Blob Storage.",
+        "github" => "Index a public repository's docs, issues, and pull requests.",
         _ => $"Set up {provider.DisplayName}."
     };
 

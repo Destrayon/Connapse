@@ -37,6 +37,15 @@ public static class SourceScopeSummary
 
         if (node is null) return null;
 
+        if (GitHubRepository(node) is { } repository)
+        {
+            string kind = Str(node, "kind") is { } k && k.Equals("IssuesAndPullRequests", StringComparison.OrdinalIgnoreCase)
+                ? "issues and pull requests"
+                : "docs";
+            string? docPatterns = kind == "docs" ? Patterns(node) : null;
+            return docPatterns is null ? $"{repository} · {kind}" : $"{repository} · {kind} ({docPatterns})";
+        }
+
         // The container-ish key differs per provider, and only one is ever present.
         string? container = Str(node, "bucketName") ?? Str(node, "containerName");
         string? prefix = Str(node, "prefix");
@@ -53,6 +62,24 @@ public static class SourceScopeSummary
         string? patterns = Patterns(node);
         return patterns is null ? scope : $"{scope} ({patterns})";
     }
+
+    /// <summary><c>owner/repo</c> for a GitHub scope, or null for any other provider's.</summary>
+    public static string? GitHubRepository(string? scopeJson)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(scopeJson) || JsonNode.Parse(scopeJson) is not JsonObject node
+                ? null
+                : GitHubRepository(node);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? GitHubRepository(JsonObject node) =>
+        Str(node, "owner") is { } owner && Str(node, "repo") is { } repo ? $"{owner}/{repo}" : null;
 
     private static string Join(string container, string? prefix) =>
         string.IsNullOrWhiteSpace(prefix)
