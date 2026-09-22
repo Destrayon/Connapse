@@ -491,6 +491,14 @@ public class RecordChunkerTests
 
 ### Task 5.4: UI/e2e verification + plan update. The project's `release-gatekeeper`/provider-page rubric applies; audit the page against the config-page rubric as prior providers did.
 
+### Phase 5 status — CODE COMPLETE, browser check outstanding (2026-09-22)
+- Done: `github` entry in `ProviderSetupReader` (one "Public repositories" requirement; in use once any repository has a source, counted by owner/repo); `Providers.razor` GitHub branch with one `ProviderStepCard` (Easy = paste an address, Manual = docs/issues/comments/patterns choices); `GitHubRepositoryForm` parses `owner/repo` or any github.com URL and builds the docs and issues `CreateSourceRequest`s; `SourceScopeSummary` shows `owner/repo · docs` / `· issues and pull requests`; `Sources.razor` names a connection-less source's provider and lets Sync now run it.
+- **Added to the phase:** the sync loop now honours `SyncIntervalSeconds` (`SourceSyncService.IsDue`). It was stored and editable but ignored, so every source synced every 5 minutes; the add-repository flow gives issues sources 15 minutes, which keeps an idle source at 4 of the 60 hourly anonymous requests.
+- `SourceForm.ToScopeJson` is unchanged: the generic add-source form requires a connection, so GitHub sources are created only from the provider page and never reach it.
+- Verified: clean build; unit suite green (incl. 17 form cases, 4 interval cases, 2 provider-reader cases, card count now 6); `GitHubRepositoryFlowIntegrationTests` pushes the form's requests through the real store and factory, syncs both sources in one cycle, and resolves the reader from the host to confirm DI supplies the store.
+- **Not verified:** the page in a browser. Signing in needs a password, which the agent may not enter; an admin should load `/admin/providers/github`, add a repository, and audit the page against the config-page rubric.
+- Deferred: editing a GitHub source's scope from the Sources page; `SourceResponse` still lacks `Provider` (REST).
+
 ---
 
 ## Self-review
