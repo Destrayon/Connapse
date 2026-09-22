@@ -72,8 +72,12 @@ public class SourceConnectorFactoryTests
         var azureOptions = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
         azureOptions.CurrentValue.Returns(new AzureProviderSettings());
 
+        var gitHubOptions = Substitute.For<IOptionsMonitor<GitHubSourceSettings>>();
+        gitHubOptions.CurrentValue.Returns(new GitHubSourceSettings { MirrorDirectory = "/var/mirrors" });
+
         return new ConnectorFactory(
             monitor,
+            gitHubOptions,
             hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azureOptions),
@@ -616,22 +620,66 @@ public class SourceConnectorFactoryTests
 
     // ── Connection-less sources (Create(Source), epic #508) ──────────────────
 
-    /// <summary>
-    /// The GitHub connector itself arrives in epic #508 phase 2 — until then the switch arm
-    /// must fail loudly rather than fall through to the default case's generic message.
-    /// </summary>
-    [Fact]
-    public void Create_ConnectionLessGitHub_ThrowsNotSupported()
+    private static Source MakeGitHubSource(string scope) => MakeSource(Guid.NewGuid(), scope) with
     {
-        var source = MakeSource(Guid.NewGuid(), "{}") with
-        {
-            ConnectionId = null,
-            Provider = ConnectionProvider.GitHub,
-        };
+        ConnectionId = null,
+        Provider = ConnectionProvider.GitHub,
+    };
 
-        Action act = () => _factory.Create(source);
+    [Fact]
+    public void Create_ConnectionLessGitHub_BuildsADocsConnectorFromTheScope()
+    {
+        var source = MakeGitHubSource(
+            """{"owner":"octo-org","repo":"docs.site","repoId":1296269,"kind":"docs","excludePatterns":["CHANGELOG.md"]}""");
 
-        act.Should().Throw<NotSupportedException>();
+        var connector = _factory.Create(source);
+
+        var config = connector.Should().BeOfType<GitHubConnector>().Subject.Config;
+        config.Owner.Should().Be("octo-org");
+        config.Repo.Should().Be("docs.site");
+        config.RepoId.Should().Be(1296269);
+        config.Kind.Should().Be(GitHubContentKind.Docs);
+        config.Host.Should().Be("github.com");
+        config.RemoteUrl.Should().BeNull("the factory only ever fetches from the public clone URL");
+        config.EffectiveRemoteUrl.Should().Be("https://github.com/octo-org/docs.site.git");
+        config.IncludePatterns.Should().BeEquivalentTo(GitHubConnectorConfig.DefaultDocPatterns);
+        config.ExcludePatterns.Should().Equal("CHANGELOG.md");
+        config.MirrorPath.Should().Be(Path.GetFullPath(Path.Combine("/var/mirrors", source.Id.ToString("N"))),
+            "the mirror is keyed on the source, so a rename does not orphan it");
+    }
+
+    [Fact]
+    public void Create_ConnectionLessGitHubWithoutKind_DefaultsToDocs()
+    {
+        var connector = _factory.Create(MakeGitHubSource("""{"owner":"octocat","repo":"Hello-World"}"""));
+
+        ((GitHubConnector)connector).Config.Kind.Should().Be(GitHubContentKind.Docs);
+    }
+
+    [Theory]
+    [InlineData("""{"repo":"r"}""")]
+    [InlineData("""{"owner":"o"}""")]
+    [InlineData("""{"owner":"-bad","repo":"r"}""")]
+    [InlineData("""{"owner":"o/../x","repo":"r"}""")]
+    [InlineData("""{"owner":"o","repo":".."}""")]
+    [InlineData("""{"owner":"o","repo":"r?x=1"}""")]
+    [InlineData("""{"owner":"o","repo":"r","kind":"wiki"}""")]
+    [InlineData("""{"owner":"o","repo":"r","kind":"7"}""")]
+    public void Create_ConnectionLessGitHubWithBadScope_Throws(string scope)
+    {
+        Action act = () => _factory.Create(MakeGitHubSource(scope));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Create_ConnectionLessGitHubNamingAnotherHost_Throws()
+    {
+        Action act = () => _factory.Create(
+            MakeGitHubSource("""{"owner":"o","repo":"r","host":"169.254.169.254"}"""));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*can only read github.com*");
     }
 
     [Fact]

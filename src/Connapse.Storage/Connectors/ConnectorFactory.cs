@@ -12,6 +12,7 @@ namespace Connapse.Storage.Connectors;
 /// </summary>
 public class ConnectorFactory(
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
+    IOptionsMonitor<GitHubSourceSettings> gitHubSettings,
     ISshHostKeyStore hostKeyStore,
     CloudScope.ConnapseAwsCredentials awsCredentials,
     CloudScope.ConnapseAzureCredentials azureCredentials,
@@ -148,11 +149,58 @@ public class ConnectorFactory(
 
         return source.Provider.Value switch
         {
-            ConnectionProvider.GitHub => throw new NotSupportedException(
-                "GitHub connector arrives in epic #508 phase 2"),
+            ConnectionProvider.GitHub => new GitHubConnector(GitHubConfig(source, scope)),
 
             _ => throw new NotSupportedException(
                 $"Provider {source.Provider} is not supported for connection-less sources")
+        };
+    }
+
+    /// <summary>
+    /// Reads a GitHub source's scope. Owner and repo are checked against GitHub's own naming
+    /// rules because both are spliced into the fetch URL, and the host is refused outright
+    /// unless it is github.com: a connection-less source reads anonymously, and pointing that
+    /// at an arbitrary host would make every sync an outbound request to wherever a scope says.
+    /// </summary>
+    private GitHubConnectorConfig GitHubConfig(Source source, JsonDocument scope)
+    {
+        string owner = Str(scope, "owner") ?? "";
+        if (!GitHubConnectorConfig.IsValidOwner(owner))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has no valid GitHub owner in its scope.");
+
+        string repo = Str(scope, "repo") ?? "";
+        if (!GitHubConnectorConfig.IsValidRepo(repo))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has no valid GitHub repo in its scope.");
+
+        string host = Str(scope, "host") ?? GitHubConnectorConfig.PublicHost;
+        if (!string.Equals(host, GitHubConnectorConfig.PublicHost, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' names GitHub host '{LogSanitizer.Sanitize(host)}'; a source without a connection "
+                + $"can only read {GitHubConnectorConfig.PublicHost}.");
+
+        string kindName = Str(scope, "kind") ?? nameof(GitHubContentKind.Docs);
+        if (!Enum.TryParse(kindName, ignoreCase: true, out GitHubContentKind kind)
+            || !Enum.IsDefined(kind))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has unknown GitHub content kind '{LogSanitizer.Sanitize(kindName)}'.");
+
+        IReadOnlyList<string> include = Arr(scope, "includePatterns");
+
+        return new GitHubConnectorConfig
+        {
+            Owner = owner,
+            Repo = repo,
+            RepoId = Long(scope, "repoId"),
+            Kind = kind,
+            IncludePatterns = include.Count > 0 ? include : GitHubConnectorConfig.DefaultDocPatterns,
+            ExcludePatterns = Arr(scope, "excludePatterns"),
+
+            // Keyed on the source id, not owner/repo: a rename must not orphan the mirror, and
+            // two sources for one repository must not share a fetch target.
+            MirrorPath = Path.GetFullPath(Path.Combine(
+                gitHubSettings.CurrentValue.MirrorDirectory, source.Id.ToString("N"))),
         };
     }
 
@@ -167,6 +215,12 @@ public class ConnectorFactory(
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
         && v.TryGetInt32(out int i)
             ? i
+            : null;
+
+    private static long? Long(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+        && v.TryGetInt64(out long l)
+            ? l
             : null;
 
     private static string? Str(JsonDocument doc, string name) =>

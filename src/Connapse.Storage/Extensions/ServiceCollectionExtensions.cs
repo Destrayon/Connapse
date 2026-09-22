@@ -174,6 +174,11 @@ public static class ServiceCollectionExtensions
         services.Configure<SourceSecuritySettings>(
             configuration.GetSection(SourceSecuritySettings.SectionName));
 
+        // Where GitHub docs sources keep their git mirrors. Configuration-only, for the same
+        // reason: it names a directory on the host.
+        services.Configure<GitHubSourceSettings>(
+            configuration.GetSection(GitHubSourceSettings.SectionName));
+
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.
         services.AddSingleton<ISshHostKeyStore, ConnectionSshHostKeyStore>();
