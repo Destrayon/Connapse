@@ -79,6 +79,7 @@ public sealed class GitHubRecordSourceTests : IDisposable
         pull.Metadata["github:state"].Should().Be("merged");
         pull.ResourceUri.Should().Be("https://github.com/octocat/hello/pull/2");
         pull.ContentType.Should().Be("text/markdown");
+        delta.Upserted.Should().OnlyContain(f => f.Strategy == ChunkingStrategy.Record);
     }
 
     [Fact]

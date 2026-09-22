@@ -762,10 +762,19 @@ internal static class IngestionPipelineStrategyResolver
 
     public static string Resolve(string fallbackStrategy, string? fileName)
     {
+        // A record is markdown too, but its shape is the reason it was given this strategy.
+        if (IsContentPinned(fallbackStrategy)) return fallbackStrategy;
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
         return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
     }
+
+    /// <summary>
+    /// A strategy chosen for what the content is, not configured: it is kept on reindex and never
+    /// counted as stale when the instance's configured strategy changes.
+    /// </summary>
+    public static bool IsContentPinned(string? strategy) =>
+        string.Equals(strategy, nameof(ChunkingStrategy.Record), StringComparison.OrdinalIgnoreCase);
 }
 
 
