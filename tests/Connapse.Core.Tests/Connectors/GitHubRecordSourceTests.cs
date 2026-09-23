@@ -261,6 +261,138 @@ public sealed class GitHubRecordSourceTests : IDisposable
         await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>();
     }
 
+    // ── Codex review regressions ───────────────────────────────────────────
+
+    [Fact]
+    public async Task GetChangesAsync_FirstCompleteEmission_IsAFullListingOnce()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var first = await Source().GetChangesAsync(null, default);
+        first.IsFullListing.Should().BeTrue("the engine must delete whatever was indexed before a fresh start");
+
+        _api.UpsertIssue(2, "New");
+        var second = await Source().GetChangesAsync(first.NextCursor, default);
+        second.IsFullListing.Should().BeFalse();
+        Paths(second).Should().Equal("/issues/2.md");
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_FirstSyncInterrupted_TheCompletingCycleIsStillAFullListing()
+    {
+        for (int n = 1; n <= 5; n++) _api.UpsertIssue(n, "Issue " + n);
+        _api.Budget = 2;
+        var partial = await Source().GetChangesAsync(null, default);
+        partial.IsFullListing.Should().BeFalse("nothing is emitted from a cycle that stopped partway");
+
+        _api.Budget = null;
+        var resumed = await Source().GetChangesAsync(partial.NextCursor, default);
+
+        resumed.IsFullListing.Should().BeTrue();
+        Paths(resumed).Should().HaveCount(5);
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_CommentEditedOnAnIdleRepository_IsPickedUpWithinTheHour()
+    {
+        _api.UpsertIssue(1, "Crash");
+        long id = _api.AddComment(1, "alice", "Tpyo");
+        var first = await Source().GetChangesAsync(null, default);
+
+        _api.EditComment(id, "Typo fixed"); // moves the comment, not the issue
+        var soon = await Source().GetChangesAsync(first.NextCursor, default);
+        soon.Upserted.Should().BeEmpty("an idle cycle only reads issues");
+
+        _clock.Advance(GitHubRecordSource.CommentSweepInterval);
+        var later = await Source().GetChangesAsync(soon.NextCursor, default);
+
+        Paths(later).Should().Equal("/issues/1.md");
+        (await ReadAsync(Connector(), "/issues/1.md")).Should().Contain("Typo fixed");
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_BudgetRunsOutBeforeTheComments_TheyAreStillOwedNextCycle()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var first = await Source().GetChangesAsync(null, default);
+
+        _api.AddComment(1, "alice", "Root cause found");
+        _api.Budget = _api.Requests + 1; // the issues page, then refused
+        var partial = await Source().GetChangesAsync(first.NextCursor, default);
+        partial.Upserted.Should().BeEmpty();
+
+        _api.Budget = null;
+        var resumed = await Source().GetChangesAsync(partial.NextCursor, default);
+
+        Paths(resumed).Should().Equal("/issues/1.md");
+        (await ReadAsync(Connector(), "/issues/1.md")).Should().Contain("Root cause found");
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_BudgetRunsOutDuringTheDeletionRefetch_TheRefetchIsNotForgotten()
+    {
+        _api.UpsertIssue(1, "Crash");
+        long spam = _api.AddComment(1, "alice", "Spam link");
+        _api.AddComment(1, "bob", "Real answer");
+        var first = await Source().GetChangesAsync(null, default);
+
+        _api.DeleteComment(spam);
+        _api.Budget = _api.Requests + 3; // issues, comments, review comments; the refetch is refused
+        var partial = await Source().GetChangesAsync(first.NextCursor, default);
+
+        _api.Budget = null;
+        var resumed = await Source().GetChangesAsync(partial.NextCursor, default);
+
+        Paths(resumed).Should().Equal("/issues/1.md");
+        (await ReadAsync(Connector(), "/issues/1.md")).Should().NotContain("Spam link");
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_DeletedReviewCommentAndHiddenSwap_AreRemovedByTheDailyRelist()
+    {
+        _api.UpsertIssue(1, "Crash");
+        long swapped = _api.AddComment(1, "alice", "Old comment");
+        _api.UpsertIssue(2, "Change", pullRequest: true);
+        long review = _api.AddComment(2, "bob", "Stale nit", reviewPath: "a.cs");
+        var first = await Source().GetChangesAsync(null, default);
+
+        // One deletion GitHub's counts cannot reveal (a new comment replaced it), and a deleted
+        // review comment, which no count covers at all.
+        _api.DeleteComment(swapped);
+        _api.AddComment(1, "carol", "New comment");
+        _api.DeleteComment(review);
+        var cycle = await Source().GetChangesAsync(first.NextCursor, default);
+
+        _clock.Advance(GitHubRecordSource.RelistInterval);
+        var relisted = await Source().GetChangesAsync(cycle.NextCursor, default);
+
+        relisted.Upserted.Select(f => f.Path).Should().Contain(["/issues/1.md", "/pulls/2.md"]);
+        var connector = Connector();
+        (await ReadAsync(connector, "/issues/1.md")).Should().NotContain("Old comment").And.Contain("New comment");
+        (await ReadAsync(connector, "/pulls/2.md")).Should().NotContain("Stale nit");
+    }
+
+    [Fact]
+    public async Task GetChangesAsync_SubIssueMovedToAnotherParent_ChangesTheChildsSignature()
+    {
+        _api.UpsertIssue(1, "Epic A");
+        _api.UpsertIssue(2, "Epic B");
+        _api.UpsertIssue(3, "Task");
+        _api.SetSubIssues(1, 3);
+        var first = await Source().GetChangesAsync(null, default);
+        var before = File(first, "/issues/3.md");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.SetSubIssues(1);
+        _api.SetSubIssues(2, 3);
+        var second = await Source().GetChangesAsync(first.NextCursor, default);
+
+        var after = File(second, "/issues/3.md");
+        after.Metadata!["github:parent"].Should().Be("2");
+        after.SizeBytes.Should().Be(before.SizeBytes, "#1 and #2 render to the same length");
+        after.LastModified.Should().BeAfter(before.LastModified,
+            "otherwise the engine sees an unchanged signature and keeps the stale parent");
+    }
+
     [Fact]
     public async Task GetChangesAsync_CursorButNoStore_RequiresFullResync()
     {

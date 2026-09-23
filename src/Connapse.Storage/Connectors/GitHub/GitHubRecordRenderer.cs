@@ -128,6 +128,7 @@ internal static partial class GitHubRecordRenderer
         DateTimeOffset lastModified = record.Comments.Values
             .Select(c => c.UpdatedAt)
             .Append(issue.UpdatedAt)
+            .Append(record.EdgesChangedAt ?? issue.UpdatedAt)
             .Max();
 
         return new GitHubRenderedRecord(PathFor(issue), md.ToString(), metadata, lastModified.UtcDateTime);
