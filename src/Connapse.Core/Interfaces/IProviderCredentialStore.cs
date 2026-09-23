@@ -38,6 +38,21 @@ public record RolesAnywhereConfig(
 public record RolesAnywhereCredentialMaterial(RolesAnywhereConfig Config, string PrivateKeyPem);
 
 /// <summary>
+/// The GitHub App Connapse acts as (non-secret). The private key and client secret are fetched
+/// separately via <see cref="IProviderCredentialStore.GetGitHubAppMaterialAsync"/>, so a listing can
+/// never render them.
+/// </summary>
+/// <param name="AppId">GitHub's numeric App id, the JWT issuer.</param>
+/// <param name="Slug">The App's URL name, as in <c>github.com/apps/{slug}</c>.</param>
+/// <param name="ClientId">For the user sign-in flow; null for an App entered by hand without one.</param>
+/// <param name="OwnerLogin">The account or organisation that owns the App.</param>
+/// <param name="HtmlUrl">The App's page on GitHub.</param>
+public record GitHubAppRegistration(long AppId, string Slug, string? ClientId, string OwnerLogin, string HtmlUrl);
+
+/// <summary>The complete GitHub App material read from one row snapshot, or null when none is stored.</summary>
+public record GitHubAppCredentialMaterial(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
+
+/// <summary>
 /// Existence and timing of a stored credential, independent of its shape.
 /// </summary>
 /// <remarks>
@@ -94,6 +109,18 @@ public interface IProviderCredentialStore
     Task<ProviderCredentialInfo> SaveRolesAnywhereAsync(
         string provider, RolesAnywhereConfig config, string privateKeyPem, string? principalName,
         Guid? createdByUserId, CancellationToken ct = default);
+
+    /// <summary>The stored GitHub App, or null when none is.</summary>
+    Task<GitHubAppRegistration?> GetGitHubAppAsync(CancellationToken ct = default);
+
+    /// <summary>The stored GitHub App with its decrypted private key and client secret, or null when none is.</summary>
+    /// <exception cref="ProviderCredentialUnavailableException">Stored but the key cannot be decrypted.</exception>
+    Task<GitHubAppCredentialMaterial?> GetGitHubAppMaterialAsync(CancellationToken ct = default);
+
+    /// <summary>Stores or replaces the GitHub App Connapse acts as.</summary>
+    Task<ProviderCredentialInfo> SaveGitHubAppAsync(
+        GitHubAppRegistration app, string privateKeyPem, string? clientSecret, Guid? createdByUserId,
+        CancellationToken ct = default);
 }
 
 /// <summary>
