@@ -22,6 +22,15 @@ public class SourceScopeSummaryTests
             .Should().Be("docs-bucket/team/2026");
     }
 
+    [Theory]
+    [InlineData("""{"owner":"octocat","repo":"hello","kind":"Docs"}""", "octocat/hello · docs")]
+    [InlineData("""{"owner":"octocat","repo":"hello","kind":"IssuesAndPullRequests"}""", "octocat/hello · issues and pull requests")]
+    [InlineData("""{"owner":"octocat","repo":"hello","kind":"Docs","includePatterns":["*.rst"]}""", "octocat/hello · docs (*.rst)")]
+    public void Describe_GitHubScope_ShowsRepositoryAndKind(string scope, string expected)
+    {
+        SourceScopeSummary.Describe(scope).Should().Be(expected);
+    }
+
     [Fact]
     public void Describe_S3ScopeWithoutPrefix_ShowsJustTheBucket()
     {

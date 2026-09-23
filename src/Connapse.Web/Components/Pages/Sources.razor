@@ -44,7 +44,7 @@
                 <a class="btn btn-outline-secondary" href="/connections">
                     <span class="bi-plug me-1"></span> Connections
                 </a>
-                <button class="btn btn-primary" @onclick="BeginCreate">
+                <button class="btn btn-primary" @onclick="BeginCreate" disabled="@(connections.Count == 0)">
                     <span class="bi-plus-lg me-1"></span> New source
                 </button>
             </div>
@@ -65,12 +65,12 @@
 
     @if (isAdmin && connections.Count == 0 && !loading)
     {
-        @* The button stays usable: a public source (a GitHub repository) needs no connection. *@
+        @* A source only exists inside a connection, so offering the button with nothing to
+           attach it to would open a modal whose first field has no options. *@
         <div class="alert alert-info">
             <span class="bi-info-circle me-2"></span>
-            No connections yet. <a href="/connections" class="alert-link">Add one</a> to index private
-            storage — a connection holds the credential, a source picks a scope inside it. Public
-            sources, such as a GitHub repository, need none: choose one under New source.
+            No connections yet. <a href="/connections" class="alert-link">Add one</a> before creating a source —
+            a connection holds the credential, a source picks a scope inside it.
         </div>
     }
 
@@ -262,85 +262,20 @@
                         </div>
                     }
 
-                    @* Where the content comes from, first: every field below depends on it. Kinds that
-                       need no connection are listed alongside the connections rather than behind a
-                       button of their own, so the next one is an entry in ConnectionlessSourceKinds. *@
                     <div class="mb-3">
-                        <label class="form-label" for="source-connection">Source</label>
-                        <select id="source-connection" class="form-select" value="@origin.Value"
-                                aria-describedby="source-connection-help" @onchange="OnOriginChanged">
-                            @if (connections.Count > 0)
+                        <label class="form-label" for="source-connection">Connection</label>
+                        <select id="source-connection" class="form-select" value="@form.ConnectionId"
+                                aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
+                            @foreach (var connection in connections)
                             {
-                                <optgroup label="Your connections">
-                                    @foreach (var connection in connections)
-                                    {
-                                        <option value="@SourceOrigin.ForConnection(connection.Id).Value">@connection.Name (@connection.Provider)</option>
-                                    }
-                                </optgroup>
+                                <option value="@connection.Id">@connection.Name (@connection.Provider)</option>
                             }
-                            <optgroup label="No connection needed">
-                                @foreach (var kind in ConnectionlessSourceKinds.All)
-                                {
-                                    <option value="@SourceOrigin.ForKind(kind).Value">@kind.Label</option>
-                                }
-                            </optgroup>
                         </select>
                         <div id="source-connection-help" class="form-text">
-                            @if (origin.Kind is null)
-                            {
-                                <text>The connection holds the credential. This source picks a scope inside it.</text>
-                            }
-                            else
-                            {
-                                <text>Read without a credential, so there is no connection to choose.</text>
-                            }
+                            The connection holds the credential. This source picks a scope inside it.
                         </div>
                     </div>
 
-                    @if (origin.Kind == ConnectionlessSourceKinds.GitHub && githubForm is not null)
-                    {
-                        <div class="mb-3">
-                            <label class="form-label" for="github-repo">Repository</label>
-                            <input id="github-repo" class="form-control" placeholder="https://github.com/owner/repo"
-                                   @bind="githubForm.Repository" @bind:event="oninput" aria-describedby="github-repo-help" />
-                            <div id="github-repo-help" class="form-text">
-                                Paste the address from your browser, or type <code>owner/repo</code>.
-                                @if (GitHubRepositoryForm.TryParse(githubForm.Repository, out _, out _))
-                                {
-                                    <text>
-                                        Creates
-                                        @string.Join(" and ", githubForm.ToRequests().Select(r => "“" + r.Name + "”")).
-                                    </text>
-                                }
-                            </div>
-                        </div>
-
-                        <div class="form-check">
-                            <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
-                            <label for="github-docs" class="form-check-label">Docs — markdown files on the default branch</label>
-                        </div>
-                        <div class="ms-4 mb-2">
-                            <label class="form-label small text-muted mb-1" for="github-patterns">File patterns, one per line (blank for *.md and *.markdown)</label>
-                            <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2"
-                                      disabled="@(!githubForm.IncludeDocs)" @bind="githubForm.DocPatterns"></textarea>
-                        </div>
-                        <div class="form-check">
-                            <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
-                            <label for="github-issues" class="form-check-label">Issues and pull requests</label>
-                        </div>
-                        <div class="form-check ms-4 mb-2">
-                            <input id="github-comments" type="checkbox" class="form-check-input"
-                                   disabled="@(!githubForm.IncludeIssues)" @bind="githubForm.IncludeComments" />
-                            <label for="github-comments" class="form-check-label">Include their comments</label>
-                        </div>
-                        <div class="form-text mb-0">
-                            Issues are checked every 15 minutes: GitHub allows 60 anonymous API requests an hour
-                            for this whole server, and each check spends one. Docs are fetched with git, outside
-                            that limit.
-                        </div>
-                    }
-                    else
-                    {
                     <div class="mb-3">
                         <label class="form-label" for="source-name">Name</label>
                         <input id="source-name" class="form-control" @bind="form.Name" placeholder="company-docs"
@@ -487,7 +422,6 @@
                                placeholder="300" aria-describedby="source-interval-help" />
                         <div id="source-interval-help" class="form-text">Leave empty to use the configured default. The minimum is 60.</div>
                     </div>
-                    }
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" @onclick="CancelCreate" disabled="@creating">Cancel</button>
@@ -496,7 +430,7 @@
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        @(origin.Kind is null ? "Create source" : "Add")
+                        Create source
                     </button>
                 </div>
             </div>
@@ -564,8 +498,6 @@
     private bool messageSuccess;
 
     private SourceForm? form;
-    private SourceOrigin origin;
-    private GitHubRepositoryForm? githubForm;
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -855,13 +787,7 @@
         message = null;
         createError = null;
         createWarning = null;
-        // Starts on the first connection when there is one, as before; otherwise on the first
-        // kind that needs none, since there is nothing else to pick.
-        origin = connections.Count > 0
-            ? SourceOrigin.ForConnection(connections[0].Id)
-            : SourceOrigin.ForKind(ConnectionlessSourceKinds.All[0]);
-        form = new SourceForm { ConnectionId = origin.ConnectionId ?? Guid.Empty };
-        githubForm = new GitHubRepositoryForm();
+        form = new SourceForm { ConnectionId = connections.First().Id };
     }
 
     private void CancelCreate()
@@ -871,18 +797,12 @@
         createWarning = null;
     }
 
-    private void OnOriginChanged(ChangeEventArgs args)
+    private void OnConnectionChanged(ChangeEventArgs args)
     {
         if (form is null) return;
 
-        var chosen = SourceOrigin.Parse(args.Value?.ToString());
-        if (chosen.IsEmpty) return;
-
-        origin = chosen;
-
-        // Empty for a connection-less kind, so nothing below reads a connection that was not chosen.
-        form.ConnectionId = origin.ConnectionId ?? Guid.Empty;
-        githubForm = new GitHubRepositoryForm();
+        if (Guid.TryParse(args.Value?.ToString(), out var id))
+            form.ConnectionId = id;
 
         // The scope fields differ per provider, so anything typed for the previous one is now
         // meaningless — carrying a bucket name over into a filesystem source would write a key
@@ -897,79 +817,12 @@
         createWarning = null;
     }
 
-    /// <summary>
-    /// Creates a public repository's docs and issues sources. Each is created on its own, so a name
-    /// clash on one (the repository was added before) still creates the other and says which was
-    /// skipped.
-    /// </summary>
-    private async Task CreateGitHubRepositoryAsync()
-    {
-        if (githubForm is null) return;
-
-        if (githubForm.Validate() is { } invalid)
-        {
-            createError = invalid;
-            return;
-        }
-
-        creating = true;
-        var created = new List<string>();
-        var skipped = new List<string>();
-
-        try
-        {
-            foreach (var request in githubForm.ToRequests())
-            {
-                try
-                {
-                    var source = await SourceStore.CreateAsync(request);
-                    created.Add(source.Name);
-                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
-                        new { source.Name, source.Provider });
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // A duplicate name: this repository's source of that kind already exists.
-                    skipped.Add(ex.Message);
-                }
-            }
-
-            if (created.Count == 0)
-            {
-                createError = "Nothing added. " + string.Join(" ", skipped);
-                return;
-            }
-
-            form = null;
-            githubForm = null;
-            Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync now."
-                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
-
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            // An exception escaping a Blazor event handler tears down the circuit.
-            createError = $"Could not add the repository: {ex.Message}";
-        }
-        finally
-        {
-            creating = false;
-        }
-    }
-
     private async Task Create()
     {
         if (form is null) return;
 
         createError = null;
         createWarning = null;
-
-        if (origin.Kind == ConnectionlessSourceKinds.GitHub)
-        {
-            await CreateGitHubRepositoryAsync();
-            return;
-        }
 
         var connection = connections.FirstOrDefault(c => c.Id == form.ConnectionId);
         if (connection is null)
