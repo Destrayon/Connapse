@@ -88,7 +88,8 @@ public class SourceConnectorFactoryTests
             logger ?? NullLogger<ConnectorFactory>.Instance,
             new Connapse.Storage.Connectors.GitHub.GitHubCredentialPool(
                 new Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp(
-                    scopeFactory, httpClients, NullLogger<Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp>.Instance)));
+                    scopeFactory, httpClients, NullLogger<Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp>.Instance),
+                scopeFactory));
     }
 
     private static Connection MakeConnection(ConnectionProvider provider, string config, Guid? id = null) => new(

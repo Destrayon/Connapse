@@ -30,8 +30,10 @@ public sealed class GitHubCredentialPoolTests : IDisposable
             Directory.Delete(_root, recursive: true);
     }
 
-    /// <summary>A pool over an App installed at <paramref name="installations"/>, minting "tok-{id}".</summary>
-    private GitHubCredentialPool Pool(params long[] installations)
+    /// <summary>A pool over an App installed at <paramref name="installations"/>, each added as a connection, minting "tok-{id}".</summary>
+    private GitHubCredentialPool Pool(params long[] installations) => Pool(installations, connected: installations);
+
+    private GitHubCredentialPool Pool(long[] installations, long[] connected)
     {
         using var rsa = RSA.Create(2048);
         var store = Substitute.For<IProviderCredentialStore>();
@@ -39,8 +41,15 @@ public sealed class GitHubCredentialPoolTests : IDisposable
             new GitHubAppRegistration(42, "connapse-test", null, "octo-org", "https://github.com/apps/connapse-test"),
             rsa.ExportRSAPrivateKeyPem(), null));
 
+        var connections = Substitute.For<IConnectionStore>();
+        connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(connected
+            .Select(id => new Connection(Guid.NewGuid(), $"install {id}", ConnectionProvider.GitHub,
+                $$"""{"installationId":{{id}},"account":"octo-org"}""", null, DateTime.UtcNow, DateTime.UtcNow))
+            .ToList());
+
         var services = new ServiceCollection();
         services.AddSingleton(store);
+        services.AddSingleton(connections);
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new AppStub(installations)));
 
@@ -48,7 +57,8 @@ public sealed class GitHubCredentialPoolTests : IDisposable
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
             NullLogger<ConnapseGitHubApp>.Instance, _clock) { ApiBaseUrl = "https://api.github.test" };
 
-        return new GitHubCredentialPool(app, _clock);
+        return new GitHubCredentialPool(
+            app, services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), _clock);
     }
 
     private static HttpResponseMessage Budget(int remaining, DateTimeOffset reset)
@@ -62,6 +72,19 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     private static readonly IReadOnlySet<long> None = new HashSet<long>();
 
     // ── Choosing an installation ───────────────────────────────────────────
+
+    [Fact]
+    public async Task AcquireAsync_InstallationWithNoConnection_IsNeverBorrowed()
+    {
+        var pool = Pool(installations: [1, 2], connected: [1]);
+        pool.Observe(1, Budget(0, _clock.Now.AddHours(1)));
+        pool.Observe(2, Budget(5000, _clock.Now.AddHours(1)));
+
+        var act = () => pool.AcquireAsync(GitHubAccess.Public(1), None);
+
+        await act.Should().ThrowAsync<GitHubRateLimitedException>(
+            "anyone can install a public App; an installation no administrator added spends nobody's budget");
+    }
 
     [Fact]
     public async Task AcquireAsync_PrefersTheSourcesOwnInstallation()
