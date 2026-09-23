@@ -108,6 +108,9 @@ public sealed class GitHubManifestRequests(IMemoryCache cache)
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(60);
 
+    /// <summary>Makes read-and-remove one step, so two callbacks racing on a state cannot both claim it.</summary>
+    private readonly Lock _claim = new();
+
     public string Start(Guid userId)
     {
         string state = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
@@ -118,10 +121,18 @@ public sealed class GitHubManifestRequests(IMemoryCache cache)
     /// <summary>True, once, when <paramref name="state"/> was started by <paramref name="userId"/>.</summary>
     public bool TryComplete(string? state, Guid userId)
     {
-        if (string.IsNullOrWhiteSpace(state) || !cache.TryGetValue(Key(state), out Guid startedBy))
+        if (string.IsNullOrWhiteSpace(state))
             return false;
 
-        cache.Remove(Key(state));
+        Guid startedBy;
+        lock (_claim)
+        {
+            if (!cache.TryGetValue(Key(state), out startedBy))
+                return false;
+
+            cache.Remove(Key(state));
+        }
+
         return startedBy == userId;
     }
 
