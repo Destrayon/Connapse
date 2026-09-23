@@ -1710,46 +1710,53 @@
                         GitHub shows you what the App will be allowed to do, then sends you back here and
                         Connapse stores it. Nothing to copy or paste.
                     </p>
-                    <div class="mb-2" style="max-width:24rem">
-                        <label class="form-label small" for="github-app-org">Organisation <span class="text-muted">(optional)</span></label>
-                        <input id="github-app-org" class="form-control form-control-sm" placeholder="Leave blank for your own account"
-                               @bind="gitHubAppOrganisation" @bind:event="oninput" @bind:after="ResetGitHubOwner" />
-                        <div class="form-text">
-                            Name the organisation whose repositories you want to index, so it owns the App.
-                            Without one, the App is created on your own account and made public, so it can
-                            be installed on your organisations and your users can sign in through it.
-                        </div>
-                    </div>
-                    @if (gitHubConfirmedOwner is not { } owner)
+                    @if (gitHubConfirmedOwner is { } owner && gitHubManifestState is not null
+                         && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
                     {
-                        <button type="button" class="btn btn-primary" disabled="@gitHubBusy" @onclick="CheckGitHubOwner">
-                            Continue
-                        </button>
-                        @if (gitHubOwnerError is not null)
-                        {
-                            <div class="text-danger small mt-2">@gitHubOwnerError</div>
-                        }
-                    }
-                    else if (gitHubManifestState is not null && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
-                    {
-                        <p class="small mb-2">
-                            @if (owner.Length == 0)
-                            {
-                                <text>Creates a <strong>public</strong> App on your own account.</text>
-                            }
-                            else
-                            {
-                                <text>Creates a <strong>private</strong> App owned by <strong>@owner</strong>. Only its members can sign in through it.</text>
-                            }
-                        </p>
                         @* A native form, not a Blazor one: GitHub's flow starts with the browser
-                           posting the manifest to github.com. *@
+                           posting the manifest to github.com. Always public: "public" decides who
+                           may install the App, not which repositories it reads, and one App
+                           installed on every organisation is how Connapse covers several. *@
                         <form method="post" action="@action">
-                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: owner.Length == 0)" />
+                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: true)" />
                             <button type="submit" class="btn btn-primary">
                                 <span class="bi-github me-1" aria-hidden="true"></span> Create the App on GitHub
                             </button>
                         </form>
+                        <div class="form-text">
+                            @if (owner.Length == 0)
+                            {
+                                <text>Created on your own GitHub account. You choose which organisations to install it on next, on GitHub.</text>
+                            }
+                            else
+                            {
+                                <text>Owned by <strong>@owner</strong>. You must be an owner or App manager there, or GitHub shows a 404 page and nothing is created.</text>
+                            }
+                        </div>
+                    }
+
+                    <button type="button" class="btn btn-link btn-sm px-0 mt-2" @onclick="ToggleGitHubOrgOwner">
+                        @(showGitHubOrgOwner ? "Use my own account instead" : "Have an organisation own the App instead")
+                    </button>
+                    @if (showGitHubOrgOwner)
+                    {
+                        <div class="mt-1" style="max-width:24rem">
+                            <label class="form-label small" for="github-app-org">Organisation</label>
+                            <div class="input-group input-group-sm">
+                                <input id="github-app-org" class="form-control" placeholder="my-org"
+                                       @bind="gitHubAppOrganisation" @bind:event="oninput" @bind:after="ResetGitHubOwner" />
+                                <button type="button" class="btn btn-outline-secondary" disabled="@gitHubBusy" @onclick="CheckGitHubOwner">
+                                    Use this organisation
+                                </button>
+                            </div>
+                            <div class="form-text">
+                                So the App outlives any one person's account. Other organisations can still install it.
+                            </div>
+                            @if (gitHubOwnerError is not null)
+                            {
+                                <div class="text-danger small mt-1">@gitHubOwnerError</div>
+                            }
+                        </div>
                     }
                 </EasyContent>
                 <Actions>
@@ -1969,14 +1976,27 @@
 
     private RequirementStatus GitHubStatus => GitHubRequirement?.Status ?? RequirementStatus.Unknown;
 
-    /// <summary>The App's owner once checked: an organisation's login, or empty for the administrator's own account.</summary>
-    private string? gitHubConfirmedOwner;
+    /// <summary>The App's owner: empty for the administrator's own account, or an organisation GitHub confirmed.</summary>
+    private string? gitHubConfirmedOwner = "";
     private string? gitHubOwnerError;
+    private bool showGitHubOrgOwner;
 
+    /// <summary>A changed organisation name goes back to unconfirmed until it is checked again.</summary>
     private void ResetGitHubOwner()
     {
-        gitHubConfirmedOwner = null;
         gitHubOwnerError = null;
+        gitHubConfirmedOwner = string.IsNullOrWhiteSpace(gitHubAppOrganisation) ? "" : null;
+    }
+
+    /// <summary>Closing the organisation option goes back to the administrator's own account.</summary>
+    private void ToggleGitHubOrgOwner()
+    {
+        showGitHubOrgOwner = !showGitHubOrgOwner;
+        if (!showGitHubOrgOwner)
+        {
+            gitHubAppOrganisation = null;
+            ResetGitHubOwner();
+        }
     }
 
     /// <summary>

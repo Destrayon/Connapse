@@ -490,7 +490,9 @@
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
                 <option value="@ConnectionProvider.Sftp">SFTP</option>
-                <option value="@ConnectionProvider.GitHub">GitHub App installation</option>
+                <option value="@ConnectionProvider.GitHub" disabled="@(gitHubAppConfigured == false && isNew)">
+                    GitHub App installation@(gitHubAppConfigured == false ? " (set up the GitHub provider first)" : "")
+                </option>
             </select>
             @if (!isNew)
             {
@@ -1254,6 +1256,9 @@
     private IReadOnlyList<Connapse.Storage.Connectors.GitHub.GitHubAppInstallation>? gitHubInstallations;
     private string? gitHubInstallationsError;
 
+    /// <summary>Null until checked. GitHub connections are installations of the provider's App, so none can exist without it.</summary>
+    private bool? gitHubAppConfigured;
+
     /// <summary>
     /// The App's installations, read after first render like the AWS status: it is a call to
     /// GitHub, and only the GitHub form needs it.
@@ -1262,7 +1267,8 @@
     {
         try
         {
-            if (!await GitHubApp.IsConfiguredAsync())
+            gitHubAppConfigured = await GitHubApp.IsConfiguredAsync();
+            if (gitHubAppConfigured == false)
             {
                 gitHubInstallationsError = "No GitHub App is set up yet.";
                 return;
@@ -1274,6 +1280,28 @@
         catch (Exception ex)
         {
             gitHubInstallationsError = "Could not list the GitHub App's installations: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Why a new GitHub connection cannot be saved: no provider App, or an installation the App no
+    /// longer has. Asked again at save, since the page may have been open while either changed.
+    /// </summary>
+    private async Task<string?> GitHubInstallationProblemAsync()
+    {
+        try
+        {
+            if (!await GitHubApp.IsConfiguredAsync())
+                return "Set up the GitHub App on the Providers page first.";
+
+            var installations = await GitHubApp.ListInstallationsAsync();
+            return installations.Any(i => i.Id == form.GitHubInstallationId)
+                ? null
+                : "The GitHub App is no longer installed there. Choose another installation.";
+        }
+        catch (Exception ex)
+        {
+            return "Could not check the installation with GitHub: " + ex.Message;
         }
     }
 
@@ -1968,6 +1996,12 @@
         if (form.Validate(isNew) is { } problem)
         {
             Fail(problem);
+            return;
+        }
+
+        if (isNew && form.Provider == ConnectionProvider.GitHub && await GitHubInstallationProblemAsync() is { } gitHubProblem)
+        {
+            Fail(gitHubProblem);
             return;
         }
 
