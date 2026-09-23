@@ -40,8 +40,10 @@
 **Phase 2 — connector skeleton + docs source:**
 - Create `src/Connapse.Storage/Connectors/GitHubConnector.cs` (implements `ISyncCursorConnector`).
 - Create `src/Connapse.Storage/Connectors/GitHubConnectorConfig.cs`.
+- Create `src/Connapse.Core/Models/GitHubSourceSettings.cs` (mirror directory).
 - Modify `ConnectorFactory.cs` — build `GitHubConnector` for docs kind.
-- Modify `src/Connapse.Storage/Connapse.Storage.csproj` — add `LibGit2Sharp`, `Octokit`.
+- Modify `SourceSyncService.cs`, `SourcesEndpoints.cs`, `IngestionPipeline.cs` — sync and read connection-less sources.
+- Modify `src/Connapse.Storage/Connapse.Storage.csproj` — add `LibGit2Sharp` (Octokit moves to Phase 3).
 
 **Phase 3 — issues-and-pull-requests source:**
 - Extend `GitHubConnector` (issues/PR kind branch), record assembly, edge capture.
@@ -336,29 +338,43 @@ Part of #508"
 
 **Goal:** A connection-less GitHub docs source syncs a public repo's markdown via git clone, emitting `ConnectorFile`s and a commit-SHA cursor; `ReadFileAsync` returns each doc's content. Done-condition: an integration test against a real small public repo (or a fixture clone) lists and reads the expected markdown files and advances the SHA cursor.
 
-**Detailed steps to be written once Phase 1 lands** (per project convention). Shape:
+Expanded on Phase 1 landing. Two decisions changed the outline, recorded here so Phase 3 builds on what exists:
 
-### Task 2.1: Add NuGet dependencies
-- Add `LibGit2Sharp` and `Octokit` to `src/Connapse.Storage/Connapse.Storage.csproj` (pin exact versions). Build.
+- **Persistent bare mirror, not a clone per sync.** Each docs source keeps a bare mirror at `{Sources:GitHub:MirrorDirectory}/{sourceId:N}` (default `appdata/github-mirrors`, on the appdata volume). A sync fetches `+HEAD:refs/connapse/head` (default branch only, no tags) and tree-diffs the stored SHA against the new head. The mirror retains every object it fetched, so a force-push upstream still diffs cleanly; only a lost mirror (cursor unknown locally) returns `RequiresFullResync`. Shallow fetch was spiked and dropped: LibGit2Sharp 0.32's `FetchOptions.Depth` fetched full history anyway, so relying on it would make production behavior differ from what is tested.
+- **Reads come from the mirror, not `raw.githubusercontent.com`.** The pipeline builds a fresh connector per document; reading the mirror costs no network and no rate budget, and gives exactly the content the sync diffed. Only `GetChangesAsync` fetches, so the mirror has a single writer, serialized by the per-source sync gate.
 
-### Task 2.2: `GitHubConnectorConfig`
-- Create the config record: `Owner`, `Repo`, `RepoId` (long, nullable until first sync), `Kind` (`Docs` | `IssuesAndPullRequests`), `Host` (default `github.com`, hard-pinned for connection-less), `IncludePatterns`/`ExcludePatterns` (docs; default markdown globs). Mirror `S3ConnectorConfig`/`SftpConnectorConfig` style. Unit-test parse from scope JSON.
+### Task 2.1: Add NuGet dependency
+- [x] `LibGit2Sharp` 0.32.0 in `Connapse.Storage.csproj`. Octokit is deferred to Phase 3, where it is first used.
 
-### Task 2.3: `GitHubConnector` capability surface + docs `ISyncCursorConnector`
-- `class GitHubConnector : ISyncCursorConnector, IDisposable`. `Type => ConnectorType.GitHub`, `SupportsLiveWatch => false`, `WatchAsync` throws.
-- `GetChangesAsync(cursor)`: shallow-clone (or fetch) the repo with LibGit2Sharp; if `cursor` (a SHA) is null, emit all matching files as upserts with `NextCursor = headSha`; else diff `cursor..head` for added/modified/removed matching the globs, emit `SyncDelta(upserted, deletedPaths, headSha, RequiresFullResync: cursorShaMissing)`. `RequiresFullResync: true` when the base SHA is absent (force-push/history rewrite).
-- `ListFilesAsync`: full-tree fallback (list all matching files at head).
-- `ReadFileAsync(path)`: return the file content. Decide read mechanism to avoid re-clone on the pipeline's per-file read (the pipeline re-creates the connector per document): read via `raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}` over `HttpClient` (off the 60/hour API budget), keyed by the source's current SHA. Record the decision in the phase summary.
-- `Path` convention: repo-relative with a leading slash; `ResolveJobPath` returns the path unchanged; `ReadFileAsync` accepts exactly that path (the pipeline calls it without `ResolveJobPath` for source-owned docs).
-- **Open item (resolve here):** confirm an unauthenticated `GET https://api.github.com/repos/{o}/{r}` returns 404 once private; use that as the public-to-private re-check, withholding on 404.
+### Task 2.2: Config + settings
+- [x] `src/Connapse.Storage/Connectors/GitHubConnectorConfig.cs`: `GitHubContentKind { Docs, IssuesAndPullRequests }`; `Owner`, `Repo`, `RepoId`, `Kind`, `Host` (pinned `github.com`), `IncludePatterns` (default `*.md`, `*.markdown` — what the text parser reads), `ExcludePatterns`, `MirrorPath`, `RemoteUrl` (test-only override; the factory never sets it). `IsValidOwner`/`IsValidRepo` follow GitHub's naming rules (Phase 5's form reuses them).
+- [x] `src/Connapse.Core/Models/GitHubSourceSettings.cs` (`Sources:GitHub:MirrorDirectory`), bound in `AddStorage`, configuration-only like `SourceSecuritySettings`; default added to `appsettings.json`.
 
-### Task 2.4: Wire the factory
-- In `ConnectorFactory.Create(Source)`'s `GitHub` arm, build `GitHubConnector` from `source.ScopeJson` (kind `Docs` for this phase). Ensure any `HttpClient` use is singleton-safe (the factory is a singleton) via an injected `IHttpClientFactory` (register it; `Microsoft.Extensions.Http` is already referenced).
+### Task 2.3: `GitHubConnector` (docs kind)
+- [x] `GitHubConnector : ISyncCursorConnector`. `GetChangesAsync(null)` lists every matching regular file at head; `(head)` is an empty delta; `(older)` is a tree diff (added/modified → upsert, deleted → delete, rename → delete old + upsert new, a doc replaced by a symlink → delete). Symlinks and submodules are never docs. Globs match file names case-insensitively, compiled once with a regex timeout (mirrors `SftpConnector`).
+- [x] `ReadFileAsync`/`ExistsAsync`/`ListFilesAsync` read the mirrored head; before the first sync they fail with `FileNotFoundException` (or `false`) rather than fetching. `ResolveJobPath` is identity; paths are repo-relative with a leading slash; `ResourceUri` is `https://github.com/{o}/{r}/blob/HEAD/{path}` (stable across commits).
+- [x] **Open item 1 resolved differently:** the public-to-private re-check is the fetch itself. GitHub answers an anonymous smart-HTTP request for any non-public repository (private, deleted, or renamed away) with 401 — confirmed 2026-09-22 (`/info/refs?service=git-upload-pack`: 200 for a public repo, 401 for a missing one) — which libgit2 raises as `GIT_EAUTH`. That becomes `GitHubRepositoryUnavailableException`, so the cycle fails with a clear message and keeps its cursor, at zero REST cost. The REST `GET /repos/{o}/{r}` probe is not needed; it would spend 12 of the 60 hourly anonymous requests per source at the 5-minute interval.
 
-### Task 2.5: Integration test
-- Following `S3ConnectorIntegrationTests`/`SourceSyncIntegrationTests`: point a docs source at a tiny public repo (or a local bare-repo fixture to avoid network flakiness in CI), run a sync cycle through `SourceSyncService` via the `IConnectorFactory` seam, assert the expected markdown files ingested and the SHA cursor advanced, and that a second cycle with an unchanged head is a no-op.
+### Task 2.4: Wire the factory and the connection-less paths
+- [x] `ConnectorFactory.Create(Source)`'s GitHub arm builds the connector from `ScopeJson` (`owner`, `repo`, `repoId`, `kind`, `includePatterns`, `excludePatterns`); invalid owner/repo, unknown kind, or any `host` other than `github.com` throws. No `HttpClient` needed in this phase.
+- [x] Carry-forward from Phase 1: `SourceSyncService.SyncAllAsync` and the sync-now route now sync connection-less sources through `Create(Source)` (`SyncSourceAsync` takes a nullable `Connection`); `IngestionPipeline.IngestSourceDocumentAsync` reads them the same way.
+
+### Task 2.5: Tests
+- [x] Unit: `GitHubConnectorTests` (local upstream repo via LibGit2Sharp: initial listing, no-op, add/modify/delete, rename, force-push, unknown/malformed cursor, excludes, reads, exists, prefix listing, auth-refusal classification), `GitHubConnectorConfigTests`, GitHub cases in `SourceConnectorFactoryTests`, updated `SourceSyncServiceLoggingTests`.
+- [x] Integration: `GitHubSourceSyncIntegrationTests` — a connection-less GitHub source synced through `SourceSyncService` against real PostgreSQL and a local upstream: docs enqueued and SHA cursor stored; unchanged head is a no-op; an upstream deletion removes the document; `SyncAllAsync` reaches connection-less sources.
 
 ### Task 2.6: Phase-exit verification + plan update.
+
+### Phase 2 status — COMPLETE (2026-09-22)
+- Done: `GitHubConnector` (docs kind) over a per-source bare mirror; `GitHubConnectorConfig` + `GitHubSourceSettings`; factory GitHub arm; connection-less sources synced by `SyncAllAsync`/sync-now and read by the ingestion pipeline; public-to-private re-check via the anonymous fetch's 401.
+- Files: `GitHubConnector.cs`, `GitHubConnectorConfig.cs`, `GitHubSourceSettings.cs`, `ConnectorFactory.cs`, `ServiceCollectionExtensions.cs`, `SourceSyncService.cs`, `SourcesEndpoints.cs`, `IngestionPipeline.cs`, `appsettings.json`, `Connapse.Storage.csproj`, + tests.
+- Verified: clean build; full unit suite green; `GitHubSourceSyncIntegrationTests` + the sync/endpoint/store/delete-guard integration classes green vs real PostgreSQL (the two `SourceIngestionOwnershipTests` failures reproduce identically on the Phase 1 base — they need an embedding backend). Anonymous 401 for non-public repos and `+HEAD:` fetch confirmed against github.com.
+- Deferred (carry forward):
+  1. **Search withholding on public-to-private.** The spec wants a now-non-public repo's documents withheld from search. Phase 2 stops syncing and records why; already-indexed content stays searchable. Needs a search-side filter keyed on source state — file as its own task before Phase 5 ships the add-repository flow.
+  2. **Null-cursor delta does not reconcile deletions.** `SyncViaDeltaAsync` treats the initial set as upserts only, so after a `RequiresFullResync` (lost mirror) files deleted upstream in the gap stay indexed. Phase 3's periodic issues re-list needs the same "initial set is authoritative, diff against indexed paths under the deletion guard" engine support — build it there and both kinds get it.
+  3. **Mirror cleanup.** Deleting a source leaves its mirror directory; add removal to the source-delete path (or a sweep of directories with no matching source).
+  4. **First fetch is full default-branch history** (shallow not honored by LibGit2Sharp 0.32). Fine for docs repos; revisit if a very large repository is a target.
+- Next action: expand Phase 3's detailed steps and implement the issues-and-pull-requests source (add Octokit there).
 
 ---
 
@@ -456,5 +472,5 @@ public class RecordChunkerTests
 **Type consistency:** `ConnectionProvider.GitHub`/`ConnectorType.GitHub` = 6 (aligned); `Source.ConnectionId` `Guid?` and `Source.Provider` `ConnectionProvider?` used consistently in store, factory overload `Create(Source)`, and endpoint DTO; chunker `Name` string `"Record"` equals `ChunkingStrategy.Record.ToString()`; `ChunkInfo` (not `Chunk`) is the chunk DTO; `SyncDelta(Upserted, DeletedPaths, NextCursor, RequiresFullResync)` matches the interface.
 
 ## Open items carried from the spec
-1. Public-to-private returns 404 unauthenticated — confirm in Phase 2.
+1. ~~Public-to-private returns 404 unauthenticated — confirm in Phase 2.~~ Resolved in Phase 2: detected at the git transport (anonymous 401), no REST call.
 2. Unauthenticated GraphQL/timeline edge-capture budget under 60/hour — confirm in Phase 3, fall back to deferred backfill.

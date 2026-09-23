@@ -215,11 +215,19 @@ public static class SourcesEndpoints
             if (!source.Enabled)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' is disabled" });
 
-            var connection = source.ConnectionId is Guid connectionId
-                ? await connectionStore.GetAsync(connectionId, ct)
-                : null;
-            if (connection is null)
-                return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
+            // A connection-less source (public GitHub) syncs through its Provider; only a source
+            // that names a connection can be missing one.
+            Connection? connection = null;
+            if (source.ConnectionId is Guid connectionId)
+            {
+                connection = await connectionStore.GetAsync(connectionId, ct);
+                if (connection is null)
+                    return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
+            }
+            else if (source.Provider is null)
+            {
+                return Results.BadRequest(new { error = $"Source '{source.Name}' has neither a connection nor a provider" });
+            }
 
             var result = await syncService.SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
 
