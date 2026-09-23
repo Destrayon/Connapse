@@ -10,21 +10,19 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Connapse.Storage.Connectors;
 
 /// <summary>
-/// Thrown when a repository that was public can no longer be read without a credential —
-/// it was made private, deleted, or renamed away. GitHub answers all three the same way to an
-/// anonymous client, so they cannot be told apart and are not guessed at.
+/// Thrown when a repository that was public is no longer public, or can no longer be read — it
+/// was made private, deleted, renamed away, or dropped from the installation. The source is hidden
+/// from search rather than guessed about.
 /// </summary>
 public sealed class GitHubRepositoryUnavailableException(string message, Exception inner)
     : SourceAccessRevokedException(message, inner);
 
 /// <summary>
-/// Read access to a public GitHub repository, unauthenticated.
+/// Read access to a public GitHub repository, as an installation of Connapse's GitHub App.
 /// <para>
 /// The docs kind keeps a bare mirror of the default branch on local disk and syncs by
-/// fetching into it, because git transport sits outside the REST API's 60-requests-an-hour
-/// anonymous budget — and a spike showed ETag revalidation still spends that budget. The
-/// cursor is the head commit SHA, so a delta is a tree diff between two commits the mirror
-/// already holds.
+/// fetching into it: git transport sits outside the REST API's budget, and the cursor is the
+/// head commit SHA, so a delta is a tree diff between two commits the mirror already holds.
 /// </para>
 /// <para>
 /// Reads come from the mirror too, never the network. The pipeline builds a fresh connector
@@ -35,7 +33,9 @@ public sealed class GitHubRepositoryUnavailableException(string message, Excepti
 /// </para>
 /// <para>
 /// The issues-and-pull-requests kind is delegated to <see cref="GitHubRecordSource"/>, which
-/// reads the REST API through <paramref name="http"/>; the docs kind never touches it.
+/// reads the REST API through <paramref name="http"/>. The docs kind uses the API only to confirm
+/// the repository is still public before each fetch. Both read as the installations
+/// <paramref name="auth"/> allows; tests construct them without it against local stand-ins.
 /// </para>
 /// </summary>
 public sealed class GitHubConnector(
@@ -82,10 +82,21 @@ public sealed class GitHubConnector(
         // Asked of the API rather than inferred from the fetch: with a token, a private repository
         // fetches as happily as a public one.
         string? token = null;
+        string? visibilityTag = null;
         if (auth is not null)
         {
             if (_api is not null && config.RequirePublic)
-                await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+            {
+                string tagFile = Path.Combine(config.MirrorPath, "connapse-visibility.etag");
+                string? previous = File.Exists(tagFile) ? await File.ReadAllTextAsync(tagFile, ct) : null;
+                string? next = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, previous, ct);
+                visibilityTag = next ?? previous;
+                if (next is not null && next != previous)
+                {
+                    Directory.CreateDirectory(config.MirrorPath);
+                    await File.WriteAllTextAsync(tagFile, next, ct);
+                }
+            }
 
             token = (await auth.AcquireAsync(new HashSet<long>(), ct)).Token;
         }
@@ -120,7 +131,7 @@ public sealed class GitHubConnector(
         // Asked again after the fetch: a repository made private between the first check and the
         // fetch would otherwise hand its private head to the index.
         if (auth is not null && _api is not null && config.RequirePublic)
-            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, visibilityTag, ct);
 
         return delta;
     }

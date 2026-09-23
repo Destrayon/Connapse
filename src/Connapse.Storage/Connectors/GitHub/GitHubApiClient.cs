@@ -57,6 +57,27 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl, GitHub
         }
     }
 
+    /// <summary>
+    /// One object, fetched only if it changed since <paramref name="etag"/>. An authenticated 304
+    /// costs nothing against the rate limit, which is what makes checking an idle repository
+    /// every cycle free.
+    /// </summary>
+    /// <returns>Whether it changed, the object when it did, and the ETag to send next time.</returns>
+    public async Task<(bool Changed, T? Value, string? ETag)> GetIfChangedAsync<T>(
+        string relativeUrl, string? etag, CancellationToken ct = default)
+    {
+        Uri url = new(_base, relativeUrl);
+        using var response = await SendAsync(url, ct, etag);
+
+        if (response.StatusCode == HttpStatusCode.NotModified)
+            return (false, default, etag);
+
+        ThrowIfUnusable(response, url);
+        await using var body = await response.Content.ReadAsStreamAsync(ct);
+        var value = await JsonSerializer.DeserializeAsync<T>(body, Json, ct);
+        return (true, value, response.Headers.ETag?.ToString());
+    }
+
     /// <summary>One object, such as a repository.</summary>
     public async Task<T> GetAsync<T>(string relativeUrl, CancellationToken ct = default)
     {
@@ -75,7 +96,7 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl, GitHub
     /// not stop a sync another installation could carry; when none is left the pool says when the
     /// earliest resets.
     /// </summary>
-    private async Task<HttpResponseMessage> SendAsync(Uri url, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(Uri url, CancellationToken ct, string? ifNoneMatch = null)
     {
         var tried = new HashSet<long>();
 
@@ -87,6 +108,8 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl, GitHub
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+            if (ifNoneMatch is not null)
+                request.Headers.TryAddWithoutValidation("If-None-Match", ifNoneMatch);
             if (lease is not null)
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lease.Token);
 
@@ -122,7 +145,7 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl, GitHub
     {
         switch (response.StatusCode)
         {
-            case HttpStatusCode.OK:
+            case HttpStatusCode.OK or HttpStatusCode.NotModified:
                 return;
 
             case HttpStatusCode.Unauthorized or HttpStatusCode.NotFound:

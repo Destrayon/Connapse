@@ -66,6 +66,12 @@ internal sealed class GitHubRecordState
     public DateTimeOffset? LastCommentSweepAt { get; set; }
 
     /// <summary>
+    /// When every sweep last ran regardless of the probes. A probe sees only the newest item, so an
+    /// edit tied to the same second as it can answer 304; an hourly sweep catches that.
+    /// </summary>
+    public DateTimeOffset? LastUnprobedSweepAt { get; set; }
+
+    /// <summary>
     /// Records whose stored issue comments outnumber what GitHub reports — a deletion no sweep
     /// shows. Kept here rather than per cycle, so a budget that runs out mid-refetch does not
     /// forget them.
@@ -80,6 +86,19 @@ internal sealed class GitHubRecordState
 
     /// <summary>Whether the emission awaiting acknowledgement was that full listing.</summary>
     public bool EmittedFull { get; set; }
+
+    /// <summary>
+    /// ETags from the last completed probes: the repository, and the newest issue, issue comment,
+    /// and review comment. Each is kept only once the sweep it gates has finished, so a probe can
+    /// never report "unchanged" for work a stopped cycle left undone.
+    /// </summary>
+    public string? RepositoryETag { get; set; }
+
+    public string? IssuesETag { get; set; }
+
+    public string? CommentsETag { get; set; }
+
+    public string? ReviewCommentsETag { get; set; }
 }
 
 /// <summary>
