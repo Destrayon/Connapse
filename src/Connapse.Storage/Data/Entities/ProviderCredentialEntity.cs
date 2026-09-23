@@ -70,4 +70,14 @@ public class ProviderCredentialEntity
 
     /// <summary>Region whose rolesanywhere endpoint is called.</summary>
     public string? Region { get; set; }
+
+    /// <summary>
+    /// Provider-specific settings that are not secret, as JSON. The GitHub App's id, slug, client
+    /// id, and owner live here rather than in columns of their own, which would be AWS-shaped for
+    /// every other row.
+    /// </summary>
+    public string? ConfigJson { get; set; }
+
+    /// <summary>A second secret where a provider has one — the GitHub App's client secret — under the same purpose as the key.</summary>
+    public string? SecretProtected { get; set; }
 }

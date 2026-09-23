@@ -1,4 +1,4 @@
-﻿using Connapse.Core;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Connapse.Storage.CloudScope;
@@ -181,6 +181,10 @@ public static class ServiceCollectionExtensions
 
         // GitHub issues sources read the REST API anonymously; headers are set per request.
         services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
+
+        // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
+        // rather than minted per request; it reaches the scoped credential store through a scope.
+        services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
 
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.

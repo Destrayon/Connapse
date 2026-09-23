@@ -176,4 +176,97 @@ public class PostgresProviderCredentialStore(
 
         return new ProviderCredentialInfo(provider, existing.PrincipalName, now);
     }
+
+    /// <summary>The provider key the GitHub App is stored under.</summary>
+    public const string GitHubProvider = "github";
+
+    private static readonly System.Text.Json.JsonSerializerOptions AppJson =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    public async Task<GitHubAppRegistration?> GetGitHubAppAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        string? json = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == GitHubProvider)
+            .Select(c => c.ConfigJson)
+            .FirstOrDefaultAsync(ct);
+
+        return ReadApp(json);
+    }
+
+    public async Task<GitHubAppCredentialMaterial?> GetGitHubAppMaterialAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        // One row snapshot, so a rotation landing mid-read can never pair one App with another's key.
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == GitHubProvider)
+            .Select(c => new { c.ConfigJson, c.PrivateKeyProtected, c.SecretProtected })
+            .FirstOrDefaultAsync(ct);
+
+        if (ReadApp(row?.ConfigJson) is not { } app)
+            return null;
+
+        if (string.IsNullOrEmpty(row!.PrivateKeyProtected))
+        {
+            throw new ProviderCredentialUnavailableException(
+                GitHubProvider, new InvalidOperationException("The stored GitHub App has no private key ciphertext."));
+        }
+
+        try
+        {
+            return new GitHubAppCredentialMaterial(
+                app,
+                Protector.Unprotect(row.PrivateKeyProtected),
+                string.IsNullOrEmpty(row.SecretProtected) ? null : Protector.Unprotect(row.SecretProtected));
+        }
+        catch (Exception ex)
+        {
+            throw new ProviderCredentialUnavailableException(GitHubProvider, ex);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo> SaveGitHubAppAsync(
+        GitHubAppRegistration app, string privateKeyPem, string? clientSecret, Guid? createdByUserId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentException.ThrowIfNullOrWhiteSpace(app.Slug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        if (app.AppId <= 0) throw new ArgumentException("The App id must be positive.", nameof(app));
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var existing = await db.ProviderCredentials.FirstOrDefaultAsync(c => c.Provider == GitHubProvider, ct);
+        var now = DateTime.UtcNow;
+
+        if (existing is null)
+        {
+            existing = new ProviderCredentialEntity { Provider = GitHubProvider };
+            db.ProviderCredentials.Add(existing);
+        }
+
+        existing.ConfigJson = System.Text.Json.JsonSerializer.Serialize(app, AppJson);
+        existing.PrivateKeyProtected = Protector.Protect(privateKeyPem);
+        existing.SecretProtected = string.IsNullOrWhiteSpace(clientSecret) ? null : Protector.Protect(clientSecret);
+        existing.PrincipalName = app.Slug;
+        existing.CreatedAt = now;
+        existing.CreatedByUserId = createdByUserId;
+        existing.VerifiedAt = null;
+
+        await db.SaveChangesAsync(ct);
+
+        return new ProviderCredentialInfo(GitHubProvider, existing.PrincipalName, now);
+    }
+
+    private static GitHubAppRegistration? ReadApp(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        var app = System.Text.Json.JsonSerializer.Deserialize<GitHubAppRegistration>(json, AppJson);
+        return app is { AppId: > 0 } ? app : null;
+    }
 }

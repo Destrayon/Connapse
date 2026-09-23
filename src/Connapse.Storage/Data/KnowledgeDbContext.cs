@@ -493,6 +493,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.ProfileArn).HasColumnName("profile_arn").HasMaxLength(2048);
             entity.Property(e => e.RoleArn).HasColumnName("role_arn").HasMaxLength(2048);
             entity.Property(e => e.Region).HasColumnName("region").HasMaxLength(64);
+            entity.Property(e => e.ConfigJson).HasColumnName("config_json");
+            entity.Property(e => e.SecretProtected).HasColumnName("secret_protected");
         });
 
         modelBuilder.Entity<ConnectionEntity>(entity =>
