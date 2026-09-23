@@ -17,9 +17,10 @@ public class ConnectorFactory(
     CloudScope.ConnapseAwsCredentials awsCredentials,
     CloudScope.ConnapseAzureCredentials azureCredentials,
     IHttpClientFactory httpClientFactory,
-    ILogger<ConnectorFactory> logger) : IConnectorFactory
+    ILogger<ConnectorFactory> logger,
+    GitHub.GitHubCredentialPool? gitHubPool = null) : IConnectorFactory
 {
-    /// <summary>The named client GitHub issues sources read the REST API through.</summary>
+    /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
     public const string GitHubHttpClientName = "GitHub";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -136,6 +137,8 @@ public class ConnectorFactory(
                 ExcludePatterns = Arr(scope, "excludePatterns"),
             }, hostKeyStore),
 
+            ConnectionProvider.GitHub => CreateGitHub(source, scope, connection, credential),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
         };
     }
@@ -153,7 +156,12 @@ public class ConnectorFactory(
 
         return source.Provider.Value switch
         {
-            ConnectionProvider.GitHub => CreateGitHub(source, scope),
+            // Anonymous reads are gone: 60 requests an hour per IP cannot carry a real
+            // deployment, and every GitHub source now reads as an installation of the App.
+            ConnectionProvider.GitHub => throw new InvalidOperationException(
+                $"Source '{source.Name}' has no connection. GitHub sources read as a GitHub App "
+                + "installation: set the App up on the Providers page, add an installation on the "
+                + "Connections page, and recreate this source on that connection."),
 
             _ => throw new NotSupportedException(
                 $"Provider {source.Provider} is not supported for connection-less sources")
@@ -161,23 +169,30 @@ public class ConnectorFactory(
     }
 
     /// <summary>
-    /// Only the issues kind reads the REST API, so only it is handed a client. The client comes
-    /// from the factory rather than being held here: this factory is a singleton, and a held
-    /// client would pin its handler past DNS changes.
+    /// A GitHub source on an App installation. The connection names the installation its reads
+    /// prefer; the shared pool may stand in another for a public repository when that one is
+    /// spent. The HTTP client comes from the factory rather than being held here: this factory is a
+    /// singleton, and a held client would pin its handler past DNS changes.
     /// </summary>
-    private GitHubConnector CreateGitHub(Source source, JsonDocument scope)
+    private GitHubConnector CreateGitHub(Source source, JsonDocument scope, Connection connection, JsonDocument credential)
     {
-        var config = GitHubConfig(source, scope);
-        return config.Kind == GitHubContentKind.IssuesAndPullRequests
-            ? new GitHubConnector(config, httpClientFactory.CreateClient(GitHubHttpClientName), logger)
-            : new GitHubConnector(config);
+        long installationId = Long(credential, "installationId")
+            ?? throw new InvalidOperationException($"Connection '{connection.Name}' names no GitHub App installation.");
+
+        if (gitHubPool is null)
+            throw new InvalidOperationException("GitHub sources need the GitHub App credential pool, which is not registered.");
+
+        var config = GitHubConfig(source, scope) with { InstallationId = installationId };
+        var auth = new GitHub.GitHubAuth(gitHubPool, GitHub.GitHubAccess.Public(installationId));
+
+        return new GitHubConnector(config, httpClientFactory.CreateClient(GitHubHttpClientName), logger, auth);
     }
 
     /// <summary>
     /// Reads a GitHub source's scope. Owner and repo are checked against GitHub's own naming
     /// rules because both are spliced into the fetch URL, and the host is refused outright
-    /// unless it is github.com: a connection-less source reads anonymously, and pointing that
-    /// at an arbitrary host would make every sync an outbound request to wherever a scope says.
+    /// unless it is github.com: reads carry an installation token, and a scope that could name
+    /// another host would send that token wherever it said.
     /// </summary>
     private GitHubConnectorConfig GitHubConfig(Source source, JsonDocument scope)
     {
@@ -194,7 +209,7 @@ public class ConnectorFactory(
         string host = Str(scope, "host") ?? GitHubConnectorConfig.PublicHost;
         if (!string.Equals(host, GitHubConnectorConfig.PublicHost, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
-                $"Source '{source.Name}' names GitHub host '{LogSanitizer.Sanitize(host)}'; a source without a connection "
+                $"Source '{source.Name}' names GitHub host '{LogSanitizer.Sanitize(host)}'; GitHub sources "
                 + $"can only read {GitHubConnectorConfig.PublicHost}.");
 
         string kindName = Str(scope, "kind") ?? nameof(GitHubContentKind.Docs);

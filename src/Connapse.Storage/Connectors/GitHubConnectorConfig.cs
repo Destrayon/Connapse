@@ -75,6 +75,19 @@ public partial record GitHubConnectorConfig
     /// </summary>
     public bool IncludeComments { get; init; } = true;
 
+    /// <summary>
+    /// The GitHub App installation this source's connection names. Preferred for its reads; for a
+    /// public repository any installation may stand in when it is spent.
+    /// </summary>
+    public long? InstallationId { get; init; }
+
+    /// <summary>
+    /// Refuse the repository unless GitHub says it is public. On until per-user permission
+    /// filtering exists: an installation token can read private repositories, and without that
+    /// filter anything indexed is searchable by everyone.
+    /// </summary>
+    public bool RequirePublic { get; init; } = true;
+
     /// <summary>The repository's web address, which a document's citation link hangs off.</summary>
     public string WebUrl => $"https://{Host}/{Owner}/{Repo}";
 

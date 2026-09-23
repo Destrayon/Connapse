@@ -22,6 +22,7 @@
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IProviderSetupReader SetupReader
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
+@inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
 @inject IProviderCredentialStore CredentialStore
 @inject NavigationManager Navigation
 
@@ -1351,6 +1352,16 @@
         }
     }
 
+    /// <summary>
+    /// The credential pool borrows only installations that have a connection, and caches that list;
+    /// a GitHub connection added, changed, or deleted here takes effect at once.
+    /// </summary>
+    private void ForgetGitHubInstallations(ConnectionProvider provider)
+    {
+        if (provider == ConnectionProvider.GitHub)
+            GitHubPool.ForgetInstallations();
+    }
+
     private void SelectGitHubInstallation(ChangeEventArgs args)
     {
         if (!long.TryParse(args.Value?.ToString(), out long id)) return;
@@ -2106,6 +2117,7 @@
                 await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
+                ForgetGitHubInstallations(form.Provider);
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
             }
             else
@@ -2114,6 +2126,7 @@
                 // form opening and saving. Reporting "saved" there would be a lie.
                 var updated = await ConnectionStore.UpdateAsync(editing!.Id,
                     new UpdateConnectionRequest(form.Name.Trim(), config, secret));
+                ForgetGitHubInstallations(form.Provider);
 
                 if (updated is null)
                 {
@@ -2165,6 +2178,7 @@
             // SourceCount above is a snapshot from the last load, so a source added since then
             // still reaches the store's own refusal — caught below rather than assumed away.
             bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
+            ForgetGitHubInstallations(connection.Provider);
             if (deleted)
                 Succeed($"Connection '{connection.Name}' deleted.");
             else

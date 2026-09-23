@@ -186,6 +186,9 @@ public static class ServiceCollectionExtensions
         // rather than minted per request; it reaches the scoped credential store through a scope.
         services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
 
+        // Every installation's remaining budget, shared by all GitHub sources on this server.
+        services.AddSingleton<Connectors.GitHub.GitHubCredentialPool>();
+
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.
         services.AddSingleton<ISshHostKeyStore, ConnectionSshHostKeyStore>();

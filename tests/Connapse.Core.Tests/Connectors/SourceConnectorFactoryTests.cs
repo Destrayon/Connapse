@@ -85,7 +85,11 @@ public class SourceConnectorFactoryTests
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azureOptions),
             httpClients,
-            logger ?? NullLogger<ConnectorFactory>.Instance);
+            logger ?? NullLogger<ConnectorFactory>.Instance,
+            new Connapse.Storage.Connectors.GitHub.GitHubCredentialPool(
+                new Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp(
+                    scopeFactory, httpClients, NullLogger<Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp>.Instance),
+                scopeFactory));
     }
 
     private static Connection MakeConnection(ConnectionProvider provider, string config, Guid? id = null) => new(
@@ -624,19 +628,20 @@ public class SourceConnectorFactoryTests
 
     // ── Connection-less sources (Create(Source), epic #508) ──────────────────
 
-    private static Source MakeGitHubSource(string scope) => MakeSource(Guid.NewGuid(), scope) with
-    {
-        ConnectionId = null,
-        Provider = ConnectionProvider.GitHub,
-    };
+    private static readonly Connection GitHubConnection =
+        MakeConnection(ConnectionProvider.GitHub, """{"installationId":77,"account":"octo-org"}""");
+
+    private static Source MakeGitHubSource(string scope) => MakeSource(GitHubConnection.Id, scope);
+
+    private IConnector CreateGitHub(string scope) => _factory.Create(MakeGitHubSource(scope), GitHubConnection);
 
     [Fact]
-    public void Create_ConnectionLessGitHub_BuildsADocsConnectorFromTheScope()
+    public void Create_GitHubConnection_BuildsADocsConnectorReadingAsTheInstallation()
     {
         var source = MakeGitHubSource(
             """{"owner":"octo-org","repo":"docs.site","repoId":1296269,"kind":"docs","excludePatterns":["CHANGELOG.md"]}""");
 
-        var connector = _factory.Create(source);
+        var connector = _factory.Create(source, GitHubConnection);
 
         var config = connector.Should().BeOfType<GitHubConnector>().Subject.Config;
         config.Owner.Should().Be("octo-org");
@@ -644,6 +649,8 @@ public class SourceConnectorFactoryTests
         config.RepoId.Should().Be(1296269);
         config.Kind.Should().Be(GitHubContentKind.Docs);
         config.Host.Should().Be("github.com");
+        config.InstallationId.Should().Be(77);
+        config.RequirePublic.Should().BeTrue("private repositories wait for per-user permission filtering");
         config.RemoteUrl.Should().BeNull("the factory only ever fetches from the public clone URL");
         config.EffectiveRemoteUrl.Should().Be("https://github.com/octo-org/docs.site.git");
         config.IncludePatterns.Should().BeEquivalentTo(GitHubConnectorConfig.DefaultDocPatterns);
@@ -653,23 +660,22 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
-    public void Create_ConnectionLessGitHubIssues_BuildsAnIssuesConnectorWithCommentsOptional()
+    public void Create_GitHubConnection_BuildsAnIssuesConnectorWithCommentsOptional()
     {
-        var connector = _factory.Create(MakeGitHubSource(
-            """{"owner":"octocat","repo":"Hello-World","kind":"IssuesAndPullRequests","includeComments":false}"""));
+        var config = CreateGitHub(
+                """{"owner":"octocat","repo":"Hello-World","kind":"IssuesAndPullRequests","includeComments":false}""")
+            .Should().BeOfType<GitHubConnector>().Subject.Config;
 
-        var config = connector.Should().BeOfType<GitHubConnector>().Subject.Config;
         config.Kind.Should().Be(GitHubContentKind.IssuesAndPullRequests);
         config.IncludeComments.Should().BeFalse();
         config.ApiBaseUrl.Should().Be("https://api.github.com");
     }
 
     [Fact]
-    public void Create_ConnectionLessGitHubWithoutKind_DefaultsToDocs()
+    public void Create_GitHubWithoutKind_DefaultsToDocs()
     {
-        var connector = _factory.Create(MakeGitHubSource("""{"owner":"octocat","repo":"Hello-World"}"""));
-
-        ((GitHubConnector)connector).Config.Kind.Should().Be(GitHubContentKind.Docs);
+        ((GitHubConnector)CreateGitHub("""{"owner":"octocat","repo":"Hello-World"}""")).Config.Kind
+            .Should().Be(GitHubContentKind.Docs);
     }
 
     [Theory]
@@ -681,21 +687,43 @@ public class SourceConnectorFactoryTests
     [InlineData("""{"owner":"o","repo":"r?x=1"}""")]
     [InlineData("""{"owner":"o","repo":"r","kind":"wiki"}""")]
     [InlineData("""{"owner":"o","repo":"r","kind":"7"}""")]
-    public void Create_ConnectionLessGitHubWithBadScope_Throws(string scope)
+    public void Create_GitHubWithBadScope_Throws(string scope)
     {
-        Action act = () => _factory.Create(MakeGitHubSource(scope));
+        Action act = () => CreateGitHub(scope);
 
         act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
-    public void Create_ConnectionLessGitHubNamingAnotherHost_Throws()
+    public void Create_GitHubNamingAnotherHost_Throws()
     {
-        Action act = () => _factory.Create(
-            MakeGitHubSource("""{"owner":"o","repo":"r","host":"169.254.169.254"}"""));
+        Action act = () => CreateGitHub("""{"owner":"o","repo":"r","host":"169.254.169.254"}""");
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*can only read github.com*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*can only read github.com*");
+    }
+
+    [Fact]
+    public void Create_GitHubConnectionWithoutAnInstallation_Throws()
+    {
+        var connection = MakeConnection(ConnectionProvider.GitHub, "{}");
+
+        Action act = () => _factory.Create(MakeSource(connection.Id, """{"owner":"o","repo":"r"}"""), connection);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*no GitHub App installation*");
+    }
+
+    [Fact]
+    public void Create_ConnectionLessGitHub_IsRefusedAndSaysWhatToDo()
+    {
+        var source = MakeSource(Guid.NewGuid(), """{"owner":"octocat","repo":"Hello-World"}""") with
+        {
+            ConnectionId = null,
+            Provider = ConnectionProvider.GitHub,
+        };
+
+        Action act = () => _factory.Create(source);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*GitHub App installation*");
     }
 
     [Fact]

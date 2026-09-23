@@ -290,7 +290,7 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CreateSource_ConnectionLessGitHub_Returns201WithNoConnection()
+    public async Task CreateSource_ConnectionLessGitHub_Returns400NamingTheAppConnection()
     {
         var response = await Admin.PostAsJsonAsync("/api/sources", new
         {
@@ -300,10 +300,9 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             scopeJson = """{"owner":"anthropics","repo":"claude-code"}""",
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
-        created.GetProperty("connectionId").ValueKind.Should().Be(JsonValueKind.Null,
-            "a connection-less source has no connection to point at");
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "GitHub is no longer read anonymously, so such a source could never sync");
+        (await response.Content.ReadAsStringAsync()).Should().Contain("GitHub App connection");
     }
 
     [Fact]
