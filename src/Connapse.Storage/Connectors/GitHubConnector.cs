@@ -387,9 +387,15 @@ public sealed class GitHubConnector(
             LastModified: head.Committer.When.UtcDateTime,
             ContentType: null,
 
+            // No ResourceUri: search treats an address as something a cloud grant must cover, and
+            // a public repository is readable by everyone, so its documents fall to Connapse's own
+            // access control. Private repositories will carry one, for a GitHub permission check.
             // HEAD rather than a SHA, so the link follows the default branch and does not churn
             // on every commit.
-            ResourceUri: $"{config.WebUrl}/blob/HEAD/{escaped}");
+            Metadata: new Dictionary<string, string>
+            {
+                [GitHub.GitHubRecordRenderer.MetadataPrefix + "url"] = $"{config.WebUrl}/blob/HEAD/{escaped}",
+            });
     }
 
     private static string ToVirtualPath(string repoPath) => "/" + repoPath;

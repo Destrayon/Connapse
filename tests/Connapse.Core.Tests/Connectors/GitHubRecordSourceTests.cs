@@ -77,7 +77,8 @@ public sealed class GitHubRecordSourceTests : IDisposable
         var pull = File(delta, "/pulls/2.md");
         pull.Metadata!["github:closes"].Should().Be("1");
         pull.Metadata["github:state"].Should().Be("merged");
-        pull.ResourceUri.Should().Be("https://github.com/octocat/hello/pull/2");
+        pull.Metadata["github:url"].Should().Be("https://github.com/octocat/hello/pull/2");
+        pull.ResourceUri.Should().BeNull("an address would put a public record behind cloud permission filtering");
         pull.ContentType.Should().Be("text/markdown");
         delta.Upserted.Should().OnlyContain(f => f.Strategy == ChunkingStrategy.Record);
     }

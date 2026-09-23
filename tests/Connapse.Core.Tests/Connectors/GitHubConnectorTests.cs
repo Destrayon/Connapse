@@ -110,7 +110,8 @@ public sealed class GitHubConnectorTests : IDisposable
 
         var file = delta.Upserted.Should().ContainSingle().Subject;
         file.SizeBytes.Should().Be(5);
-        file.ResourceUri.Should().Be("https://github.com/octocat/docs/blob/HEAD/docs/a%20b.md");
+        file.Metadata!["github:url"].Should().Be("https://github.com/octocat/docs/blob/HEAD/docs/a%20b.md");
+        file.ResourceUri.Should().BeNull("an address would put a public document behind cloud permission filtering");
     }
 
     [Fact]
