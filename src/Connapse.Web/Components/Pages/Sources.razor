@@ -14,6 +14,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
+@inject Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup GitHubRepositories
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -276,6 +277,49 @@
                         </div>
                     </div>
 
+                    @if (selectedProvider is ConnectionProvider.GitHub && githubForm is not null)
+                    {
+                        @* A GitHub connection is one App installation. The repository is named by
+                           address, and becomes up to two sources — its docs and its issues — named
+                           after it, so there is no name field here. *@
+                        <div class="mb-3">
+                            <label class="form-label" for="github-repo">Repository</label>
+                            <input id="github-repo" class="form-control" placeholder="https://github.com/owner/repo"
+                                   @bind="githubForm.Repository" @bind:event="oninput" aria-describedby="github-repo-help" />
+                            <div id="github-repo-help" class="form-text">
+                                A public repository's address, or <code>owner/repo</code>. Private repositories
+                                arrive with per-user permission filtering.
+                                @if (GitHubRepositoryForm.TryParse(githubForm.Repository, out _, out _) && form.ConnectionId != Guid.Empty)
+                                {
+                                    <text>
+                                        Creates
+                                        @string.Join(" and ", githubForm.ToRequests(form.ConnectionId).Select(r => "\u201c" + r.Name + "\u201d")).
+                                    </text>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="form-check">
+                            <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
+                            <label for="github-docs" class="form-check-label">Docs — markdown files on the default branch</label>
+                        </div>
+                        <div class="ms-4 mb-2">
+                            <label class="form-label small text-muted mb-1" for="github-patterns">File patterns, one per line (blank for *.md and *.markdown)</label>
+                            <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2"
+                                      disabled="@(!githubForm.IncludeDocs)" @bind="githubForm.DocPatterns"></textarea>
+                        </div>
+                        <div class="form-check">
+                            <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
+                            <label for="github-issues" class="form-check-label">Issues and pull requests</label>
+                        </div>
+                        <div class="form-check ms-4 mb-0">
+                            <input id="github-comments" type="checkbox" class="form-check-input"
+                                   disabled="@(!githubForm.IncludeIssues)" @bind="githubForm.IncludeComments" />
+                            <label for="github-comments" class="form-check-label">Include their comments</label>
+                        </div>
+                    }
+                    else
+                    {
                     <div class="mb-3">
                         <label class="form-label" for="source-name">Name</label>
                         <input id="source-name" class="form-control" @bind="form.Name" placeholder="company-docs"
@@ -422,6 +466,7 @@
                                placeholder="300" aria-describedby="source-interval-help" />
                         <div id="source-interval-help" class="form-text">Leave empty to use the configured default. The minimum is 60.</div>
                     </div>
+                    }
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-secondary" @onclick="CancelCreate" disabled="@creating">Cancel</button>
@@ -498,6 +543,7 @@
     private bool messageSuccess;
 
     private SourceForm? form;
+    private GitHubRepositoryForm? githubForm;
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -788,6 +834,7 @@
         createError = null;
         createWarning = null;
         form = new SourceForm { ConnectionId = connections.First().Id };
+        githubForm = new GitHubRepositoryForm();
     }
 
     private void CancelCreate()
@@ -812,9 +859,94 @@
         form.SubPath = null;
         form.IncludePatterns = null;
         form.ExcludePatterns = null;
+        githubForm = new GitHubRepositoryForm();
 
         createError = null;
         createWarning = null;
+    }
+
+    /// <summary>
+    /// Creates a public repository's docs and issues sources on a GitHub App connection, after
+    /// asking GitHub — as that installation — that the repository exists and is public. Each
+    /// source is created on its own, so a name clash on one still creates the other and says so.
+    /// </summary>
+    private async Task CreateGitHubRepositoryAsync(Connection connection)
+    {
+        if (githubForm is null) return;
+
+        if (githubForm.Validate() is { } invalid)
+        {
+            createError = invalid;
+            return;
+        }
+
+        var installationId = ConnectionForm.FromConnection(connection).GitHubInstallationId;
+        if (installationId is null)
+        {
+            createError = $"Connection '{connection.Name}' names no GitHub App installation. Edit it on the Connections page.";
+            return;
+        }
+
+        GitHubRepositoryForm.TryParse(githubForm.Repository, out string owner, out string repo);
+        creating = true;
+        var created = new List<string>();
+        var skipped = new List<string>();
+
+        try
+        {
+            var found = await GitHubRepositories.FindAsync(owner, repo, installationId.Value);
+            if (found is null)
+            {
+                createError = $"GitHub has no repository {owner}/{repo} that this installation can see.";
+                return;
+            }
+
+            // Refused rather than indexed: without per-user permission filtering, anything indexed
+            // is visible to every Connapse user.
+            if (!found.IsPublic)
+            {
+                createError = $"{found.FullName} is {found.Visibility}. Only public repositories can be indexed until per-user permission filtering arrives.";
+                return;
+            }
+
+            foreach (var request in githubForm.ToRequests(connection.Id))
+            {
+                try
+                {
+                    var source = await SourceStore.CreateAsync(request);
+                    created.Add(source.Name);
+                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
+                        new { source.Name, source.ConnectionId });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // A duplicate name: this repository's source of that kind already exists.
+                    skipped.Add(ex.Message);
+                }
+            }
+
+            if (created.Count == 0)
+            {
+                createError = "Nothing added. " + string.Join(" ", skipped);
+                return;
+            }
+
+            form = null;
+            githubForm = null;
+            Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync now."
+                + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit.
+            createError = $"Could not add the repository: {ex.Message}";
+        }
+        finally
+        {
+            creating = false;
+        }
     }
 
     private async Task Create()
@@ -828,6 +960,12 @@
         if (connection is null)
         {
             createError = "That connection no longer exists. Reload the page.";
+            return;
+        }
+
+        if (connection.Provider == ConnectionProvider.GitHub)
+        {
+            await CreateGitHubRepositoryAsync(connection);
             return;
         }
 
