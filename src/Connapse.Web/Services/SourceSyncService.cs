@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -44,6 +44,13 @@ public class SourceSyncService(
     /// <summary>Document metadata keys holding the remote's signature at last ingestion.</summary>
     internal const string RemoteLastModifiedKey = "RemoteLastModified";
     internal const string RemoteSizeKey = "RemoteSize";
+
+    /// <summary>
+    /// The longest the delta path holds a source's cursor waiting for in-flight documents. Long
+    /// enough for a large ingestion backlog to drain; short enough that a document stuck in
+    /// Processing by a crashed worker cannot stop the source from ever advancing.
+    /// </summary>
+    internal static readonly TimeSpan MaxCursorHold = TimeSpan.FromHours(6);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -237,13 +244,14 @@ public class SourceSyncService(
 
         int upserted;
         int deleted;
+        int inFlight;
         int withheld = 0;
 
         if (delta.IsFullListing)
         {
             // Everything the source holds, so anything indexed and missing from it went away
             // while there was no cursor to report it — the same question list-and-diff answers.
-            (upserted, deleted, withheld) = await ReconcileAsync(
+            (upserted, deleted, withheld, inFlight) = await ReconcileAsync(
                 source, delta.Upserted, sourceStore, context, sp, applyWithheldDeletions, ct);
             deleted += await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
 
@@ -261,9 +269,45 @@ public class SourceSyncService(
         }
         else
         {
-            upserted = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
+            (upserted, inFlight) = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
             deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
         }
+
+        // A change reported for a document that is still being ingested could not be queued: the
+        // job already running may have read the previous version. Advancing past it would lose
+        // that change for good, because a delta never reports it again. So the cursor stays put
+        // and the next cycle reports it once more, by which time the document has settled and its
+        // signature decides. Bounded, so a document stuck in flight cannot freeze the source.
+        if (inFlight > 0)
+        {
+            DateTime now = DateTime.UtcNow;
+            DateTime heldSince = source.SyncHeldSince ?? now;
+
+            if (now - heldSince < MaxCursorHold)
+            {
+                if (source.SyncHeldSince is null)
+                    await sourceStore.UpdateSyncHoldAsync(source.Id, heldSince, ct);
+
+                await sourceStore.UpdateSyncStateAsync(
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, now, ct);
+
+                logger.LogInformation(
+                    "Source {SourceId}: {InFlight} changed document(s) are still being ingested; "
+                    + "holding the cursor so the change is reported again next cycle",
+                    source.Id, inFlight);
+
+                return new SourceSyncResult(
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+            }
+
+            logger.LogWarning(
+                "Source {SourceId}: {InFlight} document(s) have been in flight for over {Hours} hours; "
+                + "advancing anyway. A change to one of them made meanwhile may not be picked up until it changes again.",
+                source.Id, inFlight, MaxCursorHold.TotalHours);
+        }
+
+        if (source.SyncHeldSince is not null)
+            await sourceStore.UpdateSyncHoldAsync(source.Id, heldSince: null, ct);
 
         // Compare-and-swap: a cycle that started earlier but finished later must not
         // overwrite newer progress with its own stale cursor.
@@ -295,7 +339,8 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
-        var (upserted, deleted, withheld) = await ReconcileAsync(
+        // In-flight documents need no hold here: the next listing reports every file again.
+        var (upserted, deleted, withheld, _) = await ReconcileAsync(
             source, remote, sourceStore, context, sp, applyWithheldDeletions, ct);
 
         // No cursor to advance on this path, so record the outcome directly. The stored
@@ -313,7 +358,7 @@ public class SourceSyncService(
     /// changed and deletes what is gone, unless the deletion guard withholds it. Shared by
     /// list-and-diff sources and by a delta source's full listing.
     /// </summary>
-    private async Task<(int Upserted, int Deleted, int Withheld)> ReconcileAsync(
+    private async Task<(int Upserted, int Deleted, int Withheld, int InFlight)> ReconcileAsync(
         Source source, IReadOnlyList<ConnectorFile> remote, ISourceStore sourceStore, KnowledgeDbContext context,
         IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
     {
@@ -328,7 +373,7 @@ public class SourceSyncService(
 
         // Upserts apply regardless. A source that trips the guard must keep ingesting new
         // content, or the safety mechanism becomes the outage it exists to prevent.
-        int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
+        var (upserted, inFlight) = await EnqueueAllAsync(source, remote, context, sp, ct);
 
         // An approval authorises the deletion set the administrator was shown a count of, not
         // whatever the next listing happens to produce. Recomputing stays — a remote that
@@ -377,7 +422,7 @@ public class SourceSyncService(
         await sourceStore.UpdateWithheldDeletionsAsync(
             source.Id, withhold ? vanished.Count : null, ct);
 
-        return (upserted, deleted, withhold ? vanished.Count : 0);
+        return (upserted, deleted, withhold ? vanished.Count : 0, inFlight);
     }
 
     /// <summary>
@@ -409,17 +454,22 @@ public class SourceSyncService(
         return byPath;
     }
 
-    private async Task<int> EnqueueAllAsync(
+    /// <returns>
+    /// How many files were enqueued, and how many were skipped because their document is still
+    /// pending or being ingested.
+    /// </returns>
+    private async Task<(int Enqueued, int InFlight)> EnqueueAllAsync(
         Source source, IReadOnlyList<ConnectorFile> files, KnowledgeDbContext context,
         IServiceProvider sp, CancellationToken ct)
     {
-        if (files.Count == 0) return 0;
+        if (files.Count == 0) return (0, 0);
 
         var existingByPath = await LoadByPathsAsync(
             context, source.Id, files.Select(f => f.Path).ToList(), ct);
 
         int count = 0;
         int skipped = 0;
+        int inFlight = 0;
 
         var due = new List<ConnectorFile>();
         var claims = new Dictionary<string, Guid>(StringComparer.Ordinal);
@@ -456,6 +506,9 @@ public class SourceSyncService(
             // the content hash is computed after the download and parse, so it dedupes
             // nothing that costs money. Skipping here is what keeps a five-minute poll from
             // re-embedding every file a source holds.
+            if (existing is { Status: "Pending" or "Queued" or "Processing" })
+                inFlight++;
+
             if (existing is not null && !HasRemoteChanged(existing, file))
             {
                 skipped++;
@@ -567,7 +620,7 @@ public class SourceSyncService(
             "Enqueued {Count} file(s) for source {SourceId} ({Name}); {Skipped} unchanged",
             count, source.Id, Sanitize(source.Name), skipped);
 
-        return count;
+        return (count, inFlight);
     }
 
     /// <summary>

@@ -38,7 +38,15 @@ public record Source(
 
     // See the ConnectionId comment above: null for a connection-bound source, set for a
     // connection-less one.
-    ConnectionProvider? Provider = null);
+    ConnectionProvider? Provider = null,
+
+    // When the sync engine started holding this source's cursor because a change arrived for a
+    // document still being ingested. Null when it is not holding.
+    DateTime? SyncHeldSince = null,
+
+    // When the remote last refused this source's reads (a public repository gone private).
+    // While set, the source's documents are kept out of search. Null when readable.
+    DateTime? AccessRevokedAt = null);
 
 public record CreateSourceRequest(
     string Name,

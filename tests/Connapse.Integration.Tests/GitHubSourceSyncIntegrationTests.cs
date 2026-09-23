@@ -232,6 +232,78 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
     }
 
     [Fact]
+    public async Task SyncSourceAsync_ChangeToADocStillBeingIngested_HoldsTheCursorUntilItSettles()
+    {
+        string first = Commit(new Dictionary<string, string> { ["a.md"] = "v1" });
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var sources = sp.GetRequiredService<ISourceStore>();
+        var source = await SeedGitHubSourceAsync(sp);
+        var (service, queue) = BuildService(sp);
+        await service.SyncSourceAsync(source, connection: null, CancellationToken.None);
+
+        // a.md is still Pending (the recording queue never runs jobs) when v2 lands.
+        Commit(new Dictionary<string, string> { ["a.md"] = "v2" });
+        queue.Jobs.Clear();
+        await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection: null, CancellationToken.None);
+
+        var held = (await sources.GetAsync(source.Id))!;
+        held.SyncCursor.Should().Be(first, "the v2 change could not be queued, so the cursor must not pass it");
+        held.SyncHeldSince.Should().NotBeNull();
+        queue.Jobs.Should().BeEmpty();
+
+        // The v1 job finishes, recording v1's signature. The held cycle now reports v2 again.
+        await SettleAsync(sp, source.Id);
+        string second = Commit(new Dictionary<string, string> { ["b.md"] = "b" });
+        await service.SyncSourceAsync(held, connection: null, CancellationToken.None);
+
+        queue.Jobs.Select(j => j.Path).Should().Contain("/a.md");
+        var advanced = (await sources.GetAsync(source.Id))!;
+        advanced.SyncCursor.Should().Be(second);
+        advanced.SyncHeldSince.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_HeldLongerThanTheCap_AdvancesAnyway()
+    {
+        Commit(new Dictionary<string, string> { ["a.md"] = "v1" });
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var source = await SeedGitHubSourceAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        await service.SyncSourceAsync(source, connection: null, CancellationToken.None);
+
+        string second = Commit(new Dictionary<string, string> { ["a.md"] = "v2" });
+        await sources.UpdateSyncHoldAsync(source.Id, DateTime.UtcNow - SourceSyncService.MaxCursorHold - TimeSpan.FromMinutes(1));
+
+        await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection: null, CancellationToken.None);
+
+        var after = (await sources.GetAsync(source.Id))!;
+        after.SyncCursor.Should().Be(second, "a document stuck in flight must not freeze the source");
+        after.SyncHeldSince.Should().BeNull();
+    }
+
+    /// <summary>What the ingestion worker leaves behind: every document Ready, with the signature its job carried.</summary>
+    private static async Task SettleAsync(IServiceProvider sp, Guid sourceId)
+    {
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var ctx = await dbFactory.CreateDbContextAsync();
+        foreach (var doc in await ctx.Documents.Where(d => d.SourceId == sourceId).ToListAsync())
+        {
+            doc.Status = "Ready";
+            doc.Metadata = new Dictionary<string, string>(doc.Metadata)
+            {
+                [SourceSyncService.RemoteLastModifiedKey] = "settled-at-an-older-version",
+                [SourceSyncService.RemoteSizeKey] = "0",
+            };
+        }
+
+        await ctx.SaveChangesAsync();
+    }
+
+    [Fact]
     public async Task SyncAllAsync_IncludesConnectionLessSources()
     {
         string head = Commit(new Dictionary<string, string> { ["a.md"] = "a" });
