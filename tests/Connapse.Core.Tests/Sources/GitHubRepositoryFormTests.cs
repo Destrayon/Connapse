@@ -138,7 +138,7 @@ public class GitHubRepositoryFormTests
             security, gitHub, Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopes, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azure), http, NullLogger<ConnectorFactory>.Instance,
-            new GitHubCredentialPool(new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance)));
+            new GitHubCredentialPool(new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance), scopes));
 
         return (GitHubConnector)factory.Create(source, GitHubConnection);
     }

@@ -30,11 +30,10 @@ public sealed class GitHubRepositoryLookupTests
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(_github, disposeHandler: false));
 
-        var app = new ConnapseGitHubApp(
-            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
-            NullLogger<ConnapseGitHubApp>.Instance) { ApiBaseUrl = "https://api.github.test" };
+        var scopes = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+        var app = new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance) { ApiBaseUrl = "https://api.github.test" };
 
-        return new GitHubRepositoryLookup(new GitHubCredentialPool(app), http) { ApiBaseUrl = "https://api.github.test" };
+        return new GitHubRepositoryLookup(new GitHubCredentialPool(app, scopes), http) { ApiBaseUrl = "https://api.github.test" };
     }
 
     [Theory]
