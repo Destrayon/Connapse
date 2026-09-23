@@ -19,6 +19,8 @@ public class GitHubAppManifestTests
 
         root.GetProperty("redirect_url").GetString()
             .Should().Be("https://connapse.example.test/api/v1/providers/github/manifest/callback");
+        root.GetProperty("setup_url").GetString()
+            .Should().Be("https://connapse.example.test/api/v1/providers/github/installed", "installing returns to Connections");
         root.GetProperty("public").GetBoolean().Should().BeFalse();
         root.GetProperty("hook_attributes").GetProperty("active").GetBoolean().Should().BeFalse();
 

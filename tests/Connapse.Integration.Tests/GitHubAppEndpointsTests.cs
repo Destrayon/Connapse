@@ -35,6 +35,20 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
         response.Headers.Location!.ToString().Should().Be("/admin/providers/github?github_error=expired");
     }
 
+    [Theory]
+    [InlineData("?installation_id=77&setup_action=install", "/connections?github_installation=77")]
+    [InlineData("?setup_action=request", "/connections?github_install=requested")]
+    [InlineData("", "/connections?new=github")]
+    public async Task Installed_ForwardsToTheConnectionsPage(string query, string expected)
+    {
+        using var client = Client(asAdmin: true);
+
+        var response = await client.GetAsync("/api/v1/providers/github/installed" + query);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.ToString().Should().Be(expected);
+    }
+
     [Fact]
     public void Host_ResolvesTheAppClientAndTheManifestRequestStore()
     {
