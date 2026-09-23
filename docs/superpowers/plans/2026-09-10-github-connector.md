@@ -21,7 +21,7 @@
 - Enum values are never renumbered after removal (Azure left gaps at 2 and 4). `ConnectionProvider` and `ConnectorType` are kept value-aligned.
 - `ConnectorFactory` is a **singleton**; any dependency injected into it must be singleton-safe or resolved via `IServiceScopeFactory` (captive-dependency trap; scope validation only runs in Development).
 - PRs kept under ~300 lines; a phase exceeding it lands as stacked PRs (`Part of #508` on intermediate, `Closes`-the-phase-issue on the last). Per project convention, write each phase's detailed task steps only once its predecessor has landed, because later tests depend on the API the previous phase actually produced.
-- This epic is **public repositories only, unauthenticated**. No GitHub App, no private repos, no identity linking, no permission filter, no `Connapse.Identity` changes.
+- Phases 1–5 were **public repositories only, unauthenticated**: no GitHub App, no private repos, no identity linking, no permission filter, no `Connapse.Identity` changes. **Superseded 2026-09-23** by the Milestone 1 revision below: a GitHub App is required for every GitHub source, and private repositories arrive in Phase 10 behind per-user permission filtering.
 
 ## File structure
 
@@ -490,6 +490,43 @@ public class RecordChunkerTests
 - `SourceForm.ToScopeJson` gains a `ConnectionProvider.GitHub` case emitting `{"owner","repo","kind","host"}` (must not throw on GitHub). `Sources.razor` gains a GitHub scope branch (repo URL → owner/repo parse, doc path globs). An "add repository" action creates **two** sources (Docs and IssuesAndPullRequests) in one submit via `SourceStore.CreateAsync` with `ConnectionId: null, Provider: GitHub`. `SourceScopeSummary.Describe` renders a GitHub scope line.
 
 ### Task 5.4: UI/e2e verification + plan update. The project's `release-gatekeeper`/provider-page rubric applies; audit the page against the config-page rubric as prior providers did.
+
+### Phase 5 status — CODE COMPLETE, browser check outstanding (2026-09-22)
+- Done: `github` entry in `ProviderSetupReader` (one "Public repositories" requirement; in use once any repository has a source, counted by owner/repo); `Providers.razor` GitHub branch with one `ProviderStepCard` (Easy = paste an address, Manual = docs/issues/comments/patterns choices); `GitHubRepositoryForm` parses `owner/repo` or any github.com URL and builds the docs and issues `CreateSourceRequest`s; `SourceScopeSummary` shows `owner/repo · docs` / `· issues and pull requests`; `Sources.razor` names a connection-less source's provider and lets Sync now run it.
+- **Added to the phase:** the sync loop now honours `SyncIntervalSeconds` (`SourceSyncService.IsDue`). It was stored and editable but ignored, so every source synced every 5 minutes; the add-repository flow gives issues sources 15 minutes, which keeps an idle source at 4 of the 60 hourly anonymous requests.
+- `SourceForm.ToScopeJson` is unchanged: the generic add-source form requires a connection, so GitHub sources are created only from the provider page and never reach it.
+- Verified: clean build; unit suite green (incl. 17 form cases, 4 interval cases, 2 provider-reader cases, card count now 6); `GitHubRepositoryFlowIntegrationTests` pushes the form's requests through the real store and factory, syncs both sources in one cycle, and resolves the reader from the host to confirm DI supplies the store.
+- **Not verified:** the page in a browser. Signing in needs a password, which the agent may not enter; an admin should load `/admin/providers/github`, add a repository, and audit the page against the config-page rubric.
+- Deferred: editing a GitHub source's scope from the Sources page; `SourceResponse` still lacks `Provider` (REST).
+
+### Phase 5 revision — the add-repository UI is withdrawn (2026-09-23)
+Two decisions superseded the Phase 5 UI before #513 merged:
+- **Providers is for identity and permission setup only.** A public repository is a source, so the GitHub provider page, its `ProviderSetupReader` entry, and the step card were removed.
+- **A GitHub App is required for every GitHub source, public ones included** (Milestone 1 revision below). The interim "No connection needed → Public GitHub repository" option in New source, `GitHubRepositoryForm`, and the `SourceOrigin` where-from model were therefore removed too; the parser and form live in `c8ebe95` if the App phase wants them back.
+
+What #513 keeps: `SourceSyncService.IsDue` (per-source sync intervals are honoured), the Sources page naming a connection-less source's provider and letting Sync now run it, and the GitHub line in `SourceScopeSummary`.
+
+---
+
+## Milestone 1 revision — GitHub App required (2026-09-23)
+
+**Why.** Anonymous public sync is capped at 60 REST requests an hour per IP (about 10 repositories), GitHub tightened unauthenticated limits in May 2025, and no comparable product syncs issues anonymously. A GitHub App installation gets its own budget — 5,000 an hour plus 50 per repository and per org user past 20, capped at 12,500 (15,000 on Enterprise Cloud) — and an authenticated 304 costs nothing, so idle repositories become free. Pooling user-supplied tokens was rejected as a hassle. Evidence: `docs/research/github-connector-scaling-2026-09-23.md`.
+
+**Rules that follow.**
+- Every GitHub source belongs to a GitHub App connection. Connection-less GitHub sources are removed (the optional `ConnectionId` from Phase 1 stays, for future public sources such as a web crawl).
+- **Until Phase 7 lands, the anonymous path still exists on the epic branch:** the REST create endpoint accepts a connection-less GitHub source and the factory builds an anonymous connector. That is transitional, not supported — no UI creates one — and the epic does not merge to main before Phase 7 removes it and Phase 9 settles existing rows.
+- **No private repository is indexed before search can enforce GitHub permissions.** Private-source creation belongs to Phase 10, behind a verified per-user filter; Phases 6–9 are public-only. Pinning ingestion to the right installation does not restrict who can *search* the content.
+- **Public repositories** may be read through any healthy installation in the pool: pick the one with the most remaining budget, fail over on exhaustion or a revoked installation, wait for the earliest reset when all are spent.
+- **Private repositories** are read only through the installation that covers them — never pooled, per the per-object permission principle. A failed installation hides its sources' documents, fail closed.
+- The App's private key is stored encrypted on the host (as the AWS Roles Anywhere key is). Key Vault / KMS remote signing is an optional later hardening, not a requirement.
+
+**Phases** (detailed steps written as each predecessor lands, per the plan's convention):
+
+6. **GitHub App connection.** Goal: an admin creates and installs a Connapse GitHub App from the Providers page. Done when: `ConnectionProvider.GitHub` connections are created through the manifest flow (App id, private key, secrets stored encrypted), installations are listed, a JWT → installation-token client exists with token caching, and a live test records whether an installation token reads *uninstalled* public repositories at the installation rate and whether a zero-repository install is possible. The Providers page gets a GitHub step card for this — real identity setup.
+7. **Connector on installation tokens.** Goal: the GitHub connector never reads anonymously. Done when: API calls and git clones (`x-access-token`) use installation tokens; a server-wide credential pool and budget reads `X-RateLimit-*` from every response, serialises requests, and backs off in GitHub's documented order; public reads fail over across installations, private reads stay pinned; anonymous mode is deleted.
+8. **Conditional-request probes.** Goal: an idle repository costs no primary budget. Done when: fixed-parameter probes on issues, issue comments, and review comments gate the `since` fetch on an ETag change, with tests showing an idle cycle spends only 304s.
+9. **Add public repositories on an App connection.** Goal: an admin adds a public repository from New source by choosing a GitHub App connection. Done when: the dialog accepts a public repository address, refuses a private one with a message pointing at Phase 10, creates the docs and issues sources on that connection, and existing connection-less GitHub sources have a documented migration or are refused with a clear message.
+10. **Private repositories with per-user permission filtering.** Goal: private repositories can be added, and search shows their documents only to users GitHub says can read them. Done when: the deferred design from the 2026-09-09 research is built — user-to-server identity linking, live per-repository permission checks at query time, fail-closed — and verified by tests *before* the dialog offers private repositories; the open `metadata:read` vs push question for the collaborator-permission endpoint is settled by a live test.
 
 ---
 

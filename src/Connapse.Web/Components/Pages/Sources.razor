@@ -128,7 +128,7 @@
                                     <div class="small text-muted">@source.Description</div>
                                 }
                             </td>
-                            <td class="small">@ConnectionName(source.ConnectionId)</td>
+                            <td class="small">@Origin(source)</td>
                             @* The scope names a bucket or directory, which is infrastructure rather
                                than content. Shown because an operator needs to know what a source
                                points at; it is never a listing of what is inside. *@
@@ -660,6 +660,12 @@
         }
     }
 
+    /// <summary>The connection a source reads through, or its provider when it has none.</summary>
+    private string Origin(Source source) =>
+        source.ConnectionId is null && source.Provider is { } provider
+            ? $"{provider} (public, no connection)"
+            : ConnectionName(source.ConnectionId);
+
     private string ConnectionName(Guid? connectionId) =>
         connectionId is Guid id && connectionNames.TryGetValue(id, out var name)
             ? name
@@ -704,7 +710,9 @@
             var connection = source.ConnectionId is Guid connectionId
                 ? await ConnectionStore.GetAsync(connectionId)
                 : null;
-            if (connection is null)
+
+            // A connection-less source (public GitHub) is synced through its own provider.
+            if (connection is null && source.Provider is null)
             {
                 Fail($"'{source.Name}' references a connection that no longer exists.");
                 return;
