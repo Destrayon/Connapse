@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
+using Connapse.Storage.Connectors.GitHub;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Web.Services;
@@ -25,7 +26,8 @@ public class ProviderSetupReader(
     IConnectionStore connections,
     IProviderCredentialStore credentials,
     TimeProvider clock,
-    ILogger<ProviderSetupReader> logger) : IProviderSetupReader
+    ILogger<ProviderSetupReader> logger,
+    ConnapseGitHubApp? gitHubApp = null) : IProviderSetupReader
 {
     /// <summary>
     /// How long a stored key may fail before that stops being propagation delay.
@@ -64,6 +66,7 @@ public class ProviderSetupReader(
         Task<ProviderRequirement> azurePermissionsTask = AzurePerUserPermissionsAsync(azureAd.CurrentValue, azureProvider.CurrentValue, ct);
         var azureAccess = await azureAccessTask;
         var azurePermissions = await azurePermissionsTask;
+        var gitHub = await GitHubAppAsync(ct);
 
         return
         [
@@ -81,9 +84,72 @@ public class ProviderSetupReader(
                 [azureAccess, azurePermissions],
                 InUse: providers.Contains(ConnectionProvider.AzureBlob)
                     || azureAd.CurrentValue.IsConfigured
-                    || azureAccess.Status != RequirementStatus.NotConfigured)
+                    || azureAccess.Status != RequirementStatus.NotConfigured),
+
+            // The App is the identity every GitHub read uses, public repositories included, so it
+            // is set up here like AWS access; its installations become connections.
+            new ProviderSetup("github", "GitHub",
+                [gitHub],
+                InUse: gitHub.Status != RequirementStatus.NotConfigured)
         ];
     }
+
+    /// <summary>
+    /// Whether Connapse has a GitHub App and GitHub still accepts its key. Listing installations is
+    /// the probe: it needs a valid App JWT, and its answer is what the page shows next anyway.
+    /// </summary>
+    private async Task<ProviderRequirement> GitHubAppAsync(CancellationToken ct)
+    {
+        const string name = "GitHub App";
+        const string description =
+            "The App Connapse reads GitHub as — public repositories included. Each place it is installed becomes a connection.";
+
+        GitHubAppRegistration? app;
+        try
+        {
+            app = await credentials.GetGitHubAppAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the stored GitHub App");
+            return new ProviderRequirement(name, description, RequirementStatus.Unknown,
+                "Could not read the stored App.");
+        }
+
+        if (app is null || gitHubApp is null)
+        {
+            return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
+                ActionLabel: "Create the App", ActionHref: "#github-app");
+        }
+
+        try
+        {
+            var installations = await gitHubApp.ListInstallationsAsync(ct);
+            await credentials.MarkVerifiedAsync(PostgresGitHubProvider, clock.GetUtcNow().UtcDateTime, ct);
+
+            return installations.Count == 0
+                ? new ProviderRequirement(name, description, RequirementStatus.Warning,
+                    $"{app.Slug} is not installed anywhere yet. Install it on an organisation or account.",
+                    "Install the App", app.HtmlUrl.TrimEnd('/') + "/installations/new")
+                : new ProviderRequirement(name, description, RequirementStatus.Satisfied,
+                    $"{app.Slug}, installed on {string.Join(", ", installations.Select(i => i.AccountLogin))}.");
+        }
+        catch (GitHubAppException ex) when (ex.StatusCode is 401 or 404)
+        {
+            // Accepted before and refused now means the key was revoked or the App deleted —
+            // waiting will not help, which is what Failed says.
+            return new ProviderRequirement(name, description, RequirementStatus.Failed,
+                $"GitHub no longer accepts {app.Slug}'s key. Set the App up again or upload a new key.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not reach GitHub to check the App");
+            return new ProviderRequirement(name, description, RequirementStatus.Unknown,
+                $"{app.Slug} is stored, but GitHub could not be reached to confirm it works.");
+        }
+    }
+
+    private const string PostgresGitHubProvider = "github";
 
     /// <summary>
     /// Whether Connapse has an Azure app identity to read Blob storage (and Entra/ARM) with, and

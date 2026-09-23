@@ -21,6 +21,7 @@
 @inject IAzureBlobDiscovery AzureDiscovery
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IProviderSetupReader SetupReader
+@inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -475,6 +476,10 @@
                 {
                     <text>Filled in from the first container you choose if left blank.</text>
                 }
+                else if (form.Provider == ConnectionProvider.GitHub)
+                {
+                    <text>Filled in from the installation you choose if left blank.</text>
+                }
             </div>
         </div>
 
@@ -485,6 +490,7 @@
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
                 <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
                 <option value="@ConnectionProvider.Sftp">SFTP</option>
+                <option value="@ConnectionProvider.GitHub">GitHub App installation</option>
             </select>
             @if (!isNew)
             {
@@ -789,6 +795,51 @@
                                 Syncing stops if this stops matching.
                             </span>
                         }
+                    </div>
+                }
+            </div>
+        }
+        else if (form.Provider == ConnectionProvider.GitHub)
+        {
+            @* One installation of Connapse's GitHub App. The App itself — the identity every
+               installation reads as — is set up on the Providers page, the way AWS access is. *@
+            <div class="col-12" style="max-width:32rem">
+                <label class="form-label" for="github-installation">Installation</label>
+                @if (gitHubInstallationsError is not null)
+                {
+                    <div class="alert alert-warning py-2 small mb-0" role="status">
+                        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                        @gitHubInstallationsError
+                        <a class="alert-link ms-1" href="/admin/providers/github">Set up the GitHub App</a>
+                    </div>
+                }
+                else if (gitHubInstallations is null)
+                {
+                    <div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span> Loading installations…</div>
+                }
+                else if (gitHubInstallations.Count == 0)
+                {
+                    <div class="alert alert-info py-2 small mb-0" role="status">
+                        The GitHub App is not installed anywhere yet. Install it on an organisation or
+                        account from <a class="alert-link" href="/admin/providers/github">the GitHub provider page</a>,
+                        then come back.
+                    </div>
+                }
+                else
+                {
+                    <select id="github-installation" class="form-select" value="@form.GitHubInstallationId"
+                            @onchange="SelectGitHubInstallation" disabled="@(!isNew)" aria-describedby="github-installation-help">
+                        <option value="">Choose an installation…</option>
+                        @foreach (var installation in gitHubInstallations)
+                        {
+                            <option value="@installation.Id">
+                                @installation.AccountLogin (@installation.AccountType@(installation.RepositorySelection == "all" ? ", all repositories" : ", selected repositories"))
+                            </option>
+                        }
+                    </select>
+                    <div id="github-installation-help" class="form-text">
+                        Sources on this connection read GitHub as this installation. Which repositories
+                        it covers is chosen on GitHub, in the installation's settings.
                     </div>
                 }
             </div>
@@ -1098,7 +1149,7 @@
                 <span>@(isNew ? "Create connection" : "Save changes")</span>
             </button>
             <button class="btn btn-secondary me-2" @onclick="CancelEdit">Cancel</button>
-            @if (form.IsCloudProvider || form.Provider == ConnectionProvider.Sftp)
+            @if (form.IsCloudProvider || form.Provider is ConnectionProvider.Sftp or ConnectionProvider.GitHub)
             {
                 <button class="btn btn-info" @onclick="Test" disabled="@testing">
                     @if (testing)
@@ -1200,6 +1251,44 @@
         await LoadAsync();
     }
 
+    private IReadOnlyList<Connapse.Storage.Connectors.GitHub.GitHubAppInstallation>? gitHubInstallations;
+    private string? gitHubInstallationsError;
+
+    /// <summary>
+    /// The App's installations, read after first render like the AWS status: it is a call to
+    /// GitHub, and only the GitHub form needs it.
+    /// </summary>
+    private async Task LoadGitHubInstallationsAsync()
+    {
+        try
+        {
+            if (!await GitHubApp.IsConfiguredAsync())
+            {
+                gitHubInstallationsError = "No GitHub App is set up yet.";
+                return;
+            }
+
+            gitHubInstallations = await GitHubApp.ListInstallationsAsync();
+            gitHubInstallationsError = null;
+        }
+        catch (Exception ex)
+        {
+            gitHubInstallationsError = "Could not list the GitHub App's installations: " + ex.Message;
+        }
+    }
+
+    private void SelectGitHubInstallation(ChangeEventArgs args)
+    {
+        if (!long.TryParse(args.Value?.ToString(), out long id)) return;
+
+        var installation = gitHubInstallations?.FirstOrDefault(i => i.Id == id);
+        form.GitHubInstallationId = id;
+        form.GitHubAccount = installation?.AccountLogin;
+
+        if (string.IsNullOrWhiteSpace(form.Name) && installation is not null)
+            form.Name = "github-" + installation.AccountLogin.ToLowerInvariant();
+    }
+
     /// <summary>
     /// Reads whether AWS is ready, after the first render rather than before it.
     /// </summary>
@@ -1229,6 +1318,8 @@
             // connection that genuinely cannot reach AWS still says so when it is tested.
             awsAccess = null;
         }
+
+        await LoadGitHubInstallationsAsync();
 
         StateHasChanged();
     }
@@ -2042,6 +2133,23 @@
 
         try
         {
+            if (form.Provider == ConnectionProvider.GitHub)
+            {
+                if (form.GitHubInstallationId is not { } installationId)
+                {
+                    testSuccess = false;
+                    testMessage = "Choose an installation to test.";
+                    return;
+                }
+
+                // Minting a token is the whole test: it proves the App's key is accepted and the
+                // installation still exists. Which repositories it covers is GitHub's to say.
+                await GitHubApp.GetInstallationTokenAsync(installationId);
+                testSuccess = true;
+                testMessage = $"Connapse can read GitHub as the {form.GitHubAccount ?? "chosen"} installation.";
+                return;
+            }
+
             if (form.Provider == ConnectionProvider.Sftp)
             {
                 // A key typed into the form wins, so a new one can be checked before it is
@@ -2165,6 +2273,7 @@
             ConnectionProvider.S3 => form.Region ?? "—",
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
+            ConnectionProvider.GitHub => form.GitHubAccount ?? $"installation {form.GitHubInstallationId}",
             _ => "—"
         };
     }

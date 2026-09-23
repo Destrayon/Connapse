@@ -152,6 +152,7 @@ builder.Services.AddMemoryCache();
 // after a source already exists.
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
+builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
 // without this the MCP surface cannot resolve a principal at all — and #421 will deny what it
@@ -392,6 +393,7 @@ api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
+api.MapGitHubAppEndpoints();
 
 // Map OAuth 2.1 endpoints (discovery, token, registration)
 app.MapOAuthEndpoints();

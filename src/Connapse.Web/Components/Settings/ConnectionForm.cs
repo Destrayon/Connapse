@@ -62,6 +62,12 @@ public sealed record ConnectionForm
     /// <summary>Newline-separated in the UI; an array in the stored JSON.</summary>
     public string? AllowedLocations { get; set; }
 
+    /// <summary>GitHub only: the App installation this connection reads through.</summary>
+    public long? GitHubInstallationId { get; set; }
+
+    /// <summary>GitHub only: the organisation or user the installation is on, for display.</summary>
+    public string? GitHubAccount { get; set; }
+
     /// <summary>
     /// Providers whose credential is a cloud identity Connapse never holds, and which are
     /// therefore bounded by <see cref="AllowedLocations"/> rather than a root.
@@ -203,6 +209,10 @@ public sealed record ConnectionForm
         if (node["port"] is JsonValue port && port.TryGetValue<int>(out int portNumber))
             form.Port = portNumber.ToString();
 
+        if (node["installationId"] is JsonValue installation && installation.TryGetValue<long>(out long installationId))
+            form.GitHubInstallationId = installationId;
+        form.GitHubAccount = Str(node, "account");
+
         // PrivateKey and Passphrase are deliberately not populated. The store never returns a
         // secret to a read model, and leaving them blank is what makes "save without retyping
         // the key" work.
@@ -270,6 +280,14 @@ public sealed record ConnectionForm
                 // to prevent.
                 if (!ForgetHostKey && !Blank(HostKeyFingerprint))
                     node["hostKeyFingerprint"] = HostKeyFingerprint!.Trim();
+                break;
+
+            // One installation of the App. No secret: tokens are minted from the App itself,
+            // which lives on the Providers page, the way S3 connections borrow Connapse's AWS
+            // identity rather than carrying their own.
+            case ConnectionProvider.GitHub:
+                if (GitHubInstallationId is { } installationId) node["installationId"] = installationId;
+                if (!Blank(GitHubAccount)) node["account"] = GitHubAccount!.Trim();
                 break;
         }
 
@@ -379,6 +397,8 @@ public sealed record ConnectionForm
             ConnectionProvider.Sftp when !Blank(Port) && ParsePort(Port) is < 1 or > 65535 =>
                 "The port must be between 1 and 65535.",
             ConnectionProvider.Sftp when isNew && Blank(PrivateKey) => "A private key is required.",
+
+            ConnectionProvider.GitHub when GitHubInstallationId is not > 0 => "Choose the installation this connection reads through.",
 
             _ => null
         };
