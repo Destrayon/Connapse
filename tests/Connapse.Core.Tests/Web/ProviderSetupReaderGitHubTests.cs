@@ -84,14 +84,14 @@ public sealed class ProviderSetupReaderGitHubTests
     }
 
     [Fact]
-    public async Task ReadAsync_AppInstalledNowhere_WarnsAndLinksTheInstallPage()
+    public async Task ReadAsync_AppInstalledNowhere_IsSetUpAndPointsAtConnections()
     {
         _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
 
         var requirement = (await GitHubAsync(Reader(HttpStatusCode.OK, 0))).Requirements.Single();
 
-        requirement.Status.Should().Be(RequirementStatus.Warning);
-        requirement.ActionHref.Should().Be("https://github.com/apps/connapse-test/installations/new");
+        requirement.Status.Should().Be(RequirementStatus.Satisfied, "installing is a connection's step, not the provider's");
+        requirement.ActionHref.Should().Be("/connections?new=github");
     }
 
     [Fact]

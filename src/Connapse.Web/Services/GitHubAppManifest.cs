@@ -16,6 +16,9 @@ public static partial class GitHubAppManifest
     /// <summary>Where GitHub returns after the App is created, relative to Connapse's base URL.</summary>
     public const string CallbackPath = "api/v1/providers/github/manifest/callback";
 
+    /// <summary>Where GitHub returns after the App is installed somewhere; it forwards to the Connections page.</summary>
+    public const string InstalledPath = "api/v1/providers/github/installed";
+
     /// <summary>Reserved for signing users in through the App (the private-repository phase).</summary>
     public const string UserCallbackPath = "api/v1/auth/cloud/github/callback";
 
@@ -47,7 +50,7 @@ public static partial class GitHubAppManifest
             ["url"] = root,
             ["redirect_url"] = root + CallbackPath,
             ["callback_urls"] = new JsonArray(root + UserCallbackPath),
-            ["setup_url"] = root + "admin/providers/github?installed=1",
+            ["setup_url"] = root + InstalledPath,
             ["setup_on_update"] = true,
             ["public"] = isPublic,
             ["hook_attributes"] = new JsonObject { ["url"] = root, ["active"] = false },

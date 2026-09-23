@@ -22,6 +22,8 @@
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IProviderSetupReader SetupReader
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
+@inject IProviderCredentialStore CredentialStore
+@inject NavigationManager Navigation
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -822,9 +824,12 @@
                 else if (gitHubInstallations.Count == 0)
                 {
                     <div class="alert alert-info py-2 small mb-0" role="status">
-                        The GitHub App is not installed anywhere yet. Install it on an organisation or
-                        account from <a class="alert-link" href="/admin/providers/github">the GitHub provider page</a>,
-                        then come back.
+                        The GitHub App is not installed anywhere yet.
+                        @if (gitHubInstallUrl is not null)
+                        {
+                            <a class="alert-link" href="@gitHubInstallUrl">Install it on an organisation or account</a>
+                            <text>— GitHub brings you back here with it chosen.</text>
+                        }
                     </div>
                 }
                 else
@@ -842,6 +847,10 @@
                     <div id="github-installation-help" class="form-text">
                         Sources on this connection read GitHub as this installation. Which repositories
                         it covers is chosen on GitHub, in the installation's settings.
+                        @if (isNew && gitHubInstallUrl is not null)
+                        {
+                            <a href="@gitHubInstallUrl">Install on another organisation or account</a>
+                        }
                     </div>
                 }
             </div>
@@ -1259,6 +1268,9 @@
     /// <summary>Null until checked. GitHub connections are installations of the provider's App, so none can exist without it.</summary>
     private bool? gitHubAppConfigured;
 
+    /// <summary>GitHub's page for installing the App somewhere new; it returns here with the installation.</summary>
+    private string? gitHubInstallUrl;
+
     /// <summary>
     /// The App's installations, read after first render like the AWS status: it is a call to
     /// GitHub, and only the GitHub form needs it.
@@ -1276,6 +1288,8 @@
 
             gitHubInstallations = await GitHubApp.ListInstallationsAsync();
             gitHubInstallationsError = null;
+            if (await CredentialStore.GetGitHubAppAsync() is { } app)
+                gitHubInstallUrl = app.HtmlUrl.TrimEnd('/') + "/installations/new";
         }
         catch (Exception ex)
         {
@@ -1305,10 +1319,46 @@
         }
     }
 
+    /// <summary>
+    /// Arriving from the Providers page (<c>?new=github</c>) or back from installing the App on
+    /// GitHub (<c>?github_installation=</c>): opens a new GitHub connection, with the installation
+    /// chosen when the App really has it. The id in the address is only a hint.
+    /// </summary>
+    private async Task OpenGitHubFromQueryAsync()
+    {
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+
+        if (query.TryGetValue("github_install", out var outcome) && outcome.ToString() == "requested")
+        {
+            Succeed("Your request to install the GitHub App was sent to the organisation's owners. "
+                    + "Once one approves it, it can be added here.");
+            return;
+        }
+
+        bool returning = query.TryGetValue("github_installation", out var installationId);
+        if (!returning && !(query.TryGetValue("new", out var kind) && kind.ToString() == "github"))
+            return;
+
+        if (gitHubAppConfigured != true)
+            return;
+
+        await StartCreate();
+        form.Provider = ConnectionProvider.GitHub;
+        if (returning && long.TryParse(installationId.ToString(), out long id)
+            && gitHubInstallations?.Any(i => i.Id == id) == true)
+        {
+            SelectGitHubInstallation(id);
+        }
+    }
+
     private void SelectGitHubInstallation(ChangeEventArgs args)
     {
         if (!long.TryParse(args.Value?.ToString(), out long id)) return;
+        SelectGitHubInstallation(id);
+    }
 
+    private void SelectGitHubInstallation(long id)
+    {
         var installation = gitHubInstallations?.FirstOrDefault(i => i.Id == id);
         form.GitHubInstallationId = id;
         form.GitHubAccount = installation?.AccountLogin;
@@ -1348,6 +1398,7 @@
         }
 
         await LoadGitHubInstallationsAsync();
+        await OpenGitHubFromQueryAsync();
 
         StateHasChanged();
     }
