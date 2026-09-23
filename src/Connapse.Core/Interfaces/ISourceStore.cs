@@ -43,6 +43,18 @@ public interface ISourceStore
     /// </summary>
     Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default);
 
+    /// <summary>
+    /// Records when the sync engine began holding the cursor because a change arrived for a
+    /// document still being ingested, or null once it advances again.
+    /// </summary>
+    Task UpdateSyncHoldAsync(Guid id, DateTime? heldSince, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records when the remote refused this source's reads, or null once a sync succeeds again.
+    /// Search excludes the source's documents while it is set.
+    /// </summary>
+    Task UpdateAccessRevokedAsync(Guid id, DateTime? revokedAt, CancellationToken ct = default);
+
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
     Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default);

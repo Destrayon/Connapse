@@ -43,6 +43,24 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task UpdateAsync_ScopeChanged_ClearsTheCursorSoTheNextCycleIsAFullListing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+        await sources.UpdateSyncStateAsync(source.Id, "cursor-abc", SyncStatus.Succeeded, error: null, DateTime.UtcNow);
+
+        // Same scope, reformatted: not a change.
+        await sources.UpdateAsync(source.Id, new UpdateSourceRequest(ScopeJson: """{ "prefix" : "docs/" }"""));
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be("cursor-abc");
+
+        await sources.UpdateAsync(source.Id, new UpdateSourceRequest(ScopeJson: """{"prefix":"other/"}"""));
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateSyncStateAsync_AfterSuccessfulSync_PersistsCursor()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

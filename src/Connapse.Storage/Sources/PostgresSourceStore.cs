@@ -165,7 +165,18 @@ public class PostgresSourceStore(
             entity.Description = request.Description.Trim();
 
         if (request.ScopeJson is not null)
-            entity.ScopeJson = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson);
+        {
+            var scope = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson);
+
+            // A cursor records progress through the old scope. Kept across a scope edit, a delta
+            // source would carry on from it and never pick up files the new scope includes, nor
+            // drop the ones it now excludes. Cleared, the next cycle is a full listing, which
+            // the sync engine reconciles against what is indexed.
+            if (!JsonElement.DeepEquals(entity.ScopeJson.RootElement, scope.RootElement))
+                entity.SyncCursor = null;
+
+            entity.ScopeJson = scope;
+        }
 
         if (request.SyncIntervalSeconds.HasValue)
             entity.SyncIntervalSeconds = request.SyncIntervalSeconds;
@@ -323,7 +334,9 @@ public class PostgresSourceStore(
         DocumentCount: documentCount,
         WithheldDeletions: entity.WithheldDeletions,
         FailedDocumentCount: failedDocumentCount,
-        Provider: (ConnectionProvider?)entity.Provider);
+        Provider: (ConnectionProvider?)entity.Provider,
+        SyncHeldSince: entity.SyncHeldSince,
+        AccessRevokedAt: entity.AccessRevokedAt);
 
     public async Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default)
     {
@@ -335,6 +348,22 @@ public class PostgresSourceStore(
         entity.WithheldDeletions = withheld;
         entity.UpdatedAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateSyncHoldAsync(Guid id, DateTime? heldSince, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await context.Sources
+            .Where(s => s.Id == id)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.SyncHeldSince, heldSince), ct);
+    }
+
+    public async Task UpdateAccessRevokedAsync(Guid id, DateTime? revokedAt, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await context.Sources
+            .Where(s => s.Id == id)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.AccessRevokedAt, revokedAt), ct);
     }
 }
 
