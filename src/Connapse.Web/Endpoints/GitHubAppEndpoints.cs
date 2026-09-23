@@ -66,6 +66,22 @@ public static class GitHubAppEndpoints
             }
         }).RequireAuthorization("RequireAdmin");
 
+        // GET /api/v1/providers/github/installed — GitHub's redirect after the App is installed
+        // (or an install is requested for an organisation's owners to approve). Installing is a
+        // connection's business, so this forwards to the Connections page with the installation.
+        // The id is only a hint: that page selects it only if the App's own list includes it.
+        group.MapGet("/installed", (
+            [FromQuery(Name = "installation_id")] long? installationId,
+            [FromQuery(Name = "setup_action")] string? setupAction) =>
+        {
+            if (setupAction == "request")
+                return Results.Redirect("/connections?github_install=requested");
+
+            return Results.Redirect(installationId is > 0
+                ? $"/connections?github_installation={installationId}"
+                : "/connections?new=github");
+        }).RequireAuthorization("RequireAdmin");
+
         return app;
     }
 }
