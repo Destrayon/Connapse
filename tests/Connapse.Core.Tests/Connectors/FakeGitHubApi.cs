@@ -104,6 +104,17 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         issue.UpdatedAt = Now;
     }
 
+    /// <summary>
+    /// Retitles an issue at the newest issue's own second, so it sorts behind that issue: the
+    /// same-second edit a one-item probe cannot see.
+    /// </summary>
+    public void EditIssueInTheSameSecond(int number, string title)
+    {
+        var issue = _issues[number];
+        issue.Title = title;
+        issue.UpdatedAt = _issues.Values.Max(i => i.UpdatedAt);
+    }
+
     public void DeleteIssue(int number)
     {
         Tick();

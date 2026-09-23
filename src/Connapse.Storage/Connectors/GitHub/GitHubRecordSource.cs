@@ -109,10 +109,17 @@ internal sealed class GitHubRecordSource(
         try
         {
 
+            // A probe sees only the newest item: an edit in the same second as it, sorting behind
+            // it, leaves the probe unchanged. So once an hour every sweep runs whatever they say.
+            bool unprobedDue = probing
+                && (state.LastUnprobedSweepAt is not { } lastUnprobed || _clock.GetUtcNow() - lastUnprobed >= CommentSweepInterval);
+
             // Probed only once a sweep has a mark: the first sweep lists everything regardless.
             var issues = probing && cursor.Issues is not null
                 ? await ProbeAsync($"{Repo}/issues?state=all&sort=updated&direction=desc&per_page=1", state.IssuesETag, ct)
                 : (Changed: true, ETag: (string?)null);
+            if (unprobedDue)
+                issues.Changed = true;
 
             if (issues.Changed)
                 await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
@@ -122,6 +129,8 @@ internal sealed class GitHubRecordSource(
             {
                 comments = await ProbeAsync($"{Repo}/issues/comments?sort=updated&direction=desc&per_page=1", state.CommentsETag, ct);
                 reviewComments = await ProbeAsync($"{Repo}/pulls/comments?sort=updated&direction=desc&per_page=1", state.ReviewCommentsETag, ct);
+                if (unprobedDue)
+                    comments.Changed = reviewComments.Changed = true;
             }
 
             // Comments are swept when an issue moved (a new comment moves its issue) — which the
@@ -151,6 +160,7 @@ internal sealed class GitHubRecordSource(
             if (issues.ETag is not null) state.IssuesETag = issues.ETag;
             if (sweepComments || !comments.Changed) state.CommentsETag = comments.ETag ?? state.CommentsETag;
             if (sweepComments || !reviewComments.Changed) state.ReviewCommentsETag = reviewComments.ETag ?? state.ReviewCommentsETag;
+            if (unprobedDue) state.LastUnprobedSweepAt = _clock.GetUtcNow();
 
             complete = true;
         }

@@ -328,6 +328,27 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task IssuesSync_EditInTheSameSecondAsTheNewestIssue_IsCaughtByTheHourlySweep()
+    {
+        _api.UpsertIssue(1, "First");
+        _api.UpsertIssue(2, "Second");
+        var source = new GitHubRecordSource(
+            Config(GitHubContentKind.IssuesAndPullRequests), _api.CreateClient(), NullLogger.Instance, _clock,
+            new GitHubAuth(Pool(1), GitHubAccess.Public(1)));
+        string? cursor = (await source.GetChangesAsync(null, default)).NextCursor;
+        cursor = (await source.GetChangesAsync(cursor, default)).NextCursor;
+
+        _api.EditIssueInTheSameSecond(1, "First, edited"); // sorts behind #2, which the probe sees
+        var probed = await source.GetChangesAsync(cursor, default);
+        probed.Upserted.Should().BeEmpty("a one-item probe cannot see an edit tied behind the newest item");
+
+        _clock.Advance(TimeSpan.FromHours(1));
+        var swept = await source.GetChangesAsync(probed.NextCursor, default);
+
+        swept.Upserted.Select(f => f.Path).Should().Contain("/issues/1.md");
+    }
+
+    [Fact]
     public async Task IssuesSync_RepositoryTurnsPrivateAfterSettling_IsStillRefused()
     {
         _api.UpsertIssue(1, "Crash");
