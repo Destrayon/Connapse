@@ -96,6 +96,9 @@ public sealed class GitHubRecordSourceTests : IDisposable
 
         string issue = await ReadAsync(connector, "/issues/1.md");
         issue.Should().StartWith("# octocat/hello #1: Crash\n");
+
+        connector.CommentAuthors().Should().BeEquivalentTo(
+            [new GitHubCommentAuthor("alice", IsBot: false, Comments: 1), new GitHubCommentAuthor("bob", IsBot: false, Comments: 1)]);
         issue.Should().Contain("Body text");
         issue.Should().Contain("--- Comment by alice (2026-01-01) ---\nMe too");
         File(delta, "/issues/1.md").SizeBytes.Should().Be(Encoding.UTF8.GetByteCount(issue));

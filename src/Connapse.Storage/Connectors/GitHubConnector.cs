@@ -74,6 +74,9 @@ public sealed class GitHubConnector(
 
     internal GitHubConnectorConfig Config => config;
 
+    /// <summary>The comment authors an issues source has synced; empty for a docs source.</summary>
+    public IReadOnlyList<GitHub.GitHubCommentAuthor> CommentAuthors() => _records?.CommentAuthors() ?? [];
+
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
         if (_records is not null)

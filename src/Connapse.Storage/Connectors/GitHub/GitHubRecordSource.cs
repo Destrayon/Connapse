@@ -592,6 +592,22 @@ internal sealed class GitHubRecordSource(
         Metadata: rendered.Metadata,
         Strategy: ChunkingStrategy.Record);
 
+    /// <summary>
+    /// Everyone who has commented in the synced records, most active first — what an administrator
+    /// chooses from when deciding whose comments are indexed. Read from the local store, so it
+    /// costs no GitHub requests and is empty until the first sync.
+    /// </summary>
+    public IReadOnlyList<GitHubCommentAuthor> CommentAuthors() =>
+        _store.Numbers()
+            .Select(_store.Load)
+            .Where(r => r is not null)
+            .SelectMany(r => r!.Comments.Values)
+            .GroupBy(c => c.Login, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new GitHubCommentAuthor(g.First().Login, g.Any(c => c.AuthorIsBot), g.Count()))
+            .OrderByDescending(a => a.Comments)
+            .ThenBy(a => a.Login, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     private static GitHubStoredComment ToStored(GitHubComment comment, bool review) => new(
         Login: comment.User?.Login ?? "ghost",
         Body: comment.Body ?? "",
