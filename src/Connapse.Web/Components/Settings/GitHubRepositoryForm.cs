@@ -8,7 +8,7 @@ namespace Connapse.Web.Components.Settings;
 /// Adding a public GitHub repository: one address in, up to two connection-less sources out — the
 /// repository's markdown docs and its issues and pull requests.
 /// <para>
-/// A record rather than logic in the provider page for the same reason as
+/// A record rather than logic in the New source dialog for the same reason as
 /// <see cref="SourceForm"/>: the scope keys written here must match the ones
 /// <c>ConnectorFactory</c> reads, and the page has no test harness.
 /// </para>

@@ -25,8 +25,7 @@ public class ProviderSetupReader(
     IConnectionStore connections,
     IProviderCredentialStore credentials,
     TimeProvider clock,
-    ILogger<ProviderSetupReader> logger,
-    ISourceStore? sources = null) : IProviderSetupReader
+    ILogger<ProviderSetupReader> logger) : IProviderSetupReader
 {
     /// <summary>
     /// How long a stored key may fail before that stops being propagation delay.
@@ -59,7 +58,6 @@ public class ProviderSetupReader(
     public async Task<IReadOnlyList<ProviderSetup>> ReadAsync(CancellationToken ct = default)
     {
         var providers = await InUseProvidersAsync(ct);
-        int gitHubRepositories = await GitHubRepositoryCountAsync(ct);
 
         // Two round trips to Entra, made together: a page load should not pay for them in series.
         Task<ProviderRequirement> azureAccessTask = AzureAccessAsync(azureProvider.CurrentValue, ct);
@@ -83,53 +81,8 @@ public class ProviderSetupReader(
                 [azureAccess, azurePermissions],
                 InUse: providers.Contains(ConnectionProvider.AzureBlob)
                     || azureAd.CurrentValue.IsConfigured
-                    || azureAccess.Status != RequirementStatus.NotConfigured),
-
-            // Nothing to configure for public repositories, so the one step is adding one.
-            new ProviderSetup("github", "GitHub",
-                [
-                    new ProviderRequirement(
-                        "Public repositories",
-                        "Public repositories are read without an account, token, or app. Each one becomes a docs source and an issues-and-pull-requests source.",
-                        gitHubRepositories > 0 ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
-                        Detail: gitHubRepositories switch
-                        {
-                            0 => null,
-                            1 => "1 repository indexed.",
-                            int n => $"{n} repositories indexed.",
-                        },
-                        ActionLabel: "Add a repository",
-                        ActionHref: "#github-repository")
-                ],
-                InUse: gitHubRepositories > 0)
+                    || azureAccess.Status != RequirementStatus.NotConfigured)
         ];
-    }
-
-    /// <summary>
-    /// Repositories with at least one GitHub source. Counted by owner/repo rather than by source,
-    /// because a repository is normally two sources.
-    /// </summary>
-    private async Task<int> GitHubRepositoryCountAsync(CancellationToken ct)
-    {
-        if (sources is null)
-            return 0;
-
-        try
-        {
-            var all = await sources.ListAsync(take: int.MaxValue, ct: ct);
-            return all
-                .Where(s => s.Provider == ConnectionProvider.GitHub)
-                .Select(s => SourceScopeSummary.GitHubRepository(s.ScopeJson))
-                .Where(r => r is not null)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count();
-        }
-        catch (Exception ex)
-        {
-            // Same degradation as InUseProvidersAsync: the provider reads as unused, not broken.
-            logger.LogWarning(ex, "Could not count GitHub sources for the providers page");
-            return 0;
-        }
     }
 
     /// <summary>

@@ -14,7 +14,7 @@ using Xunit;
 namespace Connapse.Core.Tests.Sources;
 
 /// <summary>
-/// The add-repository form on the GitHub provider page. As with <see cref="SourceFormTests"/>, the
+/// The public GitHub repository fields of the New source dialog. As with <see cref="SourceFormTests"/>, the
 /// scope it writes must be what <c>ConnectorFactory</c> reads, so the requests are fed back through
 /// the real factory rather than compared against hand-written JSON.
 /// </summary>
@@ -107,8 +107,6 @@ public class GitHubRepositoryFormTests
 
         SourceScopeSummary.Describe(requests[0].ScopeJson).Should().Be("octocat/Hello-World · docs");
         SourceScopeSummary.Describe(requests[1].ScopeJson).Should().Be("octocat/Hello-World · issues and pull requests");
-        SourceScopeSummary.GitHubRepository(requests[1].ScopeJson).Should().Be("octocat/Hello-World");
-        SourceScopeSummary.GitHubRepository("""{"bucketName":"b"}""").Should().BeNull();
     }
 
     private static GitHubConnector Build(CreateSourceRequest request)

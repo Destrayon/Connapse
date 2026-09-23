@@ -13,7 +13,7 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// What the GitHub provider page's "Add repository" button does, minus the button: the form's
+/// What the New source dialog does for a public GitHub repository, minus the dialog: the form's
 /// requests go through the real source store, and one scheduled cycle syncs both sources. GitHub is
 /// a local git repository for docs and <see cref="FakeGitHubApi"/> for issues.
 /// </summary>
@@ -95,11 +95,6 @@ public sealed class GitHubRepositoryFlowIntegrationTests(SharedWebAppFixture fix
         issues.SyncIntervalSeconds.Should().Be(GitHubRepositoryForm.IssuesSyncIntervalSeconds);
         SourceSyncService.IsDue(issues, DateTime.UtcNow).Should().BeFalse(
             "the issues source just synced and asked for a 15-minute interval");
-
-        // Resolved from the real host: proves DI hands the reader the source store, without which
-        // its optional parameter would default and GitHub would always read as unused.
-        var github = (await sp.GetRequiredService<IProviderSetupReader>().ReadAsync()).Single(p => p.Key == "github");
-        github.InUse.Should().BeTrue();
     }
 
     /// <summary>The real factory, with mirrors under this test's directory rather than the app's.</summary>

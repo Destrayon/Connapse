@@ -64,20 +64,6 @@ public static class SourceScopeSummary
     }
 
     /// <summary><c>owner/repo</c> for a GitHub scope, or null for any other provider's.</summary>
-    public static string? GitHubRepository(string? scopeJson)
-    {
-        try
-        {
-            return string.IsNullOrWhiteSpace(scopeJson) || JsonNode.Parse(scopeJson) is not JsonObject node
-                ? null
-                : GitHubRepository(node);
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
-    }
-
     private static string? GitHubRepository(JsonObject node) =>
         Str(node, "owner") is { } owner && Str(node, "repo") is { } repo ? $"{owner}/{repo}" : null;
 
