@@ -185,14 +185,35 @@ public class SourceSyncService(
                 connector = connectorFactory.Create(source, connection, secret);
             }
 
-            return connector is ISyncCursorConnector cursorConnector
+            var result = connector is ISyncCursorConnector cursorConnector
                 ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions)
                 : await SyncViaListAndDiffAsync(
                     source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
+
+            // The remote answered, so it is readable again: its documents come back into search.
+            if (source.AccessRevokedAt is not null)
+            {
+                await sourceStore.UpdateAccessRevokedAsync(source.Id, revokedAt: null, ct);
+                logger.LogInformation(
+                    "Source {SourceId} ({Name}) is readable again; its documents are back in search",
+                    source.Id, Sanitize(source.Name));
+            }
+
+            return result;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Sync failed for source {SourceId} ({Name})", source.Id, Sanitize(source.Name));
+
+            // Fail closed. Content indexed while the remote was public stays indexed (nothing is
+            // deleted on one refusal) but leaves search until a read succeeds again.
+            if (ex is SourceAccessRevokedException && source.AccessRevokedAt is null)
+            {
+                await sourceStore.UpdateAccessRevokedAsync(source.Id, DateTime.UtcNow, ct);
+                logger.LogWarning(
+                    "Source {SourceId} ({Name}) refused access; its documents are hidden from search until it is readable again",
+                    source.Id, Sanitize(source.Name));
+            }
 
             // Record the failure without discarding progress: a transient outage must not
             // clear the cursor, or the next cycle would re-list the entire remote.

@@ -48,6 +48,14 @@ public record Source(
     // While set, the source's documents are kept out of search. Null when readable.
     DateTime? AccessRevokedAt = null);
 
+/// <summary>
+/// The remote refused to let this source read it any more — a public repository made private,
+/// renamed away, or deleted. Distinct from an outage: the content Connapse already indexed was
+/// public and no longer is, so the sync engine hides the source's documents from search until a
+/// read succeeds again, rather than only recording a failed cycle.
+/// </summary>
+public class SourceAccessRevokedException(string message, Exception inner) : IOException(message, inner);
+
 public record CreateSourceRequest(
     string Name,
     Guid? ConnectionId,

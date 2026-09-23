@@ -12,7 +12,7 @@ namespace Connapse.Storage.Connectors;
 /// anonymous client, so they cannot be told apart and are not guessed at.
 /// </summary>
 public sealed class GitHubRepositoryUnavailableException(string message, Exception inner)
-    : IOException(message, inner);
+    : SourceAccessRevokedException(message, inner);
 
 /// <summary>
 /// Read access to a public GitHub repository, unauthenticated.
