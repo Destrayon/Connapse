@@ -32,4 +32,15 @@ public class SourceSyncIntervalTests
     public void IsDue_TickLandingSecondsShort_StillRuns() =>
         SourceSyncService.IsDue(Source(900, Now.AddSeconds(-895)), Now).Should().BeTrue(
             "the last cycle is stamped when it ends, so the matching tick arrives a little early");
+
+    [Fact]
+    public void IsDue_IntervalEqualToTickAndALongCycle_RunsEveryTick() =>
+        // A five-minute source whose cycle took a minute: the next tick sees four minutes.
+        SourceSyncService.IsDue(Source(300, Now.AddSeconds(-240)), Now).Should().BeTrue(
+            "otherwise the source waits a second tick and its interval doubles");
+
+    [Fact]
+    public void IsDue_FifteenMinutesAfterTwoTicks_StillSitsOut() =>
+        // Ten minutes and a long cycle in: the nearest tick to due is the next one.
+        SourceSyncService.IsDue(Source(900, Now.AddSeconds(-560)), Now).Should().BeFalse();
 }

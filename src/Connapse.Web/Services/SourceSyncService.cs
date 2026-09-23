@@ -126,14 +126,15 @@ public class SourceSyncService(
     /// is down is not retried faster than it asked to be polled.
     /// </summary>
     /// <remarks>
-    /// Half a minute of slack, because the last cycle is stamped when it ends and the timer
-    /// ticks on a fixed schedule: without it, a 15-minute interval would land a few seconds
-    /// short on its third tick and slip to the fourth.
+    /// Half a tick of slack: a source runs on whichever tick lands nearest its due time. The last
+    /// cycle is stamped when it ends while the timer ticks from when cycles start, so the gap a
+    /// tick sees is short by however long the cycle took. A fixed 30 seconds was not enough — a
+    /// five-minute source whose cycle took a minute read as not due and waited ten.
     /// </remarks>
     internal static bool IsDue(Source source, DateTime utcNow) =>
         source.SyncIntervalSeconds is not int seconds
         || source.LastSyncedAt is not DateTime last
-        || utcNow - last >= TimeSpan.FromSeconds(seconds) - TimeSpan.FromSeconds(30);
+        || utcNow - last >= TimeSpan.FromSeconds(seconds) - DefaultSyncInterval / 2;
 
     /// <summary>
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
