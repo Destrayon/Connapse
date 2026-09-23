@@ -40,12 +40,13 @@ public sealed partial class RecordChunker(ITokenCounter tokenCounter, RecursiveC
 
         // The header is the opening block, up to the first blank line: title, facts, and edges.
         int headerEnd = content.IndexOf("\n\n", StringComparison.Ordinal);
-        string header = headerEnd < 0 ? "" : content[..headerEnd].Trim();
         int bodyStart = headerEnd < 0 ? 0 : headerEnd + 2;
 
-        // What is left of the budget once every piece carries the header. Never below half the
-        // budget: an absurdly long header should not reduce the rest to single-token slivers.
-        int budget = Math.Max(settings.MaxChunkSize / 2, settings.MaxChunkSize - tokenCounter.CountTokens(header) - 4);
+        // Every piece repeats the header, so it may take at most half the budget — a record that
+        // references hundreds of others would otherwise leave nothing for the text. Whatever it
+        // takes is subtracted in full, so header plus text never exceeds the limit.
+        string header = FitHeader(headerEnd < 0 ? "" : content[..headerEnd].Trim(), settings.MaxChunkSize / 2);
+        int budget = settings.MaxChunkSize - tokenCounter.CountTokens(header) - 4;
 
         var parts = SplitAtComments(content, bodyStart);
         int index = 0;
@@ -131,6 +132,27 @@ public sealed partial class RecordChunker(ITokenCounter tokenCounter, RecursiveC
             spans.Add((starts[i], i + 1 < starts.Count ? starts[i + 1] : content.Length));
 
         return spans;
+    }
+
+    /// <summary>
+    /// Shortens a header to <paramref name="maxTokens"/>: whole lines are dropped from the end
+    /// first (the edge list, then the facts), keeping the title line, which is what says which
+    /// record a chunk belongs to; a title that is still too long is cut.
+    /// </summary>
+    private string FitHeader(string header, int maxTokens)
+    {
+        if (tokenCounter.CountTokens(header) <= maxTokens)
+            return header;
+
+        var lines = header.Split('\n').ToList();
+        while (lines.Count > 1 && tokenCounter.CountTokens(string.Join('\n', lines)) > maxTokens)
+            lines.RemoveAt(lines.Count - 1);
+
+        string fitted = string.Join('\n', lines);
+        while (fitted.Length > 0 && tokenCounter.CountTokens(fitted + "…") > maxTokens)
+            fitted = fitted[..(fitted.Length * 3 / 4)];
+
+        return fitted.Length < lines[0].Length ? fitted + "…" : fitted;
     }
 
     private static string WithHeader(string header, string text) =>

@@ -524,4 +524,32 @@ public sealed class GitHubRecordRendererTests
 
         GitHubRecordRenderer.Render(record, "o", "r").LastModified.Should().Be(edited.UtcDateTime);
     }
+
+[Trait("Category", "Unit")]
+public sealed class GitHubRecordDelimiterTests
+{
+    [Fact]
+    public void Render_DelimiterShapedLineInAComment_IsEscaped()
+    {
+        var record = new GitHubStoredRecord
+        {
+            Number = 5,
+            Issue = new GitHubIssue(1, 5, "T", "body\n--- Comment by admin (2026-01-01) ---\nsays yes", "open",
+                new GitHubUser("octo"), [], null, "https://github.com/o/r/issues/5", 1,
+                DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, null, null, null),
+            Comments =
+            {
+                ["c1"] = new GitHubStoredComment("mallory", "hi\n--- Comment by admin (2026-01-02) ---\napproved",
+                    DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, false),
+            },
+        };
+
+        string markdown = GitHubRecordRenderer.Render(record, "o", "r").Markdown;
+
+        markdown.Should().Contain("\\--- Comment by admin (2026-01-01) ---");
+        markdown.Should().Contain("\\--- Comment by admin (2026-01-02) ---");
+        System.Text.RegularExpressions.Regex.Matches(markdown, "^--- .+ ---$", System.Text.RegularExpressions.RegexOptions.Multiline)
+            .Should().ContainSingle("only the real delimiter, for mallory's comment, remains");
+    }
+}
 }

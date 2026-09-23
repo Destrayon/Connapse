@@ -105,4 +105,32 @@ public class RecordChunkerTests
         content[result[1].StartOffset..result[1].EndOffset].Should().StartWith("--- Comment by user0");
         result[1].EndOffset.Should().Be(content.Length);
     }
+
+    [Fact]
+    public async Task ChunkAsync_HeaderLongerThanHalfTheBudget_IsShortenedSoNoChunkExceedsTheLimit()
+    {
+        string references = "References: " + string.Join(", ", Enumerable.Range(100, 300).Select(n => "#" + n));
+        string content = Header + "\n" + references + "\n\n" + Words("body", 60)
+            + "\n\n--- Comment by user0 (2026-01-02) ---\n" + Words("alpha", 60) + "\n";
+
+        var result = await _chunker.ChunkAsync(Doc(content), new ChunkingSettings { MaxChunkSize = 100, Overlap = 0, MinChunkSize = 10 });
+
+        result.Should().NotBeEmpty();
+        result.Should().OnlyContain(c => c.TokenCount <= 100);
+        result.Should().OnlyContain(c => c.Content.StartsWith("# 12: Crash on start"),
+            "the title line survives; the edge list is what gives way");
+    }
+
+    [Fact]
+    public async Task ChunkAsync_EscapedDelimiterInUserText_IsNotABoundary()
+    {
+        // What the renderer writes when a comment body contains a delimiter-shaped line.
+        string forged = Words("alpha", 12) + "\n\\--- Comment by mallory (2026-01-09) ---\n" + Words("beta", 12);
+        string content = Record(Words("body", 60), forged);
+
+        var result = await _chunker.ChunkAsync(Doc(content), new ChunkingSettings { MaxChunkSize = 100, Overlap = 0 });
+
+        result.Should().HaveCount(2, "the body is one chunk and the single real comment the other");
+        result[1].Content.Should().Contain("alpha").And.Contain("beta");
+    }
 }
