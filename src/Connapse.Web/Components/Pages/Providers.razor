@@ -11,6 +11,7 @@
 @using Connapse.Storage.Settings
 @using Connapse.Storage.CloudScope
 @using Connapse.Storage.CloudScope.RolesAnywhere
+@using Connapse.Storage.Connectors.GitHub
 @using Microsoft.Extensions.Options
 @inject ISettingsStore SettingsStore
 @inject ISettingsReloader ReloadService
@@ -1712,26 +1713,43 @@
                     <div class="mb-2" style="max-width:24rem">
                         <label class="form-label small" for="github-app-org">Organisation <span class="text-muted">(optional)</span></label>
                         <input id="github-app-org" class="form-control form-control-sm" placeholder="Leave blank for your own account"
-                               @bind="gitHubAppOrganisation" @bind:event="oninput" />
+                               @bind="gitHubAppOrganisation" @bind:event="oninput" @bind:after="ResetGitHubOwner" />
                         <div class="form-text">
-                            The App can only be installed where it is owned, so create it under the
-                            organisation whose repositories you want to index.
+                            Name the organisation whose repositories you want to index, so it owns the App.
+                            Without one, the App is created on your own account and made public, so it can
+                            be installed on your organisations and your users can sign in through it.
                         </div>
                     </div>
-                    @if (GitHubFormAction is { } action && gitHubManifestState is not null)
+                    @if (gitHubConfirmedOwner is not { } owner)
                     {
+                        <button type="button" class="btn btn-primary" disabled="@gitHubBusy" @onclick="CheckGitHubOwner">
+                            Continue
+                        </button>
+                        @if (gitHubOwnerError is not null)
+                        {
+                            <div class="text-danger small mt-2">@gitHubOwnerError</div>
+                        }
+                    }
+                    else if (gitHubManifestState is not null && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
+                    {
+                        <p class="small mb-2">
+                            @if (owner.Length == 0)
+                            {
+                                <text>Creates a <strong>public</strong> App on your own account.</text>
+                            }
+                            else
+                            {
+                                <text>Creates a <strong>private</strong> App owned by <strong>@owner</strong>. Only its members can sign in through it.</text>
+                            }
+                        </p>
                         @* A native form, not a Blazor one: GitHub's flow starts with the browser
                            posting the manifest to github.com. *@
                         <form method="post" action="@action">
-                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri)" />
+                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: owner.Length == 0)" />
                             <button type="submit" class="btn btn-primary">
                                 <span class="bi-github me-1" aria-hidden="true"></span> Create the App on GitHub
                             </button>
                         </form>
-                    }
-                    else
-                    {
-                        <div class="text-danger small">That is not a valid GitHub organisation name.</div>
                     }
                 </EasyContent>
                 <Actions>
@@ -1951,8 +1969,57 @@
 
     private RequirementStatus GitHubStatus => GitHubRequirement?.Status ?? RequirementStatus.Unknown;
 
-    private string? GitHubFormAction =>
-        gitHubManifestState is null ? null : GitHubAppManifest.FormAction(gitHubAppOrganisation, gitHubManifestState);
+    /// <summary>The App's owner once checked: an organisation's login, or empty for the administrator's own account.</summary>
+    private string? gitHubConfirmedOwner;
+    private string? gitHubOwnerError;
+
+    private void ResetGitHubOwner()
+    {
+        gitHubConfirmedOwner = null;
+        gitHubOwnerError = null;
+    }
+
+    /// <summary>
+    /// Confirms with GitHub that the named organisation exists before the manifest is posted to it —
+    /// a wrong name would otherwise create an App the organisation cannot install.
+    /// </summary>
+    private async Task CheckGitHubOwner()
+    {
+        ResetGitHubOwner();
+        string org = gitHubAppOrganisation?.Trim() ?? "";
+        if (org.Length == 0)
+        {
+            gitHubConfirmedOwner = "";
+            return;
+        }
+
+        if (GitHubAppManifest.FormAction(org, "check") is null)
+        {
+            gitHubOwnerError = "That is not a valid GitHub organisation name.";
+            return;
+        }
+
+        gitHubBusy = true;
+        try
+        {
+            gitHubOwnerError = await GitHubApp.GetAccountKindAsync(org) switch
+            {
+                GitHubAccountKind.Organization => null,
+                GitHubAccountKind.User => $"{org} is a personal account, not an organisation. Leave the field blank to use your own account.",
+                _ => $"GitHub has no organisation called {org}.",
+            };
+            if (gitHubOwnerError is null)
+                gitHubConfirmedOwner = org;
+        }
+        catch (Exception ex)
+        {
+            gitHubOwnerError = $"Could not check the organisation with GitHub: {ex.Message}";
+        }
+        finally
+        {
+            gitHubBusy = false;
+        }
+    }
 
     /// <summary>Loads the stored App and starts a manifest request this administrator can complete.</summary>
     private async Task LoadGitHubAsync()

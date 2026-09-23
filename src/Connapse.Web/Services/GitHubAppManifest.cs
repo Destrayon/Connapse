@@ -29,10 +29,14 @@ public static partial class GitHubAppManifest
     /// <remarks>
     /// Read-only permissions, and only the ones the connector reads: metadata (required by GitHub),
     /// contents (docs over git), issues, and pull requests. No webhooks — a self-hosted instance is
-    /// rarely reachable from GitHub, and polling is the design. Private, so only the owning account
-    /// or organisation can install it.
+    /// rarely reachable from GitHub, and polling is the design.
+    /// <para>
+    /// <paramref name="isPublic"/> decides who can install the App and sign in through it: a private
+    /// App only its owning account and that account's members. An organisation's App can stay
+    /// private; one on a personal account must be public, or nobody but its owner could sign in.
+    /// </para>
     /// </remarks>
-    public static string Build(string baseUrl)
+    public static string Build(string baseUrl, bool isPublic)
     {
         string root = baseUrl.TrimEnd('/') + "/";
         string host = new Uri(root).Host;
@@ -45,7 +49,7 @@ public static partial class GitHubAppManifest
             ["callback_urls"] = new JsonArray(root + UserCallbackPath),
             ["setup_url"] = root + "admin/providers/github?installed=1",
             ["setup_on_update"] = true,
-            ["public"] = false,
+            ["public"] = isPublic,
             ["hook_attributes"] = new JsonObject { ["url"] = root, ["active"] = false },
             ["default_permissions"] = new JsonObject
             {
