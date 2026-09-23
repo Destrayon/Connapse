@@ -163,8 +163,23 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         public void Advance(TimeSpan by) => Now += by;
     }
 
+    [Theory]
+    [InlineData("octo-org", GitHubAccountKind.Organization)]
+    [InlineData("octocat", GitHubAccountKind.User)]
+    [InlineData("nobody-here", GitHubAccountKind.None)]
+    public async Task GetAccountKindAsync_TellsOrganisationsFromPeopleAndNobody_WithoutAuthenticating(
+        string login, GitHubAccountKind expected)
+    {
+        var app = App(stored: false);
+
+        (await app.GetAccountKindAsync(login)).Should().Be(expected);
+        _github.LastAuthorization.Should().BeNull("the check runs before any App exists");
+    }
+
     private sealed class StubGitHub : HttpMessageHandler
     {
+        private static readonly object NotFound = new();
+
         public int TokenRequests { get; private set; }
         public string? LastAuthorization { get; private set; }
         public string? LastPath { get; private set; }
@@ -179,6 +194,9 @@ public sealed class ConnapseGitHubAppTests : IDisposable
             object? body = (request.Method.Method, LastPath) switch
             {
                 ("GET", "/app") when RefuseApp => null,
+                ("GET", "/users/nobody-here") => NotFound,
+                ("GET", "/users/octo-org") => new { login = "octo-org", type = "Organization" },
+                ("GET", "/users/octocat") => new { login = "octocat", type = "User" },
                 ("GET", "/app") => new { id = 42, slug = "connapse-test", client_id = "Iv1.abc", owner = new { login = "octo-org" }, html_url = "https://github.com/apps/connapse-test" },
                 ("GET", "/app/installations") => new[]
                 {
@@ -193,6 +211,14 @@ public sealed class ConnapseGitHubAppTests : IDisposable
                 },
                 _ => throw new InvalidOperationException("unexpected " + request.RequestUri),
             };
+
+            if (ReferenceEquals(body, NotFound))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("""{"message":"Not Found"}"""),
+                });
+            }
 
             var response = body is null
                 ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("""{"message":"A JSON web token could not be decoded"}""") }
