@@ -95,7 +95,7 @@ public sealed class GitHubRecordSourceTests : IDisposable
         var delta = await connector.GetChangesAsync(null);
 
         string issue = await ReadAsync(connector, "/issues/1.md");
-        issue.Should().StartWith("# 1: Crash\n");
+        issue.Should().StartWith("# octocat/hello #1: Crash\n");
         issue.Should().Contain("Body text");
         issue.Should().Contain("--- Comment by alice (2026-01-01) ---\nMe too");
         File(delta, "/issues/1.md").SizeBytes.Should().Be(Encoding.UTF8.GetByteCount(issue));
@@ -507,9 +507,63 @@ public sealed class GitHubRecordRendererTests
         var rendered = GitHubRecordRenderer.Render(
             new GitHubStoredRecord { Number = 5, Issue = Issue(body: "plain") }, "o", "r");
 
-        rendered.Markdown.Should().Be("# 5: Title\nType: Issue · Author: octo · State: open · Created: 2026-03-04\n\nplain\n");
+        rendered.Markdown.Should().Be("# o/r #5: Title\nType: Issue · Author: octo · State: open · Created: 2026-03-04\n\nplain\n");
         rendered.Metadata.Keys.Should().NotContain(["github:closes", "github:parent", "github:children", "github:references"]);
         rendered.LastModified.Should().Be(new DateTime(2026, 3, 5, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    private static GitHubStoredRecord WithComments(params GitHubStoredComment[] comments)
+    {
+        var record = new GitHubStoredRecord { Number = 5, Issue = Issue(body: "plain") };
+        for (int i = 0; i < comments.Length; i++) record.Comments["c" + i] = comments[i];
+        return record;
+    }
+
+    private static GitHubStoredComment Said(string login, string body, bool? isBot = null) =>
+        new(login, body, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, null, false, isBot);
+
+    [Fact]
+    public void Render_BotComments_AreLeftOutByDefault()
+    {
+        var record = WithComments(Said("coderabbitai[bot]", "Walkthrough", isBot: true), Said("alice", "Works for me", isBot: false));
+
+        string markdown = GitHubRecordRenderer.Render(record, "o", "r").Markdown;
+
+        markdown.Should().Contain("Works for me").And.NotContain("Walkthrough");
+    }
+
+    [Fact]
+    public void Render_CommentStoredBeforeTheAccountTypeWas_FallsBackToTheBotSuffix()
+    {
+        var record = WithComments(Said("github-actions[bot]", "CI report"), Said("alice", "Thanks"));
+
+        string markdown = GitHubRecordRenderer.Render(record, "o", "r").Markdown;
+
+        markdown.Should().Contain("Thanks").And.NotContain("CI report");
+    }
+
+    [Fact]
+    public void Render_SourcePolicy_KeepsANamedBotAndDropsANamedPerson()
+    {
+        var record = WithComments(
+            Said("coderabbitai[bot]", "Walkthrough", isBot: true),
+            Said("ci-deploy", "Deployed to staging", isBot: false),
+            Said("alice", "Works for me", isBot: false));
+        var policy = new GitHubCommentPolicy(include: ["CodeRabbitAI[bot]"], exclude: ["ci-deploy"]);
+
+        string markdown = GitHubRecordRenderer.Render(record, "o", "r", policy).Markdown;
+
+        markdown.Should().Contain("Walkthrough", "a bot the source names is kept, whatever the login's case")
+            .And.Contain("Works for me")
+            .And.NotContain("Deployed to staging", "a machine user GitHub reports as a person can still be left out");
+    }
+
+    [Fact]
+    public void Render_BodyWrittenByABot_IsKept()
+    {
+        var record = new GitHubStoredRecord { Number = 5, Issue = Issue(body: "Bumps lodash from 4.17.20 to 4.17.21") with { User = new GitHubUser("dependabot[bot]", "Bot") } };
+
+        GitHubRecordRenderer.Render(record, "o", "r").Markdown.Should().Contain("Bumps lodash");
     }
 
     [Fact]

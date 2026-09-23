@@ -229,6 +229,8 @@ public class ConnectorFactory(
             IncludePatterns = include.Count > 0 ? include : GitHubConnectorConfig.DefaultDocPatterns,
             ExcludePatterns = Arr(scope, "excludePatterns"),
             IncludeComments = Bool(scope, "includeComments") ?? true,
+            IncludeCommentAuthors = Arr(scope, "includeCommentAuthors"),
+            ExcludeCommentAuthors = Arr(scope, "excludeCommentAuthors"),
 
             // Keyed on the source id, not owner/repo: a rename must not orphan the mirror, and
             // two sources for one repository must not share a fetch target.

@@ -672,6 +672,19 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
+    public void Create_GitHubIssuesScope_ReadsWhoseCommentsAreIndexed()
+    {
+        var config = CreateGitHub(
+                """{"owner":"octocat","repo":"Hello-World","kind":"IssuesAndPullRequests","includeCommentAuthors":["coderabbitai[bot]"],"excludeCommentAuthors":["ci-deploy"]}""")
+            .Should().BeOfType<GitHubConnector>().Subject.Config;
+
+        config.CommentPolicy.Allows("coderabbitai[bot]", isBot: true).Should().BeTrue();
+        config.CommentPolicy.Allows("dependabot[bot]", isBot: true).Should().BeFalse("bots are left out unless named");
+        config.CommentPolicy.Allows("ci-deploy", isBot: false).Should().BeFalse();
+        config.CommentPolicy.Allows("alice", isBot: false).Should().BeTrue();
+    }
+
+    [Fact]
     public void Create_GitHubWithoutKind_DefaultsToDocs()
     {
         ((GitHubConnector)CreateGitHub("""{"owner":"octocat","repo":"Hello-World"}""")).Config.Kind
