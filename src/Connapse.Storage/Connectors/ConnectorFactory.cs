@@ -16,8 +16,12 @@ public class ConnectorFactory(
     ISshHostKeyStore hostKeyStore,
     CloudScope.ConnapseAwsCredentials awsCredentials,
     CloudScope.ConnapseAzureCredentials azureCredentials,
+    IHttpClientFactory httpClientFactory,
     ILogger<ConnectorFactory> logger) : IConnectorFactory
 {
+    /// <summary>The named client GitHub issues sources read the REST API through.</summary>
+    public const string GitHubHttpClientName = "GitHub";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -149,11 +153,24 @@ public class ConnectorFactory(
 
         return source.Provider.Value switch
         {
-            ConnectionProvider.GitHub => new GitHubConnector(GitHubConfig(source, scope)),
+            ConnectionProvider.GitHub => CreateGitHub(source, scope),
 
             _ => throw new NotSupportedException(
                 $"Provider {source.Provider} is not supported for connection-less sources")
         };
+    }
+
+    /// <summary>
+    /// Only the issues kind reads the REST API, so only it is handed a client. The client comes
+    /// from the factory rather than being held here: this factory is a singleton, and a held
+    /// client would pin its handler past DNS changes.
+    /// </summary>
+    private GitHubConnector CreateGitHub(Source source, JsonDocument scope)
+    {
+        var config = GitHubConfig(source, scope);
+        return config.Kind == GitHubContentKind.IssuesAndPullRequests
+            ? new GitHubConnector(config, httpClientFactory.CreateClient(GitHubHttpClientName), logger)
+            : new GitHubConnector(config);
     }
 
     /// <summary>
@@ -196,6 +213,7 @@ public class ConnectorFactory(
             Kind = kind,
             IncludePatterns = include.Count > 0 ? include : GitHubConnectorConfig.DefaultDocPatterns,
             ExcludePatterns = Arr(scope, "excludePatterns"),
+            IncludeComments = Bool(scope, "includeComments") ?? true,
 
             // Keyed on the source id, not owner/repo: a rename must not orphan the mirror, and
             // two sources for one repository must not share a fetch target.
@@ -215,6 +233,11 @@ public class ConnectorFactory(
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
         && v.TryGetInt32(out int i)
             ? i
+            : null;
+
+    private static bool? Bool(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? v.GetBoolean()
             : null;
 
     private static long? Long(JsonDocument doc, string name) =>

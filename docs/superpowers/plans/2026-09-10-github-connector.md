@@ -382,20 +382,43 @@ Expanded on Phase 1 landing. Two decisions changed the outline, recorded here so
 
 **Goal:** A GitHub issues-and-PRs source syncs issues and pull requests (with comments assembled) as markdown records, cursor is an updated-at timestamp, with graph edges stored as metadata. Done-condition: integration test against a fixture/public repo ingests records with assembled comments and edge metadata, and the updated-at cursor advances with same-second dedup.
 
-**Detailed steps to be written once Phase 2 lands.** Shape:
+Expanded on Phase 2 landing (#510). Probes against api.github.com on 2026-09-22 changed the outline:
 
-### Task 3.1: `GitHubRecordRenderer`
-- Assemble one markdown document per issue/PR: field header (number, title, author, state, labels, dates), body, then comments joined `--- Comment by {login} ({date}) ---`. Unit-test the rendering against sample Octokit models. Comments included by default (the chunker experiment).
+- **Anonymous GraphQL is refused (403)**, so `closingIssuesReferences` cannot be fetched. The issues list payload already carries `closed_by` (the closing user), `pull_request.merged_at`, labels, milestone, and `sub_issues_summary`, and `GET /repos/{o}/{r}/issues/comments?since=` / `pulls/comments?since=` return every comment in the repository in one paginated sweep. So a sync costs pages, not calls per record.
+- **Open item 2 resolved: per-record edges are deferred to the backfill.** Timeline (`cross_referenced`, `connected`/`disconnected`) and `pulls/{n}/files` are one call per record — a 1,000-record repo would take ~17 hours of anonymous budget for those alone. Captured now, at no per-record cost: labels, milestone, state, closing user, merge time, `closes` (closing keywords parsed from PR bodies — GitHub's own linking rule), `references` (`#N` mentions in bodies and comments), and sub-issue `parent`/`children` (one call per issue that has sub-issues).
+- **No Octokit.** Two list endpoints plus Link-header paging over `IHttpClientFactory`; Octokit's models also lag the newer fields (`sub_issues_summary`).
+- **Records are kept locally, like the docs mirror.** Sweeps merge into a per-source record store (`{MirrorDirectory}/{sourceId}/records/{n}.json`); `ReadFileAsync` renders from it. The pipeline builds a connector per document, and a network read per record would spend the budget the sweeps just saved.
+- **Paths are `/issues/{n}.md` and `/pulls/{n}.md`**, not the spec's extension-less form: the pipeline picks a parser by file extension.
 
-### Task 3.2: Issues/PRs branch of `GitHubConnector.GetChangesAsync`
-- Page `GET /repos/{o}/{r}/issues?since=<ts>&state=all&sort=updated&direction=asc&per_page=100` via Octokit (unauthenticated); rows with a `pull_request` field are PRs, hydrated via the pulls API; review comments via the since-capable endpoint. `NextCursor` = max `updated_at` seen; re-request `>=` with an id-dedup set for same-second ties. Virtual paths `/issues/{n}`, `/pulls/{n}`. `ReadFileAsync` re-fetches and re-renders the record by number.
-- Deletion reconciliation: a since-sweep cannot see hard deletes, so schedule a periodic full re-list (page all `state=all`, diff ids) — document the cadence.
+### Task 3.1: `ConnectorFile.Metadata`
+- [x] Append `IReadOnlyDictionary<string,string>? Metadata = null` to `ConnectorFile`; `SourceSyncService.EnqueueAllAsync` copies it into the job's metadata (sync keys win). Test in `SourceSyncService` unit tests.
 
-### Task 3.3: Edge capture as metadata
-- Capture `closes`/`closed_by`, `cross_referenced`, `connected`/`disconnected` (explicit link/unlink timeline events), sub-issue `parent`/`children`, `files` touched, labels, milestone into the document metadata dictionary — the full edge set from the spec's edge table. Use REST timeline and a hand-rolled GraphQL POST (installation-token-free, unauthenticated) for `closingIssuesReferences`. Assert `connected`/`disconnected` alongside the other edges in the integration test; if the unauthenticated timeline budget forces deferral (Open item 2), capture them in the later edge-backfill rather than dropping them.
-- **Open item (resolve here):** confirm the unauthenticated GraphQL/timeline budget is workable for a medium repo under 60/hour; if not, defer edge capture per record and backfill later.
+### Task 3.2: API client + record store + renderer
+- [x] `Connectors/GitHub/GitHubApiClient.cs`: anonymous GET with `User-Agent`, API version header, Link `rel="next"` paging. 403/429 with `x-ratelimit-remaining: 0` (or `retry-after`) → `GitHubRateLimitedException`; 401/404 → `GitHubRepositoryUnavailableException`.
+- [x] `Connectors/GitHub/GitHubRecordStore.cs`: one JSON file per record (issue fields, comments by id, parent, children) plus `state.json`; atomic writes (temp + move) because the pipeline reads while a sync writes.
+- [x] `Connectors/GitHub/GitHubRecordRenderer.cs`: header (`# {number}: {title}`, type/author/state/labels/milestone/dates, edge line), body, `--- Comment by {login} ({date}) ---` blocks in time order; minimized comments dropped. Returns the markdown and the edge metadata (`github:*` keys). Unit tests.
 
-### Task 3.4: Integration test + Task 3.5: Phase-exit verification + plan update.
+### Task 3.3: Issues kind of `GitHubConnector`
+- [x] Cursor is a small JSON object: one `updated_at` high-water mark per sweep (issues, comments, review comments) plus an emission sequence number. Every sweep re-requests `since` inclusively; re-processing the boundary item is idempotent (same content, same signature → the engine skips it), which is the same-second tie handling without an id set.
+- [x] Order per cycle: issues sweep; the comment sweeps run only when the issues sweep saw a change or a comment sweep has not caught up (an idle cycle costs one request). Records touched are marked dirty and emitted only once every sweep of the cycle completed, so a first sync embeds each record once, with its comments.
+- [x] Rate limit mid-cycle: keep what was merged, advance each sweep's mark to what it finished, emit nothing, return normally — the next cycle resumes. A large first sync converges over hours instead of failing.
+- [x] Emitted-but-unacknowledged records: dirty numbers are cleared only when the next cycle arrives with the cursor that emitted them (the engine stored it), so an engine failure after emission re-emits rather than loses them.
+- [x] Deletion reconciliation: every 24 h, after a completed cycle, page all issues (`state=all`) and delete stored records that are gone. Applied only when the full listing completed.
+- [x] Null cursor resets the record store; a cursor without a store returns `RequiresFullResync`.
+
+### Task 3.4: Factory + DI
+- [x] Named `HttpClient` "GitHub" registered in `AddStorage`; `ConnectorFactory` takes `IHttpClientFactory` (singleton-safe) and hands the connector a client for the issues kind.
+
+### Task 3.5: Tests + phase exit
+- [x] Unit: renderer, API client (stub handler: paging, rate limit, 404), connector issues kind (first sync, incremental, comments merged, sub-issues, rate-limited resume, re-emit on unacknowledged cursor, relist deletion).
+- [x] Integration: `GitHubIssuesSyncIntegrationTests` — an issues source through `SourceSyncService` against real PostgreSQL with a stub GitHub handler: records enqueued with edge metadata, cursor stored, idle cycle is a no-op.
+
+### Phase 3 status — COMPLETE (2026-09-22)
+- Done: issues-and-pull-requests kind (`GitHubRecordSource`) over a local record store; anonymous REST client with Link paging and rate-limit/404 classification; renderer with comment assembly and free edges; `ConnectorFile.Metadata` carried into the ingestion job; factory hands the issues kind a named `HttpClient`. All Task 3.1–3.5 boxes above are done.
+- Files: `Connectors/GitHub/{GitHubApiClient,GitHubRecordStore,GitHubRecordRenderer,GitHubRecordSource}.cs`, `GitHubConnector.cs`, `GitHubConnectorConfig.cs`, `ConnectorFactory.cs`, `ServiceCollectionExtensions.cs`, `StorageModels.cs`, `SourceSyncService.cs`, + tests (`FakeGitHubApi` shared with the integration project).
+- Verified: 0-warning build; unit suite green (1,241 in Core.Tests incl. 22 new record tests); `GitHubIssuesSyncIntegrationTests` + source integration classes green vs real PostgreSQL (same single pre-existing embedding-backend failure as Phase 2). Live run against `octocat/git-consortium`: 54 records, comments assembled, edges in metadata, idle second cycle emitted nothing.
+- Deferred (carry forward): timeline/PR-files edges (backfill once an App raises the limit); a comment edit that does not move its issue's `updated_at` is picked up only when the issue next changes; issue label/state filters from the spec's scope list; per-source default sync interval for issues sources (set in Phase 5's add-repository flow — at 5 minutes an idle source spends 12 of the 60 hourly requests).
+- Next action: Phase 4 — the `Record` chunker; it must beat the resolver's `.md` → DocumentAware auto-route for record paths.
 
 ---
 
@@ -473,4 +496,4 @@ public class RecordChunkerTests
 
 ## Open items carried from the spec
 1. ~~Public-to-private returns 404 unauthenticated — confirm in Phase 2.~~ Resolved in Phase 2: detected at the git transport (anonymous 401), no REST call.
-2. Unauthenticated GraphQL/timeline edge-capture budget under 60/hour — confirm in Phase 3, fall back to deferred backfill.
+2. ~~Unauthenticated GraphQL/timeline edge-capture budget under 60/hour — confirm in Phase 3, fall back to deferred backfill.~~ Resolved in Phase 3: GraphQL refuses anonymous callers; timeline and PR-files edges go to the backfill.

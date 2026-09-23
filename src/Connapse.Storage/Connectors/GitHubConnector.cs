@@ -2,7 +2,10 @@ using System.Text.RegularExpressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Storage.Connectors.GitHub;
 using LibGit2Sharp;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Connapse.Storage.Connectors;
 
@@ -30,8 +33,13 @@ public sealed class GitHubRepositoryUnavailableException(string message, Excepti
 /// last fetch saw. Only <see cref="GetChangesAsync"/> fetches, so the mirror has one writer —
 /// the per-source sync gate keeps that to one at a time.
 /// </para>
+/// <para>
+/// The issues-and-pull-requests kind is delegated to <see cref="GitHubRecordSource"/>, which
+/// reads the REST API through <paramref name="http"/>; the docs kind never touches it.
+/// </para>
 /// </summary>
-public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorConnector
+public sealed class GitHubConnector(
+    GitHubConnectorConfig config, HttpClient? http = null, ILogger? logger = null) : ISyncCursorConnector
 {
     /// <summary>
     /// Where the fetched default branch is kept. Outside refs/heads and refs/remotes so
@@ -50,11 +58,19 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
 
     public bool SupportsLiveWatch => false;
 
+    private readonly GitHubRecordSource? _records = config.Kind == GitHubContentKind.IssuesAndPullRequests
+        ? new GitHubRecordSource(
+            config,
+            http ?? throw new ArgumentNullException(nameof(http), "The issues kind reads the GitHub API and needs an HttpClient."),
+            logger ?? NullLogger.Instance)
+        : null;
+
     internal GitHubConnectorConfig Config => config;
 
     public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
-        RequireDocsKind();
+        if (_records is not null)
+            return _records.GetChangesAsync(cursor, ct);
 
         // LibGit2Sharp is synchronous; a fetch of a large repository can take minutes.
         return Task.Run(() =>
@@ -86,7 +102,8 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
     {
-        RequireDocsKind();
+        if (_records is not null)
+            return Task.FromResult(_records.List(prefix));
 
         using var repo = OpenExistingMirror();
         var head = RequireHead(repo);
@@ -103,7 +120,13 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
 
     public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
     {
-        RequireDocsKind();
+        if (_records is not null)
+        {
+            var record = _records.Find(path)
+                ?? throw new FileNotFoundException(
+                    $"'{LogSanitizer.Sanitize(path)}' is not a synced record of {Describe()}.");
+            return Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(record.Markdown)));
+        }
 
         using var repo = OpenExistingMirror();
         var blob = FindDoc(RequireHead(repo), path)
@@ -124,7 +147,8 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
 
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default)
     {
-        RequireDocsKind();
+        if (_records is not null)
+            return Task.FromResult(_records.Find(path) is not null);
 
         if (!Repository.IsValid(config.MirrorPath))
             return Task.FromResult(false);
@@ -329,13 +353,6 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
     }
 
     private static string ToVirtualPath(string repoPath) => "/" + repoPath;
-
-    private void RequireDocsKind()
-    {
-        if (config.Kind != GitHubContentKind.Docs)
-            throw new NotSupportedException(
-                $"GitHub {config.Kind} sources are not supported yet (epic #508 phase 3).");
-    }
 
     private string Describe() =>
         $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)}";

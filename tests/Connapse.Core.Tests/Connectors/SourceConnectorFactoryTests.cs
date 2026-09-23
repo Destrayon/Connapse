@@ -75,12 +75,16 @@ public class SourceConnectorFactoryTests
         var gitHubOptions = Substitute.For<IOptionsMonitor<GitHubSourceSettings>>();
         gitHubOptions.CurrentValue.Returns(new GitHubSourceSettings { MirrorDirectory = "/var/mirrors" });
 
+        var httpClients = Substitute.For<IHttpClientFactory>();
+        httpClients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
         return new ConnectorFactory(
             monitor,
             gitHubOptions,
             hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azureOptions),
+            httpClients,
             logger ?? NullLogger<ConnectorFactory>.Instance);
     }
 
@@ -646,6 +650,18 @@ public class SourceConnectorFactoryTests
         config.ExcludePatterns.Should().Equal("CHANGELOG.md");
         config.MirrorPath.Should().Be(Path.GetFullPath(Path.Combine("/var/mirrors", source.Id.ToString("N"))),
             "the mirror is keyed on the source, so a rename does not orphan it");
+    }
+
+    [Fact]
+    public void Create_ConnectionLessGitHubIssues_BuildsAnIssuesConnectorWithCommentsOptional()
+    {
+        var connector = _factory.Create(MakeGitHubSource(
+            """{"owner":"octocat","repo":"Hello-World","kind":"IssuesAndPullRequests","includeComments":false}"""));
+
+        var config = connector.Should().BeOfType<GitHubConnector>().Subject.Config;
+        config.Kind.Should().Be(GitHubContentKind.IssuesAndPullRequests);
+        config.IncludeComments.Should().BeFalse();
+        config.ApiBaseUrl.Should().Be("https://api.github.com");
     }
 
     [Fact]

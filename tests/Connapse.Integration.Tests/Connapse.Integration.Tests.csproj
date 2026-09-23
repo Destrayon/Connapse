@@ -44,4 +44,9 @@
     <ProjectReference Include="..\..\src\Connapse.Web\Connapse.Web.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared with the unit tests rather than referencing that project, which would pull its test host in. -->
+    <Compile Include="..\Connapse.Core.Tests\Connectors\FakeGitHubApi.cs" Link="Fakes\FakeGitHubApi.cs" />
+  </ItemGroup>
+
 </Project>
