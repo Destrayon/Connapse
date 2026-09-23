@@ -27,6 +27,9 @@ public sealed record GitHubInstallationToken(string Token, DateTimeOffset Expire
 /// <summary>What GitHub hands back when a manifest is converted into an App: everything, once.</summary>
 public sealed record GitHubAppManifestResult(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
+/// <summary>What a GitHub login names.</summary>
+public enum GitHubAccountKind { None, User, Organization }
+
 /// <summary>GitHub refused a call made as the App, or answered in a way that cannot be used.</summary>
 public sealed class GitHubAppException(string message, int? statusCode = null, Exception? inner = null)
     : Exception(message, inner)
@@ -162,6 +165,25 @@ public sealed class ConnapseGitHubApp(
             new GitHubAppRegistration(app.Id, app.Slug, app.ClientId, app.Owner?.Login ?? "", app.HtmlUrl),
             app.Pem,
             app.ClientSecret);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="login"/> is a GitHub organisation, a personal account, or nobody —
+    /// asked anonymously, since it is checked before any App exists.
+    /// </summary>
+    public async Task<GitHubAccountKind> GetAccountKindAsync(string login, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(login);
+
+        using var response = await SendAsync(
+            HttpMethod.Get, $"users/{Uri.EscapeDataString(login.Trim())}", auth: null, content: null, ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return GitHubAccountKind.None;
+
+        var account = await ReadAsync<Account>(response, "looking up the account", ct);
+        return string.Equals(account.Type, "Organization", StringComparison.OrdinalIgnoreCase)
+            ? GitHubAccountKind.Organization
+            : GitHubAccountKind.User;
     }
 
     // ── JWT ────────────────────────────────────────────────────────────────
