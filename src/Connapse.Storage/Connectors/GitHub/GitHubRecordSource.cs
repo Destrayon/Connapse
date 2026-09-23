@@ -53,6 +53,13 @@ internal sealed class GitHubRecordSource(
     /// </summary>
     internal static readonly TimeSpan RelistInterval = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// How often comments are swept on a repository where no issue moved. Editing or hiding a
+    /// comment does not move its issue, so without this such a change would wait for an unrelated
+    /// one. Two requests an hour.
+    /// </summary>
+    internal static readonly TimeSpan CommentSweepInterval = TimeSpan.FromHours(1);
+
     private const string PerPage = "per_page=100";
 
     private readonly GitHubApiClient _api = new(http, config.ApiBaseUrl);
@@ -91,21 +98,26 @@ internal sealed class GitHubRecordSource(
 
         try
         {
-            var suspects = new HashSet<int>();
-            bool issuesChanged = await SweepIssuesAsync(cursor.Issues, marks, cache, state, suspects, ct);
+            await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
 
-            // An idle repository costs one request a cycle: comments are swept only when an issue
-            // moved (a new comment moves its issue), or when an earlier cycle did not finish them.
+            // An idle repository costs one request a cycle. Comments are swept when an issue moved
+            // (a new comment moves its issue) — which the issues sweep records in the marks, so the
+            // obligation survives a budget that runs out before the comments are reached — when an
+            // earlier cycle did not finish them, or hourly for edits that move nothing.
             bool sweepComments = config.IncludeComments
-                && (issuesChanged || cursor.CommentsBehind || cursor.Comments is null || cursor.ReviewComments is null);
+                && (marks.CommentsBehind
+                    || cursor.Comments is null || cursor.ReviewComments is null
+                    || state.LastCommentSweepAt is not { } last
+                    || _clock.GetUtcNow() - last >= CommentSweepInterval);
 
             if (sweepComments)
             {
                 marks.CommentsBehind = true;
                 await SweepCommentsAsync(review: false, cursor.Comments, marks, cache, state, ct);
                 await SweepCommentsAsync(review: true, cursor.ReviewComments, marks, cache, state, ct);
-                await RefetchShrunkenCommentsAsync(suspects, state, ct);
+                await RefetchShrunkenCommentsAsync(state, ct);
                 marks.CommentsBehind = false;
+                state.LastCommentSweepAt = _clock.GetUtcNow();
             }
 
             complete = true;
@@ -143,11 +155,9 @@ internal sealed class GitHubRecordSource(
     // ── Sweeps ─────────────────────────────────────────────────────────────
 
     /// <returns>True when at least one issue changed; the boundary item re-read by an inclusive <c>since</c> does not count.</returns>
-    private async Task<bool> SweepIssuesAsync(
-        DateTimeOffset? since, Marks marks, RecordCache cache, GitHubRecordState state,
-        HashSet<int> suspects, CancellationToken ct)
+    private async Task SweepIssuesAsync(
+        DateTimeOffset? since, Marks marks, RecordCache cache, GitHubRecordState state, CancellationToken ct)
     {
-        bool changed = false;
         string url = $"{Repo}/issues?state=all&sort=updated&direction=asc&{PerPage}{Since(since)}";
 
         await foreach (var page in _api.PagesAsync<GitHubIssue>(url, ct))
@@ -161,22 +171,23 @@ internal sealed class GitHubRecordSource(
                 record.Issue = issue;
                 cache.Touch(record);
                 state.Dirty.Add(issue.Number);
-                changed = true;
+
+                // Its comments are owed from here on, even if this cycle stops before them.
+                if (config.IncludeComments)
+                    marks.CommentsBehind = true;
 
                 if (issue.SubIssuesSummary?.Total > 0 || record.Children.Count > 0)
                     await RefreshChildrenAsync(record, issue.SubIssuesSummary?.Total ?? 0, cache, state, ct);
 
                 // Fewer comments than we hold means one was deleted, which no sweep reports.
                 if (record.IssueCommentCount > issue.Comments)
-                    suspects.Add(issue.Number);
+                    state.Suspects.Add(issue.Number);
             }
 
             // Saved before the mark moves, so a mark never claims records that are not on disk.
             cache.Flush();
             marks.Issues = Advance(marks.Issues, page, page.Items.Select(i => i.UpdatedAt));
         }
-
-        return changed;
     }
 
     private async Task SweepCommentsAsync(
@@ -239,11 +250,14 @@ internal sealed class GitHubRecordSource(
             }
         }
 
+        DateTimeOffset now = _clock.GetUtcNow();
+
         foreach (int gone in parent.Children.Except(children))
         {
             var child = cache.Get(gone);
             if (child.Parent != parent.Number) continue;
             child.Parent = null;
+            child.EdgesChangedAt = now;
             cache.Touch(child);
             state.Dirty.Add(gone);
         }
@@ -253,21 +267,31 @@ internal sealed class GitHubRecordSource(
             var child = cache.Get(number);
             if (child.Parent == parent.Number) continue;
             child.Parent = parent.Number;
+            child.EdgesChangedAt = now;
             cache.Touch(child);
             state.Dirty.Add(number);
         }
 
+        if (!parent.Children.SequenceEqual(children))
+            parent.EdgesChangedAt = now;
+
         parent.Children = children;
     }
 
-    /// <summary>Replaces the issue comments of records that hold more than GitHub now reports.</summary>
-    private async Task RefetchShrunkenCommentsAsync(HashSet<int> suspects, GitHubRecordState state, CancellationToken ct)
+    /// <summary>
+    /// Replaces the issue comments of records that hold more than GitHub now reports. Each is
+    /// forgotten only once its refetch succeeds.
+    /// </summary>
+    private async Task RefetchShrunkenCommentsAsync(GitHubRecordState state, CancellationToken ct)
     {
-        foreach (int number in suspects)
+        foreach (int number in state.Suspects.ToList())
         {
             var record = _store.Load(number);
             if (record?.Issue is null || record.IssueCommentCount <= record.Issue.Comments)
+            {
+                state.Suspects.Remove(number);
                 continue;
+            }
 
             List<GitHubComment> current;
             try
@@ -276,6 +300,7 @@ internal sealed class GitHubRecordSource(
             }
             catch (GitHubNotFoundException)
             {
+                state.Suspects.Remove(number);
                 continue;
             }
 
@@ -286,6 +311,7 @@ internal sealed class GitHubRecordSource(
 
             _store.Save(record);
             state.Dirty.Add(number);
+            state.Suspects.Remove(number);
         }
     }
 
@@ -330,6 +356,13 @@ internal sealed class GitHubRecordSource(
         if (listed.Count == 0 && stored.Count > 0)
             return;
 
+        // Comments deleted upstream are invisible to a since-sweep, and the count check above only
+        // catches issue comments whose total fell. Listing every comment id once a day catches the
+        // rest: deleted review comments, and a deletion hidden by a new comment in the same window.
+        Dictionary<int, HashSet<string>>? commentIds = config.IncludeComments
+            ? await ListAllCommentIdsAsync(ct)
+            : null;
+
         foreach (int number in stored.Where(n => !listed.Contains(n)))
         {
             if (_store.Load(number)?.Issue is { } issue)
@@ -339,8 +372,62 @@ internal sealed class GitHubRecordSource(
             state.Dirty.Remove(number);
         }
 
+        if (commentIds is not null)
+        {
+            foreach (int number in stored.Where(listed.Contains))
+            {
+                var record = _store.Load(number);
+                if (record is null || record.Comments.Count == 0) continue;
+
+                var keep = commentIds.GetValueOrDefault(number) ?? [];
+                var removed = record.Comments.Keys.Where(k => !keep.Contains(k)).ToList();
+                if (removed.Count == 0) continue;
+
+                foreach (string key in removed)
+                    record.Comments.Remove(key);
+
+                _store.Save(record);
+                state.Dirty.Add(number);
+            }
+        }
+
         state.LastRelistAt = now;
         _store.SaveState(state);
+    }
+
+    /// <summary>
+    /// Every issue and review comment id in the repository, by record number. Null when either
+    /// listing did not complete, in which case nothing is removed.
+    /// </summary>
+    private async Task<Dictionary<int, HashSet<string>>?> ListAllCommentIdsAsync(CancellationToken ct)
+    {
+        var byNumber = new Dictionary<int, HashSet<string>>();
+
+        try
+        {
+            foreach (bool review in new[] { false, true })
+            {
+                string endpoint = review ? "pulls/comments" : "issues/comments";
+                await foreach (var page in _api.PagesAsync<GitHubComment>($"{Repo}/{endpoint}?{PerPage}", ct))
+                {
+                    foreach (var comment in page.Items)
+                    {
+                        if (ParentNumber(review ? comment.PullRequestUrl : comment.IssueUrl) is not int number)
+                            continue;
+
+                        if (!byNumber.TryGetValue(number, out var ids))
+                            byNumber[number] = ids = [];
+                        ids.Add((review ? "r" : "c") + comment.Id.ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is GitHubRateLimitedException or GitHubNotFoundException)
+        {
+            return null;
+        }
+
+        return byNumber;
     }
 
     // ── Emission ───────────────────────────────────────────────────────────
@@ -359,17 +446,26 @@ internal sealed class GitHubRecordSource(
         {
             state.Dirty.ExceptWith(state.EmittedUpserts);
             state.PendingDeletes.ExceptWith(state.EmittedDeletes);
+            if (state.EmittedFull)
+                state.InitialListingPending = false;
         }
 
         state.EmittedSeq = 0;
         state.EmittedUpserts = [];
         state.EmittedDeletes = [];
+        state.EmittedFull = false;
     }
 
     private SyncDelta Emit(GitHubRecordCursor cursor, Marks marks, GitHubRecordState state)
     {
         var upserts = new List<ConnectorFile>();
         var emitted = new List<int>();
+
+        // The first complete emission after a fresh start carries every record, flagged as a full
+        // listing, so the engine deletes whatever was indexed before and is not in the store now.
+        bool full = state.InitialListingPending;
+        if (full)
+            state.Dirty.UnionWith(_store.Numbers());
 
         foreach (int number in state.Dirty.ToList())
         {
@@ -391,16 +487,18 @@ internal sealed class GitHubRecordSource(
         var deletes = state.PendingDeletes.ToList();
         long seq = cursor.Seq;
 
-        if (upserts.Count > 0 || deletes.Count > 0)
+        if (upserts.Count > 0 || deletes.Count > 0 || full)
         {
             seq++;
             state.EmittedSeq = seq;
             state.EmittedUpserts = emitted;
             state.EmittedDeletes = deletes;
+            state.EmittedFull = full;
         }
 
         _store.SaveState(state);
-        return new SyncDelta(upserts, deletes, marks.ToCursor(seq).Serialize(), RequiresFullResync: false);
+        return new SyncDelta(
+            upserts, deletes, marks.ToCursor(seq).Serialize(), RequiresFullResync: false, IsFullListing: full);
     }
 
     // ── Reads ──────────────────────────────────────────────────────────────

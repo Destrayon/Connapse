@@ -36,7 +36,9 @@ public class KeywordSearchService
         }
 
         // Build WHERE clause for filters
-        var whereClauses = new List<string> { "1=1" };
+        // A source whose remote revoked access (a public repository gone private) is left out,
+        // whatever else the caller asked for.
+        var whereClauses = new List<string> { "1=1", "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
         var parameters = new List<object> { query }; // {0} = raw query string
 
         if (!string.IsNullOrEmpty(options.ContainerId))

@@ -30,6 +30,13 @@ internal sealed class GitHubStoredRecord
 
     public List<int> Children { get; set; } = [];
 
+    /// <summary>
+    /// When <see cref="Parent"/> or <see cref="Children"/> last changed. Part of the record's
+    /// modification time: a sub-issue moved between parents changes the rendered record without
+    /// touching its own <c>updated_at</c>, and the sync engine only re-ingests what it sees change.
+    /// </summary>
+    public DateTimeOffset? EdgesChangedAt { get; set; }
+
     public int IssueCommentCount => Comments.Keys.Count(k => k.StartsWith('c'));
 }
 
@@ -54,6 +61,25 @@ internal sealed class GitHubRecordState
     public List<string> EmittedDeletes { get; set; } = [];
 
     public DateTimeOffset? LastRelistAt { get; set; }
+
+    /// <summary>When both comment sweeps last ran to completion; an idle repository re-runs them hourly.</summary>
+    public DateTimeOffset? LastCommentSweepAt { get; set; }
+
+    /// <summary>
+    /// Records whose stored issue comments outnumber what GitHub reports — a deletion no sweep
+    /// shows. Kept here rather than per cycle, so a budget that runs out mid-refetch does not
+    /// forget them.
+    /// </summary>
+    public HashSet<int> Suspects { get; set; } = [];
+
+    /// <summary>
+    /// Set by a fresh start and cleared once the engine acknowledges the first complete emission,
+    /// which is sent as a full listing so the engine deletes what the store no longer has.
+    /// </summary>
+    public bool InitialListingPending { get; set; }
+
+    /// <summary>Whether the emission awaiting acknowledgement was that full listing.</summary>
+    public bool EmittedFull { get; set; }
 }
 
 /// <summary>
@@ -81,7 +107,7 @@ internal sealed class GitHubRecordStore(string root)
             Directory.Delete(RecordsDir, recursive: true);
 
         Directory.CreateDirectory(RecordsDir);
-        SaveState(new GitHubRecordState());
+        SaveState(new GitHubRecordState { InitialListingPending = true });
     }
 
     public GitHubStoredRecord? Load(int number)
