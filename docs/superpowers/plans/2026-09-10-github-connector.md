@@ -428,7 +428,7 @@ Expanded on Phase 2 landing (#510). Probes against api.github.com on 2026-09-22 
 
 ### Task 4.1: Add the enum member
 **Files:** Modify `src/Connapse.Core/Models/IngestionModels.cs:49`; Modify `src/Connapse.Core/Models/SettingsModels.cs:81-82` (doc comment).
-- [ ] Add `Record` to `ChunkingStrategy` so `ChunkingStrategy.Record.ToString() == "Record"`. Add `"Record"` to the `Strategy` doc comment. Build.
+- [x] Add `Record` to `ChunkingStrategy` so `ChunkingStrategy.Record.ToString() == "Record"`. Add `"Record"` to the `Strategy` doc comment. Build.
 
 ### Task 4.2: `RecordChunker`
 **Files:** Create `src/Connapse.Ingestion/Chunking/RecordChunker.cs`; Test `tests/Connapse.Ingestion.Tests/Chunking/RecordChunkerTests.cs`.
@@ -436,7 +436,7 @@ Expanded on Phase 2 landing (#510). Probes against api.github.com on 2026-09-22 
 **Interfaces:**
 - Produces: `class RecordChunker(ITokenCounter tokenCounter, RecursiveChunker recursiveChunker) : IChunkingStrategy` with `Name => "Record"`, returning `IReadOnlyList<ChunkInfo>`.
 
-- [ ] **Step 1: Failing test** — mirror `FixedSizeChunkerTests`: a small record returns a single chunk whose `Content` is the whole record and whose metadata has `["ChunkingStrategy"]="Record"`.
+- [x] **Step 1: Failing test** — mirror `FixedSizeChunkerTests`: a small record returns a single chunk whose `Content` is the whole record and whose metadata has `["ChunkingStrategy"]="Record"`.
 ```csharp
 [Trait("Category","Unit")]
 public class RecordChunkerTests
@@ -454,16 +454,23 @@ public class RecordChunkerTests
     }
 }
 ```
-- [ ] **Step 2: Run, verify fails.**
-- [ ] **Step 3: Implement** — if `CountTokens(content) <= settings.MaxChunkSize`, return one `ChunkInfo` (whole content, metadata `ChunkingStrategy`/`ChunkIndex`). Else split on the comment delimiter into child chunks, each prefixed with the field-header lines (the text before the first delimiter), delegating any still-oversized child to `recursiveChunker`. Mirror `DocumentAwareChunker`'s `BuildChunk`/fallback pattern.
-- [ ] **Step 4: Run, verify PASS** (add an oversized-record test that asserts multiple chunks each containing the header).
-- [ ] **Step 5: Commit.**
+- [x] **Step 2: Run, verify fails.**
+- [x] **Step 3: Implement** — if `CountTokens(content) <= settings.MaxChunkSize`, return one `ChunkInfo` (whole content, metadata `ChunkingStrategy`/`ChunkIndex`). Else split on the comment delimiter into child chunks, each prefixed with the field-header lines (the text before the first delimiter), delegating any still-oversized child to `recursiveChunker`. Mirror `DocumentAwareChunker`'s `BuildChunk`/fallback pattern.
+- [x] **Step 4: Run, verify PASS** (add an oversized-record test that asserts multiple chunks each containing the header).
+- [x] **Step 5: Commit.**
 
 ### Task 4.3: Register + select
 **Files:** Modify `src/Connapse.Ingestion/Extensions/ServiceCollectionExtensions.cs:37-45`.
-- [ ] Register `services.AddSingleton<IChunkingStrategy, RecordChunker>();` (RecursiveChunker already double-registered at :40-41). The pipeline matches by `Name` against `ChunkingStrategy.ToString()`, so no resolver change is needed; issues/PRs sources set their per-source chunking override to `Record` (Phase 3/5). Build + run unit tests. Commit.
+- [x] Register `services.AddSingleton<IChunkingStrategy, RecordChunker>();` (RecursiveChunker already double-registered at :40-41). The pipeline matches by `Name` against `ChunkingStrategy.ToString()`, so no resolver change is needed; issues/PRs sources set their per-source chunking override to `Record` (Phase 3/5). Build + run unit tests. Commit.
 
 ### Task 4.4: Phase-exit verification + plan update.
+
+### Phase 4 status — COMPLETE (2026-09-22)
+- Done: `ChunkingStrategy.Record` + `RecordChunker` (whole record when it fits; else split at `--- … ---` comment lines, adjacent parts packed to the budget, header on every chunk, oversized parts sub-split by `RecursiveChunker` with a lowered minimum). Registered in `AddIngestion`.
+- **Selection changed from the outline:** there is no per-source chunking override to set, so the connector reports the strategy per file (`ConnectorFile.Strategy`, set to `Record` by the issues kind) and the sync engine puts it on the job. `IngestionPipelineStrategyResolver` lets `Record` outrank the `.md` → DocumentAware route, and `ReindexService` treats a stored `Record` as content-pinned — kept on re-enqueue and never flagged stale when the configured strategy changes.
+- Files: `IngestionModels.cs`, `SettingsModels.cs` (doc comment), `StorageModels.cs`, `RecordChunker.cs`, `IngestionPipeline.cs` (resolver), `ReindexService.cs`, `Ingestion/Extensions/ServiceCollectionExtensions.cs`, `SourceSyncService.cs`, `GitHubRecordSource.cs`, + tests.
+- Verified: clean build; unit suite green (233 in Ingestion.Tests incl. 7 chunker + 7 routing cases); GitHub/sync integration green. The 5 reindex/ownership integration failures reproduce identically on the Phase 3 branch (embedding backend).
+- Next action: Phase 5 — provider page and add-repository flow.
 
 ---
 

@@ -46,4 +46,18 @@ public record IngestionProgressUpdate(
 
 public enum IngestionPhase { Parsing, Chunking, Embedding, Storing, Complete }
 
-public enum ChunkingStrategy { Semantic, FixedSize, Recursive, DocumentAware, SentenceWindow }
+public enum ChunkingStrategy
+{
+    Semantic,
+    FixedSize,
+    Recursive,
+    DocumentAware,
+    SentenceWindow,
+
+    /// <summary>
+    /// A record with a discussion — an issue or pull request. Chosen by the connector for the
+    /// content's shape rather than configured, so it outranks the markdown auto-route and stays
+    /// in place when the instance's configured strategy changes.
+    /// </summary>
+    Record,
+}

@@ -57,4 +57,23 @@ public class IngestionPipelineRoutingTests
         resolvedAtReindexCheck.Should().Be(resolvedAtIngest);
         resolvedAtReindexCheck.Should().Be("DocumentAware");
     }
+
+    [Theory]
+    [InlineData("12.md")]
+    [InlineData("12.txt")]
+    [InlineData(null)]
+    public void Resolve_RecordStrategy_OutranksTheMarkdownAutoRoute(string? fileName)
+    {
+        IngestionPipelineStrategyResolver.Resolve("Record", fileName).Should().Be("Record");
+    }
+
+    [Theory]
+    [InlineData("Record", true)]
+    [InlineData("record", true)]
+    [InlineData("DocumentAware", false)]
+    [InlineData(null, false)]
+    public void IsContentPinned_OnlyRecord(string? strategy, bool expected)
+    {
+        IngestionPipelineStrategyResolver.IsContentPinned(strategy).Should().Be(expected);
+    }
 }

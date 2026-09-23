@@ -163,7 +163,15 @@ internal static partial class GitHubRecordRenderer
     private static int ParseNumber(string s) =>
         int.TryParse(s, NumberStyles.None, CultureInfo.InvariantCulture, out int n) ? n : 0;
 
-    private static string Normalize(string text) => text.Replace("\r\n", "\n").TrimEnd();
+    /// <summary>
+    /// Line endings unified, and any line shaped like a comment delimiter escaped. Bodies are
+    /// written by anyone who can comment on a public repository; an unescaped
+    /// <c>--- Comment by … ---</c> line would read to the record chunker as a real boundary and
+    /// could pass off what follows as someone else's comment. The backslash is markdown's own
+    /// escape, so the text still renders as written.
+    /// </summary>
+    private static string Normalize(string text) =>
+        DelimiterShapedLine().Replace(text.Replace("\r\n", "\n").TrimEnd(), @"\$0");
 
     private static string Day(DateTimeOffset at) =>
         at.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -184,6 +192,9 @@ internal static partial class GitHubRecordRenderer
     /// sized, and must not differ between a Windows and a Linux server.
     /// </summary>
     private static StringBuilder Line(this StringBuilder sb, string text) => sb.Append(text).Append('\n');
+
+    [GeneratedRegex(@"^--- .+ ---$", RegexOptions.Multiline)]
+    private static partial Regex DelimiterShapedLine();
 
     [GeneratedRegex(@"^/(issues|pulls)/(\d{1,9})\.md$")]
     private static partial Regex RecordPathPattern();

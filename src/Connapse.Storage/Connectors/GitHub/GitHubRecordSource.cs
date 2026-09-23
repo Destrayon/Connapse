@@ -537,7 +537,8 @@ internal sealed class GitHubRecordSource(
         LastModified: rendered.LastModified,
         ContentType: "text/markdown",
         ResourceUri: rendered.Metadata[GitHubRecordRenderer.MetadataPrefix + "url"],
-        Metadata: rendered.Metadata);
+        Metadata: rendered.Metadata,
+        Strategy: ChunkingStrategy.Record);
 
     private static GitHubStoredComment ToStored(GitHubComment comment, bool review) => new(
         Login: comment.User?.Login ?? "ghost",

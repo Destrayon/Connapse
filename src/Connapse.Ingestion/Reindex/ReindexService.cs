@@ -450,9 +450,12 @@ public class ReindexService : IReindexService
             await _context.SaveChangesAsync(ct);
         }
 
-        // Determine chunking strategy
+        // Determine chunking strategy. A record keeps the strategy its shape was given.
+        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyChunkingStrategy, out var indexedWith);
         var strategy = options.Strategy ?? Enum.Parse<ChunkingStrategy>(
-            _chunkingSettings.CurrentValue.Strategy,
+            IngestionPipelineStrategyResolver.IsContentPinned(indexedWith)
+                ? indexedWith!
+                : _chunkingSettings.CurrentValue.Strategy,
             ignoreCase: true);
 
         // The owner the row actually has, read from the row. Nullable<Guid>.ToString() yields
@@ -538,8 +541,13 @@ public class ReindexService : IReindexService
         // a configured Strategy != DocumentAware stores "DocumentAware" (resolved) but the
         // raw "Recursive" (or other) currentSettings.Strategy here would always mismatch,
         // causing a permanent reindex loop.
+        //
+        // A content-pinned strategy (a record) is compared against itself, so changing the
+        // configured strategy does not mark every record stale and re-chunk it the wrong way.
         string resolvedStrategy = IngestionPipelineStrategyResolver.Resolve(
-            fallbackStrategy: currentSettings.Strategy,
+            fallbackStrategy: IngestionPipelineStrategyResolver.IsContentPinned(storedStrategy)
+                ? storedStrategy
+                : currentSettings.Strategy,
             fileName: doc.FileName);
 
         var currentKey = $"{resolvedStrategy}:{currentSettings.MaxChunkSize}:{currentSettings.Overlap}";

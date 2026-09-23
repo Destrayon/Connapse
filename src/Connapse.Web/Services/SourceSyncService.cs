@@ -615,6 +615,7 @@ public class SourceSyncService(
                     FileName: fileName,
                     ContentType: file.ContentType,
                     Path: file.Path,
+                    Strategy: file.Strategy ?? ChunkingStrategy.Semantic,
                     // Seeded from what the connector reported, then overwritten by the sync's
                     // own keys: a connector must not be able to forge the signature below.
                     Metadata: new Dictionary<string, string>(

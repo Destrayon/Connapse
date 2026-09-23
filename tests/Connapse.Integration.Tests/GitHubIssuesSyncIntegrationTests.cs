@@ -90,6 +90,8 @@ public sealed class GitHubIssuesSyncIntegrationTests(SharedWebAppFixture fixture
         pull["github:state"].Should().Be("merged");
         pull["Source"].Should().Be("SourceSync");
         queue.Jobs.Single(j => j.Path == "/issues/1.md").Options.Metadata!["github:labels"].Should().Be("bug");
+        queue.Jobs.Should().OnlyContain(j => j.Options.Strategy == ChunkingStrategy.Record,
+            "records are chunked as records even though their paths end in .md");
 
         (await sources.GetAsync(source.Id))!.SyncCursor.Should().NotBeNullOrEmpty();
     }
