@@ -70,14 +70,30 @@ public sealed class ConnapseGitHubApp(
     private readonly SemaphoreSlim _materialGate = new(1, 1);
     private (GitHubAppCredentialMaterial? Material, DateTimeOffset LoadedAt)? _material;
 
+    /// <summary>
+    /// Bumped by <see cref="ClearCache"/>. A load or mint that began before a clear does not publish
+    /// what it read, so a removed or replaced App cannot be put back by a request already in flight.
+    /// </summary>
+    private long _generation;
+    private readonly Lock _cacheLock = new();
+
     /// <summary>The REST API every call goes to. Only tests change it.</summary>
     internal string ApiBaseUrl { get; init; } = "https://api.github.com";
 
     /// <summary>Forgets the stored App and every cached token. Call after the App is saved or removed.</summary>
     public void ClearCache()
     {
-        _material = null;
-        _tokens.Clear();
+        lock (_cacheLock)
+        {
+            _generation++;
+            _material = null;
+            _tokens.Clear();
+        }
+    }
+
+    private long Generation
+    {
+        get { lock (_cacheLock) return _generation; }
     }
 
     /// <summary>True when an App is stored. Reads the store, not GitHub.</summary>
@@ -131,6 +147,7 @@ public sealed class ConnapseGitHubApp(
             && cached.ExpiresAt - _clock.GetUtcNow() > TokenRefreshMargin)
             return cached;
 
+        long generation = Generation;
         var material = await RequireAsync(ct);
         string jwt = CreateJwt(material.App.AppId, material.PrivateKeyPem, _clock.GetUtcNow());
 
@@ -139,7 +156,12 @@ public sealed class ConnapseGitHubApp(
         var payload = await ReadAsync<TokenPayload>(response, $"minting a token for installation {installationId}", ct);
 
         var token = new GitHubInstallationToken(payload.Token, payload.ExpiresAt);
-        _tokens[installationId] = token;
+        lock (_cacheLock)
+        {
+            if (_generation == generation)
+                _tokens[installationId] = token;
+        }
+
         return token;
     }
 
@@ -236,11 +258,17 @@ public sealed class ConnapseGitHubApp(
             if (_material is { } again && _clock.GetUtcNow() - again.LoadedAt < MaterialLifetime)
                 return again.Material;
 
+            long generation = Generation;
             await using var scope = scopes.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<IProviderCredentialStore>();
             var material = await store.GetGitHubAppMaterialAsync(ct);
 
-            _material = (material, _clock.GetUtcNow());
+            lock (_cacheLock)
+            {
+                if (_generation == generation)
+                    _material = (material, _clock.GetUtcNow());
+            }
+
             return material;
         }
         finally

@@ -96,15 +96,18 @@ internal sealed class GitHubRecordSource(
         var cache = new RecordCache(_store);
         bool complete = false;
 
+        // With credentials every check below is a conditional request: an unchanged answer is a
+        // 304, which GitHub does not count, so an idle repository costs nothing to poll.
+        bool probing = auth is not null;
+
+        // Outside the try: a check that cannot finish (the budget is spent) must fail the cycle,
+        // not pass as partial progress — a successful cycle clears a hidden source's revoked mark.
+        string? repositoryTag = state.RepositoryETag;
+        if (probing && config.RequirePublic)
+            repositoryTag = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, state.RepositoryETag, ct);
+
         try
         {
-            // With credentials every check below is a conditional request: an unchanged answer is a
-            // 304, which GitHub does not count, so an idle repository costs nothing to poll.
-            bool probing = auth is not null;
-
-            string? repositoryTag = state.RepositoryETag;
-            if (probing && config.RequirePublic)
-                repositoryTag = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, state.RepositoryETag, ct);
 
             // Probed only once a sweep has a mark: the first sweep lists everything regardless.
             var issues = probing && cursor.Issues is not null
@@ -154,16 +157,15 @@ internal sealed class GitHubRecordSource(
         catch (GitHubRateLimitedException ex)
         {
             logger.LogWarning(
-                "GitHub {Owner}/{Repo}: anonymous API budget spent until {ResetAt}; keeping progress and resuming next cycle",
+                "GitHub {Owner}/{Repo}: API budget spent until {ResetAt}; keeping progress and resuming next cycle",
                 LogSanitizer.Sanitize(config.Owner), LogSanitizer.Sanitize(config.Repo), ex.ResetAt);
         }
         catch (GitHubNotFoundException ex)
         {
             throw new GitHubRepositoryUnavailableException(
                 $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} "
-                + "can no longer be read anonymously. It may have been made private, renamed, or deleted. "
-                + "Public GitHub sources are read without a credential, so syncing stops until the "
-                + "repository is public again.", ex);
+                + "can no longer be read. It may have been made private, renamed, or deleted, or the "
+                + "App's installation no longer covers it. Syncing stops until it can be read again.", ex);
         }
         finally
         {

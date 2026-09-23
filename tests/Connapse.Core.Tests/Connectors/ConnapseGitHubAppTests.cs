@@ -176,6 +176,24 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         _github.LastAuthorization.Should().BeNull("the check runs before any App exists");
     }
 
+    [Fact]
+    public async Task ClearCache_DuringAnInFlightMint_DoesNotLetThatTokenBeCached()
+    {
+        var app = App();
+        _github.HoldTokens = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var inFlight = app.GetInstallationTokenAsync(7);
+        await _github.TokenRequested.Task;
+        app.ClearCache(); // the App is removed or replaced while GitHub is answering
+        _github.HoldTokens.SetResult();
+        await inFlight;
+
+        _github.HoldTokens = null;
+        await app.GetInstallationTokenAsync(7);
+
+        _github.TokenRequests.Should().Be(2, "a token minted before the clear must not be reused after it");
+    }
+
     private sealed class StubGitHub : HttpMessageHandler
     {
         private static readonly object NotFound = new();
@@ -186,7 +204,22 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         public DateTimeOffset TokenExpiresAt { get; set; } = DateTimeOffset.UtcNow.AddHours(1);
         public bool RefuseApp { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        /// <summary>When set, a token request waits for this before GitHub "answers".</summary>
+        public TaskCompletionSource? HoldTokens { get; set; }
+        public TaskCompletionSource TokenRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/access_tokens", StringComparison.Ordinal) && HoldTokens is { } hold)
+            {
+                TokenRequested.TrySetResult();
+                await hold.Task;
+            }
+
+            return Answer(request);
+        }
+
+        private HttpResponseMessage Answer(HttpRequestMessage request)
         {
             LastAuthorization = request.Headers.Authorization?.ToString();
             LastPath = request.RequestUri!.AbsolutePath;
@@ -214,17 +247,17 @@ public sealed class ConnapseGitHubAppTests : IDisposable
 
             if (ReferenceEquals(body, NotFound))
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
                 {
                     Content = new StringContent("""{"message":"Not Found"}"""),
-                });
+                };
             }
 
             var response = body is null
                 ? new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("""{"message":"A JSON web token could not be decoded"}""") }
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(body)) };
 
-            return Task.FromResult(response);
+            return response;
         }
 
         private object Token()

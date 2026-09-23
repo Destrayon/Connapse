@@ -41,6 +41,9 @@ public sealed class FakeGitHubApi : HttpMessageHandler
     /// <summary>What <c>GET /repos/{owner}/{repo}</c> reports: public, private, or internal.</summary>
     public string Visibility { get; set; } = "public";
 
+    /// <summary>Answers for successive visibility checks, before falling back to <see cref="Visibility"/>.</summary>
+    public Queue<string> VisibilityAnswers { get; } = new();
+
     /// <summary>The bearer token each request carried, or null when it carried none.</summary>
     public List<string?> Tokens { get; } = [];
 
@@ -190,9 +193,10 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         if (path.Length == 3)
         {
             // repos/{owner}/{repo}: the visibility check every authenticated sync makes first.
+            string visibility = VisibilityAnswers.TryDequeue(out string? next) ? next : Visibility;
             return Respond(request, JsonSerializer.Serialize(new
             {
-                id = 1296269, @private = Visibility != "public", visibility = Visibility,
+                id = 1296269, @private = visibility != "public", visibility,
             }));
         }
 
