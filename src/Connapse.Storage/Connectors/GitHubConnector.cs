@@ -67,7 +67,7 @@ public sealed class GitHubConnector(GitHubConnectorConfig config) : ISyncCursorC
                     $"Fetched {Describe()} but its default branch did not resolve to a commit.");
 
             if (cursor is null)
-                return new SyncDelta(ListMatching(head), [], head.Sha, RequiresFullResync: false);
+                return new SyncDelta(ListMatching(head), [], head.Sha, RequiresFullResync: false, IsFullListing: true);
 
             if (string.Equals(cursor, head.Sha, StringComparison.OrdinalIgnoreCase))
                 return new SyncDelta([], [], head.Sha, RequiresFullResync: false);

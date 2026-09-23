@@ -38,7 +38,7 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
     }
 
     /// <summary>Builds a GitHub connector for whatever source it is handed, fetching from the local upstream.</summary>
-    private sealed class LocalGitHubConnectorFactory(string upstream, string mirrorRoot) : IConnectorFactory
+    private sealed class LocalGitHubConnectorFactory(string upstream, string mirrorRoot, IReadOnlyList<string>? exclude = null) : IConnectorFactory
     {
         public IConnector Create(Source source, Connection connection, string? secret = null) =>
             throw new InvalidOperationException("a public GitHub source has no connection");
@@ -49,7 +49,22 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
             Repo = "docs",
             MirrorPath = Path.Combine(mirrorRoot, source.Id.ToString("N")),
             RemoteUrl = upstream,
+            ExcludePatterns = exclude ?? [],
         });
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            System.IO.File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(path, recursive: true);
+    }
+
+    private static async Task<List<string>> IndexedPathsAsync(IServiceProvider sp, Guid sourceId)
+    {
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var ctx = await dbFactory.CreateDbContextAsync();
+        return await ctx.Documents.Where(d => d.SourceId == sourceId).Select(d => d.Path).ToListAsync();
     }
 
     private string Commit(IDictionary<string, string>? write = null, params string[] delete)
@@ -76,12 +91,13 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         return repo.Commit("change", who, who).Sha;
     }
 
-    private (SourceSyncService Service, RecordingIngestionQueue Queue) BuildService(IServiceProvider sp)
+    private (SourceSyncService Service, RecordingIngestionQueue Queue) BuildService(
+        IServiceProvider sp, IReadOnlyList<string>? exclude = null)
     {
         var queue = new RecordingIngestionQueue();
         var service = new SourceSyncService(
             sp.GetRequiredService<IServiceScopeFactory>(),
-            new LocalGitHubConnectorFactory(Upstream, Path.Combine(_root, "mirrors")),
+            new LocalGitHubConnectorFactory(Upstream, Path.Combine(_root, "mirrors"), exclude),
             queue,
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
 
@@ -163,6 +179,56 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         (await ctx.Documents.Where(d => d.SourceId == source.Id).Select(d => d.Path).ToListAsync())
             .Should().Equal("/keep.md");
         (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be(second);
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_MirrorLost_TheResyncDeletesWhatWentAwayMeanwhile()
+    {
+        Commit(new Dictionary<string, string> { ["a.md"] = "a", ["b.md"] = "b", ["gone.md"] = "g" });
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var source = await SeedGitHubSourceAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        await service.SyncSourceAsync(source, connection: null, CancellationToken.None);
+
+        // History rewritten upstream (a force-push to a new root) and the mirror lost: the stored
+        // SHA exists nowhere, so the cursor is cleared and a full listing runs.
+        DeleteDirectory(Upstream);
+        Commit(new Dictionary<string, string> { ["a.md"] = "a", ["b.md"] = "b" });
+        DeleteDirectory(Path.Combine(_root, "mirrors"));
+        var resync = await service.SyncSourceAsync(
+            (await sources.GetAsync(source.Id))!, connection: null, CancellationToken.None);
+        resync.RequiredResync.Should().BeTrue();
+
+        var full = await service.SyncSourceAsync(
+            (await sources.GetAsync(source.Id))!, connection: null, CancellationToken.None);
+
+        full.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().BeEquivalentTo("/a.md", "/b.md");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_PatternsNarrowed_RemovesNewlyExcludedDocsWithoutANewCommit()
+    {
+        Commit(new Dictionary<string, string> { ["guide.md"] = "g", ["CHANGELOG.md"] = "c" });
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var source = await SeedGitHubSourceAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider, exclude: ["CHANGELOG.md"]);
+        await service.SyncSourceAsync(source, connection: null, CancellationToken.None);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().BeEquivalentTo("/guide.md");
+
+        // The test factory reads patterns from its own argument, so widening is simulated by a new
+        // factory; the scope edit is what clears the cursor.
+        await sources.UpdateAsync(source.Id, new UpdateSourceRequest(
+            ScopeJson: """{"owner":"octocat","repo":"docs","kind":"docs","excludePatterns":["guide.md"]}"""));
+        var (narrowed, _) = BuildService(scope.ServiceProvider, exclude: ["guide.md"]);
+
+        await narrowed.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection: null, CancellationToken.None);
+
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().BeEquivalentTo("/CHANGELOG.md");
     }
 
     [Fact]

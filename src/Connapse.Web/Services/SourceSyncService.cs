@@ -179,7 +179,7 @@ public class SourceSyncService(
             }
 
             return connector is ISyncCursorConnector cursorConnector
-                ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
+                ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions)
                 : await SyncViaListAndDiffAsync(
                     source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
         }
@@ -212,7 +212,8 @@ public class SourceSyncService(
     }
 
     private async Task<SourceSyncResult> SyncViaDeltaAsync(
-        Source source, ISyncCursorConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct)
+        Source source, ISyncCursorConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct,
+        bool applyWithheldDeletions = false)
     {
         SyncDelta delta = await connector.GetChangesAsync(source.SyncCursor, ct);
 
@@ -234,8 +235,35 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
-        int upserted = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+        int upserted;
+        int deleted;
+        int withheld = 0;
+
+        if (delta.IsFullListing)
+        {
+            // Everything the source holds, so anything indexed and missing from it went away
+            // while there was no cursor to report it — the same question list-and-diff answers.
+            (upserted, deleted, withheld) = await ReconcileAsync(
+                source, delta.Upserted, sourceStore, context, sp, applyWithheldDeletions, ct);
+            deleted += await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+
+            // Withheld deletions are only applied by a later full listing, so the cursor stays
+            // where it was: advancing it would turn the next cycle into an ordinary delta and
+            // leave the administrator's approval nothing to act on.
+            if (withheld > 0)
+            {
+                await sourceStore.UpdateSyncStateAsync(
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+
+                return new SourceSyncResult(
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+            }
+        }
+        else
+        {
+            upserted = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
+            deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+        }
 
         // Compare-and-swap: a cycle that started earlier but finished later must not
         // overwrite newer progress with its own stale cursor.
@@ -254,7 +282,8 @@ public class SourceSyncService(
                 source.Id, upserted, deleted);
         }
 
-        return new SourceSyncResult(upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null);
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(
@@ -266,6 +295,28 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
+        var (upserted, deleted, withheld) = await ReconcileAsync(
+            source, remote, sourceStore, context, sp, applyWithheldDeletions, ct);
+
+        // No cursor to advance on this path, so record the outcome directly. The stored
+        // cursor stays null, which is what marks this source as fallback-synced.
+        await sourceStore.UpdateSyncStateAsync(
+            source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
+            WithheldDeletions: withheld);
+    }
+
+    /// <summary>
+    /// Brings the indexed documents in line with a complete listing of the remote: enqueues what
+    /// changed and deletes what is gone, unless the deletion guard withholds it. Shared by
+    /// list-and-diff sources and by a delta source's full listing.
+    /// </summary>
+    private async Task<(int Upserted, int Deleted, int Withheld)> ReconcileAsync(
+        Source source, IReadOnlyList<ConnectorFile> remote, ISourceStore sourceStore, KnowledgeDbContext context,
+        IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
+    {
         var indexedPaths = await context.Documents
             .AsNoTracking()
             .Where(d => d.SourceId == source.Id)
@@ -326,14 +377,7 @@ public class SourceSyncService(
         await sourceStore.UpdateWithheldDeletionsAsync(
             source.Id, withhold ? vanished.Count : null, ct);
 
-        // No cursor to advance on this path, so record the outcome directly. The stored
-        // cursor stays null, which is what marks this source as fallback-synced.
-        await sourceStore.UpdateSyncStateAsync(
-            source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
-
-        return new SourceSyncResult(
-            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
-            WithheldDeletions: withhold ? vanished.Count : 0);
+        return (upserted, deleted, withhold ? vanished.Count : 0);
     }
 
     /// <summary>

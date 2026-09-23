@@ -165,7 +165,18 @@ public class PostgresSourceStore(
             entity.Description = request.Description.Trim();
 
         if (request.ScopeJson is not null)
-            entity.ScopeJson = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson);
+        {
+            var scope = JsonDocument.Parse(string.IsNullOrEmpty(request.ScopeJson) ? "{}" : request.ScopeJson);
+
+            // A cursor records progress through the old scope. Kept across a scope edit, a delta
+            // source would carry on from it and never pick up files the new scope includes, nor
+            // drop the ones it now excludes. Cleared, the next cycle is a full listing, which
+            // the sync engine reconciles against what is indexed.
+            if (!JsonElement.DeepEquals(entity.ScopeJson.RootElement, scope.RootElement))
+                entity.SyncCursor = null;
+
+            entity.ScopeJson = scope;
+        }
 
         if (request.SyncIntervalSeconds.HasValue)
             entity.SyncIntervalSeconds = request.SyncIntervalSeconds;
