@@ -27,6 +27,12 @@ public class SourceEntity
     /// </summary>
     public int? WithheldDeletions { get; set; }
 
+    /// <summary>When the sync engine began holding the cursor over an in-flight document.</summary>
+    public DateTime? SyncHeldSince { get; set; }
+
+    /// <summary>When the remote refused this source's reads; its documents are hidden from search while set.</summary>
+    public DateTime? AccessRevokedAt { get; set; }
+
     // Auto-generated summary (agent-optimized prose for routing)
     public string? Summary { get; set; }
     public DateTime? SummaryGeneratedAt { get; set; }

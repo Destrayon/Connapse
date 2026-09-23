@@ -199,7 +199,9 @@ public class PgVectorStore : IVectorStore
         }
 
         // Build WHERE clause and named parameters for filters
-        var whereClauses = new List<string> { "1=1" };
+        // A source whose remote revoked access (a public repository gone private) is left out,
+        // whatever else the caller asked for.
+        var whereClauses = new List<string> { "1=1", "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
         var vectorParam = new NpgsqlParameter("@queryVector", new Vector(queryVector));
         var topKParam = new NpgsqlParameter("@topK", NpgsqlDbType.Integer) { Value = topK };
         var parameters = new List<NpgsqlParameter> { vectorParam, topKParam };

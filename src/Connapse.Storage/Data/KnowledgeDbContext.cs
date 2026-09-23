@@ -590,6 +590,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.WithheldDeletions)
                 .HasColumnName("withheld_deletions");
 
+            entity.Property(e => e.SyncHeldSince)
+                .HasColumnName("sync_held_since");
+
+            entity.Property(e => e.AccessRevokedAt)
+                .HasColumnName("access_revoked_at");
+
             entity.Property(e => e.Summary)
                 .HasColumnName("summary");
 

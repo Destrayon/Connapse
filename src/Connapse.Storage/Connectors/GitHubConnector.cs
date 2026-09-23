@@ -15,7 +15,7 @@ namespace Connapse.Storage.Connectors;
 /// anonymous client, so they cannot be told apart and are not guessed at.
 /// </summary>
 public sealed class GitHubRepositoryUnavailableException(string message, Exception inner)
-    : IOException(message, inner);
+    : SourceAccessRevokedException(message, inner);
 
 /// <summary>
 /// Read access to a public GitHub repository, unauthenticated.
@@ -83,7 +83,7 @@ public sealed class GitHubConnector(
                     $"Fetched {Describe()} but its default branch did not resolve to a commit.");
 
             if (cursor is null)
-                return new SyncDelta(ListMatching(head), [], head.Sha, RequiresFullResync: false);
+                return new SyncDelta(ListMatching(head), [], head.Sha, RequiresFullResync: false, IsFullListing: true);
 
             if (string.Equals(cursor, head.Sha, StringComparison.OrdinalIgnoreCase))
                 return new SyncDelta([], [], head.Sha, RequiresFullResync: false);
