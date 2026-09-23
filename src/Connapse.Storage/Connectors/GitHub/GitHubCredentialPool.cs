@@ -1,5 +1,9 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.Json;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Storage.Connectors.GitHub;
 
@@ -31,8 +35,13 @@ public sealed record GitHubLease(long InstallationId, string Token);
 /// told when the earliest budget resets, and stops there — the same outcome as the anonymous
 /// limit, only much later.
 /// </para>
+/// <para>
+/// Only installations an administrator has added as a connection are borrowed. A public App can be
+/// installed by anyone on their own account; an installation Connapse was never told about spends
+/// nobody's budget and reads nothing.
+/// </para>
 /// </summary>
-public sealed class GitHubCredentialPool(ConnapseGitHubApp app, TimeProvider? clock = null)
+public sealed class GitHubCredentialPool(ConnapseGitHubApp app, IServiceScopeFactory scopes, TimeProvider? clock = null)
 {
     private static readonly TimeSpan InstallationListLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RefusedCooldown = TimeSpan.FromMinutes(5);
@@ -135,9 +144,51 @@ public sealed class GitHubCredentialPool(ConnapseGitHubApp app, TimeProvider? cl
         if (_installations is { } cached && _clock.GetUtcNow() - cached.LoadedAt < InstallationListLifetime)
             return cached.Ids;
 
-        var ids = (await app.ListInstallationsAsync(ct)).Select(i => i.Id).ToList();
+        var connected = await ConnectedInstallationsAsync(ct);
+        var ids = (await app.ListInstallationsAsync(ct)).Select(i => i.Id).Where(connected.Contains).ToList();
         _installations = (ids, _clock.GetUtcNow());
         return ids;
+    }
+
+    /// <summary>The installations named by GitHub connections.</summary>
+    private async Task<HashSet<long>> ConnectedInstallationsAsync(CancellationToken ct)
+    {
+        const int page = 100;
+        var ids = new HashSet<long>();
+
+        await using var scope = scopes.CreateAsyncScope();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+        for (int skip = 0; ; skip += page)
+        {
+            var batch = await connections.ListAsync(skip, page, ct);
+            foreach (var connection in batch.Where(c => c.Provider == ConnectionProvider.GitHub))
+            {
+                if (InstallationId(connection.ConfigJson) is { } id)
+                    ids.Add(id);
+            }
+
+            if (batch.Count < page)
+                return ids;
+        }
+    }
+
+    private static long? InstallationId(string? configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(configJson);
+            return doc.RootElement.TryGetProperty("installationId", out var v)
+                   && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out long id)
+                ? id
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Forgets the installation list, so one added or removed on GitHub is seen at once.</summary>

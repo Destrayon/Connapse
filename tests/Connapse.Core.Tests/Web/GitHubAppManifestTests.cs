@@ -14,7 +14,7 @@ public class GitHubAppManifestTests
     [Fact]
     public void Build_AsksForReadOnlyAccessAndReturnsToThisConnapse()
     {
-        using var manifest = JsonDocument.Parse(GitHubAppManifest.Build("https://connapse.example.test/"));
+        using var manifest = JsonDocument.Parse(GitHubAppManifest.Build("https://connapse.example.test/", isPublic: false));
         var root = manifest.RootElement;
 
         root.GetProperty("redirect_url").GetString()
@@ -28,6 +28,16 @@ public class GitHubAppManifestTests
         {
             ["metadata"] = "read", ["contents"] = "read", ["issues"] = "read", ["pull_requests"] = "read",
         });
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Build_CarriesTheRequestedVisibility(bool isPublic)
+    {
+        using var manifest = JsonDocument.Parse(GitHubAppManifest.Build("https://connapse.example.test/", isPublic));
+
+        manifest.RootElement.GetProperty("public").GetBoolean().Should().Be(isPublic);
     }
 
     [Fact]
