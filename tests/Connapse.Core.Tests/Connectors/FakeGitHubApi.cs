@@ -47,6 +47,34 @@ public sealed class FakeGitHubApi : HttpMessageHandler
     /// <summary>Tokens whose budget is spent: a request carrying one is refused as rate-limited.</summary>
     public HashSet<string> SpentTokens { get; } = [];
 
+    /// <summary>Requests answered 304 because their If-None-Match matched — free on the real API.</summary>
+    public int NotModified { get; private set; }
+
+    /// <summary>
+    /// Answers with an ETag derived from the body, or 304 when the request already holds it — the
+    /// way GitHub makes an unchanged probe free.
+    /// </summary>
+    private Task<HttpResponseMessage> Respond(HttpRequestMessage request, string json)
+    {
+        string etag = "\"" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..16] + "\"";
+
+        if (request.Headers.TryGetValues("If-None-Match", out var held) && held.Contains(etag))
+        {
+            NotModified++;
+            var unchanged = new HttpResponseMessage(HttpStatusCode.NotModified);
+            unchanged.Headers.TryAddWithoutValidation("ETag", etag);
+            return Task.FromResult(unchanged);
+        }
+
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        response.Headers.TryAddWithoutValidation("ETag", etag);
+        response.Headers.Date = Now;
+        return Task.FromResult(response);
+    }
+
     public HttpClient CreateClient() => new(this, disposeHandler: false);
 
     // ── Mutations ──────────────────────────────────────────────────────────
@@ -162,15 +190,10 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         if (path.Length == 3)
         {
             // repos/{owner}/{repo}: the visibility check every authenticated sync makes first.
-            var repository = new HttpResponseMessage(HttpStatusCode.OK)
+            return Respond(request, JsonSerializer.Serialize(new
             {
-                Content = new StringContent(JsonSerializer.Serialize(new
-                {
-                    id = 1296269, @private = Visibility != "public", visibility = Visibility,
-                }), Encoding.UTF8, "application/json"),
-            };
-            repository.Headers.Add("x-ratelimit-remaining", "4999");
-            return Task.FromResult(repository);
+                id = 1296269, @private = Visibility != "public", visibility = Visibility,
+            }));
         }
 
         var query = HttpUtility.ParseQueryString(uri.Query);
@@ -198,14 +221,16 @@ public sealed class FakeGitHubApi : HttpMessageHandler
             _ => throw new InvalidOperationException("unexpected request " + uri),
         };
 
-        var slice = items.Skip((page - 1) * PageSize).Take(PageSize).ToList();
-        var response = new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent(JsonSerializer.Serialize(slice), Encoding.UTF8, "application/json"),
-        };
-        response.Headers.Date = Now;
+        // A probe asks for the newest item first, one per page; honoured so that it sees the item
+        // that moved rather than whatever happens to sort first.
+        if (query["direction"] == "desc")
+            items.Reverse();
+        int pageSize = int.TryParse(query["per_page"], out int requested) && requested < PageSize ? requested : PageSize;
 
-        if (page * PageSize < items.Count)
+        var slice = items.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var response = Respond(request, JsonSerializer.Serialize(slice)).Result;
+
+        if (response.StatusCode == HttpStatusCode.OK && page * pageSize < items.Count)
         {
             query["page"] = (page + 1).ToString();
             response.Headers.Add("Link", $"<{BaseUrl}{uri.AbsolutePath}?{query}>; rel=\"next\"");

@@ -16,19 +16,32 @@ internal static class GitHubRepositoryGuard
 {
     private sealed record RepositoryPayload(long Id, bool Private, string? Visibility);
 
+    /// <summary>
+    /// Refuses a repository that is no longer public. Asked conditionally: an unchanged repository
+    /// answers 304, which costs nothing and means it is as public as it was when
+    /// <paramref name="etag"/> was issued.
+    /// </summary>
+    /// <returns>The ETag to send next time.</returns>
     /// <exception cref="GitHubRepositoryUnavailableException">Private, internal, or gone.</exception>
-    public static async Task RequirePublicAsync(GitHubApiClient api, GitHubConnectorConfig config, CancellationToken ct)
+    public static async Task<string?> RequirePublicAsync(
+        GitHubApiClient api, GitHubConnectorConfig config, string? etag, CancellationToken ct)
     {
-        RepositoryPayload repo;
+        (bool Changed, RepositoryPayload? Value, string? ETag) answer;
         try
         {
-            repo = await api.GetAsync<RepositoryPayload>(
-                $"repos/{Uri.EscapeDataString(config.Owner)}/{Uri.EscapeDataString(config.Repo)}", ct);
+            answer = await api.GetIfChangedAsync<RepositoryPayload>(
+                $"repos/{Uri.EscapeDataString(config.Owner)}/{Uri.EscapeDataString(config.Repo)}", etag, ct);
         }
         catch (GitHubNotFoundException ex)
         {
             throw Unavailable(config, ex);
         }
+
+        if (!answer.Changed)
+            return answer.ETag;
+
+        var repo = answer.Value
+            ?? throw Unavailable(config, new InvalidOperationException("GitHub returned no repository."));
 
         // "internal" repositories are visible to an enterprise's members, not to the public.
         bool isPublic = repo.Visibility is { } visibility
@@ -40,6 +53,8 @@ internal static class GitHubRepositoryGuard
             throw Unavailable(config, new InvalidOperationException(
                 $"GitHub reports the repository as {repo.Visibility ?? "private"}."));
         }
+
+        return answer.ETag;
     }
 
     public static GitHubRepositoryUnavailableException Unavailable(GitHubConnectorConfig config, Exception inner) =>

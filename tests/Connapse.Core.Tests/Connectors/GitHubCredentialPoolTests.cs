@@ -200,6 +200,82 @@ public sealed class GitHubCredentialPoolTests : IDisposable
         Directory.Exists(_root).Should().BeFalse("nothing was fetched");
     }
 
+    // ── Conditional probes ─────────────────────────────────────────────────
+
+    /// <summary>Syncs until the probes hold an ETag for everything, returning the last cursor.</summary>
+    private async Task<string?> SettleAsync(GitHubConnector connector)
+    {
+        string? cursor = (await connector.GetChangesAsync(null)).NextCursor;
+        cursor = (await connector.GetChangesAsync(cursor)).NextCursor;
+        return cursor;
+    }
+
+    [Fact]
+    public async Task IssuesSync_IdleRepository_SpendsOnlyFree304s()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.AddComment(1, "alice", "Me too");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+        string? cursor = await SettleAsync(connector);
+        int requests = _api.Requests, unchanged = _api.NotModified;
+
+        var idle = await connector.GetChangesAsync(cursor);
+
+        idle.Upserted.Should().BeEmpty();
+        (_api.Requests - requests).Should().Be(4, "the repository, issues, comments, and review comments are each probed");
+        (_api.NotModified - unchanged).Should().Be(4, "an authenticated 304 is not counted against the rate limit");
+    }
+
+    [Fact]
+    public async Task IssuesSync_CommentEditedOnAnIdleRepository_IsSeenNextCycle()
+    {
+        _api.UpsertIssue(1, "Crash");
+        long id = _api.AddComment(1, "alice", "Tpyo");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+        string? cursor = await SettleAsync(connector);
+
+        _api.EditComment(id, "Typo fixed"); // moves the comment, not its issue
+
+        var next = await connector.GetChangesAsync(cursor);
+
+        next.Upserted.Select(f => f.Path).Should().Equal(["/issues/1.md"],
+            "the comment probe sees the edit without waiting for the hourly sweep");
+    }
+
+    [Fact]
+    public async Task IssuesSync_BudgetRunsOutMidSweep_TheNextCycleSweepsAgainInsteadOfTrustingAStaleProbe()
+    {
+        _api.UpsertIssue(1, "First");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+        string? cursor = await SettleAsync(connector);
+
+        for (int n = 2; n <= 6; n++) _api.UpsertIssue(n, "Issue " + n);
+        _api.Budget = _api.Requests + 3; // repository and issue probes, one page of issues, then spent
+
+        var partial = await connector.GetChangesAsync(cursor);
+        partial.Upserted.Should().BeEmpty();
+
+        _api.Budget = null;
+        var resumed = await connector.GetChangesAsync(partial.NextCursor);
+
+        resumed.Upserted.Select(f => f.Path).Should().BeEquivalentTo(
+            ["/issues/2.md", "/issues/3.md", "/issues/4.md", "/issues/5.md", "/issues/6.md"]);
+    }
+
+    [Fact]
+    public async Task IssuesSync_RepositoryTurnsPrivateAfterSettling_IsStillRefused()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var connector = Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1));
+        string? cursor = await SettleAsync(connector);
+
+        _api.Visibility = "private";
+
+        Func<Task> act = () => connector.GetChangesAsync(cursor);
+        await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>(
+            "a stored ETag must not let a changed repository answer 304");
+    }
+
     private sealed class ManualClock : TimeProvider
     {
         public DateTimeOffset Now { get; private set; } = new(2026, 9, 23, 12, 0, 0, TimeSpan.Zero);

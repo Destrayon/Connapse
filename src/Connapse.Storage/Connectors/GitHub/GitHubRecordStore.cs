@@ -80,6 +80,19 @@ internal sealed class GitHubRecordState
 
     /// <summary>Whether the emission awaiting acknowledgement was that full listing.</summary>
     public bool EmittedFull { get; set; }
+
+    /// <summary>
+    /// ETags from the last completed probes: the repository, and the newest issue, issue comment,
+    /// and review comment. Each is kept only once the sweep it gates has finished, so a probe can
+    /// never report "unchanged" for work a stopped cycle left undone.
+    /// </summary>
+    public string? RepositoryETag { get; set; }
+
+    public string? IssuesETag { get; set; }
+
+    public string? CommentsETag { get; set; }
+
+    public string? ReviewCommentsETag { get; set; }
 }
 
 /// <summary>

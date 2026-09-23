@@ -98,20 +98,40 @@ internal sealed class GitHubRecordSource(
 
         try
         {
-            if (auth is not null && config.RequirePublic)
-                await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+            // With credentials every check below is a conditional request: an unchanged answer is a
+            // 304, which GitHub does not count, so an idle repository costs nothing to poll.
+            bool probing = auth is not null;
 
-            await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
+            string? repositoryTag = state.RepositoryETag;
+            if (probing && config.RequirePublic)
+                repositoryTag = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, state.RepositoryETag, ct);
 
-            // An idle repository costs one request a cycle. Comments are swept when an issue moved
-            // (a new comment moves its issue) — which the issues sweep records in the marks, so the
-            // obligation survives a budget that runs out before the comments are reached — when an
-            // earlier cycle did not finish them, or hourly for edits that move nothing.
+            // Probed only once a sweep has a mark: the first sweep lists everything regardless.
+            var issues = probing && cursor.Issues is not null
+                ? await ProbeAsync($"{Repo}/issues?state=all&sort=updated&direction=desc&per_page=1", state.IssuesETag, ct)
+                : (Changed: true, ETag: (string?)null);
+
+            if (issues.Changed)
+                await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
+
+            (bool Changed, string? ETag) comments = (true, null), reviewComments = (true, null);
+            if (probing && config.IncludeComments && cursor.Comments is not null && cursor.ReviewComments is not null)
+            {
+                comments = await ProbeAsync($"{Repo}/issues/comments?sort=updated&direction=desc&per_page=1", state.CommentsETag, ct);
+                reviewComments = await ProbeAsync($"{Repo}/pulls/comments?sort=updated&direction=desc&per_page=1", state.ReviewCommentsETag, ct);
+            }
+
+            // Comments are swept when an issue moved (a new comment moves its issue) — which the
+            // issues sweep records in the marks, so the obligation survives a budget that runs out
+            // before the comments are reached — or when an earlier cycle did not finish them. With
+            // credentials the comment probes catch an edit that moves nothing; without them, an
+            // hourly sweep does.
             bool sweepComments = config.IncludeComments
                 && (marks.CommentsBehind
                     || cursor.Comments is null || cursor.ReviewComments is null
-                    || state.LastCommentSweepAt is not { } last
-                    || _clock.GetUtcNow() - last >= CommentSweepInterval);
+                    || (probing
+                        ? comments.Changed || reviewComments.Changed
+                        : state.LastCommentSweepAt is not { } last || _clock.GetUtcNow() - last >= CommentSweepInterval));
 
             if (sweepComments)
             {
@@ -122,6 +142,12 @@ internal sealed class GitHubRecordSource(
                 marks.CommentsBehind = false;
                 state.LastCommentSweepAt = _clock.GetUtcNow();
             }
+
+            // Only now: every sweep a probe gated has finished, so its ETag may stand for it.
+            state.RepositoryETag = repositoryTag;
+            if (issues.ETag is not null) state.IssuesETag = issues.ETag;
+            if (sweepComments || !comments.Changed) state.CommentsETag = comments.ETag ?? state.CommentsETag;
+            if (sweepComments || !reviewComments.Changed) state.ReviewCommentsETag = reviewComments.ETag ?? state.ReviewCommentsETag;
 
             complete = true;
         }
@@ -153,6 +179,16 @@ internal sealed class GitHubRecordSource(
         await RelistIfDueAsync(firstSync: cursorText is null, state, ct);
 
         return Emit(cursor, marks, state);
+    }
+
+    /// <summary>
+    /// Asks whether the newest item of a list changed since <paramref name="etag"/>. A 304 is
+    /// free; a 200 costs one request and returns the ETag to remember once the sweep it gates is done.
+    /// </summary>
+    private async Task<(bool Changed, string? ETag)> ProbeAsync(string url, string? etag, CancellationToken ct)
+    {
+        var (changed, _, newTag) = await _api.GetIfChangedAsync<System.Text.Json.JsonElement>(url, etag, ct);
+        return (changed, newTag);
     }
 
     // ── Sweeps ─────────────────────────────────────────────────────────────
