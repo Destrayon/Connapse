@@ -61,6 +61,19 @@ public class GitHubAppManifestTests
     }
 
     [Fact]
+    public async Task ManifestRequests_ConcurrentCallbacks_OnlyOneClaimsTheState()
+    {
+        var requests = new GitHubManifestRequests(new MemoryCache(new MemoryCacheOptions()));
+        var admin = Guid.NewGuid();
+        string state = requests.Start(admin);
+
+        bool[] claims = await Task.WhenAll(Enumerable.Range(0, 32)
+            .Select(_ => Task.Run(() => requests.TryComplete(state, admin))));
+
+        claims.Count(c => c).Should().Be(1);
+    }
+
+    [Fact]
     public void ManifestRequests_CompleteOnceAndOnlyForWhoeverStartedThem()
     {
         var requests = new GitHubManifestRequests(new MemoryCache(new MemoryCacheOptions()));

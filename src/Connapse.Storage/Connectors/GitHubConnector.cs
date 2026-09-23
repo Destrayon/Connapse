@@ -82,6 +82,7 @@ public sealed class GitHubConnector(
         // Asked of the API rather than inferred from the fetch: with a token, a private repository
         // fetches as happily as a public one.
         string? token = null;
+        string? visibilityTag = null;
         if (auth is not null)
         {
             if (_api is not null && config.RequirePublic)
@@ -89,6 +90,7 @@ public sealed class GitHubConnector(
                 string tagFile = Path.Combine(config.MirrorPath, "connapse-visibility.etag");
                 string? previous = File.Exists(tagFile) ? await File.ReadAllTextAsync(tagFile, ct) : null;
                 string? next = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, previous, ct);
+                visibilityTag = next ?? previous;
                 if (next is not null && next != previous)
                 {
                     Directory.CreateDirectory(config.MirrorPath);
@@ -100,7 +102,7 @@ public sealed class GitHubConnector(
         }
 
         // LibGit2Sharp is synchronous; a fetch of a large repository can take minutes.
-        return await Task.Run(() =>
+        var delta = await Task.Run(() =>
         {
             using var repo = OpenOrInitMirror();
             Fetch(repo, token, ct);
@@ -125,6 +127,13 @@ public sealed class GitHubConnector(
 
             return Diff(repo, previous, head);
         }, ct);
+
+        // Asked again after the fetch: a repository made private between the first check and the
+        // fetch would otherwise hand its private head to the index.
+        if (auth is not null && _api is not null && config.RequirePublic)
+            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, visibilityTag, ct);
+
+        return delta;
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)

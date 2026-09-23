@@ -26,8 +26,12 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     public void Dispose()
     {
         _api.Dispose();
-        if (Directory.Exists(_root))
-            Directory.Delete(_root, recursive: true);
+        if (!Directory.Exists(_root)) return;
+
+        // Git marks pack and object files read-only, which Directory.Delete refuses on Windows.
+        foreach (string file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+            File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(_root, recursive: true);
     }
 
     /// <summary>A pool over an App installed at <paramref name="installations"/>, each added as a connection, minting "tok-{id}".</summary>
@@ -210,6 +214,44 @@ public sealed class GitHubCredentialPoolTests : IDisposable
         _api.RequestedPaths.Should().ContainSingle().Which.Should().Be("/repos/octocat/hello");
     }
 
+    [Fact]
+    public async Task IssuesSync_VisibilityCheckRateLimited_FailsRatherThanPassingAsPartialProgress()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.Budget = 0;
+
+        Func<Task> act = () => Connector(GitHubContentKind.IssuesAndPullRequests, Pool(1)).GetChangesAsync(null);
+
+        // A cycle that returns counts as a successful read, which un-hides a source whose repository
+        // went private; one whose visibility could not be checked must not return.
+        await act.Should().ThrowAsync<GitHubRateLimitedException>();
+    }
+
+    [Fact]
+    public async Task DocsSync_RepositoryMadePrivateDuringTheFetch_ReturnsNothing()
+    {
+        string upstream = Path.Combine(_root, "upstream");
+        LibGit2Sharp.Repository.Init(upstream);
+        using (var repo = new LibGit2Sharp.Repository(upstream))
+        {
+            File.WriteAllText(Path.Combine(upstream, "README.md"), "# Hello");
+            LibGit2Sharp.Commands.Stage(repo, "README.md");
+            var who = new LibGit2Sharp.Signature("t", "t@example.com", DateTimeOffset.UtcNow);
+            repo.Commit("first", who, who, new LibGit2Sharp.CommitOptions());
+        }
+
+        _api.VisibilityAnswers.Enqueue("public");  // before the fetch
+        _api.VisibilityAnswers.Enqueue("private"); // after it
+        var connector = new GitHubConnector(
+            Config(GitHubContentKind.Docs) with { RemoteUrl = upstream, MirrorPath = Path.Combine(_root, "mirror") },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Public(1)));
+
+        Func<Task> act = () => connector.GetChangesAsync(null);
+
+        await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>(
+            "content fetched from a repository that is no longer public must not reach the index");
+    }
+
     [Theory]
     [InlineData("private")]
     [InlineData("internal")]
@@ -283,6 +325,27 @@ public sealed class GitHubCredentialPoolTests : IDisposable
 
         resumed.Upserted.Select(f => f.Path).Should().BeEquivalentTo(
             ["/issues/2.md", "/issues/3.md", "/issues/4.md", "/issues/5.md", "/issues/6.md"]);
+    }
+
+    [Fact]
+    public async Task IssuesSync_EditInTheSameSecondAsTheNewestIssue_IsCaughtByTheHourlySweep()
+    {
+        _api.UpsertIssue(1, "First");
+        _api.UpsertIssue(2, "Second");
+        var source = new GitHubRecordSource(
+            Config(GitHubContentKind.IssuesAndPullRequests), _api.CreateClient(), NullLogger.Instance, _clock,
+            new GitHubAuth(Pool(1), GitHubAccess.Public(1)));
+        string? cursor = (await source.GetChangesAsync(null, default)).NextCursor;
+        cursor = (await source.GetChangesAsync(cursor, default)).NextCursor;
+
+        _api.EditIssueInTheSameSecond(1, "First, edited"); // sorts behind #2, which the probe sees
+        var probed = await source.GetChangesAsync(cursor, default);
+        probed.Upserted.Should().BeEmpty("a one-item probe cannot see an edit tied behind the newest item");
+
+        _clock.Advance(TimeSpan.FromHours(1));
+        var swept = await source.GetChangesAsync(probed.NextCursor, default);
+
+        swept.Upserted.Select(f => f.Path).Should().Contain("/issues/1.md");
     }
 
     [Fact]

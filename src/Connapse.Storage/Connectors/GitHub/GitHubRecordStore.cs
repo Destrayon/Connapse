@@ -66,6 +66,12 @@ internal sealed class GitHubRecordState
     public DateTimeOffset? LastCommentSweepAt { get; set; }
 
     /// <summary>
+    /// When every sweep last ran regardless of the probes. A probe sees only the newest item, so an
+    /// edit tied to the same second as it can answer 304; an hourly sweep catches that.
+    /// </summary>
+    public DateTimeOffset? LastUnprobedSweepAt { get; set; }
+
+    /// <summary>
     /// Records whose stored issue comments outnumber what GitHub reports — a deletion no sweep
     /// shows. Kept here rather than per cycle, so a budget that runs out mid-refetch does not
     /// forget them.
