@@ -96,11 +96,13 @@ internal sealed class GitHubRecordSource(
         var cache = new RecordCache(_store);
         bool complete = false;
 
+        // Outside the try: a check that cannot finish (the budget is spent) must fail the cycle,
+        // not pass as partial progress — a successful cycle clears a hidden source's revoked mark.
+        if (auth is not null && config.RequirePublic)
+            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+
         try
         {
-            if (auth is not null && config.RequirePublic)
-                await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
-
             await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
 
             // An idle repository costs one request a cycle. Comments are swept when an issue moved
@@ -128,16 +130,15 @@ internal sealed class GitHubRecordSource(
         catch (GitHubRateLimitedException ex)
         {
             logger.LogWarning(
-                "GitHub {Owner}/{Repo}: anonymous API budget spent until {ResetAt}; keeping progress and resuming next cycle",
+                "GitHub {Owner}/{Repo}: API budget spent until {ResetAt}; keeping progress and resuming next cycle",
                 LogSanitizer.Sanitize(config.Owner), LogSanitizer.Sanitize(config.Repo), ex.ResetAt);
         }
         catch (GitHubNotFoundException ex)
         {
             throw new GitHubRepositoryUnavailableException(
                 $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} "
-                + "can no longer be read anonymously. It may have been made private, renamed, or deleted. "
-                + "Public GitHub sources are read without a credential, so syncing stops until the "
-                + "repository is public again.", ex);
+                + "can no longer be read. It may have been made private, renamed, or deleted, or the "
+                + "App's installation no longer covers it. Syncing stops until it can be read again.", ex);
         }
         finally
         {

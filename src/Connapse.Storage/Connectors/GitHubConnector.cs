@@ -91,7 +91,7 @@ public sealed class GitHubConnector(
         }
 
         // LibGit2Sharp is synchronous; a fetch of a large repository can take minutes.
-        return await Task.Run(() =>
+        var delta = await Task.Run(() =>
         {
             using var repo = OpenOrInitMirror();
             Fetch(repo, token, ct);
@@ -116,6 +116,13 @@ public sealed class GitHubConnector(
 
             return Diff(repo, previous, head);
         }, ct);
+
+        // Asked again after the fetch: a repository made private between the first check and the
+        // fetch would otherwise hand its private head to the index.
+        if (auth is not null && _api is not null && config.RequirePublic)
+            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+
+        return delta;
     }
 
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
