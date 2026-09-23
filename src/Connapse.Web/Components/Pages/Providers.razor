@@ -1658,7 +1658,7 @@
             </p>
 
             <ProviderStepCard Id="github-app" Title="GitHub App"
-                              Description="Created on GitHub in one step, then installed on the organisations or accounts whose repositories you want to index."
+                              Description="Created on GitHub in one step. Installing it on an organisation or account happens on the Connections page, where each installation becomes a connection."
                               Status="GitHubStatus" StatusLabel="@RequirementLabel(GitHubStatus)"
                               @bind-Expanded="showGitHubSetup" EditLabel="Replace the App"
                               EasyTitle="Easy setup: create the App on GitHub" EasyOpen="true">
@@ -1674,11 +1674,8 @@
                             <dt>Owner</dt><dd>@app.OwnerLogin</dd>
                         </dl>
                         <div class="mt-2 d-flex gap-2 flex-wrap">
-                            <a class="btn btn-sm btn-outline-primary" href="@(app.HtmlUrl.TrimEnd('/') + "/installations/new")" target="_blank" rel="noopener">
-                                <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span> Install on an organisation or account
-                            </a>
-                            <a class="btn btn-sm btn-outline-secondary" href="/connections">
-                                <span class="bi-plug me-1" aria-hidden="true"></span> Add an installation as a connection
+                            <a class="btn btn-sm btn-outline-primary" href="/connections?new=github">
+                                <span class="bi-plug me-1" aria-hidden="true"></span> Add a GitHub connection
                             </a>
                         </div>
                     }
@@ -2074,7 +2071,7 @@
             manualGitHubAppId = manualGitHubAppKey = null;
             showGitHubSetup = false;
             saveSuccess = true;
-            saveMessage = $"GitHub App {app.Slug} saved. Install it, then add the installation as a connection.";
+            saveMessage = $"GitHub App {app.Slug} saved. Next, add a GitHub connection — that is where it gets installed.";
             await LoadGitHubAsync();
             await RefreshSetups();
         }
@@ -2136,9 +2133,14 @@
             saveSuccess = true;
             azureConsentBounce = true;
         }
+        else if (query.TryGetValue("installation_id", out var installedId) && long.TryParse(installedId.ToString(), out long installationId))
+        {
+            // Apps created before installing moved to Connections still return here after an install.
+            Navigation.NavigateTo($"/connections?github_installation={installationId}");
+        }
         else if (query.TryGetValue("github_created", out _))
         {
-            saveMessage = "GitHub App created and stored. Install it on an organisation or account, then add the installation as a connection.";
+            saveMessage = "GitHub App created and stored. Next, add a GitHub connection — that is where it gets installed.";
             saveSuccess = true;
         }
         else if (query.TryGetValue("github_error", out var gitHubError))

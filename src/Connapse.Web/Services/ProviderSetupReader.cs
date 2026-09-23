@@ -102,7 +102,7 @@ public class ProviderSetupReader(
     {
         const string name = "GitHub App";
         const string description =
-            "The App Connapse reads GitHub as — public repositories included. Each place it is installed becomes a connection.";
+            "The App Connapse reads GitHub as, and that users will sign in through. Each place it is installed becomes a connection.";
 
         GitHubAppRegistration? app;
         try
@@ -127,10 +127,12 @@ public class ProviderSetupReader(
             var installations = await gitHubApp.ListInstallationsAsync(ct);
             await credentials.MarkVerifiedAsync(PostgresGitHubProvider, clock.GetUtcNow().UtcDateTime, ct);
 
+            // Installing is a connection's business, not the provider's: an App installed nowhere
+            // is still fully set up, with its next step on the Connections page.
             return installations.Count == 0
-                ? new ProviderRequirement(name, description, RequirementStatus.Warning,
-                    $"{app.Slug} is not installed anywhere yet. Install it on an organisation or account.",
-                    "Install the App", app.HtmlUrl.TrimEnd('/') + "/installations/new")
+                ? new ProviderRequirement(name, description, RequirementStatus.Satisfied,
+                    $"{app.Slug}, not installed anywhere yet. Add a GitHub connection to install it.",
+                    "Add a GitHub connection", "/connections?new=github")
                 : new ProviderRequirement(name, description, RequirementStatus.Satisfied,
                     $"{app.Slug}, installed on {string.Join(", ", installations.Select(i => i.AccountLogin))}.");
         }
