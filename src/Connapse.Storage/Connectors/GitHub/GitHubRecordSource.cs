@@ -45,7 +45,7 @@ internal sealed record GitHubRecordCursor(
 /// </para>
 /// </summary>
 internal sealed class GitHubRecordSource(
-    GitHubConnectorConfig config, HttpClient http, ILogger logger, TimeProvider? clock = null)
+    GitHubConnectorConfig config, HttpClient http, ILogger logger, TimeProvider? clock = null, GitHubAuth? auth = null)
 {
     /// <summary>
     /// How often every issue is listed to find the ones deleted or transferred away, which a
@@ -62,7 +62,7 @@ internal sealed class GitHubRecordSource(
 
     private const string PerPage = "per_page=100";
 
-    private readonly GitHubApiClient _api = new(http, config.ApiBaseUrl);
+    private readonly GitHubApiClient _api = new(http, config.ApiBaseUrl, auth);
     private readonly GitHubRecordStore _store = new(config.MirrorPath);
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
@@ -98,6 +98,9 @@ internal sealed class GitHubRecordSource(
 
         try
         {
+            if (auth is not null && config.RequirePublic)
+                await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+
             await SweepIssuesAsync(cursor.Issues, marks, cache, state, ct);
 
             // An idle repository costs one request a cycle. Comments are swept when an issue moved

@@ -24,7 +24,7 @@ internal sealed class GitHubNotFoundException(string url) : Exception($"GitHub r
 /// what is needed is GET plus Link-header paging, and Octokit's models trail the fields this sync
 /// depends on (<c>sub_issues_summary</c>).
 /// </summary>
-internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl)
+internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl, GitHubAuth? auth = null)
 {
     internal static readonly JsonSerializerOptions Json = new()
     {
@@ -45,12 +45,7 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl)
 
         while (next is not null)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, next);
-            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-            request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
-
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var response = await SendAsync(next, ct);
             ThrowIfUnusable(response, next);
 
             await using var body = await response.Content.ReadAsStreamAsync(ct);
@@ -59,6 +54,59 @@ internal sealed class GitHubApiClient(HttpClient http, string apiBaseUrl)
             yield return new GitHubPage<T>(items, response.Headers.Date);
 
             next = NextLink(response);
+        }
+    }
+
+    /// <summary>One object, such as a repository.</summary>
+    public async Task<T> GetAsync<T>(string relativeUrl, CancellationToken ct = default)
+    {
+        Uri url = new(_base, relativeUrl);
+        using var response = await SendAsync(url, ct);
+        ThrowIfUnusable(response, url);
+
+        await using var body = await response.Content.ReadAsStreamAsync(ct);
+        return await JsonSerializer.DeserializeAsync<T>(body, Json, ct)
+            ?? throw new InvalidOperationException("GitHub returned an empty answer for " + url.GetLeftPart(UriPartial.Path));
+    }
+
+    /// <summary>
+    /// Sends one GET, as an installation when this client has credentials. A rate-limited or
+    /// refused installation is swapped for the next one the pool allows, so one spent budget does
+    /// not stop a sync another installation could carry; when none is left the pool says when the
+    /// earliest resets.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAsync(Uri url, CancellationToken ct)
+    {
+        var tried = new HashSet<long>();
+
+        while (true)
+        {
+            GitHubLease? lease = auth is null ? null : await auth.AcquireAsync(tried, ct);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+            if (lease is not null)
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", lease.Token);
+
+            var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (lease is null)
+                return response;
+
+            auth!.Observe(lease, response);
+
+            bool rateLimited = response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests
+                && IsRateLimited(response);
+            if (!rateLimited && response.StatusCode != HttpStatusCode.Unauthorized)
+                return response;
+
+            // A 401 is the token itself refused — expired early, or the App uninstalled there.
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+                auth.Refused(lease);
+
+            response.Dispose();
+            tried.Add(lease.InstallationId);
         }
     }
 

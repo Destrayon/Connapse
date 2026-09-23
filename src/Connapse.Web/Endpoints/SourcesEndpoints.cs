@@ -110,6 +110,15 @@ public static class SourcesEndpoints
             {
                 return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
             }
+            else if (request.Provider is ConnectionProvider.GitHub)
+            {
+                // Refused rather than stored: the connector no longer reads GitHub anonymously, so
+                // such a source would be created only to fail every sync.
+                return Results.BadRequest(new
+                {
+                    error = "GitHub sources need a GitHub App connection: pass the connectionId of a GitHub installation instead of a provider",
+                });
+            }
 
             if (!string.IsNullOrWhiteSpace(request.ScopeJson))
             {

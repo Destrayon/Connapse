@@ -39,7 +39,8 @@ public sealed class GitHubRepositoryUnavailableException(string message, Excepti
 /// </para>
 /// </summary>
 public sealed class GitHubConnector(
-    GitHubConnectorConfig config, HttpClient? http = null, ILogger? logger = null) : ISyncCursorConnector
+    GitHubConnectorConfig config, HttpClient? http = null, ILogger? logger = null, GitHubAuth? auth = null)
+    : ISyncCursorConnector
 {
     /// <summary>
     /// Where the fetched default branch is kept. Outside refs/heads and refs/remotes so
@@ -62,21 +63,38 @@ public sealed class GitHubConnector(
         ? new GitHubRecordSource(
             config,
             http ?? throw new ArgumentNullException(nameof(http), "The issues kind reads the GitHub API and needs an HttpClient."),
-            logger ?? NullLogger.Instance)
+            logger ?? NullLogger.Instance,
+            auth: auth)
+        : null;
+
+    /// <summary>The docs kind's REST access, for the visibility check only. Null without credentials.</summary>
+    private readonly GitHubApiClient? _api = auth is not null && http is not null
+        ? new GitHubApiClient(http, config.ApiBaseUrl, auth)
         : null;
 
     internal GitHubConnectorConfig Config => config;
 
-    public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
+    public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
         if (_records is not null)
-            return _records.GetChangesAsync(cursor, ct);
+            return await _records.GetChangesAsync(cursor, ct);
+
+        // Asked of the API rather than inferred from the fetch: with a token, a private repository
+        // fetches as happily as a public one.
+        string? token = null;
+        if (auth is not null)
+        {
+            if (_api is not null && config.RequirePublic)
+                await GitHubRepositoryGuard.RequirePublicAsync(_api, config, ct);
+
+            token = (await auth.AcquireAsync(new HashSet<long>(), ct)).Token;
+        }
 
         // LibGit2Sharp is synchronous; a fetch of a large repository can take minutes.
-        return Task.Run(() =>
+        return await Task.Run(() =>
         {
             using var repo = OpenOrInitMirror();
-            Fetch(repo, ct);
+            Fetch(repo, token, ct);
 
             var head = repo.Lookup<Commit>(HeadRef)
                 ?? throw new InvalidOperationException(
@@ -206,7 +224,7 @@ public sealed class GitHubConnector(
         ?? throw new FileNotFoundException(
             $"{Describe()} has no fetched head yet; the next sync fetches it.");
 
-    private void Fetch(Repository repo, CancellationToken ct)
+    private void Fetch(Repository repo, string? token, CancellationToken ct)
     {
         var options = new FetchOptions
         {
@@ -218,20 +236,24 @@ public sealed class GitHubConnector(
             OnTransferProgress = _ => !ct.IsCancellationRequested,
         };
 
+        // An installation token is a password for the `x-access-token` user over HTTPS. Anonymous
+        // clones are throttled too, so reading as the App keeps docs off that limit as well.
+        if (token is not null)
+        {
+            options.CredentialsProvider = (_, _, _) =>
+                new UsernamePasswordCredentials { Username = "x-access-token", Password = token };
+        }
+
         try
         {
             Commands.Fetch(repo, RemoteName, [$"+HEAD:{HeadRef}"], options, logMessage: null);
         }
         catch (LibGit2SharpException ex) when (IsAuthenticationRefusal(ex))
         {
-            // The public-to-private re-check, at no cost to the REST budget: GitHub refuses an
-            // anonymous fetch of any repository that is not public with a 401 (confirmed
-            // against github.com, 2026-09-22). The indexed content is left in place — this
-            // cycle fails and says why — rather than being guessed about.
-            throw new GitHubRepositoryUnavailableException(
-                $"{Describe()} can no longer be read anonymously. It may have been made private, "
-                + "renamed, or deleted. Public GitHub sources are read without a credential, so "
-                + "syncing stops until the repository is public again.", ex);
+            // GitHub answers 401 for a repository the fetch may not read: without a token, any
+            // that is not public (confirmed against github.com, 2026-09-22); with one, any the
+            // installation does not cover. Either way the source is hidden, not deleted.
+            throw GitHubRepositoryGuard.Unavailable(config, ex);
         }
 
         ct.ThrowIfCancellationRequested();

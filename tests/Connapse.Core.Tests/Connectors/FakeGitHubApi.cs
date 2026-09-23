@@ -38,6 +38,15 @@ public sealed class FakeGitHubApi : HttpMessageHandler
 
     public List<string> RequestedPaths { get; } = [];
 
+    /// <summary>What <c>GET /repos/{owner}/{repo}</c> reports: public, private, or internal.</summary>
+    public string Visibility { get; set; } = "public";
+
+    /// <summary>The bearer token each request carried, or null when it carried none.</summary>
+    public List<string?> Tokens { get; } = [];
+
+    /// <summary>Tokens whose budget is spent: a request carrying one is refused as rate-limited.</summary>
+    public HashSet<string> SpentTokens { get; } = [];
+
     public HttpClient CreateClient() => new(this, disposeHandler: false);
 
     // ── Mutations ──────────────────────────────────────────────────────────
@@ -127,6 +136,16 @@ public sealed class FakeGitHubApi : HttpMessageHandler
         Requests++;
         var uri = request.RequestUri!;
         RequestedPaths.Add(uri.PathAndQuery);
+        string? token = request.Headers.Authorization?.Parameter;
+        Tokens.Add(token);
+
+        if (token is not null && SpentTokens.Contains(token))
+        {
+            var spent = new HttpResponseMessage(HttpStatusCode.Forbidden);
+            spent.Headers.Add("x-ratelimit-remaining", "0");
+            spent.Headers.Add("x-ratelimit-reset", Now.AddHours(1).ToUnixTimeSeconds().ToString());
+            return Task.FromResult(spent);
+        }
 
         if (Budget is { } budget && Requests > budget)
         {
@@ -138,6 +157,21 @@ public sealed class FakeGitHubApi : HttpMessageHandler
 
         if (Gone)
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        string[] path = uri.AbsolutePath.Trim('/').Split('/');
+        if (path.Length == 3)
+        {
+            // repos/{owner}/{repo}: the visibility check every authenticated sync makes first.
+            var repository = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    id = 1296269, @private = Visibility != "public", visibility = Visibility,
+                }), Encoding.UTF8, "application/json"),
+            };
+            repository.Headers.Add("x-ratelimit-remaining", "4999");
+            return Task.FromResult(repository);
+        }
 
         var query = HttpUtility.ParseQueryString(uri.Query);
         DateTimeOffset? since = query["since"] is { } s ? DateTimeOffset.Parse(s) : null;
