@@ -85,7 +85,7 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
         Guid admin = AdminUserId();
         var flow = fixture.Factory.Services.GetRequiredService<GitHubLinkFlow>();
         // The admin started the sign-in; the colleague's browser completed it and holds the cookie.
-        string code = flow.Park(new PendingGitHubLink(admin, 424242, "colleague"));
+        string code = flow.Park(new PendingGitHubLink(admin, 424242, "colleague", DateTime.UtcNow));
 
         try
         {
@@ -112,7 +112,7 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
     {
         Guid admin = AdminUserId();
         var flow = fixture.Factory.Services.GetRequiredService<GitHubLinkFlow>();
-        string code = flow.Park(new PendingGitHubLink(admin, 583231, "octocat"));
+        string code = flow.Park(new PendingGitHubLink(admin, 583231, "octocat", DateTime.UtcNow));
         using var adminClient = Client(fixture.AdminToken);
 
         try

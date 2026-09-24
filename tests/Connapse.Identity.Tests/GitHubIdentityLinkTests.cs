@@ -53,7 +53,7 @@ public class GitHubIdentityLinkTests
     public async Task ParkedLink_IsClaimedByExactlyOneOfManyConcurrentConfirms()
     {
         var flow = Flow();
-        string code = flow.Park(new PendingGitHubLink(Guid.NewGuid(), 1, "octocat"));
+        string code = flow.Park(new PendingGitHubLink(Guid.NewGuid(), 1, "octocat", DateTime.UtcNow));
 
         var claims = await Task.WhenAll(Enumerable.Range(0, 32).Select(_ => Task.Run(() => flow.Claim(code))));
 
@@ -66,11 +66,24 @@ public class GitHubIdentityLinkTests
         var flow = Flow();
         var user = Guid.NewGuid();
         flow.AddSignIn(new GitHubPendingSignIn("s1", "verifier", user, DateTime.UtcNow.AddMinutes(10), DateTime.UtcNow.AddSeconds(-1)));
-        string code = flow.Park(new PendingGitHubLink(user, 1, "octocat"));
+        string code = flow.Park(new PendingGitHubLink(user, 1, "octocat", DateTime.UtcNow.AddSeconds(-1)));
 
         flow.RevokeFor(user);
 
         flow.TakeSignIn("s1").Should().BeNull("a sign-in begun before the unlink must not re-create the link");
         flow.Claim(code).Should().BeNull();
+    }
+
+    [Fact]
+    public void ParkedAfterAnUnlink_ButSignedInBeforeIt_IsStillRefused()
+    {
+        var flow = Flow();
+        var user = Guid.NewGuid();
+        DateTime signInStarted = DateTime.UtcNow.AddSeconds(-5);
+
+        flow.RevokeFor(user); // the unlink lands while the callback is still talking to GitHub
+        string code = flow.Park(new PendingGitHubLink(user, 1, "octocat", signInStarted));
+
+        flow.Claim(code).Should().BeNull("the sign-in began before the unlink, whenever it was parked");
     }
 }
