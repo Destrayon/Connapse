@@ -283,7 +283,7 @@ public sealed class FakeGitHubApi : HttpMessageHandler
     {
         ["id"] = c.Id,
         ["body"] = c.Body,
-        ["user"] = new { login = c.Login },
+        ["user"] = new { login = c.Login, type = c.Login.EndsWith("[bot]") ? "Bot" : "User" },
         ["created_at"] = c.CreatedAt,
         ["updated_at"] = c.UpdatedAt,
         ["issue_url"] = c.ReviewPath is null ? $"{BaseUrl}/repos/octocat/hello/issues/{c.Number}" : null,

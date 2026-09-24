@@ -48,13 +48,18 @@ internal static partial class GitHubRecordRenderer
             && number > 0;
     }
 
-    public static GitHubRenderedRecord Render(GitHubStoredRecord record, string owner, string repo)
+    public static GitHubRenderedRecord Render(
+        GitHubStoredRecord record, string owner, string repo, GitHubCommentPolicy? policy = null)
     {
         var issue = record.Issue
             ?? throw new InvalidOperationException($"Record {record.Number} has not been swept yet.");
+        policy ??= GitHubCommentPolicy.Default;
 
+        // Bot comments are left out unless the source asks for them: on a busy repository they
+        // are most of the text (review bots, CI reports) and crowd out what people wrote. The body
+        // is always kept, whoever wrote it — a Dependabot pull request is its description.
         var visibleComments = record.Comments
-            .Where(kv => !kv.Value.Minimized)
+            .Where(kv => !kv.Value.Minimized && policy.Allows(kv.Value))
             .OrderBy(kv => kv.Value.CreatedAt)
             .ThenBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => kv.Value)
@@ -74,7 +79,8 @@ internal static partial class GitHubRecordRenderer
         string[] labels = [.. (issue.Labels ?? []).Select(l => l.Name)];
 
         var md = new StringBuilder();
-        md.Append("# ").Append(issue.Number).Append(": ").Line(issue.Title);
+        // The repository is named so every chunk of the record says where it comes from.
+        md.Append("# ").Append(owner).Append('/').Append(repo).Append(" #").Append(issue.Number).Append(": ").Line(issue.Title);
 
         var facts = new List<string>
         {

@@ -531,7 +531,7 @@ internal sealed class GitHubRecordSource(
             if (record.Issue is null)
                 continue;
 
-            upserts.Add(ToConnectorFile(GitHubRecordRenderer.Render(record, config.Owner, config.Repo)));
+            upserts.Add(ToConnectorFile(GitHubRecordRenderer.Render(record, config.Owner, config.Repo, config.CommentPolicy)));
             emitted.Add(number);
         }
 
@@ -563,7 +563,7 @@ internal sealed class GitHubRecordSource(
             .. _store.Numbers()
                 .Select(_store.Load)
                 .Where(r => r?.Issue is not null)
-                .Select(r => ToConnectorFile(GitHubRecordRenderer.Render(r!, config.Owner, config.Repo)))
+                .Select(r => ToConnectorFile(GitHubRecordRenderer.Render(r!, config.Owner, config.Repo, config.CommentPolicy)))
                 .Where(f => normalized is null || f.Path.StartsWith(normalized, StringComparison.Ordinal))
                 .OrderBy(f => f.Path, StringComparer.Ordinal),
         ];
@@ -576,7 +576,7 @@ internal sealed class GitHubRecordSource(
 
         var record = _store.Exists ? _store.Load(number) : null;
         return record?.Issue is { } issue && issue.IsPullRequest == isPullRequest
-            ? GitHubRecordRenderer.Render(record, config.Owner, config.Repo)
+            ? GitHubRecordRenderer.Render(record, config.Owner, config.Repo, config.CommentPolicy)
             : null;
     }
 
@@ -592,13 +592,30 @@ internal sealed class GitHubRecordSource(
         Metadata: rendered.Metadata,
         Strategy: ChunkingStrategy.Record);
 
+    /// <summary>
+    /// Everyone who has commented in the synced records, most active first — what an administrator
+    /// chooses from when deciding whose comments are indexed. Read from the local store, so it
+    /// costs no GitHub requests and is empty until the first sync.
+    /// </summary>
+    public IReadOnlyList<GitHubCommentAuthor> CommentAuthors() =>
+        _store.Numbers()
+            .Select(_store.Load)
+            .Where(r => r is not null)
+            .SelectMany(r => r!.Comments.Values)
+            .GroupBy(c => c.Login, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new GitHubCommentAuthor(g.First().Login, g.Any(c => c.AuthorIsBot), g.Count()))
+            .OrderByDescending(a => a.Comments)
+            .ThenBy(a => a.Login, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     private static GitHubStoredComment ToStored(GitHubComment comment, bool review) => new(
         Login: comment.User?.Login ?? "ghost",
         Body: comment.Body ?? "",
         CreatedAt: comment.CreatedAt,
         UpdatedAt: comment.UpdatedAt,
         ReviewPath: review ? comment.Path : null,
-        Minimized: comment.IsMinimized);
+        Minimized: comment.IsMinimized,
+        IsBot: comment.User?.Type is { } type ? string.Equals(type, "Bot", StringComparison.OrdinalIgnoreCase) : null);
 
     /// <summary>The issue or pull-request number at the end of a comment's parent URL.</summary>
     private static int? ParentNumber(string? url)

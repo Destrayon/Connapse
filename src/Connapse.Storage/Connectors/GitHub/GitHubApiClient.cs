@@ -214,7 +214,8 @@ internal sealed record GitHubPage<T>(IReadOnlyList<T> Items, DateTimeOffset? Ser
 
 // ── Payloads: only the fields the sync reads ─────────────────────────────
 
-internal sealed record GitHubUser(string Login);
+/// <summary>A GitHub account. <see cref="Type"/> is <c>Bot</c> for a GitHub App's account, <c>User</c> for a person.</summary>
+internal sealed record GitHubUser(string Login, string? Type = null);
 
 internal sealed record GitHubLabel(string Name);
 

@@ -3,13 +3,22 @@ using System.Text.Json;
 namespace Connapse.Storage.Connectors.GitHub;
 
 /// <summary>One comment as kept in a record: an issue comment, or a review comment on a file.</summary>
+/// <param name="IsBot">
+/// Whether GitHub marks the author as a bot account. Null for comments stored before this was
+/// recorded, which fall back to the <c>[bot]</c> login suffix GitHub gives every App account.
+/// </param>
 internal sealed record GitHubStoredComment(
     string Login,
     string Body,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ReviewPath,
-    bool Minimized);
+    bool Minimized,
+    bool? IsBot = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AuthorIsBot => IsBot ?? Login.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase);
+}
 
 /// <summary>
 /// Everything known about one issue or pull request. Assembled from separate sweeps, so any part

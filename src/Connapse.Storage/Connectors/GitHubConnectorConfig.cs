@@ -75,6 +75,15 @@ public partial record GitHubConnectorConfig
     /// </summary>
     public bool IncludeComments { get; init; } = true;
 
+    /// <summary>Comment authors indexed even though GitHub marks them as bots.</summary>
+    public IReadOnlyList<string> IncludeCommentAuthors { get; init; } = [];
+
+    /// <summary>Comment authors never indexed — a machine user GitHub reports as a person, say.</summary>
+    public IReadOnlyList<string> ExcludeCommentAuthors { get; init; } = [];
+
+    /// <summary>Whose comments are indexed: everyone but bots, adjusted by the two lists above.</summary>
+    public GitHub.GitHubCommentPolicy CommentPolicy => new(IncludeCommentAuthors, ExcludeCommentAuthors);
+
     /// <summary>
     /// The GitHub App installation this source's connection names. Preferred for its reads; for a
     /// public repository any installation may stand in when it is spent.
