@@ -92,12 +92,12 @@
                         <div class="mb-3">
                             <label class="form-label small fw-semibold" for="include-bots">Also index comments from these bots</label>
                             <AuthorPicker Id="include-bots" Selected="form.IncludedBots" Authors="authors"
-                                          Suggest="a => a.IsBot" Placeholder="Search bots, e.g. coderabbitai[bot]" />
+                                          Suggest="a => a.IsBot" Placeholder="None — bots are left out" OnChanged="PickerChanged" />
                         </div>
                         <div>
                             <label class="form-label small fw-semibold" for="exclude-people">Leave out comments from these accounts</label>
                             <AuthorPicker Id="exclude-people" Selected="form.ExcludedPeople" Authors="authors"
-                                          Suggest="a => !a.IsBot" Placeholder="Search accounts, e.g. an automation user" />
+                                          Suggest="a => !a.IsBot" Placeholder="None — everyone else is kept" OnChanged="PickerChanged" />
                         </div>
                     }
                 </div>
@@ -168,6 +168,9 @@
             loadError = $"Could not load the source: {ex.Message}";
         }
     }
+
+    /// <summary>Re-renders the page, so the note about a full re-read follows the pickers.</summary>
+    private void PickerChanged() => message = null;
 
     private async Task Save()
     {

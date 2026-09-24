@@ -1,60 +1,73 @@
 @using Connapse.Storage.Connectors.GitHub
 
 @*
-    Picks GitHub logins: the chosen ones as removable chips, and a search box that suggests authors
-    seen in the repository. Scales to any number of authors, because only matches are listed, and
-    accepts a login nobody has seen yet — an account set up before it has commented.
+    A multi-select dropdown of GitHub logins. Closed, it shows what is chosen; open, it lists
+    every suggested author as a checkbox, most active first, with a search box to narrow a long
+    list. An account not seen commenting yet can still be added by typing its login.
 *@
 
-<div class="author-picker">
-    @if (Selected.Count > 0)
-    {
-        <div class="d-flex flex-wrap gap-1 mb-2">
-            @foreach (string login in Selected)
-            {
-                <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-1 fw-normal">
-                    @login
-                    <button type="button" class="btn-close" style="font-size:.55rem" aria-label="Remove @login"
-                            @onclick="() => Remove(login)"></button>
-                </span>
-            }
-        </div>
-    }
-
-    <input id="@Id" class="form-control form-control-sm" placeholder="@Placeholder" autocomplete="off"
-           @bind="query" @bind:event="oninput" @onkeydown="OnKeyDown" aria-describedby="@(Id)-help" />
-
-    @if (string.IsNullOrWhiteSpace(query))
-    {
-        var top = Matches().Take(5).ToList();
-        if (top.Count > 0)
+<div class="author-picker position-relative">
+    <button id="@Id" type="button" class="form-select form-select-sm text-start" aria-haspopup="listbox"
+            aria-expanded="@open" @onclick="Toggle">
+        @if (Selected.Count == 0)
         {
-            <div id="@(Id)-help" class="form-text">
-                Most active:
-                @foreach (var author in top)
-                {
-                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" @onclick="() => Add(author.Login)">@author.Login</button>
-                }
-            </div>
+            <span class="text-muted">@Placeholder</span>
         }
-    }
-    else
+        else
+        {
+            @string.Join(", ", Selected)
+        }
+    </button>
+
+    @if (open)
     {
-        <div class="list-group mt-1" role="listbox">
-            @foreach (var author in Matches())
-            {
-                <button type="button" class="list-group-item list-group-item-action py-1 small d-flex justify-content-between"
-                        @onclick="() => Add(author.Login)">
-                    <span>@author.Login <span class="badge @(author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(author.IsBot ? "Bot" : "User")</span></span>
-                    <span class="text-muted">@author.Comments comment@(author.Comments == 1 ? "" : "s")</span>
-                </button>
-            }
-            @if (CanAddTyped())
-            {
-                <button type="button" class="list-group-item list-group-item-action py-1 small" @onclick="() => Add(query!.Trim())">
-                    Add “@query!.Trim()” — not seen commenting yet
-                </button>
-            }
+        <div class="card shadow-sm position-absolute w-100 mt-1" style="z-index:10">
+            <div class="card-body p-2">
+                <input class="form-control form-control-sm mb-2" placeholder="Search" autocomplete="off"
+                       aria-label="Search authors" @bind="query" @bind:event="oninput" @onkeydown="OnKeyDown" />
+
+                <div role="listbox" aria-multiselectable="true" style="max-height:16rem;overflow-y:auto">
+                    @foreach (var author in Listed())
+                    {
+                        string boxId = $"{Id}-{author.Login}";
+                        bool chosen = IsSelected(author.Login);
+                        <div class="form-check d-flex align-items-center justify-content-between py-1 pe-1 mb-0">
+                            <span>
+                                <input id="@boxId" type="checkbox" class="form-check-input" checked="@chosen"
+                                       @onchange="() => Flip(author.Login)" />
+                                <label for="@boxId" class="form-check-label small">
+                                    @author.Login
+                                    @if (author.Comments > 0)
+                                    {
+                                        <span class="badge @(author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(author.IsBot ? "Bot" : "User")</span>
+                                    }
+                                </label>
+                            </span>
+                            @if (author.Comments > 0)
+                            {
+                                <span class="small text-muted">@author.Comments</span>
+                            }
+                        </div>
+                    }
+                    @if (!Listed().Any() && !CanAddTyped())
+                    {
+                        <div class="small text-muted px-1 py-2">
+                            @(Authors.Count == 0 ? "No authors synced yet — type an account's login to add it." : "No matches.")
+                        </div>
+                    }
+                </div>
+
+                @if (CanAddTyped())
+                {
+                    <button type="button" class="btn btn-sm btn-link px-1" @onclick="() => Flip(query!.Trim())">
+                        Add “@query!.Trim()”, not seen commenting yet
+                    </button>
+                }
+
+                <div class="d-flex justify-content-end border-top pt-2 mt-1">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="Toggle">Done</button>
+                </div>
+            </div>
         </div>
     }
 </div>
@@ -63,49 +76,64 @@
     [Parameter, EditorRequired] public string Id { get; set; } = "";
     [Parameter, EditorRequired] public List<string> Selected { get; set; } = [];
 
-    /// <summary>Authors seen in the repository; only those <see cref="Suggest"/> accepts are offered.</summary>
+    /// <summary>Authors seen in the repository; only those <see cref="Suggest"/> accepts are listed.</summary>
     [Parameter] public IReadOnlyList<GitHubCommentAuthor> Authors { get; set; } = [];
     [Parameter] public Func<GitHubCommentAuthor, bool> Suggest { get; set; } = _ => true;
-    [Parameter] public string Placeholder { get; set; } = "Search authors";
+    [Parameter] public string Placeholder { get; set; } = "None";
     [Parameter] public EventCallback OnChanged { get; set; }
 
-    private const int MaxShown = 8;
+    private bool open;
     private string? query;
 
-    private IEnumerable<GitHubCommentAuthor> Matches() =>
-        Authors
-            .Where(Suggest)
-            .Where(a => !Selected.Contains(a.Login, StringComparer.OrdinalIgnoreCase))
+    private void Toggle()
+    {
+        open = !open;
+        query = null;
+    }
+
+    private bool IsSelected(string login) => Selected.Contains(login, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Chosen accounts first — including ones typed in that have not commented — then the rest of
+    /// the suggestions, most active first, narrowed by the search.
+    /// </summary>
+    private IEnumerable<GitHubCommentAuthor> Listed()
+    {
+        var known = Authors.Where(Suggest).ToList();
+        var typed = Selected
+            .Where(l => !Authors.Any(a => string.Equals(a.Login, l, StringComparison.OrdinalIgnoreCase)))
+            .Select(l => new GitHubCommentAuthor(l, l.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase), 0));
+
+        return typed.Concat(known)
             .Where(a => string.IsNullOrWhiteSpace(query) || a.Login.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
-            .Take(MaxShown);
+            .OrderByDescending(a => IsSelected(a.Login))
+            .ThenByDescending(a => a.Comments);
+    }
 
     private bool CanAddTyped() =>
         !string.IsNullOrWhiteSpace(query)
         && GitHubLogin.IsMatch(query.Trim())
-        && !Selected.Contains(query.Trim(), StringComparer.OrdinalIgnoreCase)
+        && !IsSelected(query.Trim())
         && !Authors.Any(a => string.Equals(a.Login, query.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    private async Task Add(string login)
+    private async Task Flip(string login)
     {
-        if (!Selected.Contains(login, StringComparer.OrdinalIgnoreCase))
+        if (IsSelected(login))
+            Selected.RemoveAll(l => string.Equals(l, login, StringComparison.OrdinalIgnoreCase));
+        else
             Selected.Add(login);
-        query = null;
-        await OnChanged.InvokeAsync();
-    }
 
-    private async Task Remove(string login)
-    {
-        Selected.RemoveAll(l => string.Equals(l, login, StringComparison.OrdinalIgnoreCase));
         await OnChanged.InvokeAsync();
     }
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
+        if (e.Key == "Escape") { Toggle(); return; }
         if (e.Key != "Enter" || string.IsNullOrWhiteSpace(query)) return;
 
-        var first = Matches().FirstOrDefault();
-        if (first is not null) await Add(first.Login);
-        else if (CanAddTyped()) await Add(query.Trim());
+        if (CanAddTyped()) await Flip(query.Trim());
+        else if (Listed().FirstOrDefault(a => !IsSelected(a.Login)) is { } first) await Flip(first.Login);
+        query = null;
     }
 
     // A user login, or an App account's "name[bot]".
