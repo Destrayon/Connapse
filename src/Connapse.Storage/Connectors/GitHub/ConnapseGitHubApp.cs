@@ -239,9 +239,10 @@ public sealed class ConnapseGitHubApp(
     }
 
     /// <summary>
-    /// Trades a user sign-in code for the GitHub account that signed in, then revokes the token: the
-    /// account's id and login are all Connapse keeps, and permissions are later read with installation
-    /// tokens, never as the user.
+    /// Trades a user sign-in code for the GitHub account that signed in, then revokes the user's whole
+    /// authorization of the App — the token and the grant behind it — so nothing stays authorized on
+    /// their GitHub account. The account's id and login are all Connapse keeps; permissions are later
+    /// read with installation tokens, never as the user.
     /// </summary>
     public async Task<GitHubUserAccount> ResolveUserSignInAsync(string code, string codeVerifier, string redirectUri, CancellationToken ct = default)
     {
@@ -279,10 +280,11 @@ public sealed class ConnapseGitHubApp(
         }
         finally
         {
-            // Nothing keeps the token, so it is revoked rather than left valid until it expires.
+            // Nothing keeps the token, so the authorization is revoked outright — the grant, not just
+            // this token — rather than left listed under the user's authorized apps.
             try
             {
-                using var revoke = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBaseUrl.TrimEnd('/')}/applications/{Uri.EscapeDataString(clientId)}/token")
+                using var revoke = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBaseUrl.TrimEnd('/')}/applications/{Uri.EscapeDataString(clientId)}/grant")
                 {
                     Content = JsonContent.Create(new { access_token = userToken }),
                 };
@@ -294,7 +296,7 @@ public sealed class ConnapseGitHubApp(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "Could not revoke a GitHub user token after reading the account; it expires on its own");
+                logger.LogWarning(ex, "Could not revoke the GitHub authorization after reading the account; the user can remove it under their authorized apps");
             }
         }
     }
