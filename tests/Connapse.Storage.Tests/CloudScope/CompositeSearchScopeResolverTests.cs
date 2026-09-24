@@ -26,6 +26,56 @@ public class CompositeSearchScopeResolverTests
         return await Task.FromResult(c.Combine(aws, azure));
     }
 
+    // ── With GitHub: private repository documents are filtered whatever the clouds say ──
+
+    [Fact]
+    public void WithGitHub_CloudsUnrestricted_IsNeverGloballyUnrestricted()
+    {
+        var r = new CompositeSearchScopeResolver.Combiner().Combine(SearchScopes.Unrestricted, SearchScopes.Unrestricted, SearchScopes.None);
+
+        r.IsUnrestricted.Should().BeFalse("otherwise every private GitHub document would reach every user");
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "azblob://");
+    }
+
+    [Fact]
+    public void WithGitHub_GrantedRepositoriesAreAdded()
+    {
+        var r = new CompositeSearchScopeResolver.Combiner().Combine(
+            SearchScopes.Unrestricted, SearchScopes.Failed, SearchScopes.OfPrefixes(["github://42/"]));
+
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "github://42/");
+    }
+
+    [Fact]
+    public void WithGitHub_AnUnrestrictedGitHubAnswerIsNotAPermit()
+    {
+        var r = new CompositeSearchScopeResolver.Combiner().Combine(
+            SearchScopes.Unrestricted, SearchScopes.Unrestricted, SearchScopes.Unrestricted);
+
+        r.Matches.Select(m => m.Value).Should().NotContain(v => v.StartsWith("github://"));
+        r.IsUnrestricted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void WithGitHub_AGrantOutsideTheGitHubSchemeIsIgnored()
+    {
+        var r = new CompositeSearchScopeResolver.Combiner().Combine(
+            SearchScopes.Failed, SearchScopes.Failed, SearchScopes.OfPrefixes(["s3://", "github://7/"]));
+
+        r.Matches.Select(m => m.Value).Should().Equal("github://7/");
+    }
+
+    [Fact]
+    public async Task WithGitHub_AThrowingGitHubResolverFailsOnlyGitHubClosed()
+    {
+        var composite = new CompositeSearchScopeResolver(new FakeResolver(SearchScopes.Unrestricted),
+            new FakeResolver(SearchScopes.Unrestricted), new ThrowingResolver(new HttpRequestException("down")));
+
+        var r = await composite.ResolveAsync(Guid.NewGuid());
+
+        r.Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "azblob://");
+    }
+
     [Fact]
     public async Task BothUnrestricted_IsUnrestricted() =>
         (await Combine(SearchScopes.Unrestricted, SearchScopes.Unrestricted)).IsUnrestricted.Should().BeTrue();
