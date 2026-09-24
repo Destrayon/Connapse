@@ -21,6 +21,9 @@
 
     @if (open)
     {
+        @* Covers the page behind the open dropdown: a click anywhere outside lands here and closes it. *@
+        <div class="position-fixed top-0 start-0 w-100 h-100" style="z-index:9" @onclick="Toggle"></div>
+
         <div class="card shadow-sm position-absolute w-100 mt-1" style="z-index:10">
             <div class="card-body p-2">
                 <input class="form-control form-control-sm mb-2" placeholder="Search" autocomplete="off"
@@ -29,25 +32,23 @@
                 <div role="listbox" aria-multiselectable="true" style="max-height:16rem;overflow-y:auto">
                     @foreach (var author in Listed())
                     {
-                        string boxId = $"{Id}-{author.Login}";
                         bool chosen = IsSelected(author.Login);
-                        <div @key="author.Login" class="form-check d-flex align-items-center justify-content-between py-1 pe-1 mb-0">
-                            <span>
-                                <input id="@boxId" type="checkbox" class="form-check-input" checked="@chosen"
-                                       @onchange="() => Flip(author.Login)" />
-                                <label for="@boxId" class="form-check-label small">
-                                    @author.Login
-                                    @if (author.Comments > 0)
-                                    {
-                                        <span class="badge @(author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(author.IsBot ? "Bot" : "User")</span>
-                                    }
-                                </label>
+                        @* The whole row is the label, so a click anywhere on it toggles the box. *@
+                        <label @key="author.Login" class="author-picker-row d-flex align-items-center gap-2 rounded px-2 py-1 mb-0 small">
+                            <input type="checkbox" class="form-check-input m-0 flex-shrink-0" checked="@chosen"
+                                   @onchange="() => Flip(author.Login)" />
+                            <span class="flex-grow-1 text-truncate">
+                                @author.Login
+                                @if (author.Comments > 0)
+                                {
+                                    <span class="badge @(author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(author.IsBot ? "Bot" : "User")</span>
+                                }
                             </span>
                             @if (author.Comments > 0)
                             {
-                                <span class="small text-muted">@author.Comments</span>
+                                <span class="text-muted">@author.Comments</span>
                             }
-                        </div>
+                        </label>
                     }
                     @if (!Listed().Any() && !CanAddTyped())
                     {
