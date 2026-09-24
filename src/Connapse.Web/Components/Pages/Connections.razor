@@ -446,15 +446,7 @@
                                             <span class="text-muted">From environment</span>
                                         }
                                     </td>
-                                    <td class="text-end text-nowrap">
-                                        @if (GitHubInstallationUrl(c) is { } manage)
-                                        {
-                                            @* Which repositories an installation covers is chosen on GitHub; GitHub
-                                               sends the administrator back here afterwards. *@
-                                            <a class="btn btn-sm btn-outline-secondary me-1" href="@manage" title="Choose which repositories this installation covers">
-                                                <span class="bi-github me-1"></span>Manage on GitHub
-                                            </a>
-                                        }
+                                    <td class="text-end">
                                         <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
                                     </td>
@@ -861,6 +853,13 @@
                             <a href="@gitHubInstallUrl">Install on another organisation or account</a>
                         }
                     </div>
+                    @if (!isNew && editing is not null && GitHubInstallationUrl(editing) is { } manage)
+                    {
+                        @* GitHub sends the administrator back to this page after a change. *@
+                        <a class="btn btn-sm btn-outline-secondary mt-2" href="@manage">
+                            <span class="bi-github me-1"></span>Manage repositories on GitHub
+                        </a>
+                    }
                 }
             </div>
         }
