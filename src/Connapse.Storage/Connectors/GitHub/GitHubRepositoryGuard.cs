@@ -17,13 +17,16 @@ internal static class GitHubRepositoryGuard
     private sealed record RepositoryPayload(long Id, bool Private, string? Visibility);
 
     /// <summary>
-    /// Refuses a repository that is no longer public. Asked conditionally: an unchanged repository
-    /// answers 304, which costs nothing and means it is as public as it was when
-    /// <paramref name="etag"/> was issued.
+    /// Refuses a repository that can no longer be read as this source: gone, no longer public for a
+    /// public source, or — for any source that recorded its repository id — a different repository
+    /// now answering at the name. A rename keeps the id (GitHub redirects the old name), so it
+    /// passes; a transfer or deletion followed by a new repository taking the name does not, and a
+    /// private source's documents must never be granted by, or refreshed from, someone else's
+    /// repository. Asked conditionally: an unchanged repository answers 304, which costs nothing.
     /// </summary>
     /// <returns>The ETag to send next time.</returns>
-    /// <exception cref="GitHubRepositoryUnavailableException">Private, internal, or gone.</exception>
-    public static async Task<string?> RequirePublicAsync(
+    /// <exception cref="GitHubRepositoryUnavailableException">Gone, not public when it must be, or not the recorded repository.</exception>
+    public static async Task<string?> VerifyAsync(
         GitHubApiClient api, GitHubConnectorConfig config, string? etag, CancellationToken ct)
     {
         (bool Changed, RepositoryPayload? Value, string? ETag) answer;
@@ -42,6 +45,15 @@ internal static class GitHubRepositoryGuard
 
         var repo = answer.Value
             ?? throw Unavailable(config, new InvalidOperationException("GitHub returned no repository."));
+
+        if (config.RepoId is { } expected && repo.Id != expected)
+        {
+            throw Unavailable(config, new InvalidOperationException(
+                $"The name now belongs to repository {repo.Id}, not the recorded {expected}."));
+        }
+
+        if (!config.RequirePublic)
+            return answer.ETag;
 
         // "internal" repositories are visible to an enterprise's members, not to the public.
         bool isPublic = repo.Visibility is { } visibility

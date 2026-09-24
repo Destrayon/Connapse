@@ -97,6 +97,23 @@ public partial record GitHubConnectorConfig
     /// </summary>
     public bool RequirePublic { get; init; } = true;
 
+    /// <summary>
+    /// A private repository, searchable only by people GitHub says can read it. Its documents carry
+    /// a <c>github://{repoId}/…</c> address for the permission filter; a public repository's carry
+    /// none, because everyone may read them.
+    /// </summary>
+    public bool IsPrivate { get; init; }
+
+    /// <summary>
+    /// Whether each sync first confirms the repository with GitHub: that it is still public, for a
+    /// public source, and that the name still belongs to the recorded repository id.
+    /// </summary>
+    public bool Verified => RequirePublic || IsPrivate || RepoId is not null;
+
+    /// <summary>The permission filter's address for a document at <paramref name="virtualPath"/>, or null for a public repository.</summary>
+    public string? ResourceUriFor(string virtualPath) =>
+        IsPrivate && RepoId is { } id ? $"github://{id}{(virtualPath.StartsWith('/') ? "" : "/")}{virtualPath}" : null;
+
     /// <summary>The repository's web address, which a document's citation link hangs off.</summary>
     public string WebUrl => $"https://{Host}/{Owner}/{Repo}";
 

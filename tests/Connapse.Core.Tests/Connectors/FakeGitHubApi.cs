@@ -44,6 +44,9 @@ public sealed class FakeGitHubApi : HttpMessageHandler
     /// <summary>Answers for successive visibility checks, before falling back to <see cref="Visibility"/>.</summary>
     public Queue<string> VisibilityAnswers { get; } = new();
 
+    /// <summary>Ids for successive repository lookups, before falling back to 1296269.</summary>
+    public Queue<long> RepositoryIdAnswers { get; } = new();
+
     /// <summary>The bearer token each request carried, or null when it carried none.</summary>
     public List<string?> Tokens { get; } = [];
 
@@ -207,7 +210,7 @@ public sealed class FakeGitHubApi : HttpMessageHandler
             string visibility = VisibilityAnswers.TryDequeue(out string? next) ? next : Visibility;
             return Respond(request, JsonSerializer.Serialize(new
             {
-                id = 1296269, @private = visibility != "public", visibility,
+                id = RepositoryIdAnswers.TryDequeue(out long nextId) ? nextId : 1296269, @private = visibility != "public", visibility,
             }));
         }
 

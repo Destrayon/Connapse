@@ -23,9 +23,12 @@ public class NewSourceGitHubTests
     }
 
     [Fact]
-    public void GitHubRepository_IsLookedUpAndRefusedUnlessPublic()
+    public void GitHubRepository_IsLookedUpAndAddedAsPrivateUnlessPublic()
     {
+        // Private repositories are indexed as private (#526): marked, with their id, so their
+        // documents are filtered per user rather than refused.
         Markup.Should().Contain("GitHubRepositories.FindAsync(")
-            .And.Contain("if (!found.IsPublic)");
+            .And.Contain("bool isPrivate = !found.IsPublic;")
+            .And.Contain("githubForm.ToRequests(connection.Id, found.Id, isPrivate)");
     }
 }

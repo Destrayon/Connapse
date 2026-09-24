@@ -89,8 +89,11 @@ public sealed record GitHubRepositoryForm
     /// <see cref="Validate"/> first. No sync interval is set: reading as the App, an idle repository
     /// costs nothing to poll, so the default applies.
     /// </summary>
-    public IReadOnlyList<CreateSourceRequest> ToRequests(Guid connectionId)
+    public IReadOnlyList<CreateSourceRequest> ToRequests(Guid connectionId, long? repoId = null, bool isPrivate = false)
     {
+        if (isPrivate && repoId is null)
+            throw new InvalidOperationException("A private repository needs its id, which its documents' addresses are built from.");
+
         if (!TryParse(Repository, out string owner, out string repo))
             throw new InvalidOperationException("The repository address is not valid.");
 
@@ -98,7 +101,7 @@ public sealed record GitHubRepositoryForm
 
         if (IncludeDocs)
         {
-            var scope = Scope(owner, repo, GitHubContentKind.Docs);
+            var scope = Scope(owner, repo, GitHubContentKind.Docs, repoId, isPrivate);
             var patterns = SourceForm.ParsePatterns(DocPatterns);
             if (patterns.Count > 0)
                 scope["includePatterns"] = new JsonArray([.. patterns.Select(p => (JsonNode)p)]);
@@ -112,7 +115,7 @@ public sealed record GitHubRepositoryForm
 
         if (IncludeIssues)
         {
-            var scope = Scope(owner, repo, GitHubContentKind.IssuesAndPullRequests);
+            var scope = Scope(owner, repo, GitHubContentKind.IssuesAndPullRequests, repoId, isPrivate);
             scope["includeComments"] = IncludeComments;
 
             requests.Add(new CreateSourceRequest(
@@ -125,12 +128,21 @@ public sealed record GitHubRepositoryForm
         return requests;
     }
 
-    private static JsonObject Scope(string owner, string repo, GitHubContentKind kind) => new()
+    private static JsonObject Scope(string owner, string repo, GitHubContentKind kind, long? repoId, bool isPrivate)
     {
-        ["owner"] = owner,
-        ["repo"] = repo,
-        ["kind"] = kind.ToString(),
-    };
+        var scope = new JsonObject
+        {
+            ["owner"] = owner,
+            ["repo"] = repo,
+            ["kind"] = kind.ToString(),
+        };
+
+        // The numeric id survives a rename or transfer; a private repository's document addresses
+        // and permission checks are keyed on it.
+        if (repoId is { } id) scope["repoId"] = id;
+        if (isPrivate) scope["private"] = true;
+        return scope;
+    }
 
     /// <summary>
     /// <c>owner/repo docs</c>. A 39-character owner and a 100-character repository name can

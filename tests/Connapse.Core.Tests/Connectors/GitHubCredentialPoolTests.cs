@@ -215,6 +215,50 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task IssuesSync_NameNowBelongsToADifferentRepository_IsRefused()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var connector = new GitHubConnector(Config(GitHubContentKind.IssuesAndPullRequests) with { RepoId = 999 },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Public(1)));
+
+        Func<Task> act = () => connector.GetChangesAsync(null);
+
+        // The fake answers the name with id 1296269: another repository took it.
+        await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>()
+            .WithInnerException(typeof(InvalidOperationException));
+    }
+
+    [Fact]
+    public async Task IssuesSync_NameReassignedDuringTheSweeps_EmitsNothing()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.RepositoryIdAnswers.Enqueue(1296269); // before the sweeps: still the recorded repository
+        _api.RepositoryIdAnswers.Enqueue(424242);  // after them: another repository has the name
+        var connector = new GitHubConnector(
+            Config(GitHubContentKind.IssuesAndPullRequests) with { RepoId = 1296269, IsPrivate = true, RequirePublic = false },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Pinned(1)));
+
+        Func<Task> act = () => connector.GetChangesAsync(null);
+
+        await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>(
+            "records collected while the name moved must not be stamped with the recorded repository's address");
+    }
+
+    [Fact]
+    public async Task IssuesSync_PrivateSourceOfItsOwnRepository_Syncs()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.Visibility = "private";
+        var connector = new GitHubConnector(
+            Config(GitHubContentKind.IssuesAndPullRequests) with { RepoId = 1296269, IsPrivate = true, RequirePublic = false },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Pinned(1)));
+
+        var delta = await connector.GetChangesAsync(null);
+
+        delta.Upserted.Should().ContainSingle().Which.ResourceUri.Should().Be("github://1296269/issues/1.md");
+    }
+
+    [Fact]
     public async Task IssuesSync_VisibilityCheckRateLimited_FailsRatherThanPassingAsPartialProgress()
     {
         _api.UpsertIssue(1, "Crash");
@@ -287,8 +331,9 @@ public sealed class GitHubCredentialPoolTests : IDisposable
         var idle = await connector.GetChangesAsync(cursor);
 
         idle.Upserted.Should().BeEmpty();
-        (_api.Requests - requests).Should().Be(4, "the repository, issues, comments, and review comments are each probed");
-        (_api.NotModified - unchanged).Should().Be(4, "an authenticated 304 is not counted against the rate limit");
+        (_api.Requests - requests).Should().Be(5,
+            "the repository is checked before and after, and issues, comments, and review comments are each probed");
+        (_api.NotModified - unchanged).Should().Be(5, "an authenticated 304 is not counted against the rate limit");
     }
 
     [Fact]

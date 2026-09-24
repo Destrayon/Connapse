@@ -134,7 +134,7 @@ public sealed class GitHubIssuesSyncIntegrationTests(SharedWebAppFixture fixture
 
         var result = await service.SyncSourceAsync(synced, connection: null, CancellationToken.None);
 
-        result.Error.Should().Contain("can no longer be read anonymously");
+        result.Error.Should().Contain("can no longer be read");
         var after = (await sources.GetAsync(source.Id))!;
         after.LastSyncStatus.Should().Be(SyncStatus.Failed);
         after.SyncCursor.Should().Be(synced.SyncCursor);

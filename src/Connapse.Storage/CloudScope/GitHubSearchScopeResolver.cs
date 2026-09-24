@@ -72,7 +72,21 @@ public sealed class GitHubSearchScopeResolver(
         return [.. result.Values];
     }
 
-    internal static bool IsPrivate(string? scopeJson)
+    /// <summary>The repository id a GitHub source's scope records, or null.</summary>
+    public static long? RepoIdOf(string? scopeJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(scopeJson ?? "{}");
+            return doc.RootElement.TryGetProperty("repoId", out var id) && id.TryGetInt64(out long repoId) && repoId > 0 ? repoId : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public static bool IsPrivate(string? scopeJson)
     {
         try
         {
@@ -145,8 +159,17 @@ public sealed class GitHubRepositoryAccess(
             var api = new GitHubApiClient(httpClients.CreateClient(ConnectorFactory.GitHubHttpClientName), ApiBaseUrl,
                 new GitHubAuth(pool, GitHubAccess.Pinned(repo.InstallationId)));
             string login = await CurrentLoginAsync(api, account, ct);
+            // A name can come to belong to a different repository after a transfer or deletion, and
+            // a grant must be for the repository whose documents were indexed. So the name is first
+            // confirmed to still be that repository (a rename redirects to the same id), then asked
+            // through GitHub's documented permission route.
+            string path = $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Repo)}";
+            var identity = await api.GetAsync<RepositoryPayload>(path, ct);
+            if (identity.Id != repo.RepoId)
+                throw new GitHubNotFoundException($"{path} now belongs to repository {identity.Id}, not {repo.RepoId}");
+
             var answer = await api.GetAsync<PermissionPayload>(
-                $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Repo)}/collaborators/{Uri.EscapeDataString(login)}/permission", ct);
+                $"{path}/collaborators/{Uri.EscapeDataString(login)}/permission", ct);
             allowed = (answer.Permission is { } p && Readable.Contains(p))
                       || (answer.RoleName is { } r && Readable.Contains(r));
         }
@@ -183,6 +206,8 @@ public sealed class GitHubRepositoryAccess(
     }
 
     private sealed record PermissionPayload(string? Permission, string? RoleName);
+
+    private sealed record RepositoryPayload(long Id);
 
     private sealed record UserPayload(string? Login);
 }

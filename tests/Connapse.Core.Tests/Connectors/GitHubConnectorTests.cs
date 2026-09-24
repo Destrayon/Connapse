@@ -102,6 +102,21 @@ public sealed class GitHubConnectorTests : IDisposable
     }
 
     [Fact]
+    public async Task GetChangesAsync_PrivateRepository_AddressesEachDocumentForThePermissionFilter()
+    {
+        Commit(new Dictionary<string, string> { ["docs/a b.md"] = "12345" });
+        var connector = new GitHubConnector(new GitHubConnectorConfig
+        {
+            Owner = "octocat", Repo = "docs", RepoId = 99, IsPrivate = true, RequirePublic = false,
+            MirrorPath = _mirror, RemoteUrl = _upstream,
+        });
+
+        var delta = await connector.GetChangesAsync(cursor: null);
+
+        delta.Upserted.Should().ContainSingle().Which.ResourceUri.Should().Be("github://99/docs/a b.md");
+    }
+
+    [Fact]
     public async Task GetChangesAsync_NullCursor_ReportsSizeAndCitationLink()
     {
         Commit(new Dictionary<string, string> { ["docs/a b.md"] = "12345" });

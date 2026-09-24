@@ -52,7 +52,8 @@ public class McpTools
         var sourceStore = services.GetRequiredService<ISourceStore>();
 
         var containers = await containerStore.ListAsync(take: int.MaxValue, ct: ct);
-        var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
+        var visible = await VisibleSourcesAsync(services, ct);
+        var sources = (await sourceStore.ListAsync(take: int.MaxValue, ct: ct)).Where(visible).ToList();
 
         // Sources are listed alongside containers so existing agent prompts and the CLI keep
         // working — a source is simply a searchable scope that happens to be read-only. The
@@ -137,7 +138,7 @@ public class McpTools
 
         // Accepts either kind: search is scoped by owner_id, which is the same column
         // whichever kind owns the document, so a source needs no separate search path.
-        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct);
+        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct, await VisibleSourcesAsync(services, ct));
         if (owner is null)
             return $"Error: Container '{containerId}' not found.";
 
@@ -802,7 +803,7 @@ public class McpTools
         var containerStore = services.GetRequiredService<IContainerStore>();
         var sourceStore = services.GetRequiredService<ISourceStore>();
 
-        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct);
+        var owner = await ResolveSearchableOwnerAsync(containerId, containerStore, sourceStore, ct, await VisibleSourcesAsync(services, ct));
         if (owner is null)
             return $"Error: Container '{LogSanitizer.Sanitize(containerId)}' not found.";
 
@@ -916,8 +917,13 @@ public class McpTools
     /// </para>
     /// </summary>
     private static async Task<SearchableOwner?> ResolveSearchableOwnerAsync(
-        string nameOrId, IContainerStore containers, ISourceStore sources, CancellationToken ct)
+        string nameOrId, IContainerStore containers, ISourceStore sources, CancellationToken ct,
+        Func<Source, bool>? visible = null)
     {
+        // A private GitHub source the caller may not read is not found: its name alone would say
+        // that a private repository is indexed here.
+        visible ??= _ => true;
+
         if (Guid.TryParse(nameOrId, out var guid))
         {
             var container = await containers.GetAsync(guid, ct);
@@ -925,7 +931,7 @@ public class McpTools
                 return ToOwner(container);
 
             var source = await sources.GetAsync(guid, ct);
-            return source is not null ? ToOwner(source) : null;
+            return source is not null && visible(source) ? ToOwner(source) : null;
         }
 
         string lowered = nameOrId.ToLowerInvariant();
@@ -935,7 +941,18 @@ public class McpTools
             return ToOwner(byName);
 
         var sourceByName = await sources.GetByNameAsync(lowered, ct);
-        return sourceByName is not null ? ToOwner(sourceByName) : null;
+        return sourceByName is not null && visible(sourceByName) ? ToOwner(sourceByName) : null;
+    }
+
+    /// <summary>Which sources the calling user may see listed; see <see cref="PrivateSourceVisibility"/>.</summary>
+    private static async Task<Func<Source, bool>> VisibleSourcesAsync(IServiceProvider services, CancellationToken ct)
+    {
+        // Without the service nothing can be checked, so every private source stays hidden.
+        if (services.GetService<PrivateSourceVisibility>() is not { } visibility)
+            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>());
+
+        var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
+        return await visibility.ForAsync(caller, ct);
     }
 
     private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>

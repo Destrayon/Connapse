@@ -103,8 +103,8 @@ internal sealed class GitHubRecordSource(
         // Outside the try: a check that cannot finish (the budget is spent) must fail the cycle,
         // not pass as partial progress — a successful cycle clears a hidden source's revoked mark.
         string? repositoryTag = state.RepositoryETag;
-        if (probing && config.RequirePublic)
-            repositoryTag = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, state.RepositoryETag, ct);
+        if (probing && config.Verified)
+            repositoryTag = await GitHubRepositoryGuard.VerifyAsync(_api, config, state.RepositoryETag, ct);
 
         try
         {
@@ -189,6 +189,11 @@ internal sealed class GitHubRecordSource(
             return new SyncDelta([], [], marks.ToCursor(cursor.Seq).Serialize(), RequiresFullResync: false);
 
         await RelistIfDueAsync(firstSync: cursorText is null, state, ct);
+
+        // Asked again before anything is emitted: a name reassigned while the sweeps ran would
+        // otherwise hand another repository's records to this source's address.
+        if (probing && config.Verified)
+            await GitHubRepositoryGuard.VerifyAsync(_api, config, repositoryTag, ct);
 
         return Emit(cursor, marks, state);
     }
@@ -582,13 +587,14 @@ internal sealed class GitHubRecordSource(
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private static ConnectorFile ToConnectorFile(GitHubRenderedRecord rendered) => new(
+    private ConnectorFile ToConnectorFile(GitHubRenderedRecord rendered) => new(
         Path: rendered.Path,
         SizeBytes: Encoding.UTF8.GetByteCount(rendered.Markdown),
         LastModified: rendered.LastModified,
         ContentType: "text/markdown",
-        // No ResourceUri, for the reason the docs source gives: public records are readable by
-        // everyone. The link travels in the metadata.
+        // An address only for a private repository, for the reason the docs source gives. The
+        // github.com link travels in the metadata either way.
+        ResourceUri: config.ResourceUriFor(rendered.Path),
         Metadata: rendered.Metadata,
         Strategy: ChunkingStrategy.Record);
 

@@ -672,6 +672,36 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
+    public void Create_PrivateGitHubScope_SkipsThePublicCheckAndKeepsTheRepositoryId()
+    {
+        var config = CreateGitHub("""{"owner":"acme","repo":"infra","repoId":99,"private":true,"kind":"IssuesAndPullRequests"}""")
+            .Should().BeOfType<GitHubConnector>().Subject.Config;
+
+        config.IsPrivate.Should().BeTrue();
+        config.RequirePublic.Should().BeFalse("a private source is read as private on purpose");
+        config.ResourceUriFor("/issues/1.md").Should().Be("github://99/issues/1.md");
+    }
+
+    [Fact]
+    public void Create_PrivateGitHubScopeWithoutARepositoryId_IsRefused()
+    {
+        var act = () => CreateGitHub("""{"owner":"acme","repo":"infra","private":true}""");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*without a repository id*",
+            "its documents would carry no address, and a document without one is shown to everyone");
+    }
+
+    [Fact]
+    public void Create_PublicGitHubScope_DocumentsCarryNoAddress()
+    {
+        var config = CreateGitHub("""{"owner":"acme","repo":"docs","repoId":5}""")
+            .Should().BeOfType<GitHubConnector>().Subject.Config;
+
+        config.IsPrivate.Should().BeFalse();
+        config.ResourceUriFor("/README.md").Should().BeNull();
+    }
+
+    [Fact]
     public void Create_GitHubIssuesScope_ReadsWhoseCommentsAreIndexed()
     {
         var config = CreateGitHub(

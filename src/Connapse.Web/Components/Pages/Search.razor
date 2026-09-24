@@ -7,6 +7,7 @@
 @using Connapse.Web.Services
 @inject IContainerStore ContainerStore
 @inject ISourceStore SourceStore
+@inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IKnowledgeSearch SearchService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IOptionsMonitor<SearchSettings> SearchSettings
@@ -216,7 +217,9 @@
         try
         {
             containers = (await ContainerStore.ListAsync(take: int.MaxValue)).ToList();
-            sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
+            // A private GitHub source names a private repository: listed only to those who may read it.
+            var visible = await PrivateSources.ForAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+            sources = (await SourceStore.ListAsync(take: int.MaxValue)).Where(visible).ToList();
 
             // Auto-select only when there is exactly one scope in total. Picking the first
             // container while sources also exist would silently narrow the search to storage

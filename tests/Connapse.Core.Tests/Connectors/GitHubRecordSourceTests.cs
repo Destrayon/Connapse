@@ -25,7 +25,7 @@ public sealed class GitHubRecordSourceTests : IDisposable
             Directory.Delete(_root, recursive: true);
     }
 
-    private GitHubConnectorConfig Config(bool includeComments = true) => new()
+    private GitHubConnectorConfig Config(bool includeComments = true, bool isPrivate = false) => new()
     {
         Owner = "octocat",
         Repo = "hello",
@@ -33,12 +33,26 @@ public sealed class GitHubRecordSourceTests : IDisposable
         MirrorPath = _root,
         ApiBaseUrl = FakeGitHubApi.BaseUrl,
         IncludeComments = includeComments,
+        RepoId = 1296269,
+        IsPrivate = isPrivate,
+        RequirePublic = !isPrivate,
     };
 
     private GitHubRecordSource Source(bool includeComments = true) =>
         new(Config(includeComments), _api.CreateClient(), NullLogger.Instance, _clock);
 
     private GitHubConnector Connector() => new(Config(), _api.CreateClient());
+
+    [Fact]
+    public async Task GetChangesAsync_PrivateRepository_AddressesEachRecordForThePermissionFilter()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var source = new GitHubRecordSource(Config(isPrivate: true), _api.CreateClient(), NullLogger.Instance, _clock);
+
+        var delta = await source.GetChangesAsync(null, default);
+
+        delta.Upserted.Should().ContainSingle().Which.ResourceUri.Should().Be("github://1296269/issues/1.md");
+    }
 
     private static string[] Paths(SyncDelta delta) => [.. delta.Upserted.Select(f => f.Path).Order()];
 
