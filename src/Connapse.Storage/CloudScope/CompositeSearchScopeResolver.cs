@@ -81,9 +81,15 @@ public sealed class CompositeSearchScopeResolver(
             var matches = new List<GrantMatch>();
             matches.AddRange(ContributionFor(awsScopes, S3Scheme));
             matches.AddRange(ContributionFor(azureScopes, AzureScheme));
-            if (githubScopes.Outcome is ScopeOutcome.Granted)
-                matches.AddRange(githubScopes.Matches.Where(m => m.Value.StartsWith(GitHubSearchScopeResolver.Scheme, StringComparison.Ordinal)));
-            return SearchScopes.Of(matches);
+            var github = githubScopes.Outcome is ScopeOutcome.Granted
+                ? githubScopes.Matches.Where(m => m.Value.StartsWith(GitHubSearchScopeResolver.Scheme, StringComparison.Ordinal)).ToList()
+                : [];
+            matches.AddRange(github);
+
+            // Only the clouds' "not filtering" wildcards, no one's own grant: the deployment's answer,
+            // which a caller who is not a person gets as it got "unrestricted" before GitHub joined.
+            bool personal = awsScopes.Outcome is ScopeOutcome.Granted || azureScopes.Outcome is ScopeOutcome.Granted || github.Count > 0;
+            return personal ? SearchScopes.Of(matches) : SearchScopes.DeploymentWide(matches);
         }
 
         // Unrestricted → the scheme wildcard (all of that cloud's docs). Granted → its own matches.

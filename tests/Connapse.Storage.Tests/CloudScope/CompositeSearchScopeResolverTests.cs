@@ -38,6 +38,26 @@ public class CompositeSearchScopeResolverTests
     }
 
     [Fact]
+    public void WithGitHub_CloudsUnrestricted_ReachACallerWhoIsNotAPerson()
+    {
+        var combined = new CompositeSearchScopeResolver.Combiner().Combine(
+            SearchScopes.Unrestricted, SearchScopes.Unrestricted, SearchScopes.NoPrincipal);
+
+        // Before GitHub joined, "unrestricted" passed the no-principal guard untouched; the wildcards
+        // standing in for it must too, or S3 and Azure documents vanish for such callers.
+        ScopeResolution.Guard(combined, userId: null).Matches.Select(m => m.Value).Should().BeEquivalentTo("s3://", "azblob://");
+    }
+
+    [Fact]
+    public void WithGitHub_APersonsGrantIsStillRefusedToACallerWhoIsNotAPerson()
+    {
+        var combined = new CompositeSearchScopeResolver.Combiner().Combine(
+            SearchScopes.OfPrefixes(["s3://bucket/team/"]), SearchScopes.Unrestricted, SearchScopes.None);
+
+        ScopeResolution.Guard(combined, userId: null).Outcome.Should().Be(ScopeOutcome.NoPrincipal);
+    }
+
+    [Fact]
     public void WithGitHub_GrantedRepositoriesAreAdded()
     {
         var r = new CompositeSearchScopeResolver.Combiner().Combine(
