@@ -25,8 +25,7 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
-@inject IConnectionStore ConnectionStore
-@inject ISourceStore SourceStore
+@inject GitHubAppUsage GitHubUsage
 @inject IRolesAnywhereSetupValidator RaValidator
 @inject Connapse.Storage.CloudScope.ConnapseAwsCredentials AwsCredentials
 @inject IJSRuntime JS
@@ -2190,11 +2189,7 @@
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
 
-        var gitHubConnections = (await ConnectionStore.ListAsync(take: int.MaxValue))
-            .Where(c => c.Provider == ConnectionProvider.GitHub).Select(c => c.Id).ToHashSet();
-        gitHubConnectionCount = gitHubConnections.Count;
-        gitHubSourceCount = (await SourceStore.ListAsync(take: int.MaxValue))
-            .Count(s => s.ConnectionId is Guid id && gitHubConnections.Contains(id));
+        (gitHubConnectionCount, gitHubSourceCount) = await GitHubUsage.CountAsync();
 
         var user = (await AuthState.GetAuthenticationStateAsync()).User;
         if (Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
