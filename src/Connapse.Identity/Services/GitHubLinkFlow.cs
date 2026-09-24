@@ -7,7 +7,8 @@ namespace Connapse.Identity.Services;
 public sealed record GitHubPendingSignIn(string State, string CodeVerifier, Guid UserId, DateTime ExpiresAtUtc, DateTime StartedAtUtc);
 
 /// <summary>A GitHub account the callback resolved, held until a signed-in user can be shown to own it.</summary>
-public sealed record PendingGitHubLink(Guid StartedByUserId, long GitHubUserId, string Login);
+/// <param name="SignInStartedAtUtc">When the sign-in began: an unlink after it refuses the link, however long the callback took.</param>
+public sealed record PendingGitHubLink(Guid StartedByUserId, long GitHubUserId, string Login, DateTime SignInStartedAtUtc);
 
 /// <summary>
 /// The in-flight state of linking a GitHub account, mirroring the Entra flow
@@ -32,7 +33,6 @@ public sealed class GitHubLinkFlow(IMemoryCache cache)
     private sealed class Slot(PendingGitHubLink link)
     {
         public readonly PendingGitHubLink Link = link;
-        public readonly DateTime StartedAtUtc = DateTime.UtcNow;
         public int Claimed;
     }
 
@@ -71,12 +71,13 @@ public sealed class GitHubLinkFlow(IMemoryCache cache)
             return null;
 
         cache.Remove(key);
-        return WasRevokedSince(slot.Link.StartedByUserId, slot.StartedAtUtc) ? null : slot.Link;
+        return WasRevokedSince(slot.Link.StartedByUserId, slot.Link.SignInStartedAtUtc) ? null : slot.Link;
     }
 
     /// <summary>Refuses every sign-in and parked link the user started before now — called on unlink.</summary>
     public void RevokeFor(Guid userId) => cache.Set(RevokedPrefix + userId, DateTime.UtcNow, RevocationLifetime);
 
-    private bool WasRevokedSince(Guid userId, DateTime startedAtUtc) =>
+    /// <summary>Whether the user unlinked at or after <paramref name="startedAtUtc"/>.</summary>
+    public bool WasRevokedSince(Guid userId, DateTime startedAtUtc) =>
         cache.TryGetValue(RevokedPrefix + userId, out DateTime revokedAt) && revokedAt >= startedAtUtc;
 }

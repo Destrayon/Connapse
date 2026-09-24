@@ -271,33 +271,53 @@ public sealed class ConnapseGitHubApp(
         if (grant?.AccessToken is not { Length: > 0 } userToken)
             throw new GitHubAppException($"GitHub did not accept the sign-in code: {grant?.Error ?? exchanged.ReasonPhrase ?? "no detail"}.");
 
+        GitHubUserAccount account;
         try
         {
             using var who = await SendAsync(HttpMethod.Get, "user", Bearer(userToken), content: null, ct);
-            var account = await ReadAsync<Account>(who, "reading the signed-in account", ct);
-            long id = account.Id ?? throw new GitHubAppException("GitHub returned an account without an id.");
-            return new GitHubUserAccount(id, account.Login);
+            var payload = await ReadAsync<Account>(who, "reading the signed-in account", ct);
+            account = new GitHubUserAccount(
+                payload.Id ?? throw new GitHubAppException("GitHub returned an account without an id."), payload.Login);
         }
-        finally
+        catch
         {
-            // Nothing keeps the token, so the authorization is revoked outright — the grant, not just
-            // this token — rather than left listed under the user's authorized apps.
-            try
+            // Still revoked, best effort: the account could not be read, and the link fails anyway.
+            await TryRevokeGrantAsync(http, clientId, material.ClientSecret, userToken, ct);
+            throw;
+        }
+
+        // Nothing keeps the token, so the authorization is revoked outright — the grant, not just this
+        // token. A link is only reported once GitHub confirms it; otherwise the flow fails and a retry
+        // revokes the whole grant again, taking this attempt's token with it.
+        if (!await TryRevokeGrantAsync(http, clientId, material.ClientSecret, userToken, ct))
+            throw new GitHubAppException("GitHub did not confirm removing Connapse's authorization after sign-in. Try linking again.");
+
+        return account;
+    }
+
+    private async Task<bool> TryRevokeGrantAsync(HttpClient http, string clientId, string clientSecret, string userToken, CancellationToken ct)
+    {
+        try
+        {
+            using var revoke = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBaseUrl.TrimEnd('/')}/applications/{Uri.EscapeDataString(clientId)}/grant")
             {
-                using var revoke = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBaseUrl.TrimEnd('/')}/applications/{Uri.EscapeDataString(clientId)}/grant")
-                {
-                    Content = JsonContent.Create(new { access_token = userToken }),
-                };
-                revoke.Headers.Authorization = new AuthenticationHeaderValue("Basic",
-                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{material.ClientSecret}")));
-                revoke.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
-                revoke.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-                using var _ = await http.SendAsync(revoke, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogWarning(ex, "Could not revoke the GitHub authorization after reading the account; the user can remove it under their authorized apps");
-            }
+                Content = JsonContent.Create(new { access_token = userToken }),
+            };
+            revoke.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}")));
+            revoke.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
+            revoke.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            using var response = await http.SendAsync(revoke, ct);
+            if (response.IsSuccessStatusCode)
+                return true;
+
+            logger.LogWarning("GitHub refused to remove the App's authorization after sign-in: {Status}", (int)response.StatusCode);
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not reach GitHub to remove the App's authorization after sign-in");
+            return false;
         }
     }
 

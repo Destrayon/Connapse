@@ -206,6 +206,18 @@ public sealed class ConnapseGitHubAppTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveUserSignInAsync_GitHubRefusesTheRevoke_FailsTheLink()
+    {
+        var app = App();
+        _github.RefuseRevoke = true;
+
+        Func<Task> act = () => app.ResolveUserSignInAsync("code-1", "verifier", "https://connapse.test/cb");
+
+        await act.Should().ThrowAsync<GitHubAppException>().WithMessage("*did not confirm*",
+            "a link is only reported once the authorization is really gone; a retry revokes the whole grant");
+    }
+
+    [Fact]
     public async Task UserSignIn_AppWithoutAClientSecret_IsUnavailable()
     {
         _store.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>()).Returns(new GitHubAppCredentialMaterial(
@@ -301,11 +313,12 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         }
 
         public int Revocations { get; private set; }
+        public bool RefuseRevoke { get; set; }
 
-        private object Revoke()
+        private object? Revoke()
         {
             Revocations++;
-            return new { };
+            return RefuseRevoke ? null : new { };
         }
 
         private object Token()
