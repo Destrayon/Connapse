@@ -128,15 +128,25 @@ public sealed class GitHubSearchScopeResolverTests
     }
 
     [Fact]
-    public async Task Permission_IsAskedByRepositoryIdNotName()
+    public async Task Permission_IsAskedThroughTheDocumentedRoute()
     {
         _sources.Add(SourceFor(100, isPrivate: true));
         Linked();
 
         await Resolver().ResolveAsync(User);
 
-        // A name can come to belong to a different repository; the id cannot.
-        _github.PermissionPaths.Should().ContainSingle().Which.Should().StartWith("/repositories/100/collaborators/");
+        _github.PermissionPaths.Should().ContainSingle().Which.Should().Be("/repos/acme/infra/collaborators/octocat/permission");
+    }
+
+    [Fact]
+    public async Task NameNowBelongingToADifferentRepository_GrantsNothing()
+    {
+        _sources.Add(SourceFor(100, isPrivate: true));
+        Linked();
+        _github.RepositoryIdAtName = 999; // the indexed repository was transferred and another took its name
+
+        (await Resolver().ResolveAsync(User)).Matches.Should().BeEmpty();
+        _github.PermissionChecks.Should().Be(0, "no permission on another repository may stand in for the indexed one");
     }
 
     [Fact]
@@ -161,6 +171,7 @@ public sealed class GitHubSearchScopeResolverTests
         public int PermissionChecks { get; private set; }
         public List<string> CheckedLogins { get; } = [];
         public List<string> PermissionPaths { get; } = [];
+        public long? RepositoryIdAtName { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -171,6 +182,8 @@ public sealed class GitHubSearchScopeResolverTests
                 return Json(new { token = "tok-7", expires_at = DateTimeOffset.UtcNow.AddHours(1) });
             if (path.StartsWith("/user/"))
                 return Json(new { login = CurrentLogin, id = 583231 });
+            if (path.StartsWith("/repos/acme/") && path.Split('/').Length == 4)
+                return Json(new { id = RepositoryIdAtName ?? long.Parse(path.Split('/')[3] == "infra" ? "100" : "200") });
             if (path.Contains("/collaborators/") && path.EndsWith("/permission"))
             {
                 PermissionChecks++;

@@ -8,6 +8,7 @@
 
 @using Connapse.Web.Services
 @inject ISourceStore SourceStore
+@inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
 @inject SourceSyncService SyncService
 @inject IAuditLogger AuditLogger
@@ -649,7 +650,9 @@
 
         try
         {
-            sources = (await SourceStore.ListAsync(take: int.MaxValue)).ToList();
+            // A private GitHub source names a private repository: listed only to those who may read it.
+            var visible = await PrivateSources.ForAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+            sources = (await SourceStore.ListAsync(take: int.MaxValue)).Where(visible).ToList();
             connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
             connectionNames = connections.ToDictionary(c => c.Id, c => c.Name);
         }

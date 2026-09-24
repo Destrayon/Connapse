@@ -39,6 +39,7 @@ public static class SourcesEndpoints
             [FromQuery] int? take,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IAuthorizationService authorization,
+            [FromServices] PrivateSourceVisibility visibility,
             HttpContext http,
             CancellationToken ct) =>
         {
@@ -52,7 +53,9 @@ public static class SourcesEndpoints
             var page = hasMore ? sources.Take(effectiveTake).ToList() : sources;
 
             bool diagnostics = await IsAdminAsync(authorization, http);
-            var items = page.Select(s => SourceResponse.From(s, diagnostics)).ToList();
+            // A private GitHub source names a private repository; it is listed only to those who may read it.
+            var visible = await visibility.ForAsync(http.User, ct);
+            var items = page.Where(visible).Select(s => SourceResponse.From(s, diagnostics)).ToList();
 
             return Results.Ok(new PagedResponse<SourceResponse>(items, items.Count, hasMore));
         })
@@ -65,11 +68,12 @@ public static class SourcesEndpoints
             Guid sourceId,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IAuthorizationService authorization,
+            [FromServices] PrivateSourceVisibility visibility,
             HttpContext http,
             CancellationToken ct) =>
         {
             var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null)
+            if (source is null || !(await visibility.ForAsync(http.User, ct))(source))
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
 
             bool diagnostics = await IsAdminAsync(authorization, http);

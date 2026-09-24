@@ -190,6 +190,11 @@ internal sealed class GitHubRecordSource(
 
         await RelistIfDueAsync(firstSync: cursorText is null, state, ct);
 
+        // Asked again before anything is emitted: a name reassigned while the sweeps ran would
+        // otherwise hand another repository's records to this source's address.
+        if (probing && config.Verified)
+            await GitHubRepositoryGuard.VerifyAsync(_api, config, repositoryTag, ct);
+
         return Emit(cursor, marks, state);
     }
 
