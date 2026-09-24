@@ -210,6 +210,26 @@ public sealed class ConnapseGitHubApp(
         return (int)response.StatusCode is 404 or 422;
     }
 
+    /// <summary>
+    /// Whether GitHub still accepts the stored client id and secret; null when none is stored or
+    /// GitHub could not be asked.
+    /// </summary>
+    public async Task<bool?> StoredClientSecretMatchesAsync(CancellationToken ct = default)
+    {
+        var material = await LoadAsync(ct);
+        if (material?.App.ClientId is not { Length: > 0 } clientId || string.IsNullOrEmpty(material.ClientSecret))
+            return null;
+
+        try
+        {
+            return await ClientSecretMatchesAsync(clientId, material.ClientSecret, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Forgets one installation's token, after GitHub refused it.</summary>
     public void Forget(long installationId) => _tokens.TryRemove(installationId, out _);
 

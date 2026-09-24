@@ -8,15 +8,15 @@
 
 <div class="author-picker position-relative">
     <button @ref="trigger" id="@Id" type="button" class="form-select form-select-sm text-start" aria-haspopup="dialog"
-            aria-expanded="@(open ? "true" : "false")" aria-controls="@PopupId" aria-describedby="@DescribedBy"
+            aria-expanded="@(open ? "true" : "false")" aria-controls="@PopupId" aria-describedby="@($"{ValueId} {DescribedBy}".Trim())"
             @onclick="Toggle">
         @if (Selected.Count == 0)
         {
-            <span class="text-muted">@Placeholder</span>
+            <span id="@ValueId" class="text-muted">@Placeholder</span>
         }
         else
         {
-            @string.Join(", ", Selected)
+            <span id="@ValueId">@string.Join(", ", Selected)</span>
         }
     </button>
 
@@ -103,6 +103,7 @@
 
     private string PopupId => $"{Id}-popup";
     private string SearchId => $"{Id}-search";
+    private string ValueId => $"{Id}-value";
 
     /// <summary>
     /// The order rows appear in, fixed when the dropdown opens: re-sorting as boxes are ticked would

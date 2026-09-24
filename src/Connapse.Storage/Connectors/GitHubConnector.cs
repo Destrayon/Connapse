@@ -92,7 +92,7 @@ public sealed class GitHubConnector(
             // picks up from the same commit once GitHub's limit resets.
             logger?.LogWarning("GitHub {Repository}: request limit used up until {ResetAt}; syncing resumes next cycle",
                 Describe(), ex.ResetAt);
-            return new SyncDelta([], [], cursor, RequiresFullResync: false);
+            return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
         }
     }
 

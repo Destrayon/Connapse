@@ -110,10 +110,7 @@
             <section class="card mb-3">
                 <div class="card-body">
                     <h2 class="h6 mb-3">Docs</h2>
-                    <label class="form-label small" for="doc-patterns">File patterns <span class="text-muted">(optional)</span></label>
-                    <textarea id="doc-patterns" class="form-control form-control-sm font-monospace" rows="3" placeholder="docs/**/*.md"
-                              aria-describedby="doc-patterns-help" @bind="form.DocPatterns"></textarea>
-                    <div id="doc-patterns-help" class="form-text">One per line. Leave blank to index every *.md and *.markdown file.</div>
+                    <ProviderField Spec="GitHubFieldSpecs.DocPatterns" Small="true" CssClass="mb-0" @bind-Value="form.DocPatterns" />
                 </div>
             </section>
         }

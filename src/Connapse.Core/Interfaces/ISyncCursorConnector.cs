@@ -22,7 +22,8 @@ public record SyncDelta(
     IReadOnlyList<string> DeletedPaths,
     string? NextCursor,
     bool RequiresFullResync,
-    bool IsFullListing = false);
+    bool IsFullListing = false,
+    string? Notice = null);
 
 /// <summary>
 /// A connector that can report what changed since a durable cursor, rather than requiring

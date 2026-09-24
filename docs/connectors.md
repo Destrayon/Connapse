@@ -92,7 +92,7 @@ The consequence worth internalising: for **S3**, **rotating credentials is an op
 }
 ```
 
-A GitHub source's scope names one repository and what to read from it. The New source dialog looks the repository up and fills `repoId` and `private`; a private source without `repoId` is refused.
+A GitHub source's scope names one repository and what to read from it. Connapse looks the repository up on GitHub, from the New source dialog or the API, and sets `repoId` and `private` itself; any values you pass are replaced.
 
 ```json
 {

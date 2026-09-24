@@ -22,7 +22,8 @@ public sealed class ProviderSetupReaderGitHubTests
 
     private readonly IProviderCredentialStore _credentials = Substitute.For<IProviderCredentialStore>();
 
-    private ProviderSetupReader Reader(HttpStatusCode installationsStatus, int installations, string? clientSecret = "secret")
+    private ProviderSetupReader Reader(
+        HttpStatusCode installationsStatus, int installations, string? clientSecret = "secret", bool secretAccepted = true)
     {
         using var rsa = System.Security.Cryptography.RSA.Create(2048);
         _credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
@@ -31,7 +32,7 @@ public sealed class ProviderSetupReaderGitHubTests
         var services = new ServiceCollection();
         services.AddSingleton(_credentials);
         var http = Substitute.For<IHttpClientFactory>();
-        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new Stub(installationsStatus, installations)));
+        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(new Stub(installationsStatus, installations, secretAccepted)));
 
         var gitHubApp = new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
@@ -107,6 +108,17 @@ public sealed class ProviderSetupReaderGitHubTests
     }
 
     [Fact]
+    public async Task ReadAsync_ClientSecretRevokedOnGitHub_WarnsBeforeAnyoneTriesToLink()
+    {
+        _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
+
+        var requirement = (await GitHubAsync(Reader(HttpStatusCode.OK, 1, secretAccepted: false))).Requirements.Single();
+
+        requirement.Status.Should().Be(RequirementStatus.Warning);
+        requirement.Detail.Should().Contain("no longer accepts").And.Contain("client secret");
+    }
+
+    [Fact]
     public async Task ReadAsync_KeyRefused_Fails()
     {
         _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
@@ -116,10 +128,14 @@ public sealed class ProviderSetupReaderGitHubTests
         requirement.Status.Should().Be(RequirementStatus.Failed);
     }
 
-    private sealed class Stub(HttpStatusCode status, int installations) : HttpMessageHandler
+    private sealed class Stub(HttpStatusCode status, int installations, bool secretAccepted) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            // GitHub's token check: 404 for an unknown token when the client id and secret are right.
+            if (request.RequestUri!.AbsolutePath.StartsWith("/applications/"))
+                return Task.FromResult(new HttpResponseMessage(secretAccepted ? HttpStatusCode.NotFound : HttpStatusCode.Unauthorized));
+
             var items = Enumerable.Range(1, installations).Select(i => new
             {
                 id = i, account = new { login = "octo-org", type = "Organization" },

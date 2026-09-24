@@ -1,0 +1,94 @@
+@*
+    Renders one ProviderFieldSpec: label, input, help, and an error beside the field. A secret is
+    always a SecretTextArea. A secret with a value already stored is optional, and leaving it blank
+    keeps the stored one.
+*@
+
+<div class="@CssClass" style="@(Spec.MaxWidth is { } width ? $"max-width:{width}" : null)">
+    <label class="form-label @(Small ? "small" : "") @(Spec.Kind == ProviderFieldKind.Multiline && Small ? "mb-1" : "")" for="@Spec.Id">
+        @Spec.Label
+        @if (Spec.IsSecret && HasStoredValue)
+        {
+            <span class="text-muted">(optional — leave blank to keep the current one)</span>
+        }
+        else if (!Spec.Required)
+        {
+            <span class="text-muted">(optional)</span>
+        }
+    </label>
+
+    @switch (Spec.Kind)
+    {
+        case ProviderFieldKind.Secret:
+        case ProviderFieldKind.MultilineSecret:
+            <SecretTextArea Id="@Spec.Id" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
+                            CssClass="@InputClass" Placeholder="@(HasStoredValue ? Spec.KeptPlaceholder : Spec.Placeholder)"
+                            DescribedBy="@DescribedBy" @bind-Value="CurrentValue" />
+            break;
+
+        case ProviderFieldKind.Multiline:
+            <textarea id="@Spec.Id" class="form-control font-monospace @InputClass" rows="@Spec.Rows" placeholder="@Spec.Placeholder"
+                      disabled="@Disabled" aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
+                      @bind="CurrentValue"></textarea>
+            break;
+
+        default:
+            <input id="@Spec.Id" class="form-control @InputClass" placeholder="@Spec.Placeholder" inputmode="@Spec.InputMode"
+                   list="@ListId" autocomplete="@(ListId is not null ? "off" : null)" disabled="@Disabled"
+                   aria-invalid="@(Error is not null ? "true" : "false")" aria-describedby="@DescribedBy"
+                   @bind="CurrentValue" @bind:event="oninput" />
+            break;
+    }
+
+    @ChildContent
+
+    @if (Error is not null)
+    {
+        <div id="@ErrorId" class="invalid-feedback d-block" role="alert">
+            <span class="bi-x-circle me-1" aria-hidden="true"></span>@Error @ErrorContent
+        </div>
+    }
+    <div id="@HelpId" class="form-text">@Spec.Help @HelpContent</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ProviderFieldSpec Spec { get; set; } = null!;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>A secret already stored, so this field may be left blank.</summary>
+    [Parameter] public bool HasStoredValue { get; set; }
+
+    /// <summary>A problem with this field, shown beside it.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>More after the error text, such as a link to where it can be fixed.</summary>
+    [Parameter] public RenderFragment? ErrorContent { get; set; }
+
+    /// <summary>More after the help text, such as what the value will create.</summary>
+    [Parameter] public RenderFragment? HelpContent { get; set; }
+
+    /// <summary>Rendered right after the input, such as a datalist.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public string? ListId { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Small { get; set; }
+    [Parameter] public string CssClass { get; set; } = "mb-3";
+
+    private string HelpId => $"{Spec.Id}-help";
+    private string ErrorId => $"{Spec.Id}-error";
+    private string DescribedBy => Error is not null ? $"{ErrorId} {HelpId}" : HelpId;
+    private string InputClass => (Small ? "form-control-sm " : "") + (Error is not null ? "is-invalid" : "");
+
+    private string? CurrentValue
+    {
+        get => Value;
+        set
+        {
+            if (value == Value) return;
+            Value = value;
+            _ = ValueChanged.InvokeAsync(value);
+        }
+    }
+}

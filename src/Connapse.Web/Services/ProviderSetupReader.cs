@@ -136,6 +136,15 @@ public class ProviderSetupReader(
                     "Add the client secret", "#github-app");
             }
 
+            // A stored secret GitHub has since revoked fails the same way, only later, at each
+            // person's sign-in; asking now puts it on this card instead.
+            if (await gitHubApp.StoredClientSecretMatchesAsync(ct) == false)
+            {
+                return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                    $"GitHub no longer accepts {app.Slug}'s client secret, so nobody can link a GitHub account. Generate a new client secret on the App's page and paste it under Manual values.",
+                    "Replace the client secret", "#github-app");
+            }
+
             // Installing is a connection's business, not the provider's: an App installed nowhere
             // is still fully set up, with its next step on the Connections page.
             return installations.Count == 0

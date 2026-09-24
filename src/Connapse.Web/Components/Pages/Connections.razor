@@ -479,7 +479,12 @@
                                         {
                                             bool paused = pausedConnections.Contains(c.Id);
                                             <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SetSyncingAsync(c, !paused)"
-                                                    title="@(paused ? "Turn syncing back on for every source on this connection" : "Stop syncing every source on this connection without deleting anything")">
+                                                    disabled="@(pausing is not null)"
+                                                    title="@(paused ? "Turns on every source on this connection, including any you switched off one by one" : "Stops syncing every source on this connection. Nothing is deleted, and documents stay searchable")">
+                                                @if (pausing == c.Id)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                                }
                                                 @(paused ? "Resume syncing" : "Pause syncing")
                                             </button>
                                         }
@@ -1231,10 +1236,14 @@
         @if (testMessage is not null)
         {
             <div class="col-12 mt-2">
-                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0"
+                <div class="alert @(testWarning ? "alert-warning" : testSuccess ? "alert-success" : "alert-danger") py-2 mb-0"
                      role="@(testSuccess ? "status" : "alert")">
-                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
+                    <span class="@(testWarning ? "bi-exclamation-triangle" : testSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
                     @testMessage
+                    @if (testWarning && testWarningLink is { } fixAt)
+                    {
+                        <a class="alert-link ms-1" href="@fixAt">Configure on GitHub</a>
+                    }
                     @if (!testSuccess && form.Provider == ConnectionProvider.S3)
                     {
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
@@ -1264,13 +1273,13 @@
 
 @if (pendingDelete is not null)
 {
-    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+    <div id="delete-connection-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="delete-connection-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="delete-connection-title">Delete connection</h5>
-                    <button type="button" class="btn-close" aria-label="Close" @onclick="() => pendingDelete = null"></button>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingDelete = null"></button>
                 </div>
                 <div class="modal-body">
                     <p>Delete <strong>@pendingDelete.Name</strong>?</p>
@@ -1280,7 +1289,7 @@
                     </p>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="() => pendingDelete = null">Cancel</button>
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
                     <button class="btn btn-danger" @onclick="DeleteConfirmed">Delete connection</button>
                 </div>
             </div>
@@ -1300,6 +1309,17 @@
 
     private bool saving;
     private bool testing;
+
+    /// <summary>The test passed but found something worth fixing; shown as a warning, not an error.</summary>
+    private bool testWarning;
+
+    /// <summary>Where the warning can be fixed, when that is on GitHub.</summary>
+    private string? testWarningLink;
+
+    private bool deleteFocusHeld;
+
+    /// <summary>The connection whose sources are being paused or resumed.</summary>
+    private Guid? pausing;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;
@@ -1469,6 +1489,18 @@
     {
         await FocusBucketSearchIfOpened();
 
+        // The delete dialog is plain markup, so focus is moved into it and kept there by script.
+        if (pendingDelete is not null && !deleteFocusHeld)
+        {
+            deleteFocusHeld = true;
+            await JS.InvokeVoidAsync("connapse.holdFocus", "delete-connection-dialog");
+        }
+        else if (pendingDelete is null && deleteFocusHeld)
+        {
+            deleteFocusHeld = false;
+            await JS.InvokeVoidAsync("connapse.releaseFocus", "delete-connection-dialog");
+        }
+
         if (!firstRender) return;
 
         try
@@ -1537,6 +1569,7 @@
     private async Task SetSyncingAsync(Connection connection, bool enabled)
     {
         statusMessage = null;
+        pausing = connection.Id;
         try
         {
             var sources = await SourceStore.ListByConnectionAsync(connection.Id);
@@ -1546,13 +1579,17 @@
             await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
                 new { connection.Name, Sources = sources.Count });
             Succeed(enabled
-                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
+                ? $"Syncing resumed for all {sources.Count} source(s) on '{connection.Name}'. Switch off any you want kept off on the Sources page."
                 : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
             await LoadAsync();
         }
         catch (Exception ex)
         {
             Fail($"Could not change syncing for '{connection.Name}': {ex.Message}");
+        }
+        finally
+        {
+            pausing = null;
         }
     }
 
@@ -2351,6 +2388,8 @@
         testing = true;
         testMessage = null;
         testDetail = null;
+        testWarning = false;
+        testWarningLink = null;
 
         try
         {
@@ -2369,13 +2408,15 @@
                 try
                 {
                     var covered = await GitHubApp.ListInstallationRepositoriesAsync(installationId, max: 1);
-                    var selection = gitHubInstallations?.FirstOrDefault(i => i.Id == installationId)?.RepositorySelection;
-                    testSuccess = covered.TotalCount > 0;
+                    var installation = gitHubInstallations?.FirstOrDefault(i => i.Id == installationId);
+                    testSuccess = true;
+                    testWarning = covered.TotalCount == 0;
+                    testWarningLink = testWarning && installation?.HtmlUrl is { Length: > 0 } url ? url : null;
                     testMessage = covered.TotalCount > 0
                         ? $"Signed in as the App. The {account} installation is active and covers {covered.TotalCount} "
                           + (covered.TotalCount == 1 ? "repository" : "repositories")
-                          + (selection == "all" ? " (all repositories)." : " (selected repositories).")
-                        : $"Signed in as the App, and the {account} installation is active, but it covers no repositories. Choose some with Configure on GitHub.";
+                          + (installation?.RepositorySelection == "all" ? " (all repositories)." : " (selected repositories).")
+                        : $"Signed in as the App, and the {account} installation is active, but it covers no repositories yet, so there is nothing to add as a source. Choose repositories on GitHub.";
                 }
                 catch (Exception ex)
                 {

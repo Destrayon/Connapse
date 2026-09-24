@@ -1666,7 +1666,7 @@
 
             <ProviderStepCard Id="github-app" Title="GitHub App"
                               Description="Created on GitHub in one step, then installed on organisations or accounts from the Connections page."
-                              Status="GitHubStatus" StatusLabel="@RequirementLabel(GitHubStatus)"
+                              Status="GitHubStatus" StatusLabel="@(GitHubStatus == RequirementStatus.Warning ? "Linking unavailable" : RequirementLabel(GitHubStatus))"
                               @bind-Expanded="showGitHubSetup" EditLabel="Change the App"
                               EasyTitle="Easy setup: create the App on GitHub" EasyOpen="true">
                 <Summary>
@@ -1687,7 +1687,7 @@
                                 }
                                 else
                                 {
-                                    <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span><text>Not available: add the App's client secret under Change the App</text>
+                                    <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span><text>Not available: add the App's client secret under Manual values below</text>
                                 }
                             </dd>
                             @if (gitHubCredentialStatus is { } stored)
@@ -1719,51 +1719,21 @@
                             </div>
                         </div>
                     }
-                    <details class="border rounded p-3 mb-3" open="@(gitHubAppInfo is not null && showGitHubSetup)">
+                    <details class="border rounded p-3 mb-3" open="@(gitHubAppInfo is not null && (showGitHubSetup || GitHubStatus == RequirementStatus.Warning))">
                         <summary class="fw-semibold small">Manual values: an App you registered yourself, or a new key for this one</summary>
                         <p id="github-app-manual-help" class="small text-muted mt-3 mb-2">
                             Register the App on GitHub under
                             <a href="https://github.com/settings/apps/new" target="_blank" rel="noopener">New GitHub App</a>
-                            with read-only access to Metadata, Contents, Issues, and Pull requests, and these two addresses:
+                            with read-only access to Metadata, Contents, Issues, and Pull requests, Webhook
+                            <strong>Active</strong> unticked (Connapse polls instead), and these two addresses:
                         </p>
                         <dl class="provider-step-values small mb-3">
                             <dt>Callback URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.UserCallbackPath)</code></dd>
                             <dt>Setup URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.InstalledPath)</code></dd>
                         </dl>
-                        <div class="mb-3" style="max-width:16rem">
-                            <label class="form-label small" for="github-app-id">App ID</label>
-                            <input id="github-app-id" class="form-control form-control-sm" inputmode="numeric" placeholder="123456"
-                                   aria-describedby="github-app-id-help" @bind="manualGitHubAppId" />
-                            <div id="github-app-id-help" class="form-text">The number shown at the top of the App's page on GitHub.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label small" for="github-app-key">
-                                Private key (.pem file)
-                                @if (gitHubAppInfo is not null)
-                                {
-                                    <span class="text-muted">(optional — leave blank to keep the current key)</span>
-                                }
-                            </label>
-                            <SecretTextArea Id="github-app-key" Rows="5" CssClass="form-control-sm"
-                                            Placeholder="@(gitHubAppInfo is not null ? "Kept unless you paste a new key" : "-----BEGIN RSA PRIVATE KEY-----")"
-                                            DescribedBy="github-app-key-help" @bind-Value="manualGitHubAppKey" />
-                            <div id="github-app-key-help" class="form-text">
-                                On the App's page, under Private keys, choose Generate a private key and paste the whole
-                                file. Stored encrypted and never shown again.
-                            </div>
-                        </div>
-                        <div class="mb-3" style="max-width:28rem">
-                            <label class="form-label small" for="github-app-secret">
-                                Client secret <span class="text-muted">(optional@(gitHubAppInfo is not null ? " — leave blank to keep the current one" : ""))</span>
-                            </label>
-                            <SecretTextArea Id="github-app-secret" Multiline="false" CssClass="form-control-sm"
-                                            Placeholder="@(gitHubCanSignIn ? "Kept unless you paste a new one" : null)"
-                                            DescribedBy="github-app-secret-help" @bind-Value="manualGitHubClientSecret" />
-                            <div id="github-app-secret-help" class="form-text">
-                                Lets people link their GitHub accounts, which private repositories need. On the App's page,
-                                under Client secrets, choose Generate a new client secret.
-                            </div>
-                        </div>
+                        <ProviderField Spec="GitHubFieldSpecs.AppId" Small="true" Error="@gitHubAppIdError" @bind-Value="manualGitHubAppId" />
+                        <ProviderField Spec="GitHubFieldSpecs.PrivateKey" Small="true" HasStoredValue="@(gitHubAppInfo is not null)" @bind-Value="manualGitHubAppKey" />
+                        <ProviderField Spec="GitHubFieldSpecs.ClientSecret" Small="true" HasStoredValue="@gitHubCanSignIn" @bind-Value="manualGitHubClientSecret" />
                         <button type="button" class="btn btn-sm btn-outline-primary" disabled="@gitHubBusy" @onclick="SaveManualGitHubApp">
                             @if (gitHubBusy)
                             {
@@ -2097,6 +2067,7 @@
     /// <summary>A problem with the manual values, shown under them rather than at the top of the page.</summary>
     private string? gitHubManualError;
     private string? gitHubManualDetail;
+    private string? gitHubAppIdError;
 
     /// <summary>The address GitHub will send people back to: the one this administrator is using.</summary>
     private string GitHubBaseUrl => Navigation.BaseUri.TrimEnd('/') + "/";
@@ -2199,10 +2170,10 @@
     private async Task SaveManualGitHubApp()
     {
         saveMessage = null;
-        gitHubManualError = gitHubManualDetail = null;
+        gitHubManualError = gitHubManualDetail = gitHubAppIdError = null;
         if (!long.TryParse(manualGitHubAppId?.Trim(), out long appId) || appId <= 0)
         {
-            gitHubManualError = "Enter the App ID: the number at the top of the App's page on GitHub.";
+            gitHubAppIdError = "Enter the App ID: the number at the top of the App's page on GitHub.";
             return;
         }
 
@@ -2290,7 +2261,8 @@
         catch (Exception ex)
         {
             saveSuccess = false;
-            saveMessage = $"Could not remove the GitHub App: {ex.Message}";
+            Logger.LogWarning(ex, "Could not remove the GitHub App");
+            saveMessage = "Could not remove the GitHub App. Nothing was changed; try again.";
         }
     }
 

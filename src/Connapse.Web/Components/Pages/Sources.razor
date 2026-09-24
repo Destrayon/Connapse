@@ -189,6 +189,18 @@
                             }
                         </tr>
 
+                        @if (source.LastSyncStatus == SyncStatus.Succeeded && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
+                        {
+                            <tr class="@(source.Enabled ? "" : "opacity-50")">
+                                <td colspan="7" class="pt-0 border-top-0">
+                                    <div class="alert alert-secondary py-2 mb-0 small" role="status">
+                                        <span class="bi-hourglass-split me-1" aria-hidden="true"></span>
+                                        @source.LastSyncError
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
                             <tr class="@(source.Enabled ? "" : "opacity-50")">
@@ -300,34 +312,27 @@
                         @* A GitHub connection is one App installation. The repository is named by
                            address, and becomes up to two sources — its docs and its issues — named
                            after it, so there is no name field here. *@
-                        <div class="mb-3">
-                            <label class="form-label" for="github-repo">Repository</label>
-                            <input id="github-repo" class="form-control @(repoError is not null ? "is-invalid" : "")" placeholder="owner/repo"
-                                   list="@(gitHubRepoSuggestions.Count > 0 ? "github-repo-options" : null)" autocomplete="off"
-                                   @bind="githubForm.Repository" @bind:event="oninput" @bind:after="ClearRepoError"
-                                   aria-invalid="@(repoError is not null ? "true" : "false")"
-                                   aria-describedby="@(repoError is not null ? "github-repo-error github-repo-help" : "github-repo-help")" />
-                            @if (gitHubRepoSuggestions.Count > 0)
-                            {
-                                <datalist id="github-repo-options">
-                                    @foreach (var name in gitHubRepoSuggestions)
-                                    {
-                                        <option value="@name"></option>
-                                    }
-                                </datalist>
-                            }
-                            @if (repoError is not null)
-                            {
-                                <div id="github-repo-error" class="invalid-feedback d-block" role="alert">
-                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@repoError
-                                    @if (repoErrorLink is { } link)
-                                    {
-                                        <a class="ms-1" href="@link" target="_blank" rel="noopener">Configure on GitHub</a>
-                                    }
-                                </div>
-                            }
-                            <div id="github-repo-help" class="form-text">
-                                <code>owner/repo</code> or its github.com address.
+                        <ProviderField Spec="GitHubFieldSpecs.Repository" Error="@repoError"
+                                       ListId="@(gitHubRepoSuggestions.Count > 0 ? "github-repo-options" : null)"
+                                       Value="@githubForm.Repository" ValueChanged="OnRepositoryChanged">
+                            <ChildContent>
+                                @if (gitHubRepoSuggestions.Count > 0)
+                                {
+                                    <datalist id="github-repo-options">
+                                        @foreach (var name in gitHubRepoSuggestions)
+                                        {
+                                            <option value="@name"></option>
+                                        }
+                                    </datalist>
+                                }
+                            </ChildContent>
+                            <ErrorContent>
+                                @if (repoErrorLink is { } link)
+                                {
+                                    <a class="ms-1" href="@link" target="_blank" rel="noopener">Configure on GitHub</a>
+                                }
+                            </ErrorContent>
+                            <HelpContent>
                                 @if (gitHubRepoTotal > 0)
                                 {
                                     <text>This installation covers @gitHubRepoTotal @(gitHubRepoTotal == 1 ? "repository" : "repositories"); pick one or type it.</text>
@@ -339,8 +344,8 @@
                                         @string.Join(" and ", githubForm.ToRequests(form.ConnectionId).Select(r => "\u201c" + r.Name + "\u201d")).
                                     </text>
                                 }
-                            </div>
-                        </div>
+                            </HelpContent>
+                        </ProviderField>
 
                         <fieldset>
                             <legend class="form-label fs-6">What to index</legend>
@@ -348,12 +353,8 @@
                                 <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
                                 <label for="github-docs" class="form-check-label">Docs: markdown files on the default branch</label>
                             </div>
-                            <div class="ms-4 mb-2">
-                                <label class="form-label small mb-1" for="github-patterns">File patterns <span class="text-muted">(optional)</span></label>
-                                <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2" placeholder="docs/**/*.md"
-                                          disabled="@(!githubForm.IncludeDocs)" aria-describedby="github-patterns-help" @bind="githubForm.DocPatterns"></textarea>
-                                <div id="github-patterns-help" class="form-text">One per line. Leave blank to index every *.md and *.markdown file.</div>
-                            </div>
+                            <ProviderField Spec="GitHubFieldSpecs.DocPatterns" Small="true" CssClass="ms-4 mb-2"
+                                           Disabled="@(!githubForm.IncludeDocs)" @bind-Value="githubForm.DocPatterns" />
                             <div class="form-check">
                                 <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
                                 <label for="github-issues" class="form-check-label">Issues and pull requests</label>
@@ -533,13 +534,13 @@
 
 @if (pendingDelete is not null)
 {
-    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+    <div id="delete-source-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="delete-source-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="delete-source-title">Delete source</h5>
-                    <button type="button" class="btn-close" aria-label="Close" @onclick="() => pendingDelete = null"></button>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingDelete = null"></button>
                 </div>
                 <div class="modal-body">
                     <p>
@@ -552,7 +553,7 @@
                     </p>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="() => pendingDelete = null">Cancel</button>
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
                     <button class="btn btn-danger" @onclick="Delete">Delete source</button>
                 </div>
             </div>
@@ -603,8 +604,8 @@
     private IReadOnlyList<string> gitHubRepoSuggestions = [];
     private int gitHubRepoTotal;
 
-    /// <summary>Whether the New source dialog is holding focus, so it is released when the dialog closes.</summary>
-    private bool dialogFocusHeld;
+    /// <summary>Dialogs holding focus, so each is released when it closes.</summary>
+    private readonly HashSet<string> heldDialogs = [];
 
     private SourceForm? form;
     private GitHubRepositoryForm? githubForm;
@@ -715,20 +716,30 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // The dialog is plain markup, so focus is moved into it and kept there by script.
-        if (form is not null && !dialogFocusHeld)
-        {
-            dialogFocusHeld = true;
-            await JS.InvokeVoidAsync("connapse.holdFocus", "new-source-dialog");
-        }
-        else if (form is null && dialogFocusHeld)
-        {
-            dialogFocusHeld = false;
-            await JS.InvokeVoidAsync("connapse.releaseFocus", "new-source-dialog");
-        }
+        await HoldDialogFocusAsync("new-source-dialog", form is not null);
+        await HoldDialogFocusAsync("delete-source-dialog", pendingDelete is not null);
+    }
+
+    /// <summary>
+    /// The dialogs are plain markup, so focus is moved into one and kept there by script while it
+    /// is open, and handed back to where it came from when it closes.
+    /// </summary>
+    private async Task HoldDialogFocusAsync(string id, bool open)
+    {
+        if (open && heldDialogs.Add(id))
+            await JS.InvokeVoidAsync("connapse.holdFocus", id);
+        else if (!open && heldDialogs.Remove(id))
+            await JS.InvokeVoidAsync("connapse.releaseFocus", id);
     }
 
     private void ClearRepoError() => repoError = repoErrorLink = null;
+
+    private void OnRepositoryChanged(string? value)
+    {
+        if (githubForm is null) return;
+        githubForm.Repository = value ?? "";
+        ClearRepoError();
+    }
 
     private bool IsGitHub(Source source) =>
         source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.GitHub;
@@ -871,6 +882,7 @@
         (string css, string text) = source switch
         {
             { Enabled: false } => ("text-bg-secondary", "Disabled"),
+            { LastSyncStatus: SyncStatus.Succeeded, LastSyncError.Length: > 0 } => ("text-bg-warning", "Waiting"),
             { LastSyncStatus: SyncStatus.Succeeded } => ("text-bg-success", "Synced"),
             { LastSyncStatus: SyncStatus.Failed } => ("text-bg-danger", "Failed"),
             { LastSyncStatus: SyncStatus.Running } => ("text-bg-info", "Syncing"),
@@ -919,9 +931,12 @@
                     "source", source.Id.ToString(),
                     new { source.Name, result.Upserted, result.Deleted });
 
-                Succeed(result.WithheldDeletions > 0
-                    ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld."
-                    : $"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
+                if (result.Notice is not null)
+                    Warn($"'{source.Name}': {result.Notice}");
+                else
+                    Succeed(result.WithheldDeletions > 0
+                        ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld."
+                        : $"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
             }
 
             await LoadAsync();

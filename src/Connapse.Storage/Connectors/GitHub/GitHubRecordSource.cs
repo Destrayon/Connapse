@@ -95,6 +95,7 @@ internal sealed class GitHubRecordSource(
         var marks = new Marks(cursor);
         var cache = new RecordCache(_store);
         bool complete = false;
+        string? notice = null;
 
         // With credentials every check below is a conditional request: an unchanged answer is a
         // 304, which GitHub does not count, so an idle repository costs nothing to poll.
@@ -166,6 +167,7 @@ internal sealed class GitHubRecordSource(
         }
         catch (GitHubRateLimitedException ex)
         {
+            notice = ex.Message;
             logger.LogWarning(
                 "GitHub {Owner}/{Repo}: API budget spent until {ResetAt}; keeping progress and resuming next cycle",
                 LogSanitizer.Sanitize(config.Owner), LogSanitizer.Sanitize(config.Repo), ex.ResetAt);
@@ -183,7 +185,7 @@ internal sealed class GitHubRecordSource(
         // arriving, and emitting it now would embed it twice. The marks still advance, so the next
         // cycle carries on from here rather than starting over.
         if (!complete)
-            return new SyncDelta([], [], marks.ToCursor(cursor.Seq).Serialize(), RequiresFullResync: false);
+            return new SyncDelta([], [], marks.ToCursor(cursor.Seq).Serialize(), RequiresFullResync: false, Notice: notice);
 
         await RelistIfDueAsync(firstSync: cursorText is null, state, ct);
 

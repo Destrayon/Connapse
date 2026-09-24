@@ -47,6 +47,7 @@ For an App you registered yourself at [New GitHub App](https://github.com/settin
 |-------------------|-------|
 | Callback URL | `https://<your Connapse>/api/v1/auth/cloud/github/callback` |
 | Setup URL | `https://<your Connapse>/api/v1/providers/github/installed` (tick **Redirect on update**) |
+| Webhook | Untick **Active**. Connapse polls, so it needs no webhook |
 
 | Field | Required | Where to get it |
 |-------|----------|-----------------|
@@ -73,9 +74,9 @@ On **Connections → Add connection**, provider **GitHub**, or choose **Add a Gi
 
 ## Source
 
-On **Sources → New source**, pick the GitHub connection and enter a repository as `owner/repo` or its github.com address; the field suggests the repositories the installation covers. Choose what to index:
+On **Sources → New source**, pick the GitHub connection and enter the **Repository** as `owner/repo` or its github.com address; the field suggests the repositories the installation covers. Choose what to index:
 
-- **Docs:** markdown files on the default branch. File patterns (optional) narrow this, one per line.
+- **Docs:** markdown files on the default branch. **File patterns** (optional) are file names to index, one per line, with `*` as a wildcard, such as `*.md` or `CHANGELOG*`. They match the file name, not its folder.
 - **Issues and pull requests**, optionally with their comments. Comments from bots are left out by default; the source's edit page lets you include specific bots or leave out specific people.
 
 A private repository is added as private automatically.
@@ -97,10 +98,10 @@ Each person links their own GitHub account under **Profile → Integrations → 
 | Provider card: *GitHub no longer accepts the App's private key* | The key was deleted on GitHub | Generate a new key and paste it under Manual values |
 | Provider card warns that people cannot link GitHub accounts | The App was entered by hand without its client secret | Add the client secret under Manual values |
 | Connection test or list: *The GitHub App is no longer installed on …* | The installation was removed or suspended on GitHub | Install the App there again, or delete the connection |
-| Connection test: *covers no repositories* | The installation was set to selected repositories with none chosen | Choose **Configure on GitHub** and select repositories |
+| Connection test warning: *covers no repositories yet* | The installation was set to selected repositories with none chosen | Choose **Configure on GitHub** in the message and select repositories |
 | New source: *This installation can't see owner/repo* | The repository is not among the installation's selected repositories, or the name is wrong | Choose **Configure on GitHub** from the message and add the repository |
 | *GitHub could not be reached* | Outbound access to `api.github.com` is blocked | Check the server's network egress |
-| Sync note: *GitHub's hourly request limit is used up* | The installation spent its request budget | Nothing to do; syncing resumes after the time shown |
+| Sources: status *Waiting*, with *GitHub's hourly request limit is used up until HH:mm UTC* | The installation spent its request budget | Nothing to do; syncing continues after that time |
 | Sync error: *GitHub repository … can no longer be read* | The repository was renamed away, deleted, removed from the installation, or (for a public source) made private | Its documents are hidden. Restore access, or delete the source and add the repository again |
 | Profile: *GitHub sign-in is not available* | No App yet, or an App without its client secret | An administrator finishes Step 1 |
 | Profile: *That GitHub sign-in took too long or was started in another tab* | The sign-in expired | Start it again from the same tab |
