@@ -1283,10 +1283,11 @@
                     <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingResume = null"></button>
                 </div>
                 <div class="modal-body">
-                    <fieldset>
-                        <legend class="small text-muted mb-2">
-                            Ticked sources turn back on. Untick any you had switched off on purpose before the pause; they stay off.
-                        </legend>
+                    <fieldset aria-describedby="resume-help">
+                        <legend class="fs-6">Sources to turn back on</legend>
+                        <p id="resume-help" class="small text-muted mb-2">
+                            Untick any you had switched off on purpose before the pause; they stay off.
+                        </p>
                         @foreach (var source in resume.Sources)
                         {
                             <div class="form-check">

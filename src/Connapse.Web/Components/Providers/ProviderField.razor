@@ -48,9 +48,10 @@
             <span class="bi-x-circle me-1" aria-hidden="true"></span>@Error @ErrorContent
         </div>
     }
-    <div id="@HelpId" class="form-text">
-        @Spec.Help @HelpContent
-        <a href="@Spec.GuideUrl" target="_blank" rel="noopener">Where to find this</a>
+    <div class="form-text">
+        @* Only the text is the field's description; the link is its own stop, not read with every field. *@
+        <span id="@HelpId">@Spec.Help @HelpContent</span>
+        <a href="@Spec.GuideUrl" target="_blank" rel="noopener">@Spec.GuideLinkText<span class="visually-hidden"> (opens in a new tab)</span></a>
     </div>
 </div>
 

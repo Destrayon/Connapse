@@ -96,6 +96,7 @@ public sealed class ConnapseGitHubApp(
         {
             _generation++;
             _material = null;
+            _secretCheck = null;
             _tokens.Clear();
         }
     }
@@ -216,19 +217,36 @@ public sealed class ConnapseGitHubApp(
     /// </summary>
     public async Task<bool?> StoredClientSecretMatchesAsync(CancellationToken ct = default)
     {
+        // Asked on every Providers and Profile page load, so the answer is kept as long as the
+        // stored App is, and dropped with it by ClearCache.
+        if (_secretCheck is { } cached && _clock.GetUtcNow() - cached.CheckedAt < MaterialLifetime)
+            return cached.Matches;
+
+        long generation = Generation;
         var material = await LoadAsync(ct);
         if (material?.App.ClientId is not { Length: > 0 } clientId || string.IsNullOrEmpty(material.ClientSecret))
             return null;
 
+        bool matches;
         try
         {
-            return await ClientSecretMatchesAsync(clientId, material.ClientSecret, ct);
+            matches = await ClientSecretMatchesAsync(clientId, material.ClientSecret, ct);
         }
         catch (HttpRequestException)
         {
             return null;
         }
+
+        lock (_cacheLock)
+        {
+            if (_generation == generation)
+                _secretCheck = (matches, _clock.GetUtcNow());
+        }
+
+        return matches;
     }
+
+    private (bool Matches, DateTimeOffset CheckedAt)? _secretCheck;
 
     /// <summary>Forgets one installation's token, after GitHub refused it.</summary>
     public void Forget(long installationId) => _tokens.TryRemove(installationId, out _);

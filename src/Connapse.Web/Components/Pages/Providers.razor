@@ -1687,7 +1687,10 @@
                                 }
                                 else
                                 {
-                                    <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span><text>Not available: add the App's client secret under Manual values below</text>
+                                    <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span>
+                                    <text>@(gitHubSecretStored
+                                        ? "Not available: GitHub rejected the stored client secret. Paste a new one under Manual values below"
+                                        : "Not available: add the App's client secret under Manual values below")</text>
                                 }
                             </dd>
                             @if (gitHubCredentialStatus is { } stored)
@@ -1720,7 +1723,7 @@
                         </div>
                     }
                     <details class="border rounded p-3 mb-3" open="@(gitHubAppInfo is not null && (showGitHubSetup || GitHubStatus == RequirementStatus.Warning))">
-                        <summary class="fw-semibold small">Manual values: an App you registered yourself, or a new key for this one</summary>
+                        <summary class="fw-semibold small">@GitHubFieldSpecs.ManualApp[0].Group: an App you registered yourself, or a new key for this one</summary>
                         <p id="github-app-manual-help" class="small text-muted mt-3 mb-2">
                             Register the App on GitHub under
                             <a href="https://github.com/settings/apps/new" target="_blank" rel="noopener">New GitHub App</a>
@@ -2086,6 +2089,7 @@
     private bool showGitHubSetup;
     private bool gitHubBusy;
     private bool gitHubCanSignIn;
+    private bool gitHubSecretStored;
     private bool gitHubReplaceConfirmed;
     private ProviderCredentialStatus? gitHubCredentialStatus;
     private int gitHubConnectionCount;
@@ -2183,8 +2187,8 @@
     {
         gitHubAppInfo = await CredentialStore.GetGitHubAppAsync();
         // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
-        gitHubCanSignIn = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync()
-            && await GitHubApp.StoredClientSecretMatchesAsync() != false;
+        gitHubSecretStored = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
+        gitHubCanSignIn = gitHubSecretStored && await GitHubApp.StoredClientSecretMatchesAsync() != false;
         gitHubCredentialStatus = gitHubAppInfo is null ? null : await CredentialStore.GetStatusAsync("github");
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
