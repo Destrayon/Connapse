@@ -587,7 +587,8 @@ internal sealed class GitHubRecordSource(
         SizeBytes: Encoding.UTF8.GetByteCount(rendered.Markdown),
         LastModified: rendered.LastModified,
         ContentType: "text/markdown",
-        ResourceUri: rendered.Metadata[GitHubRecordRenderer.MetadataPrefix + "url"],
+        // No ResourceUri, for the reason the docs source gives: public records are readable by
+        // everyone. The link travels in the metadata.
         Metadata: rendered.Metadata,
         Strategy: ChunkingStrategy.Record);
 

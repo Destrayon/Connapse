@@ -188,6 +188,7 @@ public static class ServiceCollectionExtensions
 
         // Every installation's remaining budget, shared by all GitHub sources on this server.
         services.AddSingleton<Connectors.GitHub.GitHubCredentialPool>();
+        services.AddSingleton<Connectors.GitHub.GitHubRepositoryLookup>();
 
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.
