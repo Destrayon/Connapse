@@ -170,6 +170,21 @@ public static class SourcesEndpoints
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
             }
 
+            // A GitHub source's documents are addressed — or deliberately not — by whether it is
+            // private, and keyed on its repository id. Changing either in place would leave the
+            // documents already indexed with the old addressing until a re-sync replaced them:
+            // public rows (no address) of a repository now marked private would stay visible to
+            // everyone. So they are fixed at creation; to change them, add the repository again.
+            if (!string.IsNullOrWhiteSpace(request.ScopeJson)
+                && await sourceStore.GetAsync(sourceId, ct) is { } existing
+                && GitHubIdentityChanged(existing.ScopeJson, request.ScopeJson))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "A GitHub source's private flag and repository id cannot be changed. Add the repository again as a new source.",
+                });
+            }
+
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
             if (updated is null)
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
@@ -270,6 +285,32 @@ public static class SourcesEndpoints
         .RequireAuthorization("RequireAdmin");
 
         return app;
+    }
+
+    /// <summary>Whether an update changes a GitHub source's private flag or repository id.</summary>
+    internal static bool GitHubIdentityChanged(string before, string after)
+    {
+        static (bool Private, long? RepoId, bool IsGitHub) Read(string json)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                bool isPrivate = root.TryGetProperty("private", out var p) && p.ValueKind == JsonValueKind.True;
+                long? repoId = root.TryGetProperty("repoId", out var r) && r.TryGetInt64(out long id) ? id : null;
+                bool isGitHub = root.TryGetProperty("owner", out _) && root.TryGetProperty("repo", out _);
+                return (isPrivate, repoId, isGitHub);
+            }
+            catch (JsonException)
+            {
+                return (false, null, false);
+            }
+        }
+
+        var old = Read(before);
+        if (!old.IsGitHub) return false;
+        var now = Read(after);
+        return old.Private != now.Private || old.RepoId != now.RepoId;
     }
 
     /// <summary>

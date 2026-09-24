@@ -145,8 +145,11 @@ public sealed class GitHubRepositoryAccess(
             var api = new GitHubApiClient(httpClients.CreateClient(ConnectorFactory.GitHubHttpClientName), ApiBaseUrl,
                 new GitHubAuth(pool, GitHubAccess.Pinned(repo.InstallationId)));
             string login = await CurrentLoginAsync(api, account, ct);
+            // Asked by the repository's numeric id, not its name: a name can come to belong to a
+            // different repository after a transfer or deletion, and a grant must be for the
+            // repository whose documents were indexed.
             var answer = await api.GetAsync<PermissionPayload>(
-                $"repos/{Uri.EscapeDataString(repo.Owner)}/{Uri.EscapeDataString(repo.Repo)}/collaborators/{Uri.EscapeDataString(login)}/permission", ct);
+                $"repositories/{repo.RepoId}/collaborators/{Uri.EscapeDataString(login)}/permission", ct);
             allowed = (answer.Permission is { } p && Readable.Contains(p))
                       || (answer.RoleName is { } r && Readable.Contains(r));
         }

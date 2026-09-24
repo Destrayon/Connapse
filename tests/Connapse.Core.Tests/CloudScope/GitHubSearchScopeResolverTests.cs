@@ -128,6 +128,18 @@ public sealed class GitHubSearchScopeResolverTests
     }
 
     [Fact]
+    public async Task Permission_IsAskedByRepositoryIdNotName()
+    {
+        _sources.Add(SourceFor(100, isPrivate: true));
+        Linked();
+
+        await Resolver().ResolveAsync(User);
+
+        // A name can come to belong to a different repository; the id cannot.
+        _github.PermissionPaths.Should().ContainSingle().Which.Should().StartWith("/repositories/100/collaborators/");
+    }
+
+    [Fact]
     public async Task AnswersAreCached_PerRepositoryAndAccount()
     {
         _sources.Add(SourceFor(100, isPrivate: true));
@@ -148,6 +160,7 @@ public sealed class GitHubSearchScopeResolverTests
         public string CurrentLogin { get; set; } = "octocat";
         public int PermissionChecks { get; private set; }
         public List<string> CheckedLogins { get; } = [];
+        public List<string> PermissionPaths { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -161,6 +174,7 @@ public sealed class GitHubSearchScopeResolverTests
             if (path.Contains("/collaborators/") && path.EndsWith("/permission"))
             {
                 PermissionChecks++;
+                PermissionPaths.Add(path);
                 CheckedLogins.Add(path.Split('/')[^2]);
                 if (PermissionStatus != HttpStatusCode.OK)
                     return Task.FromResult(new HttpResponseMessage(PermissionStatus) { Content = new StringContent("""{"message":"x"}""") });

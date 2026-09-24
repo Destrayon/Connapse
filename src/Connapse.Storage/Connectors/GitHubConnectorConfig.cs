@@ -104,6 +104,12 @@ public partial record GitHubConnectorConfig
     /// </summary>
     public bool IsPrivate { get; init; }
 
+    /// <summary>
+    /// Whether each sync first confirms the repository with GitHub: that it is still public, for a
+    /// public source, and that the name still belongs to the recorded repository id.
+    /// </summary>
+    public bool Verified => RequirePublic || IsPrivate || RepoId is not null;
+
     /// <summary>The permission filter's address for a document at <paramref name="virtualPath"/>, or null for a public repository.</summary>
     public string? ResourceUriFor(string virtualPath) =>
         IsPrivate && RepoId is { } id ? $"github://{id}{(virtualPath.StartsWith('/') ? "" : "/")}{virtualPath}" : null;

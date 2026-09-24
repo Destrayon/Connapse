@@ -103,8 +103,8 @@ internal sealed class GitHubRecordSource(
         // Outside the try: a check that cannot finish (the budget is spent) must fail the cycle,
         // not pass as partial progress — a successful cycle clears a hidden source's revoked mark.
         string? repositoryTag = state.RepositoryETag;
-        if (probing && config.RequirePublic)
-            repositoryTag = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, state.RepositoryETag, ct);
+        if (probing && config.Verified)
+            repositoryTag = await GitHubRepositoryGuard.VerifyAsync(_api, config, state.RepositoryETag, ct);
 
         try
         {

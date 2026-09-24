@@ -215,6 +215,34 @@ public sealed class GitHubCredentialPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task IssuesSync_NameNowBelongsToADifferentRepository_IsRefused()
+    {
+        _api.UpsertIssue(1, "Crash");
+        var connector = new GitHubConnector(Config(GitHubContentKind.IssuesAndPullRequests) with { RepoId = 999 },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Public(1)));
+
+        Func<Task> act = () => connector.GetChangesAsync(null);
+
+        // The fake answers the name with id 1296269: another repository took it.
+        await act.Should().ThrowAsync<GitHubRepositoryUnavailableException>()
+            .WithInnerException(typeof(InvalidOperationException));
+    }
+
+    [Fact]
+    public async Task IssuesSync_PrivateSourceOfItsOwnRepository_Syncs()
+    {
+        _api.UpsertIssue(1, "Crash");
+        _api.Visibility = "private";
+        var connector = new GitHubConnector(
+            Config(GitHubContentKind.IssuesAndPullRequests) with { RepoId = 1296269, IsPrivate = true, RequirePublic = false },
+            _api.CreateClient(), NullLogger.Instance, new GitHubAuth(Pool(1), GitHubAccess.Pinned(1)));
+
+        var delta = await connector.GetChangesAsync(null);
+
+        delta.Upserted.Should().ContainSingle().Which.ResourceUri.Should().Be("github://1296269/issues/1.md");
+    }
+
+    [Fact]
     public async Task IssuesSync_VisibilityCheckRateLimited_FailsRatherThanPassingAsPartialProgress()
     {
         _api.UpsertIssue(1, "Crash");

@@ -88,11 +88,11 @@ public sealed class GitHubConnector(
         string? visibilityTag = null;
         if (auth is not null)
         {
-            if (_api is not null && config.RequirePublic)
+            if (_api is not null && config.Verified)
             {
                 string tagFile = Path.Combine(config.MirrorPath, "connapse-visibility.etag");
                 string? previous = File.Exists(tagFile) ? await File.ReadAllTextAsync(tagFile, ct) : null;
-                string? next = await GitHubRepositoryGuard.RequirePublicAsync(_api, config, previous, ct);
+                string? next = await GitHubRepositoryGuard.VerifyAsync(_api, config, previous, ct);
                 visibilityTag = next ?? previous;
                 if (next is not null && next != previous)
                 {
@@ -133,8 +133,8 @@ public sealed class GitHubConnector(
 
         // Asked again after the fetch: a repository made private between the first check and the
         // fetch would otherwise hand its private head to the index.
-        if (auth is not null && _api is not null && config.RequirePublic)
-            await GitHubRepositoryGuard.RequirePublicAsync(_api, config, visibilityTag, ct);
+        if (auth is not null && _api is not null && config.Verified)
+            await GitHubRepositoryGuard.VerifyAsync(_api, config, visibilityTag, ct);
 
         return delta;
     }
