@@ -98,6 +98,7 @@ Each person links their own GitHub account under **Profile → Integrations → 
 | Provider card: *GitHub no longer accepts the App's private key* | The key was deleted on GitHub | Generate a new key and paste it under Manual values |
 | Provider card warns that people cannot link GitHub accounts | The App was entered by hand without its client secret | Add the client secret under Manual values |
 | Connection test or list: *The GitHub App is no longer installed on …* | The installation was removed or suspended on GitHub | Install the App there again, or delete the connection |
+| Connections: *Not installed any more*, or sync error *GitHub no longer accepts installation …* | The App was removed or reinstalled on that account; a reinstall gets a new installation id | Choose **Edit** on the connection, pick the account's installation again, and save. Returning from a reinstall on GitHub opens this for you |
 | Connection test warning: *covers no repositories yet* | The installation was set to selected repositories with none chosen | Choose **Configure on GitHub** in the message and select repositories |
 | New source: *This installation can't see owner/repo* | The repository is not among the installation's selected repositories, or the name is wrong | Choose **Configure on GitHub** from the message and add the repository |
 | *GitHub could not be reached* | Outbound access to `api.github.com` is blocked | Check the server's network egress |

@@ -165,6 +165,19 @@ public sealed class GitHubCredentialPoolTests : IDisposable
         (await pool.AcquireAsync(GitHubAccess.Public(1), None)).InstallationId.Should().Be(1);
     }
 
+    [Fact]
+    public async Task AcquireAsync_PinnedInstallationRefused_SaysItIsGoneNotRateLimited()
+    {
+        var pool = Pool(1);
+        pool.Refused(1);
+
+        Func<Task> act = () => pool.AcquireAsync(GitHubAccess.Pinned(1), None);
+
+        (await act.Should().ThrowAsync<GitHubAppException>(
+            "a reinstalled App leaves the old installation gone for good, which waiting for a limit reset will not fix"))
+            .Which.Message.Should().Contain("choose its installation again");
+    }
+
     // ── Reading as the App ─────────────────────────────────────────────────
 
     private GitHubConnectorConfig Config(GitHubContentKind kind) => new()

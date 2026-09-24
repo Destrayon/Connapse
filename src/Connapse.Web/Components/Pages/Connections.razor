@@ -459,8 +459,9 @@
                                         {
                                             @if (gitHubInstallations is not null && GitHubInstallationUrl(c) is null)
                                             {
-                                                <span class="text-danger" title="The GitHub App is not installed there any more; its sources cannot sync">
-                                                    <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>Not installed any more
+                                                <span class="text-danger">
+                                                    <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>Not installed any more.
+                                                    Choose Edit to pick its new installation.
                                                 </span>
                                             }
                                             else
@@ -883,8 +884,18 @@
                 }
                 else
                 {
+                    @if (EditedInstallationMissing)
+                    {
+                        <div class="alert alert-warning py-2 small" role="status">
+                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                            The GitHub App is no longer installed as this connection's installation, usually because it
+                            was removed or reinstalled on GitHub. Choose its installation again and save; the sources on
+                            this connection keep their settings. Pick the same organisation or account
+                            (@(editingGitHubAccount ?? "the one it had")) so they can still read their repositories.
+                        </div>
+                    }
                     <select id="github-installation" class="form-select" value="@form.GitHubInstallationId"
-                            @onchange="SelectGitHubInstallation" disabled="@(!isNew)" aria-describedby="github-installation-help">
+                            @onchange="SelectGitHubInstallation" disabled="@(!isNew && !EditedInstallationMissing)" aria-describedby="github-installation-help">
                         <option value="">Choose an installation…</option>
                         @foreach (var installation in gitHubInstallations)
                         {
@@ -1485,6 +1496,22 @@
         if (gitHubAppConfigured != true)
             return;
 
+        // Back from reinstalling the App: GitHub gave it a new installation id. A connection on the
+        // same account whose installation is gone is the one this replaces, so it is opened for
+        // editing with the new installation chosen, rather than a second connection being started.
+        if (returning && long.TryParse(installationId.ToString(), out long returnedId)
+            && gitHubInstallations?.FirstOrDefault(i => i.Id == returnedId) is { } returnedInstallation
+            && connections.FirstOrDefault(c => c.Provider == ConnectionProvider.GitHub
+                && ConnectionForm.FromConnection(c) is var existing
+                && gitHubInstallations.All(i => i.Id != existing.GitHubInstallationId)
+                && string.Equals(existing.GitHubAccount, returnedInstallation.AccountLogin, StringComparison.OrdinalIgnoreCase)) is { } orphaned)
+        {
+            await StartEdit(orphaned);
+            SelectGitHubInstallation(returnedId);
+            Succeed($"The App was reinstalled on {returnedInstallation.AccountLogin}. Save to point '{orphaned.Name}' at the new installation; its sources keep their settings.");
+            return;
+        }
+
         await StartCreate();
         form.Provider = ConnectionProvider.GitHub;
         if (returning && long.TryParse(installationId.ToString(), out long id)
@@ -1503,6 +1530,19 @@
         if (provider == ConnectionProvider.GitHub)
             GitHubPool.ForgetInstallations();
     }
+
+    /// <summary>The installation an edited GitHub connection had when the form opened, and its account.</summary>
+    private long? editingGitHubInstallationId;
+    private string? editingGitHubAccount;
+
+    /// <summary>
+    /// An edited GitHub connection whose installation GitHub no longer lists — removed or
+    /// reinstalled. Only then may its installation be changed: otherwise a connection keeps the
+    /// installation its sources were added through.
+    /// </summary>
+    private bool EditedInstallationMissing =>
+        !isNew && editing is not null && form.Provider == ConnectionProvider.GitHub && gitHubInstallations is not null
+        && !gitHubInstallations.Any(i => i.Id == editingGitHubInstallationId);
 
     /// <summary>The installation's settings page on GitHub, for a GitHub connection whose installation still exists.</summary>
     private string? GitHubInstallationUrl(Connection connection)
@@ -2263,6 +2303,8 @@
         editing = connection;
         isNew = false;
         form = ConnectionForm.FromConnection(connection);
+        editingGitHubInstallationId = form.GitHubInstallationId;
+        editingGitHubAccount = form.GitHubAccount;
         // Offered as the probe default: an allowed location is, by definition, somewhere this
         // connection is meant to be able to reach.
         probeTarget = form.FirstAllowedLocation();
@@ -2289,7 +2331,9 @@
             return;
         }
 
-        if (isNew && form.Provider == ConnectionProvider.GitHub && await GitHubInstallationProblemAsync() is { } gitHubProblem)
+        bool installationChanged = !isNew && form.GitHubInstallationId != editingGitHubInstallationId;
+        if ((isNew || installationChanged) && form.Provider == ConnectionProvider.GitHub
+            && await GitHubInstallationProblemAsync() is { } gitHubProblem)
         {
             Fail(gitHubProblem);
             return;

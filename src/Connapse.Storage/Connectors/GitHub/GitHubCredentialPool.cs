@@ -75,6 +75,16 @@ public sealed class GitHubCredentialPool(ConnapseGitHubApp app, IServiceScopeFac
             .ThenByDescending(c => c.Left)
             .ToList();
 
+        // A source pinned to one installation that GitHub just refused is not waiting on a request
+        // limit: the installation is gone, usually removed or reinstalled, and waiting will not help.
+        if (usable.Count == 0 && access.PinnedInstallationId is { } refused
+            && _budgets.TryGetValue(refused, out var rest) && rest.RefusedUntil > now)
+        {
+            throw new GitHubAppException(
+                $"GitHub no longer accepts installation {refused}: the App was probably removed or reinstalled there. "
+                + "Edit this source's connection on the Connections page and choose its installation again.", 404);
+        }
+
         if (usable.Count == 0)
             throw new GitHubRateLimitedException(EarliestReset(allowed, now));
 
