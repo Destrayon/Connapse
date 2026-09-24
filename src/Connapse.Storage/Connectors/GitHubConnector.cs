@@ -390,9 +390,10 @@ public sealed class GitHubConnector(
             LastModified: head.Committer.When.UtcDateTime,
             ContentType: null,
 
-            // No ResourceUri: search treats an address as something a cloud grant must cover, and
-            // a public repository is readable by everyone, so its documents fall to Connapse's own
-            // access control. Private repositories will carry one, for a GitHub permission check.
+            // A public repository's documents carry no address: everyone may read them, so they fall
+            // to Connapse's own access control. A private one's carry github://{repoId}/…, which
+            // search shows only to people GitHub says can read the repository.
+            ResourceUri: config.ResourceUriFor(ToVirtualPath(entry.Path)),
             // HEAD rather than a SHA, so the link follows the default branch and does not churn
             // on every commit.
             Metadata: new Dictionary<string, string>

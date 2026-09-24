@@ -22,6 +22,25 @@ namespace Connapse.Core.Tests.Sources;
 [Trait("Category", "Unit")]
 public class GitHubRepositoryFormTests
 {
+    [Fact]
+    public void ToRequests_PrivateRepository_RecordsItsIdAndMarksItPrivate()
+    {
+        var form = new GitHubRepositoryForm { Repository = "acme/infra" };
+
+        var requests = form.ToRequests(Guid.NewGuid(), repoId: 99, isPrivate: true);
+
+        requests.Should().HaveCount(2).And.OnlyContain(r =>
+            r.ScopeJson!.Contains("\"repoId\":99") && r.ScopeJson.Contains("\"private\":true"));
+    }
+
+    [Fact]
+    public void ToRequests_PrivateRepositoryWithoutAnId_IsRefused()
+    {
+        var act = () => new GitHubRepositoryForm { Repository = "acme/infra" }.ToRequests(Guid.NewGuid(), repoId: null, isPrivate: true);
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
     [Theory]
     [InlineData("octocat/Hello-World", "octocat", "Hello-World")]
     [InlineData("https://github.com/octocat/Hello-World", "octocat", "Hello-World")]

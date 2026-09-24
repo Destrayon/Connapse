@@ -183,7 +183,19 @@ public class ConnectorFactory(
             throw new InvalidOperationException("GitHub sources need the GitHub App credential pool, which is not registered.");
 
         var config = GitHubConfig(source, scope) with { InstallationId = installationId };
-        var auth = new GitHub.GitHubAuth(gitHubPool, GitHub.GitHubAccess.Public(installationId));
+
+        // A private repository's documents are filtered by an address built from its id. Without
+        // the id they would carry no address — and a document without one is shown to everyone.
+        if (config.IsPrivate && config.RepoId is null)
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' is a private GitHub repository without a repository id, so its documents could not be filtered. Add it again from New source.");
+
+        // A private repository is read only as the installation that covers it — never a borrowed
+        // one, which would read through a different organisation's grant.
+        var access = config.IsPrivate
+            ? GitHub.GitHubAccess.Pinned(installationId)
+            : GitHub.GitHubAccess.Public(installationId);
+        var auth = new GitHub.GitHubAuth(gitHubPool, access);
 
         return new GitHubConnector(config, httpClientFactory.CreateClient(GitHubHttpClientName), logger, auth);
     }
@@ -225,6 +237,8 @@ public class ConnectorFactory(
             Owner = owner,
             Repo = repo,
             RepoId = Long(scope, "repoId"),
+            IsPrivate = Bool(scope, "private") ?? false,
+            RequirePublic = !(Bool(scope, "private") ?? false),
             Kind = kind,
             IncludePatterns = include.Count > 0 ? include : GitHubConnectorConfig.DefaultDocPatterns,
             ExcludePatterns = Arr(scope, "excludePatterns"),

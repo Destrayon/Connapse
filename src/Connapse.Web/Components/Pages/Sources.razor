@@ -288,8 +288,9 @@
                             <input id="github-repo" class="form-control" placeholder="https://github.com/owner/repo"
                                    @bind="githubForm.Repository" @bind:event="oninput" aria-describedby="github-repo-help" />
                             <div id="github-repo-help" class="form-text">
-                                A public repository's address, or <code>owner/repo</code>. Private repositories
-                                arrive with per-user permission filtering.
+                                A repository's address, or <code>owner/repo</code>, that this connection's
+                                installation covers. A private repository's content is searchable only by
+                                people who link their GitHub account and can read it on GitHub.
                                 @if (GitHubRepositoryForm.TryParse(githubForm.Repository, out _, out _) && form.ConnectionId != Guid.Empty)
                                 {
                                     <text>
@@ -902,15 +903,11 @@
                 return;
             }
 
-            // Refused rather than indexed: without per-user permission filtering, anything indexed
-            // is visible to every Connapse user.
-            if (!found.IsPublic)
-            {
-                createError = $"{found.FullName} is {found.Visibility}. Only public repositories can be indexed until per-user permission filtering arrives.";
-                return;
-            }
+            // A private or internal repository is indexed as private: its documents are searchable
+            // only by people who link their GitHub account and whom GitHub lets read it.
+            bool isPrivate = !found.IsPublic;
 
-            foreach (var request in githubForm.ToRequests(connection.Id))
+            foreach (var request in githubForm.ToRequests(connection.Id, found.Id, isPrivate))
             {
                 try
                 {
@@ -935,6 +932,7 @@
             form = null;
             githubForm = null;
             Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync now."
+                + (isPrivate ? $" {found.FullName} is {found.Visibility}: only people who link their GitHub account under Profile → Integrations, and whom GitHub lets read it, will find its content." : "")
                 + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
 
             await LoadAsync();

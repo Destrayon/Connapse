@@ -582,13 +582,14 @@ internal sealed class GitHubRecordSource(
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private static ConnectorFile ToConnectorFile(GitHubRenderedRecord rendered) => new(
+    private ConnectorFile ToConnectorFile(GitHubRenderedRecord rendered) => new(
         Path: rendered.Path,
         SizeBytes: Encoding.UTF8.GetByteCount(rendered.Markdown),
         LastModified: rendered.LastModified,
         ContentType: "text/markdown",
-        // No ResourceUri, for the reason the docs source gives: public records are readable by
-        // everyone. The link travels in the metadata.
+        // An address only for a private repository, for the reason the docs source gives. The
+        // github.com link travels in the metadata either way.
+        ResourceUri: config.ResourceUriFor(rendered.Path),
         Metadata: rendered.Metadata,
         Strategy: ChunkingStrategy.Record);
 
