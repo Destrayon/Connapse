@@ -446,7 +446,15 @@
                                             <span class="text-muted">From environment</span>
                                         }
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-end text-nowrap">
+                                        @if (GitHubInstallationUrl(c) is { } manage)
+                                        {
+                                            @* Which repositories an installation covers is chosen on GitHub; GitHub
+                                               sends the administrator back here afterwards. *@
+                                            <a class="btn btn-sm btn-outline-secondary me-1" href="@manage" title="Choose which repositories this installation covers">
+                                                <span class="bi-github me-1"></span>Manage on GitHub
+                                            </a>
+                                        }
                                         <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
                                     </td>
@@ -1329,6 +1337,14 @@
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
 
+        if (query.TryGetValue("github_updated", out var updated) && long.TryParse(updated.ToString(), out long updatedId))
+        {
+            var account = gitHubInstallations?.FirstOrDefault(i => i.Id == updatedId)?.AccountLogin;
+            Succeed($"Repositories for the {account ?? "GitHub"} installation updated on GitHub. "
+                    + "Its sources pick up the change on their next sync.");
+            return;
+        }
+
         if (query.TryGetValue("github_install", out var outcome) && outcome.ToString() == "requested")
         {
             Succeed("Your request to install the GitHub App was sent to the organisation's owners. "
@@ -1360,6 +1376,15 @@
     {
         if (provider == ConnectionProvider.GitHub)
             GitHubPool.ForgetInstallations();
+    }
+
+    /// <summary>The installation's settings page on GitHub, for a GitHub connection whose installation still exists.</summary>
+    private string? GitHubInstallationUrl(Connection connection)
+    {
+        if (connection.Provider != ConnectionProvider.GitHub || gitHubInstallations is null) return null;
+        long? id = ConnectionForm.FromConnection(connection).GitHubInstallationId;
+        string? url = gitHubInstallations.FirstOrDefault(i => i.Id == id)?.HtmlUrl;
+        return string.IsNullOrWhiteSpace(url) ? null : url;
     }
 
     private void SelectGitHubInstallation(ChangeEventArgs args)

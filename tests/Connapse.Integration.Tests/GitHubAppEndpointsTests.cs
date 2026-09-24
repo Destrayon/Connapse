@@ -38,6 +38,7 @@ public sealed class GitHubAppEndpointsTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("?installation_id=77&setup_action=install", "/connections?github_installation=77")]
     [InlineData("?setup_action=request", "/connections?github_install=requested")]
+    [InlineData("?installation_id=77&setup_action=update", "/connections?github_updated=77")]
     [InlineData("", "/connections?new=github")]
     public async Task Installed_ForwardsToTheConnectionsPage(string query, string expected)
     {

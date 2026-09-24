@@ -2136,7 +2136,10 @@
         else if (query.TryGetValue("installation_id", out var installedId) && long.TryParse(installedId.ToString(), out long installationId))
         {
             // Apps created before installing moved to Connections still return here after an install.
-            Navigation.NavigateTo($"/connections?github_installation={installationId}");
+            bool update = query.TryGetValue("setup_action", out var action) && action.ToString() == "update";
+            Navigation.NavigateTo(update
+                ? $"/connections?github_updated={installationId}"
+                : $"/connections?github_installation={installationId}");
         }
         else if (query.TryGetValue("github_created", out _))
         {
