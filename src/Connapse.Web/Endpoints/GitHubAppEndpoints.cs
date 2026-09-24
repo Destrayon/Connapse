@@ -77,6 +77,11 @@ public static class GitHubAppEndpoints
             if (setupAction == "request")
                 return Results.Redirect("/connections?github_install=requested");
 
+            // An existing installation whose repositories were changed on GitHub: its connection
+            // already exists, so this is news, not a new connection to create.
+            if (setupAction == "update" && installationId is > 0)
+                return Results.Redirect($"/connections?github_updated={installationId}");
+
             return Results.Redirect(installationId is > 0
                 ? $"/connections?github_installation={installationId}"
                 : "/connections?new=github");
