@@ -42,12 +42,29 @@ public enum ScopeOutcome
 /// </remarks>
 public sealed record SearchScopes
 {
-    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches, ScopeOutcome outcome)
+    private SearchScopes(bool unrestricted, IReadOnlyList<GrantMatch> matches, ScopeOutcome outcome, bool deploymentWide = false)
     {
         IsUnrestricted = unrestricted;
         Matches = matches;
         Outcome = outcome;
+        IsDeploymentWide = deploymentWide;
     }
+
+    /// <summary>
+    /// Matches that describe the deployment rather than a person: whole schemes a cloud is not
+    /// filtering (<c>s3://</c>, <c>azblob://</c>), with no grant of anyone's own. They reach a caller
+    /// who is not a person exactly as the unrestricted answer they stand in for did — only the
+    /// documents no one is permitted by default (private GitHub repositories) stay out.
+    /// </summary>
+    public static SearchScopes DeploymentWide(IReadOnlyList<GrantMatch> matches)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        var usable = matches.Where(m => !string.IsNullOrWhiteSpace(m.Value)).ToList();
+        return usable.Count == 0 ? None : new SearchScopes(false, usable, ScopeOutcome.Granted, deploymentWide: true);
+    }
+
+    /// <summary>Whether these matches are the deployment's own rather than a person's grants.</summary>
+    public bool IsDeploymentWide { get; }
 
     /// <summary>
     /// No filtering: every document is reachable.
@@ -192,7 +209,7 @@ public static class ScopeResolution
     {
         ArgumentNullException.ThrowIfNull(resolved);
 
-        if (userId is not null)
+        if (userId is not null || resolved.IsDeploymentWide)
             return resolved;
 
         return resolved is { IsUnrestricted: false, IsEmpty: false }

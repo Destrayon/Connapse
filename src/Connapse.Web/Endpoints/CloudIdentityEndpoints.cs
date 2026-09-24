@@ -443,7 +443,7 @@ public static class CloudIdentityEndpoints
                     return Results.Redirect("/profile/integrations?error=github_link_failed");
 
                 var account = await gitHubApp.ResolveUserSignInAsync(code, pending.CodeVerifier, GitHubCallbackUrl(http), ct);
-                string confirmCode = flow.Park(new PendingGitHubLink(pending.UserId, account.Id, account.Login));
+                string confirmCode = flow.Park(new PendingGitHubLink(pending.UserId, account.Id, account.Login, pending.StartedAtUtc));
 
                 http.Response.Cookies.Append(GitHubConfirmCookieName, confirmCode, new CookieOptions
                 {
@@ -494,6 +494,17 @@ public static class CloudIdentityEndpoints
             }
 
             await links.SaveAsync(userId.Value, link.GitHubUserId, link.Login, ct);
+
+            // An unlink that landed between the claim above and the save must win: it was the later
+            // decision. Checked again after writing, so whichever order the two land in, the link
+            // does not survive it.
+            if (flow.WasRevokedSince(userId.Value, link.SignInStartedAtUtc))
+            {
+                await links.DeleteAsync(userId.Value, ct);
+                logger.LogInformation("A GitHub link confirmed while the user was unlinking was discarded");
+                return Results.Redirect("/profile/integrations?error=github_link_failed");
+            }
+
             await audit.LogAsync("identity.github.linked", "user", userId.Value.ToString(),
                 new { link.GitHubUserId, link.Login }, ct);
             return Results.Redirect("/profile/integrations");
