@@ -42,7 +42,7 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         return new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
             NullLogger<ConnapseGitHubApp>.Instance, _clock)
-        { ApiBaseUrl = "https://api.github.test" };
+        { ApiBaseUrl = "https://api.github.test", WebBaseUrl = "https://github.test" };
     }
 
     [Fact]
@@ -194,6 +194,55 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         _github.TokenRequests.Should().Be(2, "a token minted before the clear must not be reused after it");
     }
 
+    [Fact]
+    public async Task ResolveUserSignInAsync_ReturnsTheAccountAndRevokesTheToken()
+    {
+        var app = App();
+
+        var account = await app.ResolveUserSignInAsync("code-1", "verifier", "https://connapse.test/api/v1/auth/cloud/github/callback");
+
+        account.Should().Be(new GitHubUserAccount(583231, "octocat"));
+        _github.Revocations.Should().Be(1, "nothing keeps the user token, so the whole authorization is revoked at once");
+    }
+
+    [Fact]
+    public async Task ResolveUserSignInAsync_GitHubRefusesTheRevoke_FailsTheLink()
+    {
+        var app = App();
+        _github.RefuseRevoke = true;
+
+        Func<Task> act = () => app.ResolveUserSignInAsync("code-1", "verifier", "https://connapse.test/cb");
+
+        await act.Should().ThrowAsync<GitHubAppException>().WithMessage("*did not confirm*",
+            "a link is only reported once the authorization is really gone; a retry revokes the whole grant");
+    }
+
+    [Fact]
+    public async Task UserSignIn_AppWithoutAClientSecret_IsUnavailable()
+    {
+        _store.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>()).Returns(new GitHubAppCredentialMaterial(
+            new GitHubAppRegistration(42, "connapse-test", "Iv1.abc", "octo-org", "https://github.com/apps/connapse-test"), Pem, null));
+        var services = new ServiceCollection();
+        services.AddSingleton(_store);
+        var http = Substitute.For<IHttpClientFactory>();
+        http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(_github, disposeHandler: false));
+        var app = new ConnapseGitHubApp(services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
+            NullLogger<ConnapseGitHubApp>.Instance, _clock);
+
+        (await app.CanSignInUsersAsync()).Should().BeFalse("an App registered by hand has no client secret");
+        (await app.UserSignInUrlAsync("https://c.test/cb", "s", "c")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UserSignInUrlAsync_CarriesClientStateAndPkceChallenge()
+    {
+        string? url = await App().UserSignInUrlAsync("https://c.test/cb", "state-1", "challenge-1");
+
+        url.Should().StartWith("https://github.test/login/oauth/authorize?client_id=Iv1.abc")
+            .And.Contain("state=state-1").And.Contain("code_challenge=challenge-1&code_challenge_method=S256")
+            .And.Contain("redirect_uri=https%3A%2F%2Fc.test%2Fcb");
+    }
+
     private sealed class StubGitHub : HttpMessageHandler
     {
         private static readonly object NotFound = new();
@@ -227,6 +276,9 @@ public sealed class ConnapseGitHubAppTests : IDisposable
             object? body = (request.Method.Method, LastPath) switch
             {
                 ("GET", "/app") when RefuseApp => null,
+                ("POST", "/login/oauth/access_token") => new { access_token = "ghu_user", token_type = "bearer" },
+                ("GET", "/user") => new { login = "octocat", id = 583231, type = "User" },
+                ("DELETE", "/applications/Iv1.abc/grant") => Revoke(),
                 ("GET", "/users/nobody-here") => NotFound,
                 ("GET", "/users/octo-org") => new { login = "octo-org", type = "Organization" },
                 ("GET", "/users/octocat") => new { login = "octocat", type = "User" },
@@ -258,6 +310,15 @@ public sealed class ConnapseGitHubAppTests : IDisposable
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(body)) };
 
             return response;
+        }
+
+        public int Revocations { get; private set; }
+        public bool RefuseRevoke { get; set; }
+
+        private object? Revoke()
+        {
+            Revocations++;
+            return RefuseRevoke ? null : new { };
         }
 
         private object Token()

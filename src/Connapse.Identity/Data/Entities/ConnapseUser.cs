@@ -14,4 +14,5 @@ public class ConnapseUser : IdentityUser<Guid>
     public List<RefreshTokenEntity> RefreshTokens { get; set; } = [];
     public List<AuditLogEntity> AuditLogs { get; set; } = [];
     public List<UserAzureIdentityLinkEntity> AzureIdentityLinks { get; set; } = [];
+    public List<UserGitHubIdentityLinkEntity> GitHubIdentityLinks { get; set; } = [];
 }
