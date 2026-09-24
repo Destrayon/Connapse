@@ -202,7 +202,7 @@ public sealed class ConnapseGitHubAppTests : IDisposable
         var account = await app.ResolveUserSignInAsync("code-1", "verifier", "https://connapse.test/api/v1/auth/cloud/github/callback");
 
         account.Should().Be(new GitHubUserAccount(583231, "octocat"));
-        _github.Revocations.Should().Be(1, "nothing keeps the user token, so it is revoked at once");
+        _github.Revocations.Should().Be(1, "nothing keeps the user token, so the whole authorization is revoked at once");
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public sealed class ConnapseGitHubAppTests : IDisposable
                 ("GET", "/app") when RefuseApp => null,
                 ("POST", "/login/oauth/access_token") => new { access_token = "ghu_user", token_type = "bearer" },
                 ("GET", "/user") => new { login = "octocat", id = 583231, type = "User" },
-                ("DELETE", "/applications/Iv1.abc/token") => Revoke(),
+                ("DELETE", "/applications/Iv1.abc/grant") => Revoke(),
                 ("GET", "/users/nobody-here") => NotFound,
                 ("GET", "/users/octo-org") => new { login = "octo-org", type = "Organization" },
                 ("GET", "/users/octocat") => new { login = "octocat", type = "User" },
