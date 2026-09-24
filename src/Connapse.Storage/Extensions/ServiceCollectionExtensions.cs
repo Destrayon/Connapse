@@ -295,9 +295,12 @@ public static class ServiceCollectionExtensions
         // not resolve back to the composite itself (no self-reference).
         services.AddScoped<CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
+        services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
+        services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
             sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>()));
+            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(),
+            sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>()));
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
