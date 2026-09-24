@@ -1242,7 +1242,7 @@ The scope must fall inside the `allowedLocations` or `allowedRoot` its connectio
 }
 ```
 
-**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`).
+**Two fields are withheld deliberately.** `scopeJson` names buckets, prefixes, and filesystem subpaths, and `syncCursor` is an opaque provider continuation token — returning either would turn a read route into reconnaissance. `lastSyncError` is populated **for administrators only**, because a provider's failure text routinely echoes what failed (`Access Denied for bucket payroll-data`). With `lastSyncStatus: "Succeeded"` it is a notice, not a failure: the cycle was cut short on purpose, for example because GitHub's hourly request limit was used up, and the next cycle continues. The Sources page shows this as **Waiting**.
 
 `kind` is always `"source"`, so a client consuming both these and the container routes can tell them apart on one field. It matches the MCP contract.
 

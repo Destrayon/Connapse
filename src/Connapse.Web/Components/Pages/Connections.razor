@@ -478,9 +478,10 @@
                                         @if (c.SourceCount > 0)
                                         {
                                             bool paused = pausedConnections.Contains(c.Id);
-                                            <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SetSyncingAsync(c, !paused)"
+                                            <button class="btn btn-sm btn-outline-secondary me-1"
+                                                    @onclick="() => paused ? AskResumeAsync(c) : SetSyncingAsync(c, enabled: false)"
                                                     disabled="@(pausing is not null)"
-                                                    title="@(paused ? "Turns on every source on this connection, including any you switched off one by one" : "Stops syncing every source on this connection. Nothing is deleted, and documents stay searchable")">
+                                                    title="@(paused ? "Choose which of this connection's sources to turn back on" : "Stops syncing every source on this connection. Nothing is deleted, and documents stay searchable")">
                                                 @if (pausing == c.Id)
                                                 {
                                                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
@@ -1271,6 +1272,42 @@
     }
 </div>
 
+@if (pendingResume is { } resume)
+{
+    <div id="resume-connection-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="resume-connection-title" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="resume-connection-title">Resume syncing on @resume.Connection.Name</h5>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingResume = null"></button>
+                </div>
+                <div class="modal-body">
+                    <fieldset>
+                        <legend class="small text-muted mb-2">
+                            Ticked sources turn back on. Untick any you had switched off on purpose before the pause; they stay off.
+                        </legend>
+                        @foreach (var source in resume.Sources)
+                        {
+                            <div class="form-check">
+                                <input id="resume-@source.Id" type="checkbox" class="form-check-input"
+                                       checked="@resume.Chosen.Contains(source.Id)" @onchange="() => ToggleResume(source.Id)" />
+                                <label class="form-check-label" for="resume-@source.Id">@source.Name</label>
+                            </div>
+                        }
+                    </fieldset>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingResume = null">Cancel</button>
+                    <button class="btn btn-primary" disabled="@(resume.Chosen.Count == 0)" @onclick="ResumeChosenAsync">
+                        Resume @resume.Chosen.Count @(resume.Chosen.Count == 1 ? "source" : "sources")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (pendingDelete is not null)
 {
     <div id="delete-connection-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
@@ -1316,7 +1353,21 @@
     /// <summary>Where the warning can be fixed, when that is on GitHub.</summary>
     private string? testWarningLink;
 
-    private bool deleteFocusHeld;
+    /// <summary>Dialogs holding focus, so each is released when it closes.</summary>
+    private readonly HashSet<string> heldDialogs = [];
+
+    private async Task HoldDialogFocusAsync(string id, bool open)
+    {
+        if (open && heldDialogs.Add(id))
+            await JS.InvokeVoidAsync("connapse.holdFocus", id);
+        else if (!open && heldDialogs.Remove(id))
+            await JS.InvokeVoidAsync("connapse.releaseFocus", id);
+    }
+
+    /// <summary>A paused connection being resumed, with the sources chosen to turn back on.</summary>
+    private sealed record PendingResume(Connection Connection, IReadOnlyList<Source> Sources, HashSet<Guid> Chosen);
+
+    private PendingResume? pendingResume;
 
     /// <summary>The connection whose sources are being paused or resumed.</summary>
     private Guid? pausing;
@@ -1489,17 +1540,9 @@
     {
         await FocusBucketSearchIfOpened();
 
-        // The delete dialog is plain markup, so focus is moved into it and kept there by script.
-        if (pendingDelete is not null && !deleteFocusHeld)
-        {
-            deleteFocusHeld = true;
-            await JS.InvokeVoidAsync("connapse.holdFocus", "delete-connection-dialog");
-        }
-        else if (pendingDelete is null && deleteFocusHeld)
-        {
-            deleteFocusHeld = false;
-            await JS.InvokeVoidAsync("connapse.releaseFocus", "delete-connection-dialog");
-        }
+        // The dialogs are plain markup, so focus is moved into one and kept there by script.
+        await HoldDialogFocusAsync("delete-connection-dialog", pendingDelete is not null);
+        await HoldDialogFocusAsync("resume-connection-dialog", pendingResume is not null);
 
         if (!firstRender) return;
 
@@ -1566,20 +1609,52 @@
     /// Pauses or resumes a connection by disabling or enabling every source on it. Nothing is
     /// deleted, and each source can still be turned on or off on its own afterwards.
     /// </summary>
-    private async Task SetSyncingAsync(Connection connection, bool enabled)
+    /// <summary>
+    /// Asks which sources to turn back on, all ticked: a source switched off on purpose before
+    /// the pause can be left off, instead of resuming silently turning it on.
+    /// </summary>
+    private async Task AskResumeAsync(Connection connection)
+    {
+        statusMessage = null;
+        try
+        {
+            var sources = await SourceStore.ListByConnectionAsync(connection.Id);
+            pendingResume = new PendingResume(connection, sources, sources.Select(s => s.Id).ToHashSet());
+        }
+        catch (Exception ex)
+        {
+            Fail($"Could not list the sources on '{connection.Name}': {ex.Message}");
+        }
+    }
+
+    private void ToggleResume(Guid sourceId)
+    {
+        if (pendingResume is null) return;
+        if (!pendingResume.Chosen.Remove(sourceId)) pendingResume.Chosen.Add(sourceId);
+    }
+
+    private async Task ResumeChosenAsync()
+    {
+        if (pendingResume is not { } resume) return;
+        pendingResume = null;
+        await SetSyncingAsync(resume.Connection, enabled: true, only: resume.Chosen);
+    }
+
+    private async Task SetSyncingAsync(Connection connection, bool enabled, IReadOnlySet<Guid>? only = null)
     {
         statusMessage = null;
         pausing = connection.Id;
         try
         {
-            var sources = await SourceStore.ListByConnectionAsync(connection.Id);
+            var sources = (await SourceStore.ListByConnectionAsync(connection.Id))
+                .Where(s => only is null || only.Contains(s.Id)).ToList();
             foreach (var source in sources.Where(s => s.Enabled != enabled))
                 await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: enabled));
 
             await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
                 new { connection.Name, Sources = sources.Count });
             Succeed(enabled
-                ? $"Syncing resumed for all {sources.Count} source(s) on '{connection.Name}'. Switch off any you want kept off on the Sources page."
+                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
                 : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
             await LoadAsync();
         }

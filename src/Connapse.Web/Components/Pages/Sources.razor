@@ -81,8 +81,9 @@
 
     @if (message is not null)
     {
-        <div class="alert @(messageSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
-            <span class="@(messageSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
+        <div class="alert @(messageWarning ? "alert-warning" : messageSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show"
+             role="@(messageSuccess ? "status" : "alert")">
+            <span class="@(messageWarning ? "bi-exclamation-triangle" : messageSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
             @message
             <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => message = null"></button>
         </div>
@@ -590,6 +591,9 @@
     private Source? pendingDelete;
     private string? message;
     private bool messageSuccess;
+
+    /// <summary>Not a failure, but not a plain success either: styled as a warning.</summary>
+    private bool messageWarning;
 
     /// <summary>Shown beside a success message when an added repository is private.</summary>
     private string? privateNote;
@@ -1254,18 +1258,21 @@
     private void Succeed(string text)
     {
         messageSuccess = true;
+        messageWarning = false;
         message = text;
     }
 
     private void Warn(string text)
     {
         messageSuccess = true;
+        messageWarning = true;
         message = text;
     }
 
     private void Fail(string text)
     {
         messageSuccess = false;
+        messageWarning = false;
         message = text;
     }
 }

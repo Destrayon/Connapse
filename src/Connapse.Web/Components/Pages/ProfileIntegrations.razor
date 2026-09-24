@@ -347,7 +347,9 @@
                             <small class="d-flex align-items-start text-muted">
                                 <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
                                 <span>
-                                    @(gitHubAppExists
+                                    @(gitHubSecretRevoked
+                                        ? "GitHub sign-in is not available: GitHub no longer accepts this deployment's App secret. Ask an administrator to replace it under Providers → GitHub."
+                                        : gitHubAppExists
                                         ? "GitHub sign-in is not available: this deployment's GitHub App can't sign people in yet. Ask an administrator to add its client secret under Providers → GitHub."
                                         : "GitHub sign-in is not available yet. An administrator sets up the GitHub App under Providers → GitHub first.")
                                 </span>
@@ -449,13 +451,17 @@
 
         // Available once the provider App exists and can sign users in (an App registered by hand
         // has no client secret, so it cannot).
-        gitHubSignInAvailable = await GitHubApp.CanSignInUsersAsync();
+        gitHubSecretRevoked = await GitHubApp.CanSignInUsersAsync() && await GitHubApp.StoredClientSecretMatchesAsync() == false;
+        gitHubSignInAvailable = !gitHubSecretRevoked && await GitHubApp.CanSignInUsersAsync();
         gitHubAppExists = gitHubSignInAvailable || await GitHubApp.IsConfiguredAsync();
     }
 
     private Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity? gitHubIdentity;
     private bool gitHubSignInAvailable;
     private bool gitHubAppExists;
+
+    /// <summary>A client secret is stored but GitHub no longer accepts it, so sign-in would fail.</summary>
+    private bool gitHubSecretRevoked;
     private bool confirmDisconnectGitHub;
     private ElementReference gitHubConfirmButton;
     private ElementReference gitHubDisconnectButton;

@@ -23,7 +23,7 @@
         case ProviderFieldKind.MultilineSecret:
             <SecretTextArea Id="@Spec.Id" Multiline="@(Spec.Kind == ProviderFieldKind.MultilineSecret)" Rows="@Spec.Rows"
                             CssClass="@InputClass" Placeholder="@(HasStoredValue ? Spec.KeptPlaceholder : Spec.Placeholder)"
-                            DescribedBy="@DescribedBy" @bind-Value="CurrentValue" />
+                            DescribedBy="@DescribedBy" Invalid="@(Error is not null)" @bind-Value="CurrentValue" />
             break;
 
         case ProviderFieldKind.Multiline:
@@ -48,7 +48,10 @@
             <span class="bi-x-circle me-1" aria-hidden="true"></span>@Error @ErrorContent
         </div>
     }
-    <div id="@HelpId" class="form-text">@Spec.Help @HelpContent</div>
+    <div id="@HelpId" class="form-text">
+        @Spec.Help @HelpContent
+        <a href="@Spec.GuideUrl" target="_blank" rel="noopener">Where to find this</a>
+    </div>
 </div>
 
 @code {

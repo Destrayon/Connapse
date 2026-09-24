@@ -18,6 +18,19 @@ public class GitHubFieldSpecDocsTests
     }
 
     [Fact]
+    public void EveryGuideLink_PointsAtASectionOfTheGuide()
+    {
+        string guide = File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "github-setup.md"));
+        var anchors = guide.Split('\n')
+            .Where(line => line.StartsWith('#'))
+            .Select(line => System.Text.RegularExpressions.Regex.Replace(line.TrimStart('#').Trim().ToLowerInvariant(), @"[^a-z0-9 -]", "").Replace(' ', '-'))
+            .ToHashSet();
+
+        foreach (var field in GitHubFieldSpecs.All)
+            anchors.Should().Contain(field.GuideUrl.Split('#')[1], $"{field.Id} links to a section the guide must have");
+    }
+
+    [Fact]
     public void EverySecretField_IsASecretKind()
     {
         GitHubFieldSpecs.All.Where(f => f.Label.Contains("key", StringComparison.OrdinalIgnoreCase)

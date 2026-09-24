@@ -1731,9 +1731,14 @@
                             <dt>Callback URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.UserCallbackPath)</code></dd>
                             <dt>Setup URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.InstalledPath)</code></dd>
                         </dl>
-                        <ProviderField Spec="GitHubFieldSpecs.AppId" Small="true" Error="@gitHubAppIdError" @bind-Value="manualGitHubAppId" />
-                        <ProviderField Spec="GitHubFieldSpecs.PrivateKey" Small="true" HasStoredValue="@(gitHubAppInfo is not null)" @bind-Value="manualGitHubAppKey" />
-                        <ProviderField Spec="GitHubFieldSpecs.ClientSecret" Small="true" HasStoredValue="@gitHubCanSignIn" @bind-Value="manualGitHubClientSecret" />
+                        @foreach (var spec in GitHubFieldSpecs.ManualApp)
+                        {
+                            <ProviderField @key="spec.Id" Spec="spec" Small="true"
+                                           Error="@(spec == GitHubFieldSpecs.AppId ? gitHubAppIdError : null)"
+                                           HasStoredValue="@GitHubValueStored(spec)"
+                                           Value="@gitHubManual.GetValueOrDefault(spec.Id)"
+                                           ValueChanged="@((string? value) => gitHubManual[spec.Id] = value)" />
+                        }
                         <button type="button" class="btn btn-sm btn-outline-primary" disabled="@gitHubBusy" @onclick="SaveManualGitHubApp">
                             @if (gitHubBusy)
                             {
@@ -2053,9 +2058,31 @@
     private GitHubAppRegistration? gitHubAppInfo;
     private string? gitHubManifestState;
     private string? gitHubAppOrganisation;
-    private string? manualGitHubAppId;
-    private string? manualGitHubAppKey;
-    private string? manualGitHubClientSecret;
+    /// <summary>What has been typed into the manual App fields, by field id.</summary>
+    private readonly Dictionary<string, string?> gitHubManual = [];
+
+    private string? manualGitHubAppId
+    {
+        get => gitHubManual.GetValueOrDefault(GitHubFieldSpecs.AppId.Id);
+        set => gitHubManual[GitHubFieldSpecs.AppId.Id] = value;
+    }
+
+    private string? manualGitHubAppKey
+    {
+        get => gitHubManual.GetValueOrDefault(GitHubFieldSpecs.PrivateKey.Id);
+        set => gitHubManual[GitHubFieldSpecs.PrivateKey.Id] = value;
+    }
+
+    private string? manualGitHubClientSecret
+    {
+        get => gitHubManual.GetValueOrDefault(GitHubFieldSpecs.ClientSecret.Id);
+        set => gitHubManual[GitHubFieldSpecs.ClientSecret.Id] = value;
+    }
+
+    /// <summary>A secret already stored and still good, so its field may be left blank.</summary>
+    private bool GitHubValueStored(ProviderFieldSpec spec) =>
+        spec == GitHubFieldSpecs.PrivateKey ? gitHubAppInfo is not null
+        : spec == GitHubFieldSpecs.ClientSecret && gitHubCanSignIn;
     private bool showGitHubSetup;
     private bool gitHubBusy;
     private bool gitHubCanSignIn;
@@ -2155,7 +2182,9 @@
     private async Task LoadGitHubAsync()
     {
         gitHubAppInfo = await CredentialStore.GetGitHubAppAsync();
-        gitHubCanSignIn = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
+        // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
+        gitHubCanSignIn = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync()
+            && await GitHubApp.StoredClientSecretMatchesAsync() != false;
         gitHubCredentialStatus = gitHubAppInfo is null ? null : await CredentialStore.GetStatusAsync("github");
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
