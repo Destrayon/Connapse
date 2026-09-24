@@ -89,8 +89,10 @@ public static class SourcesEndpoints
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
             CancellationToken ct) =>
         {
+            string? scopeJson = request.ScopeJson;
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { error = "Source name is required" });
 
@@ -109,6 +111,17 @@ public static class SourcesEndpoints
                 var connection = await connectionStore.GetAsync(cid, ct);
                 if (connection is null)
                     return Results.BadRequest(new { error = $"Connection {cid} not found" });
+
+                // The same lookup the New source dialog makes: GitHub, as this installation, says
+                // which repository the name is and whether it is private. Its answer replaces
+                // whatever the request claimed, so an API-created source matches a UI-created one.
+                if (connection.Provider == ConnectionProvider.GitHub)
+                {
+                    var resolved = await GitHubSourceScope.ResolveAsync(scopeJson, connection, gitHubRepositories, ct);
+                    if (resolved.Error is not null)
+                        return Results.BadRequest(new { error = resolved.Error });
+                    scopeJson = resolved.ScopeJson;
+                }
             }
             else if (request.Provider is null)
             {
@@ -124,10 +137,10 @@ public static class SourcesEndpoints
                 });
             }
 
-            if (!string.IsNullOrWhiteSpace(request.ScopeJson))
+            if (!string.IsNullOrWhiteSpace(scopeJson))
             {
                 // Disposed: JsonDocument rents pooled buffers, and this runs per request.
-                try { using var _ = JsonDocument.Parse(request.ScopeJson); }
+                try { using var _ = JsonDocument.Parse(scopeJson); }
                 catch (JsonException ex)
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
             }
@@ -141,7 +154,7 @@ public static class SourcesEndpoints
             {
                 created = await sourceStore.CreateAsync(
                     new CreateSourceRequest(
-                        name, request.ConnectionId, request.ScopeJson ?? "{}",
+                        name, request.ConnectionId, scopeJson ?? "{}",
                         request.Description, request.SyncIntervalSeconds, request.Provider), ct);
             }
             catch (ArgumentException ex)

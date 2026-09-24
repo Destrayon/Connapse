@@ -420,7 +420,13 @@
                                     </td>
                                     <td><span class="badge text-bg-secondary">@c.Provider</span></td>
                                     <td class="small text-muted">@DescribeScope(c)</td>
-                                    <td>@c.SourceCount</td>
+                                    <td>
+                                        @c.SourceCount
+                                        @if (c.SourceCount > 0 && pausedConnections.Contains(c.Id))
+                                        {
+                                            <span class="badge text-bg-secondary ms-1">Paused</span>
+                                        }
+                                    </td>
                                     <td class="small">
                                         @if (c.Provider == ConnectionProvider.Sftp)
                                         {
@@ -469,6 +475,14 @@
                                     </td>
                                     <td class="text-end">
                                         <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
+                                        @if (c.SourceCount > 0)
+                                        {
+                                            bool paused = pausedConnections.Contains(c.Id);
+                                            <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SetSyncingAsync(c, !paused)"
+                                                    title="@(paused ? "Turn syncing back on for every source on this connection" : "Stop syncing every source on this connection without deleting anything")">
+                                                @(paused ? "Resume syncing" : "Pause syncing")
+                                            </button>
+                                        }
                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
                                     </td>
                                 </tr>
@@ -1503,7 +1517,43 @@
     {
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
+        var sources = await SourceStore.ListAsync(take: int.MaxValue);
+        pausedConnections = sources
+            .Where(s => s.ConnectionId is not null)
+            .GroupBy(s => s.ConnectionId!.Value)
+            .Where(g => g.All(s => !s.Enabled))
+            .Select(g => g.Key)
+            .ToHashSet();
         loading = false;
+    }
+
+    /// <summary>Connections whose every source is disabled: paused, not deleted.</summary>
+    private HashSet<Guid> pausedConnections = [];
+
+    /// <summary>
+    /// Pauses or resumes a connection by disabling or enabling every source on it. Nothing is
+    /// deleted, and each source can still be turned on or off on its own afterwards.
+    /// </summary>
+    private async Task SetSyncingAsync(Connection connection, bool enabled)
+    {
+        statusMessage = null;
+        try
+        {
+            var sources = await SourceStore.ListByConnectionAsync(connection.Id);
+            foreach (var source in sources.Where(s => s.Enabled != enabled))
+                await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: enabled));
+
+            await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
+                new { connection.Name, Sources = sources.Count });
+            Succeed(enabled
+                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
+                : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail($"Could not change syncing for '{connection.Name}': {ex.Message}");
+        }
     }
 
     // ── Guided setup: this computer, or a server ───────────────────────────
