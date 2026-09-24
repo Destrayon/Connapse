@@ -1336,11 +1336,19 @@
     {
         var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
 
+        // A hint in the address, not proof anything changed: anyone can link here. So it is only
+        // acknowledged for an installation one of this deployment's GitHub connections names, and
+        // worded as where GitHub sent the administrator back from, not as a completed change.
         if (query.TryGetValue("github_updated", out var updated) && long.TryParse(updated.ToString(), out long updatedId))
         {
+            bool ours = connections.Any(c => c.Provider == ConnectionProvider.GitHub
+                && ConnectionForm.FromConnection(c).GitHubInstallationId == updatedId);
             var account = gitHubInstallations?.FirstOrDefault(i => i.Id == updatedId)?.AccountLogin;
-            Succeed($"Repositories for the {account ?? "GitHub"} installation updated on GitHub. "
-                    + "Its sources pick up the change on their next sync.");
+            if (ours && account is not null)
+            {
+                Succeed($"Back from the {account} installation's settings on GitHub. "
+                        + "Any change to the repositories it covers applies on its sources' next sync.");
+            }
             return;
         }
 
