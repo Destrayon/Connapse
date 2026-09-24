@@ -15,7 +15,6 @@
 @inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
 @inject Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup GitHubRepositories
-@inject IConnectorFactory ConnectorFactory
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -153,13 +152,7 @@
                             @if (isAdmin)
                             {
                                 <td class="text-end text-nowrap">
-                                    @if (IsGitHubIssues(source))
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleCommentAuthors(source)"
-                                                aria-expanded="@(authorsSourceId == source.Id)" title="Choose whose comments are indexed">
-                                            <span class="bi-people"></span><span class="ms-1">Comments</span>
-                                        </button>
-                                    }
+                                    <a class="btn btn-sm btn-outline-secondary me-1" href="@($"/sources/{source.Id}")">Edit</a>
                                     <button class="btn btn-sm btn-outline-primary me-1"
                                             @onclick="() => SyncNow(source)"
                                             disabled="@(!source.Enabled || syncing == source.Id)">
@@ -182,55 +175,6 @@
                                 </td>
                             }
                         </tr>
-
-                        @if (isAdmin && authorsSourceId == source.Id)
-                        {
-                            <tr>
-                                <td colspan="7" class="pt-0 border-top-0">
-                                    <div class="border rounded p-3 mt-2 small">
-                                        <div class="fw-semibold mb-1">Comments from</div>
-                                        <p class="text-muted mb-2">
-                                            Whose comments are indexed with each issue and pull request. Bots start
-                                            unticked; untick a person to leave out an automation account GitHub
-                                            reports as a user. Issue and pull request descriptions are always kept.
-                                        </p>
-                                        @if (authorsForm is null)
-                                        {
-                                            <div class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span> Reading authors…</div>
-                                        }
-                                        else if (authorsForm.Items.Count == 0)
-                                        {
-                                            <div class="text-muted">No comments synced yet. Bot comments are left out by default.</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="d-flex flex-wrap gap-3 mb-3">
-                                                @foreach (var item in authorsForm.Items)
-                                                {
-                                                    string id = "author-" + item.Author.Login;
-                                                    <div class="form-check mb-0">
-                                                        <input id="@id" type="checkbox" class="form-check-input" @bind="item.Included" />
-                                                        <label for="@id" class="form-check-label">
-                                                            @item.Author.Login
-                                                            <span class="badge @(item.Author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(item.Author.IsBot ? "Bot" : "User")</span>
-                                                            <span class="text-muted ms-1">@item.Author.Comments</span>
-                                                        </label>
-                                                    </div>
-                                                }
-                                            </div>
-                                            <button class="btn btn-sm btn-primary" @onclick="() => SaveCommentAuthors(source)" disabled="@savingAuthors">
-                                                Save and re-sync
-                                            </button>
-                                            <span class="text-muted ms-2">The source re-reads its issues so the change applies to all of them.</span>
-                                        }
-                                        @if (authorsError is not null)
-                                        {
-                                            <div class="text-danger mt-2">@authorsError</div>
-                                        }
-                                    </div>
-                                </td>
-                            </tr>
-                        }
 
                         @if (source.LastSyncStatus == SyncStatus.Failed && !string.IsNullOrWhiteSpace(source.LastSyncError) && isAdmin)
                         {
@@ -802,94 +746,6 @@
         builder.AddContent(2, text);
         builder.CloseElement();
     };
-
-    // ── Comment authors (GitHub issues sources) ────────────────────────────
-
-    private Guid? authorsSourceId;
-    private GitHubCommentAuthorsForm? authorsForm;
-    private string? authorsError;
-    private bool savingAuthors;
-
-    private bool IsGitHubIssues(Source source) =>
-        connections.FirstOrDefault(c => c.Id == source.ConnectionId)?.Provider == ConnectionProvider.GitHub
-        && source.ScopeJson.Contains("\"IssuesAndPullRequests\"", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Opens the checklist of everyone who has commented in the source's synced issues. Read from
-    /// the source's local records, so it costs no GitHub requests.
-    /// </summary>
-    private void ToggleCommentAuthors(Source source)
-    {
-        authorsError = null;
-        authorsForm = null;
-        if (authorsSourceId == source.Id)
-        {
-            authorsSourceId = null;
-            return;
-        }
-
-        authorsSourceId = source.Id;
-        try
-        {
-            var connection = connections.First(c => c.Id == source.ConnectionId);
-            var authors = ConnectorFactory.Create(source, connection) is Connapse.Storage.Connectors.GitHubConnector github
-                ? github.CommentAuthors()
-                : [];
-            authorsForm = GitHubCommentAuthorsForm.From(source.ScopeJson, authors);
-        }
-        catch (Exception ex)
-        {
-            // An exception escaping a Blazor event handler tears down the circuit.
-            authorsError = $"Could not read the comment authors: {ex.Message}";
-        }
-    }
-
-    /// <summary>
-    /// Saves the choice into the source's scope. A changed scope clears the sync cursor, so the
-    /// next sync re-reads every issue and re-renders it with the new rule; one is started now.
-    /// </summary>
-    private async Task SaveCommentAuthors(Source source)
-    {
-        if (authorsForm is null) return;
-
-        savingAuthors = true;
-        authorsError = null;
-        try
-        {
-            string scope = authorsForm.ApplyTo(source.ScopeJson);
-            if (scope != source.ScopeJson)
-            {
-                var updated = await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(ScopeJson: scope));
-                if (updated is null)
-                {
-                    authorsError = "That source no longer exists. Reload the page.";
-                    return;
-                }
-
-                await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(),
-                    new { source.Name, Change = "comment authors" });
-                authorsSourceId = null;
-                authorsForm = null;
-                await LoadAsync();
-                source = sources.FirstOrDefault(s => s.Id == source.Id) ?? source;
-            }
-            else
-            {
-                authorsSourceId = null;
-                authorsForm = null;
-            }
-
-            await SyncNow(source);
-        }
-        catch (Exception ex)
-        {
-            authorsError = $"Could not save: {ex.Message}";
-        }
-        finally
-        {
-            savingAuthors = false;
-        }
-    }
 
     private async Task SyncNow(Source source, bool applyWithheldDeletions = false)
     {

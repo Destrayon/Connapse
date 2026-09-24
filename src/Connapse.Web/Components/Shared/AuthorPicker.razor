@@ -1,0 +1,114 @@
+@using Connapse.Storage.Connectors.GitHub
+
+@*
+    Picks GitHub logins: the chosen ones as removable chips, and a search box that suggests authors
+    seen in the repository. Scales to any number of authors, because only matches are listed, and
+    accepts a login nobody has seen yet — an account set up before it has commented.
+*@
+
+<div class="author-picker">
+    @if (Selected.Count > 0)
+    {
+        <div class="d-flex flex-wrap gap-1 mb-2">
+            @foreach (string login in Selected)
+            {
+                <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-1 fw-normal">
+                    @login
+                    <button type="button" class="btn-close" style="font-size:.55rem" aria-label="Remove @login"
+                            @onclick="() => Remove(login)"></button>
+                </span>
+            }
+        </div>
+    }
+
+    <input id="@Id" class="form-control form-control-sm" placeholder="@Placeholder" autocomplete="off"
+           @bind="query" @bind:event="oninput" @onkeydown="OnKeyDown" aria-describedby="@(Id)-help" />
+
+    @if (string.IsNullOrWhiteSpace(query))
+    {
+        var top = Matches().Take(5).ToList();
+        if (top.Count > 0)
+        {
+            <div id="@(Id)-help" class="form-text">
+                Most active:
+                @foreach (var author in top)
+                {
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline" @onclick="() => Add(author.Login)">@author.Login</button>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="list-group mt-1" role="listbox">
+            @foreach (var author in Matches())
+            {
+                <button type="button" class="list-group-item list-group-item-action py-1 small d-flex justify-content-between"
+                        @onclick="() => Add(author.Login)">
+                    <span>@author.Login <span class="badge @(author.IsBot ? "text-bg-secondary" : "text-bg-light border") ms-1">@(author.IsBot ? "Bot" : "User")</span></span>
+                    <span class="text-muted">@author.Comments comment@(author.Comments == 1 ? "" : "s")</span>
+                </button>
+            }
+            @if (CanAddTyped())
+            {
+                <button type="button" class="list-group-item list-group-item-action py-1 small" @onclick="() => Add(query!.Trim())">
+                    Add “@query!.Trim()” — not seen commenting yet
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter, EditorRequired] public List<string> Selected { get; set; } = [];
+
+    /// <summary>Authors seen in the repository; only those <see cref="Suggest"/> accepts are offered.</summary>
+    [Parameter] public IReadOnlyList<GitHubCommentAuthor> Authors { get; set; } = [];
+    [Parameter] public Func<GitHubCommentAuthor, bool> Suggest { get; set; } = _ => true;
+    [Parameter] public string Placeholder { get; set; } = "Search authors";
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private const int MaxShown = 8;
+    private string? query;
+
+    private IEnumerable<GitHubCommentAuthor> Matches() =>
+        Authors
+            .Where(Suggest)
+            .Where(a => !Selected.Contains(a.Login, StringComparer.OrdinalIgnoreCase))
+            .Where(a => string.IsNullOrWhiteSpace(query) || a.Login.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Take(MaxShown);
+
+    private bool CanAddTyped() =>
+        !string.IsNullOrWhiteSpace(query)
+        && GitHubLogin.IsMatch(query.Trim())
+        && !Selected.Contains(query.Trim(), StringComparer.OrdinalIgnoreCase)
+        && !Authors.Any(a => string.Equals(a.Login, query.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private async Task Add(string login)
+    {
+        if (!Selected.Contains(login, StringComparer.OrdinalIgnoreCase))
+            Selected.Add(login);
+        query = null;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Remove(string login)
+    {
+        Selected.RemoveAll(l => string.Equals(l, login, StringComparison.OrdinalIgnoreCase));
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(query)) return;
+
+        var first = Matches().FirstOrDefault();
+        if (first is not null) await Add(first.Login);
+        else if (CanAddTyped()) await Add(query.Trim());
+    }
+
+    // A user login, or an App account's "name[bot]".
+    private static readonly System.Text.RegularExpressions.Regex GitHubLogin =
+        new(@"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(\[bot\])?$");
+}
