@@ -81,8 +81,8 @@
 
                     @if (form.IncludeComments)
                     {
-                        <p class="small text-muted mb-3">
-                            Comments from bots — review bots, CI reports — are left out; people's comments are kept.
+                        <p id="comment-authors-help" class="small text-muted mb-3">
+                            Comments from bots, such as review bots and CI reports, are left out. People's comments are kept.
                             Descriptions are always kept, whoever wrote them. Change that for specific accounts here.
                             @if (authors.Count == 0)
                             {
@@ -92,12 +92,14 @@
                         <div class="mb-3">
                             <label class="form-label small fw-semibold" for="include-bots">Also index comments from these bots</label>
                             <AuthorPicker Id="include-bots" Selected="form.IncludedBots" Authors="authors"
-                                          Suggest="a => a.IsBot" Placeholder="None — bots are left out" OnChanged="PickerChanged" />
+                                          Suggest="a => a.IsBot" Placeholder="None — bots are left out" OnChanged="PickerChanged"
+                                          Label="Bots whose comments are indexed" DescribedBy="comment-authors-help" />
                         </div>
                         <div>
                             <label class="form-label small fw-semibold" for="exclude-people">Leave out comments from these accounts</label>
                             <AuthorPicker Id="exclude-people" Selected="form.ExcludedPeople" Authors="authors"
-                                          Suggest="a => !a.IsBot" Placeholder="None — everyone else is kept" OnChanged="PickerChanged" />
+                                          Suggest="a => !a.IsBot" Placeholder="None — everyone else is kept" OnChanged="PickerChanged"
+                                          Label="Accounts whose comments are left out" DescribedBy="comment-authors-help" />
                         </div>
                     }
                 </div>
@@ -108,19 +110,33 @@
             <section class="card mb-3">
                 <div class="card-body">
                     <h2 class="h6 mb-3">Docs</h2>
-                    <label class="form-label small" for="doc-patterns">File patterns, one per line (blank for *.md and *.markdown)</label>
-                    <textarea id="doc-patterns" class="form-control form-control-sm font-monospace" rows="3" @bind="form.DocPatterns"></textarea>
+                    <label class="form-label small" for="doc-patterns">File patterns <span class="text-muted">(optional)</span></label>
+                    <textarea id="doc-patterns" class="form-control form-control-sm font-monospace" rows="3" placeholder="docs/**/*.md"
+                              aria-describedby="doc-patterns-help" @bind="form.DocPatterns"></textarea>
+                    <div id="doc-patterns-help" class="form-text">One per line. Leave blank to index every *.md and *.markdown file.</div>
                 </div>
             </section>
         }
 
         @if (message is not null)
         {
-            <div class="alert @(success ? "alert-success" : "alert-danger") small">@message</div>
+            <div class="alert @(success ? "alert-success" : "alert-danger") small" role="@(success ? "status" : "alert")">
+                <span class="@(success ? "bi-check-circle" : "bi-x-circle") me-1" aria-hidden="true"></span>@message
+            </div>
         }
 
         <div class="d-flex align-items-center gap-2">
-            <button class="btn btn-primary" @onclick="Save" disabled="@saving">Save</button>
+            <button class="btn btn-primary" @onclick="Save" disabled="@saving">
+                @if (saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                    <span>Saving…</span>
+                }
+                else
+                {
+                    <span>Save</span>
+                }
+            </button>
             <a class="btn btn-outline-secondary" href="/sources">Cancel</a>
             @if (form.ChangesScope(source))
             {

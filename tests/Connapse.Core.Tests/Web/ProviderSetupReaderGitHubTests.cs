@@ -18,15 +18,15 @@ namespace Connapse.Core.Tests.Web;
 public sealed class ProviderSetupReaderGitHubTests
 {
     private static readonly GitHubAppRegistration App =
-        new(42, "connapse-test", null, "octo-org", "https://github.com/apps/connapse-test");
+        new(42, "connapse-test", "Iv1.client", "octo-org", "https://github.com/apps/connapse-test");
 
     private readonly IProviderCredentialStore _credentials = Substitute.For<IProviderCredentialStore>();
 
-    private ProviderSetupReader Reader(HttpStatusCode installationsStatus, int installations)
+    private ProviderSetupReader Reader(HttpStatusCode installationsStatus, int installations, string? clientSecret = "secret")
     {
         using var rsa = System.Security.Cryptography.RSA.Create(2048);
         _credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
-            .Returns(new GitHubAppCredentialMaterial(App, rsa.ExportRSAPrivateKeyPem(), null));
+            .Returns(new GitHubAppCredentialMaterial(App, rsa.ExportRSAPrivateKeyPem(), clientSecret));
 
         var services = new ServiceCollection();
         services.AddSingleton(_credentials);
@@ -92,6 +92,18 @@ public sealed class ProviderSetupReaderGitHubTests
 
         requirement.Status.Should().Be(RequirementStatus.Satisfied, "installing is a connection's step, not the provider's");
         requirement.ActionHref.Should().Be("/connections?new=github");
+    }
+
+    [Fact]
+    public async Task ReadAsync_AppWithoutClientSecret_WarnsThatNobodyCanLinkAnAccount()
+    {
+        _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
+
+        var requirement = (await GitHubAsync(Reader(HttpStatusCode.OK, 1, clientSecret: null))).Requirements.Single();
+
+        requirement.Status.Should().Be(RequirementStatus.Warning,
+            "an App that cannot sign people in hides every private repository from everyone");
+        requirement.Detail.Should().Contain("cannot link their GitHub accounts");
     }
 
     [Fact]

@@ -32,8 +32,7 @@ public sealed record GitHubLease(long InstallationId, string Token);
 /// current; the installation with the most left is used, the source's own first when it has any.
 /// A spent installation sits out until its reset; a refused one (its token rejected, the App
 /// uninstalled) sits out for a few minutes and is tried again. When nothing is left the caller is
-/// told when the earliest budget resets, and stops there — the same outcome as the anonymous
-/// limit, only much later.
+/// told when the earliest budget resets, and stops there.
 /// </para>
 /// <para>
 /// Only installations an administrator has added as a connection are borrowed. A public App can be

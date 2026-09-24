@@ -25,6 +25,8 @@
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
 @inject IProviderSetupReader SetupReader
 @inject IProviderCredentialStore CredentialStore
+@inject IConnectionStore ConnectionStore
+@inject ISourceStore SourceStore
 @inject IRolesAnywhereSetupValidator RaValidator
 @inject Connapse.Storage.CloudScope.ConnapseAwsCredentials AwsCredentials
 @inject IJSRuntime JS
@@ -1650,17 +1652,23 @@
         else if (Key == "github")
         {
             <p class="text-muted">
-                One step: a GitHub App that Connapse reads repositories as. It works like AWS access —
-                one identity for the whole instance — and every place you install it becomes a
-                connection on the Connections page. The App asks only for read access to repository
-                contents, issues, and pull requests. It is also what lifts GitHub's rate limit from 60
-                requests an hour to 5,000 or more, so it is needed even for public repositories.
+                Connapse reads GitHub through one GitHub App that you create here. Each organisation
+                or account you install it on becomes a connection. Every field, where to find its
+                value, and what each error means are in the
+                <a href="@GitHubMessages.GuideUrl" target="_blank" rel="noopener">GitHub setup guide</a>.
+            </p>
+            <p class="text-muted small">
+                The App asks for read-only access: Contents to read markdown docs, Issues and Pull
+                requests to index discussions, and Metadata, which GitHub requires of every App.
+                Public repositories are searchable by everyone. A private repository's content appears
+                only for people who link their GitHub account under Profile → Integrations and can read
+                the repository on GitHub.
             </p>
 
             <ProviderStepCard Id="github-app" Title="GitHub App"
-                              Description="Created on GitHub in one step. Installing it on an organisation or account happens on the Connections page, where each installation becomes a connection."
+                              Description="Created on GitHub in one step, then installed on organisations or accounts from the Connections page."
                               Status="GitHubStatus" StatusLabel="@RequirementLabel(GitHubStatus)"
-                              @bind-Expanded="showGitHubSetup" EditLabel="Replace the App"
+                              @bind-Expanded="showGitHubSetup" EditLabel="Change the App"
                               EasyTitle="Easy setup: create the App on GitHub" EasyOpen="true">
                 <Summary>
                     @if (GitHubRequirement?.Detail is { Length: > 0 } detail)
@@ -1670,8 +1678,24 @@
                     @if (gitHubAppInfo is { } app)
                     {
                         <dl class="provider-step-values mt-2 mb-0">
-                            <dt>App</dt><dd><a href="@app.HtmlUrl" target="_blank" rel="noopener">@app.Slug</a> (id @app.AppId)</dd>
+                            <dt>App</dt><dd><a href="@app.HtmlUrl" target="_blank" rel="noopener">@app.Slug</a> (App ID @app.AppId)</dd>
                             <dt>Owner</dt><dd>@app.OwnerLogin</dd>
+                            <dt>Account linking</dt>
+                            <dd>
+                                @if (gitHubCanSignIn)
+                                {
+                                    <span class="bi-check-circle text-success me-1" aria-hidden="true"></span><text>Available under Profile → Integrations</text>
+                                }
+                                else
+                                {
+                                    <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span><text>Not available: add the App's client secret under Change the App</text>
+                                }
+                            </dd>
+                            @if (gitHubCredentialStatus is { } stored)
+                            {
+                                <dt>Stored</dt><dd>@stored.CreatedAt.ToString("u")</dd>
+                                <dt>Last confirmed</dt><dd>@(stored.VerifiedAt is { } confirmed ? confirmed.ToString("u") : "Not yet")</dd>
+                            }
                         </dl>
                         <div class="mt-2 d-flex gap-2 flex-wrap">
                             <a class="btn btn-sm btn-outline-primary" href="/connections?new=github">
@@ -1681,25 +1705,90 @@
                     }
                 </Summary>
                 <ManualContent>
+                    @if (gitHubAppInfo is { } current)
+                    {
+                        <div class="alert alert-warning py-2 small" role="note">
+                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                            To rotate <strong>@current.Slug</strong>'s private key or add its client secret, use
+                            Manual values below with its App ID. Creating or entering a <em>different</em> App
+                            disconnects all @gitHubConnectionCount GitHub @(gitHubConnectionCount == 1 ? "connection" : "connections"),
+                            because each is an installation of @current.Slug, and their sources stop syncing until
+                            you install the new App and add them again.
+                            <div class="form-check mt-2 mb-0">
+                                <input id="github-replace-confirm" type="checkbox" class="form-check-input" @bind="gitHubReplaceConfirmed" />
+                                <label for="github-replace-confirm" class="form-check-label">Replace @current.Slug with a different App</label>
+                            </div>
+                        </div>
+                    }
                     <details class="border rounded p-3 mb-3" open="@(gitHubAppInfo is not null && showGitHubSetup)">
-                        <summary class="fw-semibold small">Manual values — an App you registered yourself</summary>
-                        <p class="small text-muted mt-3 mb-3">
-                            Give the App read-only access to Metadata, Contents, Issues, and Pull requests.
-                            Enter its App ID and a private key generated on its settings page. Connapse
-                            checks them with GitHub before saving.
+                        <summary class="fw-semibold small">Manual values: an App you registered yourself, or a new key for this one</summary>
+                        <p id="github-app-manual-help" class="small text-muted mt-3 mb-2">
+                            Register the App on GitHub under
+                            <a href="https://github.com/settings/apps/new" target="_blank" rel="noopener">New GitHub App</a>
+                            with read-only access to Metadata, Contents, Issues, and Pull requests, and these two addresses:
                         </p>
-                        <div class="mb-2" style="max-width:16rem">
+                        <dl class="provider-step-values small mb-3">
+                            <dt>Callback URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.UserCallbackPath)</code></dd>
+                            <dt>Setup URL</dt><dd><code>@(GitHubBaseUrl + GitHubAppManifest.InstalledPath)</code></dd>
+                        </dl>
+                        <div class="mb-3" style="max-width:16rem">
                             <label class="form-label small" for="github-app-id">App ID</label>
-                            <input id="github-app-id" class="form-control form-control-sm" inputmode="numeric" @bind="manualGitHubAppId" />
+                            <input id="github-app-id" class="form-control form-control-sm" inputmode="numeric" placeholder="123456"
+                                   aria-describedby="github-app-id-help" @bind="manualGitHubAppId" />
+                            <div id="github-app-id-help" class="form-text">The number shown at the top of the App's page on GitHub.</div>
                         </div>
-                        <div class="mb-2">
-                            <label class="form-label small" for="github-app-key">Private key (PEM)</label>
-                            <textarea id="github-app-key" class="form-control form-control-sm font-monospace" rows="5"
-                                      placeholder="-----BEGIN RSA PRIVATE KEY-----" @bind="manualGitHubAppKey"></textarea>
+                        <div class="mb-3">
+                            <label class="form-label small" for="github-app-key">
+                                Private key (.pem file)
+                                @if (gitHubAppInfo is not null)
+                                {
+                                    <span class="text-muted">(optional — leave blank to keep the current key)</span>
+                                }
+                            </label>
+                            <SecretTextArea Id="github-app-key" Rows="5" CssClass="form-control-sm"
+                                            Placeholder="@(gitHubAppInfo is not null ? "Kept unless you paste a new key" : "-----BEGIN RSA PRIVATE KEY-----")"
+                                            DescribedBy="github-app-key-help" @bind-Value="manualGitHubAppKey" />
+                            <div id="github-app-key-help" class="form-text">
+                                On the App's page, under Private keys, choose Generate a private key and paste the whole
+                                file. Stored encrypted and never shown again.
+                            </div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-primary" disabled="@gitHubBusy" @onclick="SaveManualGitHubApp">
-                            Check and save
+                        <div class="mb-3" style="max-width:28rem">
+                            <label class="form-label small" for="github-app-secret">
+                                Client secret <span class="text-muted">(optional@(gitHubAppInfo is not null ? " — leave blank to keep the current one" : ""))</span>
+                            </label>
+                            <SecretTextArea Id="github-app-secret" Multiline="false" CssClass="form-control-sm"
+                                            Placeholder="@(gitHubCanSignIn ? "Kept unless you paste a new one" : null)"
+                                            DescribedBy="github-app-secret-help" @bind-Value="manualGitHubClientSecret" />
+                            <div id="github-app-secret-help" class="form-text">
+                                Lets people link their GitHub accounts, which private repositories need. On the App's page,
+                                under Client secrets, choose Generate a new client secret.
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@gitHubBusy" @onclick="SaveManualGitHubApp">
+                            @if (gitHubBusy)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with GitHub…</span>
+                            }
+                            else
+                            {
+                                <span>Check and save</span>
+                            }
                         </button>
+                        @if (gitHubManualError is not null)
+                        {
+                            <div class="text-danger small mt-2" role="alert">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>@gitHubManualError
+                                <a class="ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                                @if (gitHubManualDetail is { Length: > 0 })
+                                {
+                                    <details class="mt-1">
+                                        <summary>Raw error</summary>
+                                        <pre class="small mb-0 mt-1" style="white-space:pre-wrap">@gitHubManualDetail</pre>
+                                    </details>
+                                }
+                            </div>
+                        }
                     </details>
                 </ManualContent>
                 <EasyContent>
@@ -1707,6 +1796,18 @@
                         GitHub shows you what the App will be allowed to do, then sends you back here and
                         Connapse stores it. Nothing to copy or paste.
                     </p>
+                    <p class="small mb-2">
+                        GitHub will send people back to <code>@GitHubBaseUrl</code>. Open Connapse at the address
+                        your users use before creating the App.
+                    </p>
+                    @if (GitHubBaseIsInsecure)
+                    {
+                        <div class="alert alert-warning py-2 small" role="note">
+                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                            This address is not HTTPS, so people linking their GitHub accounts would be sent back
+                            over an unencrypted connection. Open Connapse over HTTPS before creating the App.
+                        </div>
+                    }
                     @if (gitHubConfirmedOwner is { } owner && gitHubManifestState is not null
                          && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
                     {
@@ -1716,11 +1817,15 @@
                            installed on every organisation is how Connapse covers several. *@
                         <form method="post" action="@action">
                             <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: true)" />
-                            <button type="submit" class="btn btn-primary">
-                                <span class="bi-github me-1" aria-hidden="true"></span> Create the App on GitHub
+                            <button type="submit" class="btn btn-primary" disabled="@(gitHubAppInfo is not null && !gitHubReplaceConfirmed)">
+                                <span class="bi-github me-1" aria-hidden="true"></span> @(gitHubAppInfo is null ? "Create the App on GitHub" : "Create a new App on GitHub")
                             </button>
                         </form>
                         <div class="form-text">
+                            @if (gitHubAppInfo is not null && !gitHubReplaceConfirmed)
+                            {
+                                <text>Tick "Replace @gitHubAppInfo.Slug with a different App" above first. </text>
+                            }
                             @if (owner.Length == 0)
                             {
                                 <text>Created on your own GitHub account. You choose which organisations to install it on next, on GitHub.</text>
@@ -1732,37 +1837,53 @@
                         </div>
                     }
 
-                    <button type="button" class="btn btn-link btn-sm px-0 mt-2" @onclick="ToggleGitHubOrgOwner">
+                    <button type="button" class="btn btn-link btn-sm px-0 mt-2" @onclick="ToggleGitHubOrgOwner"
+                            aria-expanded="@(showGitHubOrgOwner ? "true" : "false")" aria-controls="github-app-org-group">
                         @(showGitHubOrgOwner ? "Use my own account instead" : "Have an organisation own the App instead")
                     </button>
                     @if (showGitHubOrgOwner)
                     {
-                        <div class="mt-1" style="max-width:24rem">
+                        <div id="github-app-org-group" class="mt-1" style="max-width:24rem">
                             <label class="form-label small" for="github-app-org">Organisation</label>
                             <div class="input-group input-group-sm">
-                                <input id="github-app-org" class="form-control" placeholder="my-org"
+                                <input id="github-app-org" class="form-control @(gitHubOwnerError is not null ? "is-invalid" : "")" placeholder="my-org"
+                                       aria-invalid="@(gitHubOwnerError is not null ? "true" : "false")"
+                                       aria-describedby="@(gitHubOwnerError is not null ? "github-app-org-error github-app-org-help" : "github-app-org-help")"
                                        @bind="gitHubAppOrganisation" @bind:event="oninput" @bind:after="ResetGitHubOwner" />
                                 <button type="button" class="btn btn-outline-secondary" disabled="@gitHubBusy" @onclick="CheckGitHubOwner">
-                                    Use this organisation
+                                    @if (gitHubBusy)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Use this organisation</span>
+                                    }
                                 </button>
-                            </div>
-                            <div class="form-text">
-                                So the App outlives any one person's account. Other organisations can still install it.
                             </div>
                             @if (gitHubOwnerError is not null)
                             {
-                                <div class="text-danger small mt-1">@gitHubOwnerError</div>
+                                <div id="github-app-org-error" class="invalid-feedback d-block" role="alert">
+                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@gitHubOwnerError
+                                </div>
                             }
+                            <div id="github-app-org-help" class="form-text">
+                                The organisation's login on GitHub, as in github.com/my-org. An organisation-owned App
+                                outlives any one person's account, and other organisations can still install it.
+                            </div>
                         </div>
                     }
                 </EasyContent>
                 <Actions>
-                    @if (gitHubAppInfo is not null)
+                    @if (gitHubAppInfo is { } installed)
                     {
-                        <ProviderResetAction OnReset="RemoveGitHubApp"
-                                             Label="Remove the App from Connapse"
-                                             ConfirmLabel="Remove — GitHub sources stop syncing"
-                                             HelpText="Deletes the App's key from Connapse. The App itself stays on GitHub; delete it there too if you no longer need it." />
+                        <div class="ms-auto">
+                            <ProviderResetAction OnReset="RemoveGitHubApp"
+                                                 Label="Remove the App from Connapse"
+                                                 ConfirmLabel="Remove the App"
+                                                 ConfirmText="@installed.Slug"
+                                                 HelpText="@RemoveGitHubHelp" />
+                        </div>
                     }
                 </Actions>
             </ProviderStepCard>
@@ -1965,8 +2086,30 @@
     private string? gitHubAppOrganisation;
     private string? manualGitHubAppId;
     private string? manualGitHubAppKey;
+    private string? manualGitHubClientSecret;
     private bool showGitHubSetup;
     private bool gitHubBusy;
+    private bool gitHubCanSignIn;
+    private bool gitHubReplaceConfirmed;
+    private ProviderCredentialStatus? gitHubCredentialStatus;
+    private int gitHubConnectionCount;
+    private int gitHubSourceCount;
+
+    /// <summary>A problem with the manual values, shown under them rather than at the top of the page.</summary>
+    private string? gitHubManualError;
+    private string? gitHubManualDetail;
+
+    /// <summary>The address GitHub will send people back to: the one this administrator is using.</summary>
+    private string GitHubBaseUrl => Navigation.BaseUri.TrimEnd('/') + "/";
+
+    private bool GitHubBaseIsInsecure =>
+        new Uri(GitHubBaseUrl) is { Scheme: "http" } uri && !uri.IsLoopback;
+
+    private string RemoveGitHubHelp =>
+        $"Deletes the App's key from Connapse. All {gitHubConnectionCount} GitHub "
+        + (gitHubConnectionCount == 1 ? "connection" : "connections")
+        + $" and {gitHubSourceCount} GitHub " + (gitHubSourceCount == 1 ? "source" : "sources")
+        + " stop syncing, and linked GitHub accounts no longer unlock private repositories. The App itself stays on GitHub.";
 
     private ProviderRequirement? GitHubRequirement =>
         setups?.FirstOrDefault(p => p.Key == "github")?.Requirements.FirstOrDefault();
@@ -2030,7 +2173,7 @@
         }
         catch (Exception ex)
         {
-            gitHubOwnerError = $"Could not check the organisation with GitHub: {ex.Message}";
+            gitHubOwnerError = $"Could not check the organisation. {GitHubMessages.Describe(ex)}";
         }
         finally
         {
@@ -2042,6 +2185,16 @@
     private async Task LoadGitHubAsync()
     {
         gitHubAppInfo = await CredentialStore.GetGitHubAppAsync();
+        gitHubCanSignIn = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
+        gitHubCredentialStatus = gitHubAppInfo is null ? null : await CredentialStore.GetStatusAsync("github");
+        manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        gitHubReplaceConfirmed = false;
+
+        var gitHubConnections = (await ConnectionStore.ListAsync(take: int.MaxValue))
+            .Where(c => c.Provider == ConnectionProvider.GitHub).Select(c => c.Id).ToHashSet();
+        gitHubConnectionCount = gitHubConnections.Count;
+        gitHubSourceCount = (await SourceStore.ListAsync(take: int.MaxValue))
+            .Count(s => s.ConnectionId is Guid id && gitHubConnections.Contains(id));
 
         var user = (await AuthState.GetAuthenticationStateAsync()).User;
         if (Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
@@ -2051,35 +2204,74 @@
     private async Task SaveManualGitHubApp()
     {
         saveMessage = null;
-        if (!long.TryParse(manualGitHubAppId?.Trim(), out long appId) || appId <= 0 || string.IsNullOrWhiteSpace(manualGitHubAppKey))
+        gitHubManualError = gitHubManualDetail = null;
+        if (!long.TryParse(manualGitHubAppId?.Trim(), out long appId) || appId <= 0)
         {
-            saveSuccess = false;
-            saveMessage = "Enter the App ID and its private key.";
+            gitHubManualError = "Enter the App ID: the number at the top of the App's page on GitHub.";
             return;
         }
 
         gitHubBusy = true;
         try
         {
-            // GitHub answers "who is this App" only for a matching id and key, so this is the check.
-            var app = await GitHubApp.VerifyAsync(appId, manualGitHubAppKey);
-            await CredentialStore.SaveGitHubAppAsync(app, manualGitHubAppKey.Trim(), clientSecret: null, createdByUserId: null);
+            // Blank key or secret on the stored App keeps what is stored: rotating one value never
+            // asks for the other again.
+            var stored = await CredentialStore.GetGitHubAppMaterialAsync();
+            bool sameApp = stored?.App.AppId == appId;
+            string? key = string.IsNullOrWhiteSpace(manualGitHubAppKey) ? (sameApp ? stored!.PrivateKeyPem : null) : manualGitHubAppKey.Trim();
+            string? secret = string.IsNullOrWhiteSpace(manualGitHubClientSecret) ? (sameApp ? stored!.ClientSecret : null) : manualGitHubClientSecret.Trim();
+
+            if (key is null)
+            {
+                gitHubManualError = "Paste the App's private key.";
+                return;
+            }
+
+            if (gitHubAppInfo is not null && !sameApp && !gitHubReplaceConfirmed)
+            {
+                gitHubManualError = $"App ID {appId} is a different App from {gitHubAppInfo.Slug}. Tick \"Replace {gitHubAppInfo.Slug} with a different App\" above to confirm, or enter App ID {gitHubAppInfo.AppId}.";
+                return;
+            }
+
+            GitHubAppRegistration app;
+            try
+            {
+                // GitHub answers "who is this App" only for a matching id and key, so this is the check.
+                app = await GitHubApp.VerifyAsync(appId, key);
+            }
+            catch (GitHubAppException ex) when (ex.StatusCode is 401 or 404)
+            {
+                gitHubManualError = "GitHub did not accept that App ID and private key together. Check the App ID, and that the key was generated for that App.";
+                gitHubManualDetail = ex.Message;
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(manualGitHubClientSecret)
+                && (app.ClientId is not { Length: > 0 } clientId || !await GitHubApp.ClientSecretMatchesAsync(clientId, secret!)))
+            {
+                gitHubManualError = $"GitHub did not accept that client secret for {app.Slug}. Generate a new one on the App's page and paste it.";
+                return;
+            }
+
+            await CredentialStore.SaveGitHubAppAsync(app, key, secret, createdByUserId: null);
             GitHubApp.ClearCache();
             await AuditLogger.LogAsync("provider.credential.saved", "provider", "github",
-                new { app.AppId, app.Slug, app.OwnerLogin, Via = "manual" });
+                new { app.AppId, app.Slug, app.OwnerLogin, Via = "manual", Replaced = gitHubAppInfo is not null && !sameApp });
 
-            manualGitHubAppId = manualGitHubAppKey = null;
+            manualGitHubAppId = manualGitHubAppKey = manualGitHubClientSecret = null;
             showGitHubSetup = false;
             saveSuccess = true;
-            saveMessage = $"GitHub App {app.Slug} saved. Next, add a GitHub connection — that is where it gets installed.";
+            saveMessage = $"GitHub App {app.Slug} saved."
+                + (secret is null ? " People can't link their GitHub accounts until you add its client secret." : "")
+                + (sameApp ? "" : " Next, add a GitHub connection: that is where it gets installed.");
             await LoadGitHubAsync();
             await RefreshSetups();
         }
         catch (Exception ex)
         {
             // An exception escaping a Blazor handler tears down the circuit and loses the entries.
-            saveSuccess = false;
-            saveMessage = $"GitHub did not accept that App ID and key, so nothing was saved: {ex.Message}";
+            gitHubManualError = $"Nothing was saved. {GitHubMessages.Describe(ex)}";
+            gitHubManualDetail = ex.Message;
         }
         finally
         {
@@ -2097,6 +2289,7 @@
             gitHubAppInfo = null;
             saveSuccess = true;
             saveMessage = "The GitHub App was removed from Connapse. GitHub sources stop syncing until an App is set up again.";
+            await LoadGitHubAsync();
             await RefreshSetups();
         }
         catch (Exception ex)

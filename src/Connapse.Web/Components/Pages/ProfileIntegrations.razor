@@ -18,6 +18,7 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<ProfileIntegrations> Logger
+@inject Connapse.Core.Interfaces.IAuditLogger AuditLogger
 @rendermode InteractiveServer
 
 <PageTitle>Integrations - Connapse</PageTitle>
@@ -31,9 +32,9 @@
 
     @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
-            @statusMessage
-            <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+        <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="@(statusSuccess ? "status" : "alert")">
+            <span class="@(statusSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>@statusMessage
+            <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => statusMessage = null"></button>
         </div>
     }
 
@@ -72,7 +73,7 @@
                 break;
 
             default:
-                <strong>Linking does not filter your search results on this deployment.</strong>
+                <strong>Linking AWS does not filter your search results on this deployment.</strong>
                 <text>
                     Per-user search permissions have not been set up, so every Connapse user can
                     search everything indexed, whether or not an account is linked. An
@@ -80,6 +81,9 @@
                 </text>
                 break;
         }
+        <br />
+        <strong>GitHub:</strong> public repositories are searchable by everyone. Linking GitHub lets
+        you find content from private repositories you can read on GitHub.
     </p>
 
     <div class="row g-3">
@@ -318,8 +322,8 @@
                         </div>
                         @if (gitHubIdentity is not null)
                         {
-                            <span class="badge rounded-pill" style="background: color-mix(in srgb, var(--color-success) 15%, transparent); color: color-mix(in srgb, var(--color-success) 70%, white); border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);">
-                                <span class="bi-check-circle-fill me-1"></span>Connected
+                            <span class="badge rounded-pill text-bg-success">
+                                <span class="bi-check-circle-fill me-1" aria-hidden="true"></span>Connected
                             </span>
                         }
                     </div>
@@ -342,16 +346,21 @@
                         <div class="rounded-3 p-3" style="background: rgba(110, 118, 129, 0.08); border: 1px solid rgba(110, 118, 129, 0.2);">
                             <small class="d-flex align-items-start text-muted">
                                 <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
-                                <span>GitHub sign-in is not available yet. An administrator sets up the GitHub App under Providers &rarr; GitHub first.</span>
+                                <span>
+                                    @(gitHubAppExists
+                                        ? "GitHub sign-in is not available: this deployment's GitHub App can't sign people in yet. Ask an administrator to add its client secret under Providers → GitHub."
+                                        : "GitHub sign-in is not available yet. An administrator sets up the GitHub App under Providers → GitHub first.")
+                                </span>
                             </small>
                         </div>
                     }
                     else
                     {
                         <p class="text-muted small mb-0">
-                            <span class="bi-box-arrow-up-right me-1"></span>
-                            You sign in at <strong>GitHub</strong>. Connapse keeps only which account you are,
-                            and uses it to show you private repository content GitHub says you can read.
+                            <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
+                            You sign in at <strong>GitHub</strong>. GitHub's page says the App can "act on your behalf";
+                            Connapse only reads which account you are, then gives up that access straight away.
+                            It uses your account to show you private repository content GitHub says you can read.
                         </p>
                     }
                 </div>
@@ -360,19 +369,23 @@
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
                         @if (confirmDisconnectGitHub)
                         {
+                            <p id="github-disconnect-help" class="small text-muted mb-2">
+                                You will stop seeing private repository content in search. Your GitHub account is not changed.
+                            </p>
                             <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-danger" @onclick="DisconnectGitHubAsync" disabled="@isProcessing">
-                                    Confirm Disconnect
+                                <button @ref="gitHubConfirmButton" class="btn btn-sm btn-danger" @onclick="DisconnectGitHubAsync"
+                                        disabled="@isProcessing" aria-describedby="github-disconnect-help">
+                                    Disconnect GitHub
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnectGitHub = false">
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="CancelGitHubDisconnect">
                                     Cancel
                                 </button>
                             </div>
                         }
                         else
                         {
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnectGitHub = true" disabled="@isProcessing">
-                                <span class="bi-x-circle me-1"></span>Disconnect
+                            <button @ref="gitHubDisconnectButton" class="btn btn-sm btn-outline-danger" @onclick="AskGitHubDisconnect" disabled="@isProcessing">
+                                <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
                             </button>
                         }
                     </div>
@@ -381,7 +394,7 @@
                 {
                     <div class="card-footer border-top-0 px-4 pb-4 pt-0">
                         <button class="btn btn-sm btn-primary" @onclick="ConnectGitHub" disabled="@isProcessing">
-                            <span class="bi-box-arrow-up-right me-1"></span>Continue to GitHub sign-in
+                            <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to GitHub sign-in
                         </button>
                     </div>
                 }
@@ -437,21 +450,49 @@
         // Available once the provider App exists and can sign users in (an App registered by hand
         // has no client secret, so it cannot).
         gitHubSignInAvailable = await GitHubApp.CanSignInUsersAsync();
+        gitHubAppExists = gitHubSignInAvailable || await GitHubApp.IsConfiguredAsync();
     }
 
     private Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity? gitHubIdentity;
     private bool gitHubSignInAvailable;
+    private bool gitHubAppExists;
     private bool confirmDisconnectGitHub;
+    private ElementReference gitHubConfirmButton;
+    private ElementReference gitHubDisconnectButton;
+
+    /// <summary>Where focus goes after the next render, as the disconnect buttons swap.</summary>
+    private bool? focusGitHubConfirm;
+
+    private void AskGitHubDisconnect() => (confirmDisconnectGitHub, focusGitHubConfirm) = (true, true);
+
+    private void CancelGitHubDisconnect() => (confirmDisconnectGitHub, focusGitHubConfirm) = (false, false);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusGitHubConfirm is not { } confirm) return;
+        focusGitHubConfirm = null;
+        await (confirm ? gitHubConfirmButton : gitHubDisconnectButton).FocusAsync();
+    }
 
     private void ApplyGitHubErrorFromQuery()
     {
         var query = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue("linked", out var linked) && linked.ToString() == "github")
+        {
+            (statusMessage, statusSuccess) = ("GitHub account linked. Private repositories you can read on GitHub now appear in your search results.", true);
+            return;
+        }
+
         if (!query.TryGetValue("error", out var errorValues)) return;
 
         statusMessage = errorValues.ToString() switch
         {
             "github_not_configured" => "Could not connect your GitHub account: GitHub sign-in is not set up yet. An administrator sets up the GitHub App under Providers.",
-            "github_link_failed" => "Could not connect your GitHub account. Please try again.",
+            "github_link_declined" => "You cancelled on GitHub, so no account was linked.",
+            "github_link_expired" => "That GitHub sign-in took too long or was started in another tab. Start it again.",
+            "github_link_wrong_user" => "That GitHub sign-in was started by a different Connapse user, so nothing was linked. Sign in to Connapse as yourself and start again.",
+            "github_link_unlinked" => "You disconnected GitHub while the sign-in was finishing, so nothing was linked. Start it again to link.",
+            "github_link_failed" => "GitHub did not complete the sign-in, so no account was linked. Try again; if it keeps failing, tell an administrator.",
             _ => statusMessage,
         };
         if (errorValues.ToString().StartsWith("github_", StringComparison.Ordinal))
@@ -471,8 +512,10 @@
             // Refused first, so a sign-in racing the delete cannot put the link back.
             GitHubLinkFlow.RevokeFor(currentUserId);
             bool deleted = await GitHubIdentityLinks.DeleteAsync(currentUserId);
+            if (deleted)
+                await AuditLogger.LogAsync("identity.github.unlinked", "user", currentUserId.ToString());
             (statusMessage, statusSuccess) = deleted
-                ? ("GitHub account disconnected.", true)
+                ? ("GitHub account disconnected. Private repository content no longer appears in your search results.", true)
                 : ("No GitHub account link found.", false);
             await LoadIdentitiesAsync();
         }

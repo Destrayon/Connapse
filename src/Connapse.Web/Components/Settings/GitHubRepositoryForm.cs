@@ -5,7 +5,7 @@ using Connapse.Storage.Connectors;
 namespace Connapse.Web.Components.Settings;
 
 /// <summary>
-/// Adding a public GitHub repository on a GitHub App connection: one address in, up to two sources
+/// Adding a GitHub repository on a GitHub App connection: one address in, up to two sources
 /// out — the repository's markdown docs and its issues and pull requests.
 /// <para>
 /// A record rather than logic in the New source dialog for the same reason as
@@ -32,7 +32,7 @@ public sealed record GitHubRepositoryForm
     /// <summary>
     /// Reads <c>owner/repo</c>, or any github.com URL that starts with them — a browser address
     /// such as <c>https://github.com/o/r/tree/main/docs</c> is what people paste. Anything on
-    /// another host is refused: a source without a connection may only read github.com.
+    /// another host is refused: the connector reads github.com only.
     /// </summary>
     public static bool TryParse(string? input, out string owner, out string repo)
     {
@@ -76,10 +76,10 @@ public sealed record GitHubRepositoryForm
     public string? Validate()
     {
         if (!TryParse(Repository, out _, out _))
-            return "Enter a public GitHub repository as owner/repo or its github.com address.";
+            return "Enter a GitHub repository as owner/repo or its github.com address.";
 
         if (!IncludeDocs && !IncludeIssues)
-            return "Choose docs, issues and pull requests, or both.";
+            return "Choose what to index: docs, issues and pull requests, or both.";
 
         return null;
     }

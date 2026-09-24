@@ -93,12 +93,12 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
             var refused = await victim.SendAsync(Confirm(code));
 
             refused.StatusCode.Should().Be(HttpStatusCode.Redirect);
-            refused.Headers.Location!.OriginalString.Should().Contain("error=github_link_failed");
+            refused.Headers.Location!.OriginalString.Should().Contain("error=github_link_wrong_user");
             (await LinkOf(admin)).Should().BeNull("the starter's account must not be linked to the colleague's GitHub");
 
             using var adminClient = Client(fixture.AdminToken);
             (await adminClient.SendAsync(Confirm(code))).Headers.Location!.OriginalString
-                .Should().Contain("error=github_link_failed", "a claim is spent even when refused");
+                .Should().Contain("error=github_link_expired", "a claim is spent even when refused");
         }
         finally
         {
@@ -118,7 +118,7 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
         try
         {
             var saved = await adminClient.SendAsync(Confirm(code));
-            saved.Headers.Location!.OriginalString.Should().Be("/profile/integrations");
+            saved.Headers.Location!.OriginalString.Should().Be("/profile/integrations?linked=github");
             (await LinkOf(admin)).Should().Be(new Core.Interfaces.GitHubIdentityRef(583231, "octocat"));
 
             (await adminClient.DeleteAsync("/api/v1/auth/cloud/github")).StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -139,7 +139,7 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
 
         var response = await anon.GetAsync("/api/v1/auth/cloud/github/callback?code=x&state=never-issued");
 
-        response.Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=github_link_failed");
+        response.Headers.Location!.OriginalString.Should().Be("/profile/integrations?error=github_link_expired");
         response.Headers.TryGetValues("Set-Cookie", out var cookies).Should().BeFalse("nothing is parked for an unknown state");
     }
 

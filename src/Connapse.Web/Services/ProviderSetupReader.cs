@@ -127,6 +127,15 @@ public class ProviderSetupReader(
             var installations = await gitHubApp.ListInstallationsAsync(ct);
             await credentials.MarkVerifiedAsync(PostgresGitHubProvider, clock.GetUtcNow().UtcDateTime, ct);
 
+            // An App without its client secret reads repositories but cannot sign people in, so
+            // nobody can link an account and every private repository stays hidden from everyone.
+            if (!await gitHubApp.CanSignInUsersAsync(ct))
+            {
+                return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                    $"{app.Slug} can read repositories, but people cannot link their GitHub accounts, so private repositories are hidden from everyone. Add the App's client secret under Manual values.",
+                    "Add the client secret", "#github-app");
+            }
+
             // Installing is a connection's business, not the provider's: an App installed nowhere
             // is still fully set up, with its next step on the Connections page.
             return installations.Count == 0
@@ -141,7 +150,7 @@ public class ProviderSetupReader(
             // Accepted before and refused now means the key was revoked or the App deleted —
             // waiting will not help, which is what Failed says.
             return new ProviderRequirement(name, description, RequirementStatus.Failed,
-                $"GitHub no longer accepts {app.Slug}'s key. Set the App up again or upload a new key.");
+                $"GitHub no longer accepts {app.Slug}'s private key. Generate a new key on the App's page on GitHub and paste it under Manual values, or create the App again.");
         }
         catch (Exception ex)
         {

@@ -16,6 +16,9 @@
 @inject SourceScopePreflight Preflight
 @inject Connapse.Storage.Documents.DocumentCoordinateReport CoordinateReport
 @inject Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup GitHubRepositories
+@inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 @*
     Sources — external scopes Connapse mirrors but does not own.
@@ -81,7 +84,16 @@
         <div class="alert @(messageSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
             <span class="@(messageSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
             @message
-            <button type="button" class="btn-close" @onclick="() => message = null"></button>
+            <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => message = null"></button>
+        </div>
+    }
+
+    @if (privateNote is not null)
+    {
+        <div class="alert alert-info alert-dismissible fade show" role="status">
+            <span class="bi-lock me-2" aria-hidden="true"></span>
+            @privateNote
+            <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => privateNote = null"></button>
         </div>
     }
 
@@ -185,8 +197,12 @@
                                    API withholds from non-admin readers. *@
                                 <td colspan="7" class="pt-0 border-top-0">
                                     <div class="alert alert-danger py-2 mb-0 small">
-                                        <span class="bi-exclamation-triangle me-1"></span>
+                                        <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
                                         @source.LastSyncError
+                                        @if (IsGitHub(source))
+                                        {
+                                            <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -240,13 +256,13 @@
 
 @if (form is not null)
 {
-    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+    <div id="new-source-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="new-source-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="new-source-title">New source</h5>
-                    <button type="button" class="btn-close" aria-label="Close" @onclick="CancelCreate"></button>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="CancelCreate"></button>
                 </div>
                 <div class="modal-body">
                     @if (createError is not null)
@@ -271,7 +287,7 @@
                                 aria-describedby="source-connection-help" @onchange="OnConnectionChanged">
                             @foreach (var connection in connections)
                             {
-                                <option value="@connection.Id">@connection.Name (@connection.Provider)</option>
+                                <option value="@connection.Id">@connection.Name (@ProviderName(connection.Provider))</option>
                             }
                         </select>
                         <div id="source-connection-help" class="form-text">
@@ -286,12 +302,36 @@
                            after it, so there is no name field here. *@
                         <div class="mb-3">
                             <label class="form-label" for="github-repo">Repository</label>
-                            <input id="github-repo" class="form-control" placeholder="https://github.com/owner/repo"
-                                   @bind="githubForm.Repository" @bind:event="oninput" aria-describedby="github-repo-help" />
+                            <input id="github-repo" class="form-control @(repoError is not null ? "is-invalid" : "")" placeholder="owner/repo"
+                                   list="@(gitHubRepoSuggestions.Count > 0 ? "github-repo-options" : null)" autocomplete="off"
+                                   @bind="githubForm.Repository" @bind:event="oninput" @bind:after="ClearRepoError"
+                                   aria-invalid="@(repoError is not null ? "true" : "false")"
+                                   aria-describedby="@(repoError is not null ? "github-repo-error github-repo-help" : "github-repo-help")" />
+                            @if (gitHubRepoSuggestions.Count > 0)
+                            {
+                                <datalist id="github-repo-options">
+                                    @foreach (var name in gitHubRepoSuggestions)
+                                    {
+                                        <option value="@name"></option>
+                                    }
+                                </datalist>
+                            }
+                            @if (repoError is not null)
+                            {
+                                <div id="github-repo-error" class="invalid-feedback d-block" role="alert">
+                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@repoError
+                                    @if (repoErrorLink is { } link)
+                                    {
+                                        <a class="ms-1" href="@link" target="_blank" rel="noopener">Configure on GitHub</a>
+                                    }
+                                </div>
+                            }
                             <div id="github-repo-help" class="form-text">
-                                A repository's address, or <code>owner/repo</code>, that this connection's
-                                installation covers. A private repository's content is searchable only by
-                                people who link their GitHub account and can read it on GitHub.
+                                <code>owner/repo</code> or its github.com address.
+                                @if (gitHubRepoTotal > 0)
+                                {
+                                    <text>This installation covers @gitHubRepoTotal @(gitHubRepoTotal == 1 ? "repository" : "repositories"); pick one or type it.</text>
+                                }
                                 @if (GitHubRepositoryForm.TryParse(githubForm.Repository, out _, out _) && form.ConnectionId != Guid.Empty)
                                 {
                                     <text>
@@ -302,24 +342,29 @@
                             </div>
                         </div>
 
-                        <div class="form-check">
-                            <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
-                            <label for="github-docs" class="form-check-label">Docs — markdown files on the default branch</label>
-                        </div>
-                        <div class="ms-4 mb-2">
-                            <label class="form-label small text-muted mb-1" for="github-patterns">File patterns, one per line (blank for *.md and *.markdown)</label>
-                            <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2"
-                                      disabled="@(!githubForm.IncludeDocs)" @bind="githubForm.DocPatterns"></textarea>
-                        </div>
-                        <div class="form-check">
-                            <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
-                            <label for="github-issues" class="form-check-label">Issues and pull requests</label>
-                        </div>
-                        <div class="form-check ms-4 mb-0">
-                            <input id="github-comments" type="checkbox" class="form-check-input"
-                                   disabled="@(!githubForm.IncludeIssues)" @bind="githubForm.IncludeComments" />
-                            <label for="github-comments" class="form-check-label">Include their comments</label>
-                        </div>
+                        <fieldset>
+                            <legend class="form-label fs-6">What to index</legend>
+                            <div class="form-check">
+                                <input id="github-docs" type="checkbox" class="form-check-input" @bind="githubForm.IncludeDocs" />
+                                <label for="github-docs" class="form-check-label">Docs: markdown files on the default branch</label>
+                            </div>
+                            <div class="ms-4 mb-2">
+                                <label class="form-label small mb-1" for="github-patterns">File patterns <span class="text-muted">(optional)</span></label>
+                                <textarea id="github-patterns" class="form-control form-control-sm font-monospace" rows="2" placeholder="docs/**/*.md"
+                                          disabled="@(!githubForm.IncludeDocs)" aria-describedby="github-patterns-help" @bind="githubForm.DocPatterns"></textarea>
+                                <div id="github-patterns-help" class="form-text">One per line. Leave blank to index every *.md and *.markdown file.</div>
+                            </div>
+                            <div class="form-check">
+                                <input id="github-issues" type="checkbox" class="form-check-input" @bind="githubForm.IncludeIssues" />
+                                <label for="github-issues" class="form-check-label">Issues and pull requests</label>
+                            </div>
+                            <div class="form-check ms-4 mb-0">
+                                <input id="github-comments" type="checkbox" class="form-check-input"
+                                       disabled="@(!githubForm.IncludeIssues)" @bind="githubForm.IncludeComments" />
+                                <label for="github-comments" class="form-check-label">Include comments</label>
+                            </div>
+                            <div class="form-text ms-4">Comments from bots are left out. After adding, choose exceptions on the source's edit page.</div>
+                        </fieldset>
                     }
                     else
                     {
@@ -472,7 +517,7 @@
                     }
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="CancelCreate" disabled="@creating">Cancel</button>
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="CancelCreate" disabled="@creating">Cancel</button>
                     <button class="btn btn-primary" @onclick="Create" disabled="@creating">
                         @if (creating)
                         {
@@ -544,6 +589,22 @@
     private Source? pendingDelete;
     private string? message;
     private bool messageSuccess;
+
+    /// <summary>Shown beside a success message when an added repository is private.</summary>
+    private string? privateNote;
+
+    /// <summary>A problem with the repository field itself, shown under it.</summary>
+    private string? repoError;
+
+    /// <summary>Where to fix <see cref="repoError"/> on GitHub, when there is such a place.</summary>
+    private string? repoErrorLink;
+
+    /// <summary>Repositories the chosen GitHub connection's installation covers, offered as suggestions.</summary>
+    private IReadOnlyList<string> gitHubRepoSuggestions = [];
+    private int gitHubRepoTotal;
+
+    /// <summary>Whether the New source dialog is holding focus, so it is released when the dialog closes.</summary>
+    private bool dialogFocusHeld;
 
     private SourceForm? form;
     private GitHubRepositoryForm? githubForm;
@@ -642,6 +703,77 @@
         isAdmin = authState.User.IsInRole("Owner") || authState.User.IsInRole("Admin");
 
         await LoadAsync();
+
+        // Arriving from a new connection's "Add a source" link opens the dialog on that connection.
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (isAdmin && query.TryGetValue("new", out var newFor) && Guid.TryParse(newFor.ToString(), out var connectionId)
+            && connections.Any(c => c.Id == connectionId))
+        {
+            await BeginCreate(connectionId);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // The dialog is plain markup, so focus is moved into it and kept there by script.
+        if (form is not null && !dialogFocusHeld)
+        {
+            dialogFocusHeld = true;
+            await JS.InvokeVoidAsync("connapse.holdFocus", "new-source-dialog");
+        }
+        else if (form is null && dialogFocusHeld)
+        {
+            dialogFocusHeld = false;
+            await JS.InvokeVoidAsync("connapse.releaseFocus", "new-source-dialog");
+        }
+    }
+
+    private void ClearRepoError() => repoError = repoErrorLink = null;
+
+    private bool IsGitHub(Source source) =>
+        source.ConnectionId is Guid id && connections.FirstOrDefault(c => c.Id == id)?.Provider == ConnectionProvider.GitHub;
+
+    private static string ProviderName(ConnectionProvider provider) => provider switch
+    {
+        ConnectionProvider.GitHub => "GitHub",
+        ConnectionProvider.AzureBlob => "Azure Blob Storage",
+        ConnectionProvider.S3 => "Amazon S3",
+        ConnectionProvider.Sftp => "SFTP",
+        _ => provider.ToString(),
+    };
+
+    /// <summary>Lists what the chosen GitHub connection's installation covers, for the repository suggestions.</summary>
+    private async Task LoadGitHubSuggestionsAsync()
+    {
+        gitHubRepoSuggestions = [];
+        gitHubRepoTotal = 0;
+        if (SelectedConnection is not { Provider: ConnectionProvider.GitHub } connection
+            || ConnectionForm.FromConnection(connection).GitHubInstallationId is not { } installationId)
+            return;
+
+        try
+        {
+            var covered = await GitHubApp.ListInstallationRepositoriesAsync(installationId);
+            gitHubRepoSuggestions = covered.FullNames;
+            gitHubRepoTotal = covered.TotalCount;
+        }
+        catch (Exception)
+        {
+            // Suggestions only: the field still takes a typed address, and adding it says what is wrong.
+        }
+    }
+
+    /// <summary>The installation's settings page on GitHub, where the repositories it covers are chosen.</summary>
+    private async Task<string?> InstallationSettingsUrlAsync(long installationId)
+    {
+        try
+        {
+            return (await GitHubApp.ListInstallationsAsync()).FirstOrDefault(i => i.Id == installationId)?.HtmlUrl is { Length: > 0 } url ? url : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private async Task LoadAsync()
@@ -762,7 +894,7 @@
                 ? await ConnectionStore.GetAsync(connectionId)
                 : null;
 
-            // A connection-less source (public GitHub) is synced through its own provider.
+            // A connection-less source is synced through its own provider.
             if (connection is null && source.Provider is null)
             {
                 Fail($"'{source.Name}' references a connection that no longer exists.");
@@ -833,13 +965,18 @@
         }
     }
 
-    private void BeginCreate()
+    private Task BeginCreate() => BeginCreate(connections.First().Id);
+
+    private async Task BeginCreate(Guid connectionId)
     {
         message = null;
+        privateNote = null;
         createError = null;
         createWarning = null;
-        form = new SourceForm { ConnectionId = connections.First().Id };
+        ClearRepoError();
+        form = new SourceForm { ConnectionId = connectionId };
         githubForm = new GitHubRepositoryForm();
+        await LoadGitHubSuggestionsAsync();
     }
 
     private void CancelCreate()
@@ -847,9 +984,10 @@
         form = null;
         createError = null;
         createWarning = null;
+        ClearRepoError();
     }
 
-    private void OnConnectionChanged(ChangeEventArgs args)
+    private async Task OnConnectionChanged(ChangeEventArgs args)
     {
         if (form is null) return;
 
@@ -868,20 +1006,25 @@
 
         createError = null;
         createWarning = null;
+        ClearRepoError();
+        await LoadGitHubSuggestionsAsync();
     }
 
     /// <summary>
-    /// Creates a public repository's docs and issues sources on a GitHub App connection, after
-    /// asking GitHub — as that installation — that the repository exists and is public. Each
+    /// Creates a repository's docs and issues sources on a GitHub App connection, after asking
+    /// GitHub, as that installation, that the repository exists and whether it is private. Each
     /// source is created on its own, so a name clash on one still creates the other and says so.
     /// </summary>
     private async Task CreateGitHubRepositoryAsync(Connection connection)
     {
         if (githubForm is null) return;
 
+        ClearRepoError();
         if (githubForm.Validate() is { } invalid)
         {
-            createError = invalid;
+            // The address problem belongs under the address; the other is about the checkboxes.
+            if (GitHubRepositoryForm.TryParse(githubForm.Repository, out _, out _)) createError = invalid;
+            else repoError = invalid;
             return;
         }
 
@@ -902,7 +1045,8 @@
             var found = await GitHubRepositories.FindAsync(owner, repo, installationId.Value);
             if (found is null)
             {
-                createError = $"GitHub has no repository {owner}/{repo} that this installation can see.";
+                repoError = $"This installation can't see {owner}/{repo}. If the repository exists, add it to the installation on GitHub.";
+                repoErrorLink = await InstallationSettingsUrlAsync(installationId.Value);
                 return;
             }
 
@@ -934,16 +1078,18 @@
 
             form = null;
             githubForm = null;
-            Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync now."
-                + (isPrivate ? $" {found.FullName} is {found.Visibility}: only people who link their GitHub account under Profile → Integrations, and whom GitHub lets read it, will find its content." : "")
+            Succeed($"Added {string.Join(" and ", created)}. They sync on the next cycle, or press Sync."
                 + (skipped.Count > 0 ? " Skipped: " + string.Join(" ", skipped) : ""));
+            privateNote = isPrivate
+                ? $"{found.FullName} is {found.Visibility}. Its content appears only for people who link their GitHub account under Profile → Integrations and can read the repository on GitHub."
+                : null;
 
             await LoadAsync();
         }
         catch (Exception ex)
         {
             // An exception escaping a Blazor event handler tears down the circuit.
-            createError = $"Could not add the repository: {ex.Message}";
+            createError = $"Could not add the repository. {GitHubMessages.Describe(ex, connection.Name)}";
         }
         finally
         {
@@ -1011,7 +1157,7 @@
             // is attempted. Reporting success first is what stops a later failure describing a
             // created source as a failed one.
             form = null;
-            Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync now.");
+            Succeed($"'{created.Name}' created. It will sync on the next cycle, or press Sync.");
 
             if (preflight.Warning is not null)
             {

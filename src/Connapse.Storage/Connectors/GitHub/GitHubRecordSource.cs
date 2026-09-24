@@ -39,8 +39,8 @@ internal sealed record GitHubRecordCursor(
 /// comments into a local record store, and hands the sync engine the records that changed.
 /// <para>
 /// Every read is a repository-wide list sorted by <c>updated_at</c> and filtered by <c>since</c>,
-/// so a cycle costs pages rather than a request per record — at 60 anonymous requests an hour,
-/// the difference between a medium repository syncing in minutes and in a day. The one
+/// so a cycle costs pages rather than a request per record, which decides whether a large
+/// repository fits in an installation's hourly request budget. The one
 /// per-record call is a sub-issue listing, made only for issues that have sub-issues.
 /// </para>
 /// </summary>
@@ -172,10 +172,7 @@ internal sealed class GitHubRecordSource(
         }
         catch (GitHubNotFoundException ex)
         {
-            throw new GitHubRepositoryUnavailableException(
-                $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} "
-                + "can no longer be read. It may have been made private, renamed, or deleted, or the "
-                + "App's installation no longer covers it. Syncing stops until it can be read again.", ex);
+            throw GitHubRepositoryGuard.Unavailable(config, ex);
         }
         finally
         {

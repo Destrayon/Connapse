@@ -19,7 +19,7 @@ public static partial class GitHubAppManifest
     /// <summary>Where GitHub returns after the App is installed somewhere; it forwards to the Connections page.</summary>
     public const string InstalledPath = "api/v1/providers/github/installed";
 
-    /// <summary>Reserved for signing users in through the App (the private-repository phase).</summary>
+    /// <summary>Where GitHub returns after a user signs in through the App to link their account.</summary>
     public const string UserCallbackPath = "api/v1/auth/cloud/github/callback";
 
     /// <summary>GitHub's limit on an App's name.</summary>

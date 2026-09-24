@@ -243,7 +243,7 @@ public static class SourcesEndpoints
             if (!source.Enabled)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' is disabled" });
 
-            // A connection-less source (public GitHub) syncs through its Provider; only a source
+            // A connection-less source (a GitHub source added before App connections) syncs through its Provider; only a source
             // that names a connection can be missing one.
             Connection? connection = null;
             if (source.ConnectionId is Guid connectionId)

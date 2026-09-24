@@ -9,8 +9,8 @@ public sealed record GitHubRepositoryInfo(long Id, string FullName, string Visib
 
 /// <summary>
 /// Looks a repository up as a GitHub App installation, for the New source dialog: whether it
-/// exists, and whether it is public — the only kind Connapse indexes until per-user permission
-/// filtering exists.
+/// exists, its id, and whether it is public. A private repository is indexed as private, shown
+/// only to linked users GitHub lets read it.
 /// </summary>
 public sealed class GitHubRepositoryLookup(GitHubCredentialPool pool, IHttpClientFactory httpClients)
 {

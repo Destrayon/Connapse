@@ -3,13 +3,13 @@ using Connapse.Core.Utilities;
 namespace Connapse.Storage.Connectors.GitHub;
 
 /// <summary>
-/// The check every GitHub sync makes before reading: is this repository still public?
+/// The check every GitHub sync makes before reading: is this still the repository the source
+/// indexes, and, for a public source, is it still public?
 /// <para>
-/// Needed once reads are authenticated. Anonymously, a private repository simply refused to be
-/// read; an installation token that covers it reads it without complaint. Until per-user
-/// permission filtering exists, indexed content is searchable by everyone, so a repository that
-/// turns private must stop being read and be hidden — the sync engine hides a source whose read
-/// throws <see cref="GitHubRepositoryUnavailableException"/>.
+/// An installation token reads a private repository without complaint, and a public source's
+/// content is searchable by everyone, so a public repository that turns private must stop being
+/// read and be hidden. The sync engine hides a source whose read throws
+/// <see cref="GitHubRepositoryUnavailableException"/>.
 /// </para>
 /// </summary>
 internal static class GitHubRepositoryGuard
@@ -70,7 +70,12 @@ internal static class GitHubRepositoryGuard
     }
 
     public static GitHubRepositoryUnavailableException Unavailable(GitHubConnectorConfig config, Exception inner) =>
-        new($"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} "
-            + "is no longer public, or can no longer be read — it may have been made private, renamed, or deleted. "
-            + "Its documents are hidden from search, and syncing resumes if it becomes public again.", inner);
+        new(UnavailableMessage(config), inner);
+
+    /// <summary>What an administrator sees when a repository can no longer be read as its source.</summary>
+    public static string UnavailableMessage(GitHubConnectorConfig config) =>
+        $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} can no longer be read"
+        + (config.RequirePublic ? " as a public repository" : "")
+        + ". It may have been renamed, deleted, " + (config.RequirePublic ? "made private, " : "")
+        + "or removed from the App's installation. Its documents are hidden from search until it can be read again.";
 }

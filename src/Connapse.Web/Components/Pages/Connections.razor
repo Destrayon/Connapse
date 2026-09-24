@@ -4,6 +4,7 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Web.Services
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Connectors
@@ -25,6 +26,7 @@
 @inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
 @inject IProviderCredentialStore CredentialStore
 @inject NavigationManager Navigation
+@inject IAuditLogger AuditLogger
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -54,8 +56,10 @@
             <span class="bi-info-circle me-2"></span>
             A <strong>connection</strong> names an external system and how to reach it. A
             <strong>source</strong> names a scope inside one — a bucket or a directory — and is
-            what Connapse actually syncs. Cloud credentials are not entered here: AWS uses the
-            identity on its <a href="/admin/providers/aws">provider page</a>.
+            what Connapse actually syncs. Cloud credentials are not entered here: AWS, Azure, and
+            GitHub use the identity set up on their provider pages
+            (<a href="/admin/providers/aws">AWS</a>, <a href="/admin/providers/azure">Azure</a>,
+            <a href="/admin/providers/github">GitHub</a>).
         </div>
     </div>
 
@@ -65,7 +69,11 @@
             <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
                 <span class="@(statusSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
                 @statusMessage
-                <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+                @if (statusSuccess && statusLink is { } link)
+                {
+                    <a class="alert-link ms-1" href="@link.Href">@link.Text</a>
+                }
+                <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => statusMessage = null"></button>
             </div>
         </div>
     }
@@ -441,6 +449,19 @@
                                                 <span class="bi-key-fill me-1"></span>Legacy secret
                                             </span>
                                         }
+                                        else if (c.Provider == ConnectionProvider.GitHub)
+                                        {
+                                            @if (gitHubInstallations is not null && GitHubInstallationUrl(c) is null)
+                                            {
+                                                <span class="text-danger" title="The GitHub App is not installed there any more; its sources cannot sync">
+                                                    <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>Not installed any more
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">GitHub App installation</span>
+                                            }
+                                        }
                                         else
                                         {
                                             <span class="text-muted">From environment</span>
@@ -815,7 +836,14 @@
                     <div class="alert alert-warning py-2 small mb-0" role="status">
                         <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
                         @gitHubInstallationsError
-                        <a class="alert-link ms-1" href="/admin/providers/github">Set up the GitHub App</a>
+                        @if (gitHubAppConfigured == false)
+                        {
+                            <a class="alert-link ms-1" href="/admin/providers/github">Set up the GitHub App</a>
+                        }
+                        else
+                        {
+                            <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                        }
                     </div>
                 }
                 else if (gitHubInstallations is null)
@@ -846,8 +874,8 @@
                         }
                     </select>
                     <div id="github-installation-help" class="form-text">
-                        Sources on this connection read GitHub as this installation. Which repositories
-                        it covers is chosen on GitHub, in the installation's settings.
+                        Sources on this connection read the repositories this installation covers. Which
+                        repositories those are is chosen on GitHub, in the installation's settings.
                         @if (isNew && gitHubInstallUrl is not null)
                         {
                             <a href="@gitHubInstallUrl">Install on another organisation or account</a>
@@ -856,9 +884,10 @@
                     @if (!isNew && editing is not null && GitHubInstallationUrl(editing) is { } manage)
                     {
                         @* GitHub sends the administrator back to this page after a change. *@
-                        <a class="btn btn-sm btn-outline-secondary mt-2" href="@manage">
-                            <span class="bi-github me-1"></span>Manage repositories on GitHub
+                        <a class="btn btn-sm btn-outline-secondary mt-2" href="@manage" aria-describedby="github-configure-help">
+                            <span class="bi-github me-1" aria-hidden="true"></span>Configure on GitHub
                         </a>
+                        <div id="github-configure-help" class="form-text">Choose which repositories this installation covers. GitHub brings you back here afterwards.</div>
                     }
                 }
             </div>
@@ -1197,6 +1226,10 @@
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
                            href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md#troubleshooting">Troubleshooting</a>
                     }
+                    @if (!testSuccess && form.Provider == ConnectionProvider.GitHub)
+                    {
+                        <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                    }
                     @if (!testSuccess && form.Provider == ConnectionProvider.AzureBlob)
                     {
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
@@ -1301,7 +1334,7 @@
         }
         catch (Exception ex)
         {
-            gitHubInstallationsError = "Could not list the GitHub App's installations: " + ex.Message;
+            gitHubInstallationsError = "Could not list the GitHub App's installations. " + GitHubMessages.Describe(ex);
         }
     }
 
@@ -1323,7 +1356,7 @@
         }
         catch (Exception ex)
         {
-            return "Could not check the installation with GitHub: " + ex.Message;
+            return "Could not check the installation. " + GitHubMessages.Describe(ex, form.GitHubAccount);
         }
     }
 
@@ -2146,11 +2179,14 @@
 
             if (isNew)
             {
-                await ConnectionStore.CreateAsync(
+                var created = await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
                 ForgetGitHubInstallations(form.Provider);
+                await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
+                    new { created.Name, Provider = created.Provider.ToString() });
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
+                statusLink = (created.Provider == ConnectionProvider.GitHub ? "Add a repository" : "Add a source", $"/sources?new={created.Id}");
             }
             else
             {
@@ -2212,7 +2248,11 @@
             bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
             ForgetGitHubInstallations(connection.Provider);
             if (deleted)
+            {
+                await AuditLogger.LogAsync("connection.deleted", "connection", connection.Id.ToString(),
+                    new { connection.Name, Provider = connection.Provider.ToString() });
                 Succeed($"Connection '{connection.Name}' deleted.");
+            }
             else
                 Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
 
@@ -2273,11 +2313,26 @@
                     return;
                 }
 
-                // Minting a token is the whole test: it proves the App's key is accepted and the
-                // installation still exists. Which repositories it covers is GitHub's to say.
-                await GitHubApp.GetInstallationTokenAsync(installationId);
-                testSuccess = true;
-                testMessage = $"Connapse can read GitHub as the {form.GitHubAccount ?? "chosen"} installation.";
+                // Each layer in turn, so a failure says which: the App's key signs in, the
+                // installation still exists (a token is minted for it), and it covers repositories.
+                string account = form.GitHubAccount ?? "the chosen account";
+                try
+                {
+                    var covered = await GitHubApp.ListInstallationRepositoriesAsync(installationId, max: 1);
+                    var selection = gitHubInstallations?.FirstOrDefault(i => i.Id == installationId)?.RepositorySelection;
+                    testSuccess = covered.TotalCount > 0;
+                    testMessage = covered.TotalCount > 0
+                        ? $"Signed in as the App. The {account} installation is active and covers {covered.TotalCount} "
+                          + (covered.TotalCount == 1 ? "repository" : "repositories")
+                          + (selection == "all" ? " (all repositories)." : " (selected repositories).")
+                        : $"Signed in as the App, and the {account} installation is active, but it covers no repositories. Choose some with Configure on GitHub.";
+                }
+                catch (Exception ex)
+                {
+                    testSuccess = false;
+                    testMessage = GitHubMessages.Describe(ex, account);
+                    testDetail = ex.Message;
+                }
                 return;
             }
 
@@ -2425,7 +2480,11 @@
     {
         statusSuccess = true;
         statusMessage = message;
+        statusLink = null;
     }
+
+    /// <summary>The next step after a success, shown as a link in the message.</summary>
+    private (string Text, string Href)? statusLink;
 
     private void Fail(string message)
     {
