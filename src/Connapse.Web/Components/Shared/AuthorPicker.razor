@@ -31,7 +31,7 @@
                     {
                         string boxId = $"{Id}-{author.Login}";
                         bool chosen = IsSelected(author.Login);
-                        <div class="form-check d-flex align-items-center justify-content-between py-1 pe-1 mb-0">
+                        <div @key="author.Login" class="form-check d-flex align-items-center justify-content-between py-1 pe-1 mb-0">
                             <span>
                                 <input id="@boxId" type="checkbox" class="form-check-input" checked="@chosen"
                                        @onchange="() => Flip(author.Login)" />
@@ -85,10 +85,18 @@
     private bool open;
     private string? query;
 
+    /// <summary>
+    /// The order rows appear in, fixed when the dropdown opens: re-sorting as boxes are ticked would
+    /// move rows under the pointer. Ticked accounts rise to the top the next time it opens.
+    /// </summary>
+    private List<string> order = [];
+
     private void Toggle()
     {
         open = !open;
         query = null;
+        if (open)
+            order = Ranked().Select(a => a.Login).ToList();
     }
 
     private bool IsSelected(string login) => Selected.Contains(login, StringComparer.OrdinalIgnoreCase);
@@ -99,13 +107,26 @@
     /// </summary>
     private IEnumerable<GitHubCommentAuthor> Listed()
     {
+        // Accounts added while open are not in the snapshot; they go last, after it.
+        int Position(GitHubCommentAuthor a)
+        {
+            int i = order.FindIndex(l => string.Equals(l, a.Login, StringComparison.OrdinalIgnoreCase));
+            return i < 0 ? int.MaxValue : i;
+        }
+
+        return Ranked()
+            .Where(a => string.IsNullOrWhiteSpace(query) || a.Login.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderBy(Position);
+    }
+
+    private IEnumerable<GitHubCommentAuthor> Ranked()
+    {
         var known = Authors.Where(Suggest).ToList();
         var typed = Selected
             .Where(l => !Authors.Any(a => string.Equals(a.Login, l, StringComparison.OrdinalIgnoreCase)))
             .Select(l => new GitHubCommentAuthor(l, l.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase), 0));
 
         return typed.Concat(known)
-            .Where(a => string.IsNullOrWhiteSpace(query) || a.Login.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(a => IsSelected(a.Login))
             .ThenByDescending(a => a.Comments);
     }
