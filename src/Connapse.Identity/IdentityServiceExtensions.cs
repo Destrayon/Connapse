@@ -74,6 +74,8 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAwsIdentityLinkService, AwsIdentityLinkService>();
         services.AddScoped<AzureIdentityLinkStore>();
         services.AddScoped<IAzureIdentityLinkReader>(sp => sp.GetRequiredService<AzureIdentityLinkStore>());
+        services.AddScoped<GitHubIdentityLinkStore>();
+        services.AddScoped<IGitHubIdentityLinkReader>(sp => sp.GetRequiredService<GitHubIdentityLinkStore>());
         services.AddScoped<IAzureIdentityLinkService, AzureIdentityLinkService>();
         services.AddScoped<AzureIdTokenValidator>();
         services.AddHttpClient<IAzureSigningKeySource, AzureAdSigningKeySource>();
@@ -89,6 +91,7 @@ public static class IdentityServiceExtensions
         services.AddSingleton<SamlLinkConfirmations>();
         services.AddSingleton<AzureSignInRequests>();
         services.AddSingleton<AzureLinkConfirmations>();
+        services.AddSingleton<GitHubLinkFlow>();
 
         services.AddHttpContextAccessor();
 

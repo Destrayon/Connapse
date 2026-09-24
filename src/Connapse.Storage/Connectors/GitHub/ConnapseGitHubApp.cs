@@ -27,6 +27,9 @@ public sealed record GitHubInstallationToken(string Token, DateTimeOffset Expire
 /// <summary>What GitHub hands back when a manifest is converted into an App: everything, once.</summary>
 public sealed record GitHubAppManifestResult(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
+/// <summary>A GitHub account a user signed in as: the numeric id is permanent, the login can change.</summary>
+public sealed record GitHubUserAccount(long Id, string Login);
+
 /// <summary>What a GitHub login names.</summary>
 public enum GitHubAccountKind { None, User, Organization }
 
@@ -79,6 +82,9 @@ public sealed class ConnapseGitHubApp(
 
     /// <summary>The REST API every call goes to. Only tests change it.</summary>
     internal string ApiBaseUrl { get; init; } = "https://api.github.com";
+
+    /// <summary>Where users sign in to GitHub. Only tests change it.</summary>
+    internal string WebBaseUrl { get; init; } = "https://github.com";
 
     /// <summary>Forgets the stored App and every cached token. Call after the App is saved or removed.</summary>
     public void ClearCache()
@@ -208,6 +214,91 @@ public sealed class ConnapseGitHubApp(
             : GitHubAccountKind.User;
     }
 
+    // ── Users signing in through the App ─────────────────────────────────
+
+    /// <summary>Whether the stored App can sign users in: it exists and has a client id and secret.</summary>
+    public async Task<bool> CanSignInUsersAsync(CancellationToken ct = default) =>
+        await LoadAsync(ct) is { App.ClientId.Length: > 0, ClientSecret.Length: > 0 };
+
+    /// <summary>
+    /// Where to send a user to sign in to GitHub through the App, or null when the stored App cannot
+    /// sign users in — one registered by hand has no client secret.
+    /// </summary>
+    public async Task<string?> UserSignInUrlAsync(string redirectUri, string state, string codeChallenge, CancellationToken ct = default)
+    {
+        var material = await LoadAsync(ct);
+        if (material?.App.ClientId is not { Length: > 0 } clientId || string.IsNullOrEmpty(material.ClientSecret))
+            return null;
+
+        return $"{WebBaseUrl.TrimEnd('/')}/login/oauth/authorize"
+            + $"?client_id={Uri.EscapeDataString(clientId)}"
+            + $"&redirect_uri={Uri.EscapeDataString(redirectUri)}"
+            + $"&state={Uri.EscapeDataString(state)}"
+            + $"&code_challenge={Uri.EscapeDataString(codeChallenge)}&code_challenge_method=S256"
+            + "&allow_signup=false";
+    }
+
+    /// <summary>
+    /// Trades a user sign-in code for the GitHub account that signed in, then revokes the token: the
+    /// account's id and login are all Connapse keeps, and permissions are later read with installation
+    /// tokens, never as the user.
+    /// </summary>
+    public async Task<GitHubUserAccount> ResolveUserSignInAsync(string code, string codeVerifier, string redirectUri, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        var material = await RequireAsync(ct);
+        if (material.App.ClientId is not { Length: > 0 } clientId || string.IsNullOrEmpty(material.ClientSecret))
+            throw new GitHubAppException("This GitHub App was registered by hand, without a client secret, so users cannot sign in through it.");
+
+        var http = httpClients.CreateClient(ConnectorFactory.GitHubHttpClientName);
+
+        using var exchange = new HttpRequestMessage(HttpMethod.Post, WebBaseUrl.TrimEnd('/') + "/login/oauth/access_token")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client_id"] = clientId,
+                ["client_secret"] = material.ClientSecret,
+                ["code"] = code,
+                ["redirect_uri"] = redirectUri,
+                ["code_verifier"] = codeVerifier,
+            }),
+        };
+        exchange.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        exchange.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
+        using var exchanged = await http.SendAsync(exchange, ct);
+        var grant = await exchanged.Content.ReadFromJsonAsync<UserTokenPayload>(Json, ct);
+        if (grant?.AccessToken is not { Length: > 0 } userToken)
+            throw new GitHubAppException($"GitHub did not accept the sign-in code: {grant?.Error ?? exchanged.ReasonPhrase ?? "no detail"}.");
+
+        try
+        {
+            using var who = await SendAsync(HttpMethod.Get, "user", Bearer(userToken), content: null, ct);
+            var account = await ReadAsync<Account>(who, "reading the signed-in account", ct);
+            long id = account.Id ?? throw new GitHubAppException("GitHub returned an account without an id.");
+            return new GitHubUserAccount(id, account.Login);
+        }
+        finally
+        {
+            // Nothing keeps the token, so it is revoked rather than left valid until it expires.
+            try
+            {
+                using var revoke = new HttpRequestMessage(HttpMethod.Delete, $"{ApiBaseUrl.TrimEnd('/')}/applications/{Uri.EscapeDataString(clientId)}/token")
+                {
+                    Content = JsonContent.Create(new { access_token = userToken }),
+                };
+                revoke.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{material.ClientSecret}")));
+                revoke.Headers.UserAgent.Add(new ProductInfoHeaderValue("Connapse", "1.0"));
+                revoke.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+                using var _ = await http.SendAsync(revoke, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Could not revoke a GitHub user token after reading the account; it expires on its own");
+            }
+        }
+    }
+
     // ── JWT ────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -325,7 +416,9 @@ public sealed class ConnapseGitHubApp(
         }
     }
 
-    private sealed record Account(string Login, string? Type);
+    private sealed record Account(string Login, string? Type, long? Id = null);
+
+    private sealed record UserTokenPayload(string? AccessToken, string? Error);
 
     private sealed record AppPayload(long Id, string Slug, string? ClientId, Account? Owner, string HtmlUrl);
 
