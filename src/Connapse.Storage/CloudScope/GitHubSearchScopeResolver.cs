@@ -86,6 +86,23 @@ public sealed class GitHubSearchScopeResolver(
         }
     }
 
+    /// <summary>Whether a source's scope names a GitHub repository.</summary>
+    public static bool IsGitHubScope(string? scopeJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(scopeJson ?? "{}");
+            var root = doc.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("owner", out var owner) && owner.ValueKind == JsonValueKind.String
+                && root.TryGetProperty("repo", out var repo) && repo.ValueKind == JsonValueKind.String;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static bool IsPrivate(string? scopeJson)
     {
         try
@@ -170,8 +187,21 @@ public sealed class GitHubRepositoryAccess(
 
             var answer = await api.GetAsync<PermissionPayload>(
                 $"{path}/collaborators/{Uri.EscapeDataString(login)}/permission", ct);
-            allowed = (answer.Permission is { } p && Readable.Contains(p))
-                      || (answer.RoleName is { } r && Readable.Contains(r));
+
+            // Asked by login, which can change hands: an answer about any account but the linked
+            // one grants nothing, and the cached login is dropped so the next check looks it up again.
+            if (answer.User?.Id != account.GitHubUserId)
+            {
+                cache.Remove($"github-login:{account.GitHubUserId}");
+                logger.LogWarning("GitHub answered for a different account than the linked one; denying access to repository {RepoId}", repo.RepoId);
+                allowed = false;
+                lifetime = FailureLifetime;
+            }
+            else
+            {
+                allowed = (answer.Permission is { } p && Readable.Contains(p))
+                          || (answer.RoleName is { } r && Readable.Contains(r));
+            }
         }
         catch (GitHubNotFoundException)
         {
@@ -205,7 +235,9 @@ public sealed class GitHubRepositoryAccess(
         return login;
     }
 
-    private sealed record PermissionPayload(string? Permission, string? RoleName);
+    private sealed record PermissionPayload(string? Permission, string? RoleName, PermissionUser? User);
+
+    private sealed record PermissionUser(long Id);
 
     private sealed record RepositoryPayload(long Id);
 

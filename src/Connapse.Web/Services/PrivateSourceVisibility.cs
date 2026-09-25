@@ -41,7 +41,12 @@ public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuth
     internal static bool IsVisible(Source source, IReadOnlySet<string> grantedPrefixes)
     {
         if (!GitHubSearchScopeResolver.IsPrivate(source.ScopeJson))
-            return true;
+        {
+            // A public GitHub source whose repository a sync found it can no longer read (most
+            // often, made private) is treated as private from then on: its name and summary would
+            // otherwise keep describing a repository its documents are already hidden for.
+            return source.AccessRevokedAt is null || !GitHubSearchScopeResolver.IsGitHubScope(source.ScopeJson);
+        }
 
         // A private source whose repository id cannot be read is hidden: there is nothing to check.
         return GitHubSearchScopeResolver.RepoIdOf(source.ScopeJson) is { } repoId
