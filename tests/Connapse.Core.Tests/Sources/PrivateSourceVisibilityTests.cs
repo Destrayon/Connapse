@@ -28,6 +28,20 @@ public class PrivateSourceVisibilityTests
     }
 
     [Fact]
+    public void PublicGitHubSourceThatLostAccess_IsHidden()
+    {
+        var source = With("""{"owner":"acme","repo":"docs","repoId":5}""") with { AccessRevokedAt = DateTime.UtcNow };
+
+        PrivateSourceVisibility.IsVisible(source, new HashSet<string>()).Should().BeFalse(
+            "a repository made private must not keep its name and summary listed to everyone");
+    }
+
+    [Fact]
+    public void NonGitHubSourceThatLostAccess_StaysVisible() =>
+        PrivateSourceVisibility.IsVisible(With("""{"bucketName":"b"}""") with { AccessRevokedAt = DateTime.UtcNow }, new HashSet<string>())
+            .Should().BeTrue();
+
+    [Fact]
     public void PrivateSourceWithoutARepositoryId_IsHidden() =>
         PrivateSourceVisibility.IsVisible(With("""{"owner":"acme","repo":"infra","private":true}"""), new HashSet<string> { "github://99/" })
             .Should().BeFalse();

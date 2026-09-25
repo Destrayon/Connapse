@@ -150,6 +150,17 @@ public sealed class GitHubSearchScopeResolverTests
     }
 
     [Fact]
+    public async Task LoginNowBelongingToADifferentAccount_GrantsNothing()
+    {
+        _sources.Add(SourceFor(100, isPrivate: true));
+        Linked();
+        _github.AnsweredUserId = 999; // the linked account was renamed and a collaborator took its old login
+
+        (await Resolver().ResolveAsync(User)).Matches.Should().BeEmpty(
+            "an answer about another account must not grant the linked one");
+    }
+
+    [Fact]
     public async Task AnswersAreCached_PerRepositoryAndAccount()
     {
         _sources.Add(SourceFor(100, isPrivate: true));
@@ -172,6 +183,7 @@ public sealed class GitHubSearchScopeResolverTests
         public List<string> CheckedLogins { get; } = [];
         public List<string> PermissionPaths { get; } = [];
         public long? RepositoryIdAtName { get; set; }
+        public long AnsweredUserId { get; set; } = 583231;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -191,7 +203,7 @@ public sealed class GitHubSearchScopeResolverTests
                 CheckedLogins.Add(path.Split('/')[^2]);
                 if (PermissionStatus != HttpStatusCode.OK)
                     return Task.FromResult(new HttpResponseMessage(PermissionStatus) { Content = new StringContent("""{"message":"x"}""") });
-                return Json(new { permission = Permission.Permission, role_name = Permission.Role });
+                return Json(new { permission = Permission.Permission, role_name = Permission.Role, user = new { login = path.Split('/')[^2], id = AnsweredUserId } });
             }
 
             throw new InvalidOperationException("unexpected " + request.RequestUri);
