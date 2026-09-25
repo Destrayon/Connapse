@@ -39,8 +39,8 @@ internal sealed record GitHubRecordCursor(
 /// comments into a local record store, and hands the sync engine the records that changed.
 /// <para>
 /// Every read is a repository-wide list sorted by <c>updated_at</c> and filtered by <c>since</c>,
-/// so a cycle costs pages rather than a request per record — at 60 anonymous requests an hour,
-/// the difference between a medium repository syncing in minutes and in a day. The one
+/// so a cycle costs pages rather than a request per record, which decides whether a large
+/// repository fits in an installation's hourly request budget. The one
 /// per-record call is a sub-issue listing, made only for issues that have sub-issues.
 /// </para>
 /// </summary>
@@ -95,6 +95,7 @@ internal sealed class GitHubRecordSource(
         var marks = new Marks(cursor);
         var cache = new RecordCache(_store);
         bool complete = false;
+        string? notice = null;
 
         // With credentials every check below is a conditional request: an unchanged answer is a
         // 304, which GitHub does not count, so an idle repository costs nothing to poll.
@@ -166,16 +167,14 @@ internal sealed class GitHubRecordSource(
         }
         catch (GitHubRateLimitedException ex)
         {
+            notice = ex.Message;
             logger.LogWarning(
                 "GitHub {Owner}/{Repo}: API budget spent until {ResetAt}; keeping progress and resuming next cycle",
                 LogSanitizer.Sanitize(config.Owner), LogSanitizer.Sanitize(config.Repo), ex.ResetAt);
         }
         catch (GitHubNotFoundException ex)
         {
-            throw new GitHubRepositoryUnavailableException(
-                $"GitHub repository {LogSanitizer.Sanitize(config.Owner)}/{LogSanitizer.Sanitize(config.Repo)} "
-                + "can no longer be read. It may have been made private, renamed, or deleted, or the "
-                + "App's installation no longer covers it. Syncing stops until it can be read again.", ex);
+            throw GitHubRepositoryGuard.Unavailable(config, ex);
         }
         finally
         {
@@ -186,7 +185,7 @@ internal sealed class GitHubRecordSource(
         // arriving, and emitting it now would embed it twice. The marks still advance, so the next
         // cycle carries on from here rather than starting over.
         if (!complete)
-            return new SyncDelta([], [], marks.ToCursor(cursor.Seq).Serialize(), RequiresFullResync: false);
+            return new SyncDelta([], [], marks.ToCursor(cursor.Seq).Serialize(), RequiresFullResync: false, Notice: notice);
 
         await RelistIfDueAsync(firstSync: cursorText is null, state, ct);
 

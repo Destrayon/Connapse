@@ -7,20 +7,20 @@ using System.Text.Json.Serialization;
 namespace Connapse.Storage.Connectors.GitHub;
 
 /// <summary>
-/// The anonymous REST budget ran out mid-cycle. Not a failure: whatever was merged before it is
-/// kept, and the next cycle resumes from there.
+/// The installation's REST request budget ran out mid-cycle. Not a failure: whatever was merged
+/// before it is kept, and the next cycle resumes from there.
 /// </summary>
 internal sealed class GitHubRateLimitedException(DateTimeOffset? resetAt)
-    : Exception($"GitHub's anonymous API budget is spent until {resetAt?.ToString("O") ?? "later"}.")
+    : Exception($"GitHub's hourly request limit is used up until {(resetAt is { } at ? at.ToUniversalTime().ToString("HH:mm") + " UTC" : "later")}. Syncing resumes after that.")
 {
     public DateTimeOffset? ResetAt { get; } = resetAt;
 }
 
-/// <summary>GitHub answered 401 or 404: the resource is not there for an anonymous caller.</summary>
+/// <summary>GitHub answered 401 or 404: the resource is not there for this installation.</summary>
 internal sealed class GitHubNotFoundException(string url) : Exception($"GitHub returned not found for {url}.");
 
 /// <summary>
-/// The two list endpoints the issues sync reads, unauthenticated. Hand-rolled rather than Octokit:
+/// The REST endpoints the GitHub sync reads, as an installation. Hand-rolled rather than Octokit:
 /// what is needed is GET plus Link-header paging, and Octokit's models trail the fields this sync
 /// depends on (<c>sub_issues_summary</c>).
 /// </summary>

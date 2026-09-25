@@ -115,7 +115,7 @@ internal sealed class GitHubRecordState
 /// state file, under the source's mirror directory.
 /// <para>
 /// Kept for the same reason as the docs mirror: the pipeline reads each document through a fresh
-/// connector, and reading from GitHub there would spend one anonymous request per record. The
+/// connector, and reading from GitHub there would spend one request per record. The
 /// sync is the only writer (the per-source gate serializes it), but the pipeline reads while it
 /// writes, so every write lands whole via a rename.
 /// </para>

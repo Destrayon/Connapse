@@ -12,11 +12,12 @@ internal sealed record GitHubRenderedRecord(
 
 /// <summary>
 /// Turns one issue or pull request, with its comments, into the markdown document that is indexed,
-/// and the graph edges a later GraphRAG phase resolves across sources.
+/// and the graph edges that link records across sources.
 /// <para>
 /// Edges here are only the ones that cost no request per record: the rest (timeline
 /// cross-references, connected/disconnected events, files a pull request touched) need a call
-/// each, which the anonymous budget cannot afford, and are left to a backfill.
+/// each, which an installation's hourly request budget cannot afford for every record, and are
+/// left to a backfill.
 /// </para>
 /// </summary>
 internal static partial class GitHubRecordRenderer

@@ -4,6 +4,7 @@
 @using Connapse.Core
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
+@using Connapse.Web.Services
 @inject IJSRuntime JS
 @using Connapse.Storage.ConnectionTesters
 @using Connapse.Storage.Connectors
@@ -25,6 +26,7 @@
 @inject Connapse.Storage.Connectors.GitHub.GitHubCredentialPool GitHubPool
 @inject IProviderCredentialStore CredentialStore
 @inject NavigationManager Navigation
+@inject IAuditLogger AuditLogger
 
 @*
     Connections — the credential and filesystem-root boundary.
@@ -54,8 +56,10 @@
             <span class="bi-info-circle me-2"></span>
             A <strong>connection</strong> names an external system and how to reach it. A
             <strong>source</strong> names a scope inside one — a bucket or a directory — and is
-            what Connapse actually syncs. Cloud credentials are not entered here: AWS uses the
-            identity on its <a href="/admin/providers/aws">provider page</a>.
+            what Connapse actually syncs. Cloud credentials are not entered here: AWS, Azure, and
+            GitHub use the identity set up on their provider pages
+            (<a href="/admin/providers/aws">AWS</a>, <a href="/admin/providers/azure">Azure</a>,
+            <a href="/admin/providers/github">GitHub</a>).
         </div>
     </div>
 
@@ -65,7 +69,11 @@
             <div class="alert @(statusSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show" role="alert">
                 <span class="@(statusSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></span>
                 @statusMessage
-                <button type="button" class="btn-close" @onclick="() => statusMessage = null"></button>
+                @if (statusSuccess && statusLink is { } link)
+                {
+                    <a class="alert-link ms-1" href="@link.Href">@link.Text</a>
+                }
+                <button type="button" class="btn-close" aria-label="Dismiss" @onclick="() => statusMessage = null"></button>
             </div>
         </div>
     }
@@ -412,7 +420,13 @@
                                     </td>
                                     <td><span class="badge text-bg-secondary">@c.Provider</span></td>
                                     <td class="small text-muted">@DescribeScope(c)</td>
-                                    <td>@c.SourceCount</td>
+                                    <td>
+                                        @c.SourceCount
+                                        @if (c.SourceCount > 0 && pausedConnections.Contains(c.Id))
+                                        {
+                                            <span class="badge text-bg-secondary ms-1">Paused</span>
+                                        }
+                                    </td>
                                     <td class="small">
                                         @if (c.Provider == ConnectionProvider.Sftp)
                                         {
@@ -441,6 +455,20 @@
                                                 <span class="bi-key-fill me-1"></span>Legacy secret
                                             </span>
                                         }
+                                        else if (c.Provider == ConnectionProvider.GitHub)
+                                        {
+                                            @if (gitHubInstallations is not null && GitHubInstallationUrl(c) is null)
+                                            {
+                                                <span class="text-danger">
+                                                    <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>Not installed any more.
+                                                    Choose Edit to pick its new installation.
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">GitHub App installation</span>
+                                            }
+                                        }
                                         else
                                         {
                                             <span class="text-muted">From environment</span>
@@ -448,6 +476,20 @@
                                     </td>
                                     <td class="text-end">
                                         <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => StartEdit(c)">Edit</button>
+                                        @if (c.SourceCount > 0)
+                                        {
+                                            bool paused = pausedConnections.Contains(c.Id);
+                                            <button class="btn btn-sm btn-outline-secondary me-1"
+                                                    @onclick="() => paused ? AskResumeAsync(c) : SetSyncingAsync(c, enabled: false)"
+                                                    disabled="@(pausing is not null)"
+                                                    title="@(paused ? "Choose which of this connection's sources to turn back on" : "Stops syncing every source on this connection. Nothing is deleted, and documents stay searchable")">
+                                                @if (pausing == c.Id)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                                                }
+                                                @(paused ? "Resume syncing" : "Pause syncing")
+                                            </button>
+                                        }
                                         <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(c)">Delete</button>
                                     </td>
                                 </tr>
@@ -815,7 +857,14 @@
                     <div class="alert alert-warning py-2 small mb-0" role="status">
                         <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
                         @gitHubInstallationsError
-                        <a class="alert-link ms-1" href="/admin/providers/github">Set up the GitHub App</a>
+                        @if (gitHubAppConfigured == false)
+                        {
+                            <a class="alert-link ms-1" href="/admin/providers/github">Set up the GitHub App</a>
+                        }
+                        else
+                        {
+                            <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
+                        }
                     </div>
                 }
                 else if (gitHubInstallations is null)
@@ -835,8 +884,18 @@
                 }
                 else
                 {
+                    @if (EditedInstallationMissing)
+                    {
+                        <div class="alert alert-warning py-2 small" role="status">
+                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
+                            The GitHub App is no longer installed as this connection's installation, usually because it
+                            was removed or reinstalled on GitHub. Choose its installation again and save; the sources on
+                            this connection keep their settings. Pick the same organisation or account
+                            (@(editingGitHubAccount ?? "the one it had")) so they can still read their repositories.
+                        </div>
+                    }
                     <select id="github-installation" class="form-select" value="@form.GitHubInstallationId"
-                            @onchange="SelectGitHubInstallation" disabled="@(!isNew)" aria-describedby="github-installation-help">
+                            @onchange="SelectGitHubInstallation" disabled="@(!isNew && !EditedInstallationMissing)" aria-describedby="github-installation-help">
                         <option value="">Choose an installation…</option>
                         @foreach (var installation in gitHubInstallations)
                         {
@@ -846,8 +905,8 @@
                         }
                     </select>
                     <div id="github-installation-help" class="form-text">
-                        Sources on this connection read GitHub as this installation. Which repositories
-                        it covers is chosen on GitHub, in the installation's settings.
+                        Sources on this connection read the repositories this installation covers. Which
+                        repositories those are is chosen on GitHub, in the installation's settings.
                         @if (isNew && gitHubInstallUrl is not null)
                         {
                             <a href="@gitHubInstallUrl">Install on another organisation or account</a>
@@ -856,9 +915,10 @@
                     @if (!isNew && editing is not null && GitHubInstallationUrl(editing) is { } manage)
                     {
                         @* GitHub sends the administrator back to this page after a change. *@
-                        <a class="btn btn-sm btn-outline-secondary mt-2" href="@manage">
-                            <span class="bi-github me-1"></span>Manage repositories on GitHub
+                        <a class="btn btn-sm btn-outline-secondary mt-2" href="@manage" aria-describedby="github-configure-help">
+                            <span class="bi-github me-1" aria-hidden="true"></span>Configure on GitHub
                         </a>
+                        <div id="github-configure-help" class="form-text">Choose which repositories this installation covers. GitHub brings you back here afterwards.</div>
                     }
                 }
             </div>
@@ -1188,14 +1248,22 @@
         @if (testMessage is not null)
         {
             <div class="col-12 mt-2">
-                <div class="alert @(testSuccess ? "alert-success" : "alert-danger") py-2 mb-0"
+                <div class="alert @(testWarning ? "alert-warning" : testSuccess ? "alert-success" : "alert-danger") py-2 mb-0"
                      role="@(testSuccess ? "status" : "alert")">
-                    <span class="@(testSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
+                    <span class="@(testWarning ? "bi-exclamation-triangle" : testSuccess ? "bi-check-circle" : "bi-x-circle") me-2" aria-hidden="true"></span>
                     @testMessage
+                    @if (testWarning && testWarningLink is { } fixAt)
+                    {
+                        <a class="alert-link ms-1" href="@fixAt">Configure on GitHub</a>
+                    }
                     @if (!testSuccess && form.Provider == ConnectionProvider.S3)
                     {
                         <a class="alert-link ms-1" target="_blank" rel="noopener"
                            href="https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md#troubleshooting">Troubleshooting</a>
+                    }
+                    @if (!testSuccess && form.Provider == ConnectionProvider.GitHub)
+                    {
+                        <a class="alert-link ms-1" target="_blank" rel="noopener" href="@GitHubMessages.TroubleshootingUrl">Troubleshooting</a>
                     }
                     @if (!testSuccess && form.Provider == ConnectionProvider.AzureBlob)
                     {
@@ -1215,15 +1283,52 @@
     }
 </div>
 
+@if (pendingResume is { } resume)
+{
+    <div id="resume-connection-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="resume-connection-title" style="background: rgba(0,0,0,.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="resume-connection-title">Resume syncing on @resume.Connection.Name</h5>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingResume = null"></button>
+                </div>
+                <div class="modal-body">
+                    <fieldset aria-describedby="resume-help">
+                        <legend class="fs-6">Sources to turn back on</legend>
+                        <p id="resume-help" class="small text-muted mb-2">
+                            Untick any you had switched off on purpose before the pause; they stay off.
+                        </p>
+                        @foreach (var source in resume.Sources)
+                        {
+                            <div class="form-check">
+                                <input id="resume-@source.Id" type="checkbox" class="form-check-input"
+                                       checked="@resume.Chosen.Contains(source.Id)" @onchange="() => ToggleResume(source.Id)" />
+                                <label class="form-check-label" for="resume-@source.Id">@source.Name</label>
+                            </div>
+                        }
+                    </fieldset>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingResume = null">Cancel</button>
+                    <button class="btn btn-primary" disabled="@(resume.Chosen.Count == 0)" @onclick="ResumeChosenAsync">
+                        Resume @resume.Chosen.Count @(resume.Chosen.Count == 1 ? "source" : "sources")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @if (pendingDelete is not null)
 {
-    <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+    <div id="delete-connection-dialog" class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="delete-connection-title" style="background: rgba(0,0,0,.5);">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="delete-connection-title">Delete connection</h5>
-                    <button type="button" class="btn-close" aria-label="Close" @onclick="() => pendingDelete = null"></button>
+                    <button type="button" class="btn-close" aria-label="Close" data-dialog-cancel @onclick="() => pendingDelete = null"></button>
                 </div>
                 <div class="modal-body">
                     <p>Delete <strong>@pendingDelete.Name</strong>?</p>
@@ -1233,7 +1338,7 @@
                     </p>
                 </div>
                 <div class="modal-footer">
-                    <button class="btn btn-secondary" @onclick="() => pendingDelete = null">Cancel</button>
+                    <button class="btn btn-secondary" data-dialog-cancel @onclick="() => pendingDelete = null">Cancel</button>
                     <button class="btn btn-danger" @onclick="DeleteConfirmed">Delete connection</button>
                 </div>
             </div>
@@ -1253,6 +1358,31 @@
 
     private bool saving;
     private bool testing;
+
+    /// <summary>The test passed but found something worth fixing; shown as a warning, not an error.</summary>
+    private bool testWarning;
+
+    /// <summary>Where the warning can be fixed, when that is on GitHub.</summary>
+    private string? testWarningLink;
+
+    /// <summary>Dialogs holding focus, so each is released when it closes.</summary>
+    private readonly HashSet<string> heldDialogs = [];
+
+    private async Task HoldDialogFocusAsync(string id, bool open)
+    {
+        if (open && heldDialogs.Add(id))
+            await JS.InvokeVoidAsync("connapse.holdFocus", id);
+        else if (!open && heldDialogs.Remove(id))
+            await JS.InvokeVoidAsync("connapse.releaseFocus", id);
+    }
+
+    /// <summary>A paused connection being resumed, with the sources chosen to turn back on.</summary>
+    private sealed record PendingResume(Connection Connection, IReadOnlyList<Source> Sources, HashSet<Guid> Chosen);
+
+    private PendingResume? pendingResume;
+
+    /// <summary>The connection whose sources are being paused or resumed.</summary>
+    private Guid? pausing;
     private string? statusMessage;
     private bool statusSuccess;
     private string? testMessage;
@@ -1301,7 +1431,7 @@
         }
         catch (Exception ex)
         {
-            gitHubInstallationsError = "Could not list the GitHub App's installations: " + ex.Message;
+            gitHubInstallationsError = "Could not list the GitHub App's installations. " + GitHubMessages.Describe(ex);
         }
     }
 
@@ -1323,7 +1453,7 @@
         }
         catch (Exception ex)
         {
-            return "Could not check the installation with GitHub: " + ex.Message;
+            return "Could not check the installation. " + GitHubMessages.Describe(ex, form.GitHubAccount);
         }
     }
 
@@ -1366,6 +1496,22 @@
         if (gitHubAppConfigured != true)
             return;
 
+        // Back from reinstalling the App: GitHub gave it a new installation id. A connection on the
+        // same account whose installation is gone is the one this replaces, so it is opened for
+        // editing with the new installation chosen, rather than a second connection being started.
+        if (returning && long.TryParse(installationId.ToString(), out long returnedId)
+            && gitHubInstallations?.FirstOrDefault(i => i.Id == returnedId) is { } returnedInstallation
+            && connections.FirstOrDefault(c => c.Provider == ConnectionProvider.GitHub
+                && ConnectionForm.FromConnection(c) is var existing
+                && gitHubInstallations.All(i => i.Id != existing.GitHubInstallationId)
+                && string.Equals(existing.GitHubAccount, returnedInstallation.AccountLogin, StringComparison.OrdinalIgnoreCase)) is { } orphaned)
+        {
+            await StartEdit(orphaned);
+            SelectGitHubInstallation(returnedId);
+            Succeed($"The App was reinstalled on {returnedInstallation.AccountLogin}. Save to point '{orphaned.Name}' at the new installation; its sources keep their settings.");
+            return;
+        }
+
         await StartCreate();
         form.Provider = ConnectionProvider.GitHub;
         if (returning && long.TryParse(installationId.ToString(), out long id)
@@ -1384,6 +1530,19 @@
         if (provider == ConnectionProvider.GitHub)
             GitHubPool.ForgetInstallations();
     }
+
+    /// <summary>The installation an edited GitHub connection had when the form opened, and its account.</summary>
+    private long? editingGitHubInstallationId;
+    private string? editingGitHubAccount;
+
+    /// <summary>
+    /// An edited GitHub connection whose installation GitHub no longer lists — removed or
+    /// reinstalled. Only then may its installation be changed: otherwise a connection keeps the
+    /// installation its sources were added through.
+    /// </summary>
+    private bool EditedInstallationMissing =>
+        !isNew && editing is not null && form.Provider == ConnectionProvider.GitHub && gitHubInstallations is not null
+        && !gitHubInstallations.Any(i => i.Id == editingGitHubInstallationId);
 
     /// <summary>The installation's settings page on GitHub, for a GitHub connection whose installation still exists.</summary>
     private string? GitHubInstallationUrl(Connection connection)
@@ -1421,6 +1580,10 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await FocusBucketSearchIfOpened();
+
+        // The dialogs are plain markup, so focus is moved into one and kept there by script.
+        await HoldDialogFocusAsync("delete-connection-dialog", pendingDelete is not null);
+        await HoldDialogFocusAsync("resume-connection-dialog", pendingResume is not null);
 
         if (!firstRender) return;
 
@@ -1470,7 +1633,80 @@
     {
         loading = true;
         connections = (await ConnectionStore.ListAsync(take: int.MaxValue)).ToList();
+        var sources = await SourceStore.ListAsync(take: int.MaxValue);
+        pausedConnections = sources
+            .Where(s => s.ConnectionId is not null)
+            .GroupBy(s => s.ConnectionId!.Value)
+            .Where(g => g.All(s => !s.Enabled))
+            .Select(g => g.Key)
+            .ToHashSet();
         loading = false;
+    }
+
+    /// <summary>Connections whose every source is disabled: paused, not deleted.</summary>
+    private HashSet<Guid> pausedConnections = [];
+
+    /// <summary>
+    /// Pauses or resumes a connection by disabling or enabling every source on it. Nothing is
+    /// deleted, and each source can still be turned on or off on its own afterwards.
+    /// </summary>
+    /// <summary>
+    /// Asks which sources to turn back on, all ticked: a source switched off on purpose before
+    /// the pause can be left off, instead of resuming silently turning it on.
+    /// </summary>
+    private async Task AskResumeAsync(Connection connection)
+    {
+        statusMessage = null;
+        try
+        {
+            var sources = await SourceStore.ListByConnectionAsync(connection.Id);
+            pendingResume = new PendingResume(connection, sources, sources.Select(s => s.Id).ToHashSet());
+        }
+        catch (Exception ex)
+        {
+            Fail($"Could not list the sources on '{connection.Name}': {ex.Message}");
+        }
+    }
+
+    private void ToggleResume(Guid sourceId)
+    {
+        if (pendingResume is null) return;
+        if (!pendingResume.Chosen.Remove(sourceId)) pendingResume.Chosen.Add(sourceId);
+    }
+
+    private async Task ResumeChosenAsync()
+    {
+        if (pendingResume is not { } resume) return;
+        pendingResume = null;
+        await SetSyncingAsync(resume.Connection, enabled: true, only: resume.Chosen);
+    }
+
+    private async Task SetSyncingAsync(Connection connection, bool enabled, IReadOnlySet<Guid>? only = null)
+    {
+        statusMessage = null;
+        pausing = connection.Id;
+        try
+        {
+            var sources = (await SourceStore.ListByConnectionAsync(connection.Id))
+                .Where(s => only is null || only.Contains(s.Id)).ToList();
+            foreach (var source in sources.Where(s => s.Enabled != enabled))
+                await SourceStore.UpdateAsync(source.Id, new UpdateSourceRequest(Enabled: enabled));
+
+            await AuditLogger.LogAsync(enabled ? "connection.resumed" : "connection.paused", "connection", connection.Id.ToString(),
+                new { connection.Name, Sources = sources.Count });
+            Succeed(enabled
+                ? $"Syncing resumed for {sources.Count} source(s) on '{connection.Name}'."
+                : $"Syncing paused for {sources.Count} source(s) on '{connection.Name}'. Their documents stay searchable; nothing was deleted.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail($"Could not change syncing for '{connection.Name}': {ex.Message}");
+        }
+        finally
+        {
+            pausing = null;
+        }
     }
 
     // ── Guided setup: this computer, or a server ───────────────────────────
@@ -2067,6 +2303,8 @@
         editing = connection;
         isNew = false;
         form = ConnectionForm.FromConnection(connection);
+        editingGitHubInstallationId = form.GitHubInstallationId;
+        editingGitHubAccount = form.GitHubAccount;
         // Offered as the probe default: an allowed location is, by definition, somewhere this
         // connection is meant to be able to reach.
         probeTarget = form.FirstAllowedLocation();
@@ -2093,7 +2331,9 @@
             return;
         }
 
-        if (isNew && form.Provider == ConnectionProvider.GitHub && await GitHubInstallationProblemAsync() is { } gitHubProblem)
+        bool installationChanged = !isNew && form.GitHubInstallationId != editingGitHubInstallationId;
+        if ((isNew || installationChanged) && form.Provider == ConnectionProvider.GitHub
+            && await GitHubInstallationProblemAsync() is { } gitHubProblem)
         {
             Fail(gitHubProblem);
             return;
@@ -2146,11 +2386,14 @@
 
             if (isNew)
             {
-                await ConnectionStore.CreateAsync(
+                var created = await ConnectionStore.CreateAsync(
                     new CreateConnectionRequest(form.Name.Trim(), form.Provider, config, secret),
                     createdByUserId: null);
                 ForgetGitHubInstallations(form.Provider);
+                await AuditLogger.LogAsync("connection.created", "connection", created.Id.ToString(),
+                    new { created.Name, Provider = created.Provider.ToString() });
                 Succeed($"Connection '{form.Name.Trim()}' created. Add a source on it to start indexing.{HostRewriteSuffix()}");
+                statusLink = (created.Provider == ConnectionProvider.GitHub ? "Add a repository" : "Add a source", $"/sources?new={created.Id}");
             }
             else
             {
@@ -2212,7 +2455,11 @@
             bool deleted = await ConnectionStore.DeleteAsync(connection.Id);
             ForgetGitHubInstallations(connection.Provider);
             if (deleted)
+            {
+                await AuditLogger.LogAsync("connection.deleted", "connection", connection.Id.ToString(),
+                    new { connection.Name, Provider = connection.Provider.ToString() });
                 Succeed($"Connection '{connection.Name}' deleted.");
+            }
             else
                 Fail($"Connection '{connection.Name}' no longer exists — it was deleted elsewhere.");
 
@@ -2261,6 +2508,8 @@
         testing = true;
         testMessage = null;
         testDetail = null;
+        testWarning = false;
+        testWarningLink = null;
 
         try
         {
@@ -2273,11 +2522,28 @@
                     return;
                 }
 
-                // Minting a token is the whole test: it proves the App's key is accepted and the
-                // installation still exists. Which repositories it covers is GitHub's to say.
-                await GitHubApp.GetInstallationTokenAsync(installationId);
-                testSuccess = true;
-                testMessage = $"Connapse can read GitHub as the {form.GitHubAccount ?? "chosen"} installation.";
+                // Each layer in turn, so a failure says which: the App's key signs in, the
+                // installation still exists (a token is minted for it), and it covers repositories.
+                string account = form.GitHubAccount ?? "the chosen account";
+                try
+                {
+                    var covered = await GitHubApp.ListInstallationRepositoriesAsync(installationId, max: 1);
+                    var installation = gitHubInstallations?.FirstOrDefault(i => i.Id == installationId);
+                    testSuccess = true;
+                    testWarning = covered.TotalCount == 0;
+                    testWarningLink = testWarning && installation?.HtmlUrl is { Length: > 0 } url ? url : null;
+                    testMessage = covered.TotalCount > 0
+                        ? $"Signed in as the App. The {account} installation is active and covers {covered.TotalCount} "
+                          + (covered.TotalCount == 1 ? "repository" : "repositories")
+                          + (installation?.RepositorySelection == "all" ? " (all repositories)." : " (selected repositories).")
+                        : $"Signed in as the App, and the {account} installation is active, but it covers no repositories yet, so there is nothing to add as a source. Choose repositories on GitHub.";
+                }
+                catch (Exception ex)
+                {
+                    testSuccess = false;
+                    testMessage = GitHubMessages.Describe(ex, account);
+                    testDetail = ex.Message;
+                }
                 return;
             }
 
@@ -2425,7 +2691,11 @@
     {
         statusSuccess = true;
         statusMessage = message;
+        statusLink = null;
     }
+
+    /// <summary>The next step after a success, shown as a link in the message.</summary>
+    private (string Text, string Href)? statusLink;
 
     private void Fail(string message)
     {

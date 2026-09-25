@@ -34,7 +34,8 @@ public record SourceSyncResult(
     bool RequiredResync,
     string? Error,
     bool AlreadyRunning = false,
-    int WithheldDeletions = 0);
+    int WithheldDeletions = 0,
+    string? Notice = null);
 
 /// <summary>
 /// Thrown when a reindex would move a document between ownership domains — source to

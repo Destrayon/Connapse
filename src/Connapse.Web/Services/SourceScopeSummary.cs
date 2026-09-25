@@ -43,7 +43,9 @@ public static class SourceScopeSummary
                 ? "issues and pull requests"
                 : "docs";
             string? docPatterns = kind == "docs" ? Patterns(node) : null;
-            return docPatterns is null ? $"{repository} · {kind}" : $"{repository} · {kind} ({docPatterns})";
+            // Private content is shown only to linked users GitHub lets read the repository.
+            string visibility = node["private"]?.GetValueKind() == System.Text.Json.JsonValueKind.True ? " · private" : "";
+            return docPatterns is null ? $"{repository} · {kind}{visibility}" : $"{repository} · {kind} ({docPatterns}){visibility}";
         }
 
         // The container-ish key differs per provider, and only one is ever present.

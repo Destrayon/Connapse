@@ -85,14 +85,14 @@ public class SourceSyncService(
         foreach (var source in sources.Where(s => s.Enabled))
         {
             // The timer ticks for every source; a source that asked for a longer interval sits
-            // out the ticks in between. A public GitHub issues source depends on it: every
-            // cycle spends from an anonymous budget of 60 requests an hour.
+            // out the ticks in between. A GitHub source relies on it to stay within its
+            // installation's hourly request budget.
             if (!IsDue(source, DateTime.UtcNow))
                 continue;
 
             if (source.ConnectionId is not Guid connectionId)
             {
-                // A connection-less source (public GitHub) builds its connector from its own
+                // A connection-less source (a GitHub source added before App connections) builds its connector from its own
                 // Provider. The store's CHECK constraint guarantees one of the two is set, so
                 // a row with neither is not expected — but skipping it beats throwing for
                 // every other source in the cycle.
@@ -141,7 +141,7 @@ public class SourceSyncService(
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
     /// <param name="connection">
-    /// The source's connection, or null for a connection-less source (public GitHub), whose
+    /// The source's connection, or null for a connection-less source (a GitHub source added before App connections), whose
     /// connector is built from its own <see cref="Source.Provider"/>.
     /// </param>
     /// <param name="applyWithheldDeletions">
@@ -332,7 +332,7 @@ public class SourceSyncService(
                     await sourceStore.UpdateSyncHoldAsync(source.Id, heldSince, ct);
 
                 await sourceStore.UpdateSyncStateAsync(
-                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, now, ct);
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: delta.Notice, now, ct);
 
                 logger.LogInformation(
                     "Source {SourceId}: {InFlight} changed document(s) are still being ingested; "
@@ -354,9 +354,11 @@ public class SourceSyncService(
 
         // Compare-and-swap: a cycle that started earlier but finished later must not
         // overwrite newer progress with its own stale cursor.
+        // A notice (a provider's request limit, say) is kept beside the success, so the Sources
+        // page can show the cycle was cut short rather than a plain "synced".
         bool advanced = await sourceStore.TryAdvanceSyncStateAsync(
             source.Id, expectedCursor: source.SyncCursor, newCursor: delta.NextCursor,
-            SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+            SyncStatus.Succeeded, error: delta.Notice, DateTime.UtcNow, ct);
 
         if (!advanced)
         {
@@ -370,7 +372,8 @@ public class SourceSyncService(
         }
 
         return new SourceSyncResult(
-            upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+            upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
+            Notice: delta.Notice);
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(

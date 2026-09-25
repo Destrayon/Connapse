@@ -27,6 +27,9 @@ public sealed record GitHubInstallationToken(string Token, DateTimeOffset Expire
 /// <summary>What GitHub hands back when a manifest is converted into an App: everything, once.</summary>
 public sealed record GitHubAppManifestResult(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
+/// <summary>The repositories one installation covers: the first page of names, and how many there are in all.</summary>
+public sealed record GitHubInstallationRepositories(int TotalCount, IReadOnlyList<string> FullNames);
+
 /// <summary>A GitHub account a user signed in as: the numeric id is permanent, the login can change.</summary>
 public sealed record GitHubUserAccount(long Id, string Login);
 
@@ -93,6 +96,7 @@ public sealed class ConnapseGitHubApp(
         {
             _generation++;
             _material = null;
+            _secretCheck = null;
             _tokens.Clear();
         }
     }
@@ -170,6 +174,79 @@ public sealed class ConnapseGitHubApp(
 
         return token;
     }
+
+    /// <summary>
+    /// The repositories an installation covers, as <c>owner/repo</c>, up to <paramref name="max"/>
+    /// names; <see cref="GitHubInstallationRepositories.TotalCount"/> is GitHub's full count.
+    /// </summary>
+    public async Task<GitHubInstallationRepositories> ListInstallationRepositoriesAsync(
+        long installationId, int max = 300, CancellationToken ct = default)
+    {
+        var token = await GetInstallationTokenAsync(installationId, ct);
+        var names = new List<string>();
+        int total = 0;
+        for (int page = 1; names.Count < max; page++)
+        {
+            using var response = await SendAsync(
+                HttpMethod.Get, $"installation/repositories?per_page=100&page={page}", new("token", token.Token), content: null, ct);
+            var batch = await ReadAsync<InstallationRepositoriesPayload>(response, "listing the installation's repositories", ct);
+            total = batch.TotalCount;
+            names.AddRange(batch.Repositories.Select(r => r.FullName));
+            if (batch.Repositories.Count < 100) break;
+        }
+
+        return new GitHubInstallationRepositories(total, names.Take(max).ToList());
+    }
+
+    /// <summary>
+    /// Whether GitHub accepts a client id and secret pair, without any user token: GitHub answers
+    /// a token check for an unknown token with 404 when the pair is right and 401 when it is not.
+    /// </summary>
+    public async Task<bool> ClientSecretMatchesAsync(string clientId, string clientSecret, CancellationToken ct = default)
+    {
+        var auth = new AuthenticationHeaderValue("Basic",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}")));
+        using var content = JsonContent.Create(new { access_token = new string('0', 40) });
+        using var response = await SendAsync(HttpMethod.Post, $"applications/{Uri.EscapeDataString(clientId)}/token", auth, content, ct);
+        return (int)response.StatusCode is 404 or 422;
+    }
+
+    /// <summary>
+    /// Whether GitHub still accepts the stored client id and secret; null when none is stored or
+    /// GitHub could not be asked.
+    /// </summary>
+    public async Task<bool?> StoredClientSecretMatchesAsync(CancellationToken ct = default)
+    {
+        // Asked on every Providers and Profile page load, so the answer is kept as long as the
+        // stored App is, and dropped with it by ClearCache.
+        if (_secretCheck is { } cached && _clock.GetUtcNow() - cached.CheckedAt < MaterialLifetime)
+            return cached.Matches;
+
+        long generation = Generation;
+        var material = await LoadAsync(ct);
+        if (material?.App.ClientId is not { Length: > 0 } clientId || string.IsNullOrEmpty(material.ClientSecret))
+            return null;
+
+        bool matches;
+        try
+        {
+            matches = await ClientSecretMatchesAsync(clientId, material.ClientSecret, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+
+        lock (_cacheLock)
+        {
+            if (_generation == generation)
+                _secretCheck = (matches, _clock.GetUtcNow());
+        }
+
+        return matches;
+    }
+
+    private (bool Matches, DateTimeOffset CheckedAt)? _secretCheck;
 
     /// <summary>Forgets one installation's token, after GitHub refused it.</summary>
     public void Forget(long installationId) => _tokens.TryRemove(installationId, out _);
@@ -448,6 +525,10 @@ public sealed class ConnapseGitHubApp(
         long Id, string Slug, string? ClientId, string? ClientSecret, string? Pem, Account? Owner, string HtmlUrl);
 
     private sealed record InstallationPayload(long Id, Account? Account, string? RepositorySelection, string? HtmlUrl);
+
+    private sealed record InstallationRepositoriesPayload(int TotalCount, List<RepositoryNamePayload> Repositories);
+
+    private sealed record RepositoryNamePayload(string FullName);
 
     private sealed record TokenPayload(string Token, [property: JsonPropertyName("expires_at")] DateTimeOffset ExpiresAt);
 }

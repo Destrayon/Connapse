@@ -154,6 +154,7 @@ builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
 builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
+builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
 
 // So an MCP tool can name its caller. Tools receive an IServiceProvider and nothing else, so
 // without this the MCP surface cannot resolve a principal at all — and #421 will deny what it

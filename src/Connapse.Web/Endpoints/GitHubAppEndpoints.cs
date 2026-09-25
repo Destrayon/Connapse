@@ -70,10 +70,17 @@ public static class GitHubAppEndpoints
         // (or an install is requested for an organisation's owners to approve). Installing is a
         // connection's business, so this forwards to the Connections page with the installation.
         // The id is only a hint: that page selects it only if the App's own list includes it.
-        group.MapGet("/installed", (
+        group.MapGet("/installed", async (
             [FromQuery(Name = "installation_id")] long? installationId,
-            [FromQuery(Name = "setup_action")] string? setupAction) =>
+            [FromQuery(Name = "setup_action")] string? setupAction,
+            [FromServices] IAuditLogger audit,
+            CancellationToken ct) =>
         {
+            // Recorded so each setup step (App stored, installed, connection, source, account
+            // linked) has a time, and how long setup takes and where it stops can be measured.
+            await audit.LogAsync("provider.github.installed", "provider", "github",
+                new { InstallationId = installationId, SetupAction = setupAction is "install" or "update" or "request" ? setupAction : "other" }, ct);
+
             if (setupAction == "request")
                 return Results.Redirect("/connections?github_install=requested");
 

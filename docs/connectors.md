@@ -45,6 +45,7 @@ Connections are created and edited on the **Connections** page, by administrator
 There is no secret field on a connection form, because Connapse does not accept pasted cloud keys.
 
 - **S3** authenticates as the identity set up on the AWS provider page (IAM Roles Anywhere, short-lived credentials from a locally generated certificate), or through the AWS default credential chain when nothing is stored there. `roleArn` optionally names a role to assume on top of that. See [AWS Setup](aws-setup.md).
+- **GitHub** reads as an installation of the GitHub App set up on the GitHub provider page, with hour-long installation tokens. A connection only names which installation. See [GitHub Setup](github-setup.md).
 - **Filesystem** has no credential at all; it runs as whatever account the server runs as.
 - **SFTP** is the one exception, and it is a narrow one: an SSH private key, encrypted at rest with the same DataProtection machinery everything else uses. The rule this does not break is about **cloud identities** — an AWS access key is a credential a cloud provider already offers a better answer for, and Connapse refuses to be the worse one. An SSH key for a machine you run has no such alternative.
 
@@ -81,6 +82,32 @@ The consequence worth internalising: for **S3**, **rotating credentials is an op
   "hostKeyFingerprint": "SHA256:…"
 }
 ```
+
+**GitHub**
+
+```json
+{
+  "installationId": 12345678,
+  "account": "my-org"
+}
+```
+
+A GitHub source's scope names one repository and what to read from it. Connapse looks the repository up on GitHub, from the New source dialog or the API, and sets `repoId` and `private` itself; any values you pass are replaced.
+
+```json
+{
+  "owner": "my-org",
+  "repo": "handbook",
+  "repoId": 1296269,
+  "private": true,
+  "kind": "IssuesAndPullRequests",
+  "includeComments": true,
+  "includeCommentAuthors": ["dependabot[bot]"],
+  "excludeCommentAuthors": ["someone"]
+}
+```
+
+`kind` is `Docs` or `IssuesAndPullRequests`. A `Docs` scope takes `includePatterns` (file-name globs; empty means `*.md` and `*.markdown`) instead of the comment keys.
 
 `hostKeyFingerprint` is not typed. Connapse records it on the first successful connection and refuses every later one that does not match — see [Host keys](#host-keys).
 

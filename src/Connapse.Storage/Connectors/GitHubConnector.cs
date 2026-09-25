@@ -18,7 +18,7 @@ public sealed class GitHubRepositoryUnavailableException(string message, Excepti
     : SourceAccessRevokedException(message, inner);
 
 /// <summary>
-/// Read access to a public GitHub repository, as an installation of Connapse's GitHub App.
+/// Read access to a GitHub repository, as an installation of Connapse's GitHub App.
 /// <para>
 /// The docs kind keeps a bare mirror of the default branch on local disk and syncs by
 /// fetching into it: git transport sits outside the REST API's budget, and the cursor is the
@@ -27,7 +27,7 @@ public sealed class GitHubRepositoryUnavailableException(string message, Excepti
 /// <para>
 /// Reads come from the mirror too, never the network. The pipeline builds a fresh connector
 /// for every document it ingests, and a network read per file would be one request per
-/// document against a host that rate-limits anonymous clients; the mirror has every blob the
+/// document against an hourly request budget; the mirror has every blob the
 /// last fetch saw. Only <see cref="GetChangesAsync"/> fetches, so the mirror has one writer —
 /// the per-source sync gate keeps that to one at a time.
 /// </para>
@@ -82,6 +82,22 @@ public sealed class GitHubConnector(
         if (_records is not null)
             return await _records.GetChangesAsync(cursor, ct);
 
+        try
+        {
+            return await GetDocsChangesAsync(cursor, ct);
+        }
+        catch (GitHub.GitHubRateLimitedException ex)
+        {
+            // Running out of requests is not a failure: nothing changes, and the next cycle
+            // picks up from the same commit once GitHub's limit resets.
+            logger?.LogWarning("GitHub {Repository}: request limit used up until {ResetAt}; syncing resumes next cycle",
+                Describe(), ex.ResetAt);
+            return new SyncDelta([], [], cursor, RequiresFullResync: false, Notice: ex.Message);
+        }
+    }
+
+    private async Task<SyncDelta> GetDocsChangesAsync(string? cursor, CancellationToken ct)
+    {
         // Asked of the API rather than inferred from the fetch: with a token, a private repository
         // fetches as happily as a public one.
         string? token = null;

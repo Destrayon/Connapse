@@ -424,6 +424,7 @@ public static class CloudIdentityEndpoints
             HttpContext http,
             string? code,
             string? state,
+            string? error,
             [FromServices] GitHubLinkFlow flow,
             [FromServices] Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp gitHubApp,
             [FromServices] ILoggerFactory loggerFactory,
@@ -436,8 +437,12 @@ public static class CloudIdentityEndpoints
                 if (pending is null)
                 {
                     logger.LogWarning("A GitHub sign-in callback arrived for a sign-in this deployment did not start or that already expired");
-                    return Results.Redirect("/profile/integrations?error=github_link_failed");
+                    return Results.Redirect("/profile/integrations?error=github_link_expired");
                 }
+
+                // GitHub sends error=access_denied when the person cancels on its consent page.
+                if (string.Equals(error, "access_denied", StringComparison.Ordinal))
+                    return Results.Redirect("/profile/integrations?error=github_link_declined");
 
                 if (string.IsNullOrEmpty(code))
                     return Results.Redirect("/profile/integrations?error=github_link_failed");
@@ -484,13 +489,13 @@ public static class CloudIdentityEndpoints
             if (link is null)
             {
                 logger.LogWarning("A GitHub link confirmation arrived without a claim this deployment issued");
-                return Results.Redirect("/profile/integrations?error=github_link_failed");
+                return Results.Redirect("/profile/integrations?error=github_link_expired");
             }
 
             if (link.StartedByUserId != userId.Value)
             {
                 logger.LogWarning("A GitHub sign-in was completed by a different user than the one who started it; refusing to link");
-                return Results.Redirect("/profile/integrations?error=github_link_failed");
+                return Results.Redirect("/profile/integrations?error=github_link_wrong_user");
             }
 
             await links.SaveAsync(userId.Value, link.GitHubUserId, link.Login, ct);
@@ -502,12 +507,12 @@ public static class CloudIdentityEndpoints
             {
                 await links.DeleteAsync(userId.Value, ct);
                 logger.LogInformation("A GitHub link confirmed while the user was unlinking was discarded");
-                return Results.Redirect("/profile/integrations?error=github_link_failed");
+                return Results.Redirect("/profile/integrations?error=github_link_unlinked");
             }
 
             await audit.LogAsync("identity.github.linked", "user", userId.Value.ToString(),
                 new { link.GitHubUserId, link.Login }, ct);
-            return Results.Redirect("/profile/integrations");
+            return Results.Redirect("/profile/integrations?linked=github");
         }).RequireAuthorization();
 
         group.MapDelete("/{provider}", async (
@@ -517,6 +522,7 @@ public static class CloudIdentityEndpoints
             [FromServices] IAzureIdentityLinkService azureLinks,
             [FromServices] GitHubIdentityLinkStore gitHubLinks,
             [FromServices] GitHubLinkFlow gitHubFlow,
+            [FromServices] IAuditLogger audit,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
@@ -540,6 +546,8 @@ public static class CloudIdentityEndpoints
                 // Refused first, so a sign-in racing the delete cannot put the link back.
                 gitHubFlow.RevokeFor(userId.Value);
                 bool gitHubDeleted = await gitHubLinks.DeleteAsync(userId.Value, ct);
+                if (gitHubDeleted)
+                    await audit.LogAsync("identity.github.unlinked", "user", userId.Value.ToString(), null, ct);
                 return gitHubDeleted ? Results.NoContent() : Results.NotFound();
             }
 

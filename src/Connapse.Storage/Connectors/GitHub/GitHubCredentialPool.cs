@@ -32,8 +32,7 @@ public sealed record GitHubLease(long InstallationId, string Token);
 /// current; the installation with the most left is used, the source's own first when it has any.
 /// A spent installation sits out until its reset; a refused one (its token rejected, the App
 /// uninstalled) sits out for a few minutes and is tried again. When nothing is left the caller is
-/// told when the earliest budget resets, and stops there — the same outcome as the anonymous
-/// limit, only much later.
+/// told when the earliest budget resets, and stops there.
 /// </para>
 /// <para>
 /// Only installations an administrator has added as a connection are borrowed. A public App can be
@@ -75,6 +74,16 @@ public sealed class GitHubCredentialPool(ConnapseGitHubApp app, IServiceScopeFac
             .OrderByDescending(c => c.Id == access.PreferredInstallationId)
             .ThenByDescending(c => c.Left)
             .ToList();
+
+        // A source pinned to one installation that GitHub just refused is not waiting on a request
+        // limit: the installation is gone, usually removed or reinstalled, and waiting will not help.
+        if (usable.Count == 0 && access.PinnedInstallationId is { } refused
+            && _budgets.TryGetValue(refused, out var rest) && rest.RefusedUntil > now)
+        {
+            throw new GitHubAppException(
+                $"GitHub no longer accepts installation {refused}: the App was probably removed or reinstalled there. "
+                + "Edit this source's connection on the Connections page and choose its installation again.", 404);
+        }
 
         if (usable.Count == 0)
             throw new GitHubRateLimitedException(EarliestReset(allowed, now));

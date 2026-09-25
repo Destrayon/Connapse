@@ -7,15 +7,16 @@
 *@
 
 <div class="author-picker position-relative">
-    <button id="@Id" type="button" class="form-select form-select-sm text-start" aria-haspopup="listbox"
-            aria-expanded="@open" @onclick="Toggle">
+    <button @ref="trigger" id="@Id" type="button" class="form-select form-select-sm text-start" aria-haspopup="dialog"
+            aria-expanded="@(open ? "true" : "false")" aria-controls="@PopupId" aria-describedby="@($"{ValueId} {DescribedBy}".Trim())"
+            @onclick="Toggle">
         @if (Selected.Count == 0)
         {
-            <span class="text-muted">@Placeholder</span>
+            <span id="@ValueId" class="text-muted">@Placeholder</span>
         }
         else
         {
-            @string.Join(", ", Selected)
+            <span id="@ValueId">@string.Join(", ", Selected)</span>
         }
     </button>
 
@@ -24,12 +25,15 @@
         @* Covers the page behind the open dropdown: a click anywhere outside lands here and closes it. *@
         <div class="position-fixed top-0 start-0 w-100 h-100" style="z-index:9" @onclick="Toggle"></div>
 
-        <div class="card shadow-sm position-absolute w-100 mt-1" style="z-index:10">
+        <div id="@PopupId" class="card shadow-sm position-absolute w-100 mt-1" style="z-index:10"
+             role="dialog" aria-label="@Label" @onkeydown="OnPopupKeyDown">
             <div class="card-body p-2">
-                <input class="form-control form-control-sm mb-2" placeholder="Search" autocomplete="off"
-                       aria-label="Search authors" @bind="query" @bind:event="oninput" @onkeydown="OnKeyDown" />
+                <label class="form-label small mb-1" for="@SearchId">Find or add a GitHub login</label>
+                <input @ref="search" id="@SearchId" class="form-control form-control-sm mb-2" placeholder="octocat" autocomplete="off"
+                       @bind="query" @bind:event="oninput" @onkeydown="OnKeyDown" />
 
-                <div role="listbox" aria-multiselectable="true" style="max-height:16rem;overflow-y:auto">
+                <fieldset class="m-0 p-0 border-0" style="max-height:16rem;overflow-y:auto">
+                    <legend class="visually-hidden">@Label</legend>
                     @foreach (var author in Listed())
                     {
                         bool chosen = IsSelected(author.Login);
@@ -53,10 +57,10 @@
                     @if (!Listed().Any() && !CanAddTyped())
                     {
                         <div class="small text-muted px-1 py-2">
-                            @(Authors.Count == 0 ? "No authors synced yet — type an account's login to add it." : "No matches.")
+                            @(Authors.Count == 0 ? "No authors synced yet. Type an account's login to add it." : "No matches.")
                         </div>
                     }
-                </div>
+                </fieldset>
 
                 @if (CanAddTyped())
                 {
@@ -83,8 +87,23 @@
     [Parameter] public string Placeholder { get; set; } = "None";
     [Parameter] public EventCallback OnChanged { get; set; }
 
+    /// <summary>What is being chosen, for assistive technology: names the popup and its checkbox group.</summary>
+    [Parameter] public string Label { get; set; } = "Comment authors";
+
+    /// <summary>The id of help text that describes the picker.</summary>
+    [Parameter] public string? DescribedBy { get; set; }
+
     private bool open;
     private string? query;
+    private ElementReference trigger;
+    private ElementReference search;
+
+    /// <summary>Where focus goes after the next render: into the search box on open, back to the button on close.</summary>
+    private bool? focusSearch;
+
+    private string PopupId => $"{Id}-popup";
+    private string SearchId => $"{Id}-search";
+    private string ValueId => $"{Id}-value";
 
     /// <summary>
     /// The order rows appear in, fixed when the dropdown opens: re-sorting as boxes are ticked would
@@ -96,8 +115,22 @@
     {
         open = !open;
         query = null;
+        focusSearch = open;
         if (open)
             order = Ranked().Select(a => a.Login).ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusSearch is not { } intoSearch) return;
+        focusSearch = null;
+        await (intoSearch ? search : trigger).FocusAsync();
+    }
+
+    /// <summary>Escape closes from anywhere in the popup, not just the search box.</summary>
+    private void OnPopupKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && open) Toggle();
     }
 
     private bool IsSelected(string login) => Selected.Contains(login, StringComparer.OrdinalIgnoreCase);
@@ -150,7 +183,6 @@
 
     private async Task OnKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape") { Toggle(); return; }
         if (e.Key != "Enter" || string.IsNullOrWhiteSpace(query)) return;
 
         if (CanAddTyped()) await Flip(query.Trim());
