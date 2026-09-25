@@ -490,7 +490,11 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio
+    # MinIO no longer publishes images to Docker Hub or Quay; Chainguard's build is maintained.
+    # It runs as a non-root user by default, which cannot write /data (or read a volume the old
+    # image wrote as root), so it runs as root like the image it replaces.
+    image: cgr.dev/chainguard/minio
+    user: "0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER_FILE: /run/secrets/minio_user
