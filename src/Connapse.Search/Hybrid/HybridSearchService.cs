@@ -163,10 +163,12 @@ public class HybridSearchService : IKnowledgeSearch
             if (reranker != null)
             {
                 _logger.LogDebug("Applying {Reranker} reranker", rerankerName);
-                hits = await reranker.RerankAsync(
-                    query,
-                    TopCandidates(hits, Math.Max(searchSettings.RerankCandidates, retrieveOptions.TopK)),
-                    ct);
+                List<SearchHit> head = TopCandidates(hits, Math.Max(searchSettings.RerankCandidates, retrieveOptions.TopK));
+                List<SearchHit> reranked = await reranker.RerankAsync(query, head, ct);
+
+                // A reranker that could not answer hands its input back; the full pool stands.
+                if (!ReferenceEquals(reranked, head))
+                    hits = AppendBelow(reranked, hits, head);
             }
             else
             {
@@ -219,6 +221,38 @@ public class HybridSearchService : IKnowledgeSearch
         hits.Count <= count
             ? hits
             : hits.OrderByDescending(h => h.Score).Take(count).ToList();
+
+    /// <summary>
+    /// The reranked head, then every candidate that wasn't sent to the reranker, in first-stage order
+    /// and scored strictly below the head. Those candidates are the per-hit verifier's backfill: if the
+    /// searcher may not read the head, readable results further down must still be reachable.
+    /// Remainder scores are the first-stage score scaled under the lowest reranked score, so a
+    /// MinScore threshold that the reranked head fails also drops the remainder.
+    /// </summary>
+    internal static List<SearchHit> AppendBelow(
+        List<SearchHit> reranked,
+        List<SearchHit> pool,
+        List<SearchHit> head)
+    {
+        HashSet<string> sent = head.Select(h => h.ChunkId).ToHashSet();
+        List<SearchHit> remainder = pool
+            .Where(h => !sent.Contains(h.ChunkId))
+            .OrderByDescending(h => h.Score)
+            .ToList();
+        if (remainder.Count == 0)
+            return reranked;
+
+        float floor = reranked.Count > 0 ? reranked.Min(h => h.Score) : 1f;
+        float top = Math.Max(remainder[0].Score, float.Epsilon);
+
+        // Scaled into [0, floor) so the remainder can't tie or outrank the reranked head.
+        var result = new List<SearchHit>(reranked);
+        result.AddRange(remainder.Select(h => h with
+        {
+            Score = floor * 0.999f * Math.Clamp(h.Score / top, 0f, 1f)
+        }));
+        return result;
+    }
 
     /// <summary>
     /// Performs hybrid search by running vector and keyword search in parallel and merging results.
