@@ -1,4 +1,4 @@
-﻿using Connapse.Core;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Connapse.Storage.CloudScope;
@@ -174,6 +174,22 @@ public static class ServiceCollectionExtensions
         services.Configure<SourceSecuritySettings>(
             configuration.GetSection(SourceSecuritySettings.SectionName));
 
+        // Where GitHub docs sources keep their git mirrors. Configuration-only, for the same
+        // reason: it names a directory on the host.
+        services.Configure<GitHubSourceSettings>(
+            configuration.GetSection(GitHubSourceSettings.SectionName));
+
+        // GitHub issues sources read the REST API anonymously; headers are set per request.
+        services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
+
+        // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
+        // rather than minted per request; it reaches the scoped credential store through a scope.
+        services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
+
+        // Every installation's remaining budget, shared by all GitHub sources on this server.
+        services.AddSingleton<Connectors.GitHub.GitHubCredentialPool>();
+        services.AddSingleton<Connectors.GitHub.GitHubRepositoryLookup>();
+
         // Pins an SFTP connection's host key on first use. Singleton to match the factory
         // that reaches it, and it opens its own scope because IConnectionStore is scoped.
         services.AddSingleton<ISshHostKeyStore, ConnectionSshHostKeyStore>();
@@ -279,9 +295,12 @@ public static class ServiceCollectionExtensions
         // not resolve back to the composite itself (no self-reference).
         services.AddScoped<CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
+        services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
+        services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
             sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>()));
+            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(),
+            sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>()));
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();

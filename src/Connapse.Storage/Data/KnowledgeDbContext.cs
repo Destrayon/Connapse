@@ -493,6 +493,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.ProfileArn).HasColumnName("profile_arn").HasMaxLength(2048);
             entity.Property(e => e.RoleArn).HasColumnName("role_arn").HasMaxLength(2048);
             entity.Property(e => e.Region).HasColumnName("region").HasMaxLength(64);
+            entity.Property(e => e.ConfigJson).HasColumnName("config_json");
+            entity.Property(e => e.SecretProtected).HasColumnName("secret_protected");
         });
 
         modelBuilder.Entity<ConnectionEntity>(entity =>
@@ -553,8 +555,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("description");
 
             entity.Property(e => e.ConnectionId)
-                .HasColumnName("connection_id")
-                .IsRequired();
+                .HasColumnName("connection_id");
+
+            entity.Property(e => e.Provider)
+                .HasColumnName("provider");
 
             entity.Property(e => e.ScopeJson)
                 .HasColumnName("scope")
@@ -588,6 +592,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.WithheldDeletions)
                 .HasColumnName("withheld_deletions");
 
+            entity.Property(e => e.SyncHeldSince)
+                .HasColumnName("sync_held_since");
+
+            entity.Property(e => e.AccessRevokedAt)
+                .HasColumnName("access_revoked_at");
+
             entity.Property(e => e.Summary)
                 .HasColumnName("summary");
 
@@ -616,6 +626,12 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .WithMany(c => c.Sources)
                 .HasForeignKey(e => e.ConnectionId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // Exactly one of a connection or a provider identifies a source. Postgres treats
+            // "(a IS NULL) <> (b IS NULL)" as XOR.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "ck_sources_connection_xor_provider",
+                "(connection_id IS NULL) <> (provider IS NULL)"));
         });
     }
 }

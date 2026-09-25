@@ -78,7 +78,7 @@ public record EmbeddingSettings
 public record ChunkingSettings
 {
     /// <summary>
-    /// Chunking strategy: Semantic | FixedSize | Recursive | DocumentAware | SentenceWindow
+    /// Chunking strategy: Semantic | FixedSize | Recursive | DocumentAware | SentenceWindow | Record
     /// </summary>
     public string Strategy { get; set; } = "Semantic";
 

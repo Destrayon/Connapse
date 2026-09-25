@@ -493,6 +493,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("text")
                         .HasColumnName("certificate_pem");
 
+                    b.Property<string>("ConfigJson")
+                        .HasColumnType("text")
+                        .HasColumnName("config_json");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -524,6 +528,10 @@ namespace Connapse.Storage.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)")
                         .HasColumnName("role_arn");
+
+                    b.Property<string>("SecretProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("secret_protected");
 
                     b.Property<string>("TrustAnchorArn")
                         .HasMaxLength(2048)
@@ -570,7 +578,11 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid>("ConnectionId")
+                    b.Property<DateTime?>("AccessRevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("access_revoked_at");
+
+                    b.Property<Guid?>("ConnectionId")
                         .HasColumnType("uuid")
                         .HasColumnName("connection_id");
 
@@ -608,6 +620,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
+                    b.Property<int?>("Provider")
+                        .HasColumnType("integer")
+                        .HasColumnName("provider");
+
                     b.Property<JsonDocument>("ScopeJson")
                         .IsRequired()
                         .HasColumnType("jsonb")
@@ -633,6 +649,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("text")
                         .HasColumnName("sync_cursor");
 
+                    b.Property<DateTime?>("SyncHeldSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sync_held_since");
+
                     b.Property<int?>("SyncIntervalSeconds")
                         .HasColumnType("integer")
                         .HasColumnName("sync_interval_seconds");
@@ -654,7 +674,10 @@ namespace Connapse.Storage.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_sources_name");
 
-                    b.ToTable("sources", (string)null);
+                    b.ToTable("sources", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_sources_connection_xor_provider", "(connection_id IS NULL) <> (provider IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>
@@ -739,8 +762,7 @@ namespace Connapse.Storage.Migrations
                     b.HasOne("Connapse.Storage.Data.Entities.ConnectionEntity", "Connection")
                         .WithMany("Sources")
                         .HasForeignKey("ConnectionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Connection");
                 });

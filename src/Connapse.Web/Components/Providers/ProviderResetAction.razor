@@ -1,16 +1,23 @@
 <div class="provider-reset-action">
     @if (confirming)
     {
-        <button type="button" class="btn btn-sm btn-danger" @onclick="ConfirmResetAsync">@ConfirmLabel</button>
+        @if (!string.IsNullOrWhiteSpace(ConfirmText))
+        {
+            <label class="form-label small mb-1" for="@InputId">Type <strong>@ConfirmText</strong> to confirm</label>
+            <input @ref="confirmInput" id="@InputId" class="form-control form-control-sm mb-2" style="max-width:20rem" autocomplete="off"
+                   aria-describedby="@(string.IsNullOrWhiteSpace(HelpText) ? null : HelpId)"
+                   @bind="typed" @bind:event="oninput" />
+        }
+        <button @ref="confirmButton" type="button" class="btn btn-sm btn-danger" disabled="@(!Confirmed)" @onclick="ConfirmResetAsync">@ConfirmLabel</button>
         <button type="button" class="btn btn-sm btn-outline-secondary ms-1" @onclick="CancelReset">Cancel</button>
     }
     else
     {
-        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RequestReset">@Label</button>
+        <button @ref="trigger" type="button" class="btn btn-sm btn-outline-danger" @onclick="RequestReset">@Label</button>
     }
     @if (confirming && !string.IsNullOrWhiteSpace(HelpText))
     {
-        <div class="form-text">@HelpText</div>
+        <div id="@HelpId" class="form-text">@HelpText</div>
     }
 </div>
 
@@ -20,12 +27,40 @@
     [Parameter] public string? HelpText { get; set; }
     [Parameter] public EventCallback OnReset { get; set; }
 
+    /// <summary>When set, the reset stays disabled until this exact text is typed.</summary>
+    [Parameter] public string? ConfirmText { get; set; }
+
+    private readonly string _id = Guid.NewGuid().ToString("N")[..8];
+    private string InputId => $"reset-confirm-{_id}";
+    private string HelpId => $"reset-help-{_id}";
+
     private bool confirming;
-    private void RequestReset() => confirming = true;
-    private void CancelReset() => confirming = false;
+    private string? typed;
+    private ElementReference trigger;
+    private ElementReference confirmInput;
+    private ElementReference confirmButton;
+
+    /// <summary>Where focus goes after the next render, as the buttons swap: into the confirmation, or back.</summary>
+    private bool? focusConfirmation;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusConfirmation is not { } intoConfirmation) return;
+        focusConfirmation = null;
+        if (!intoConfirmation) await trigger.FocusAsync();
+        else if (!string.IsNullOrWhiteSpace(ConfirmText)) await confirmInput.FocusAsync();
+        else await confirmButton.FocusAsync();
+    }
+
+    private bool Confirmed => string.IsNullOrWhiteSpace(ConfirmText)
+        || string.Equals(typed?.Trim(), ConfirmText, StringComparison.Ordinal);
+
+    private void RequestReset() => (confirming, typed, focusConfirmation) = (true, null, true);
+    private void CancelReset() => (confirming, typed, focusConfirmation) = (false, null, false);
     private async Task ConfirmResetAsync()
     {
+        if (!Confirmed) return;
         await OnReset.InvokeAsync();
-        confirming = false;
+        (confirming, typed) = (false, null);
     }
 }

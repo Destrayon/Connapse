@@ -607,18 +607,7 @@ public class IngestionPipeline : IKnowledgeIngester
             ?? throw new InvalidOperationException(
                 $"IngestByIdAsync: source {sourceId} not found for document {documentId}");
 
-        Connection connection = await _connectionStore.GetAsync(source.ConnectionId, ct)
-            ?? throw new InvalidOperationException(
-                $"IngestByIdAsync: connection {source.ConnectionId} not found for source {sourceId}");
-
-        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
-        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
-        // rather than being swallowed.
-        string? secret = connection.HasSecret
-            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
-            : null;
-
-        IConnector connector = _connectorFactory.Create(source, connection, secret);
+        IConnector connector = await CreateSourceConnectorAsync(source, documentId, ct);
         try
         {
             await using Stream stream = await connector.ReadFileAsync(path, ct);
@@ -630,6 +619,34 @@ public class IngestionPipeline : IKnowledgeIngester
             // per file, so skipping this abandons a connection per document.
             if (connector is IDisposable disposable) disposable.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Builds the connector a source-owned document is read through: from its connection when
+    /// it has one, otherwise from its own provider (a connection-less public GitHub source).
+    /// </summary>
+    private async Task<IConnector> CreateSourceConnectorAsync(Source source, string documentId, CancellationToken ct)
+    {
+        if (source.ConnectionId is not Guid connectionId)
+        {
+            return source.Provider is not null
+                ? _connectorFactory.Create(source)
+                : throw new InvalidOperationException(
+                    $"IngestByIdAsync: source {source.Id} has neither a connection nor a provider for document {documentId}");
+        }
+
+        Connection connection = await _connectionStore.GetAsync(connectionId, ct)
+            ?? throw new InvalidOperationException(
+                $"IngestByIdAsync: connection {connectionId} not found for source {source.Id}");
+
+        // Only fetched when there is one to fetch, matching SourceSyncService. A key ring that
+        // cannot decrypt throws, and retrying will not help — so it surfaces as a failed job
+        // rather than being swallowed.
+        string? secret = connection.HasSecret
+            ? await _connectionStore.GetSecretAsync(connection.Id, ct)
+            : null;
+
+        return _connectorFactory.Create(source, connection, secret);
     }
 
     public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(
@@ -745,10 +762,19 @@ internal static class IngestionPipelineStrategyResolver
 
     public static string Resolve(string fallbackStrategy, string? fileName)
     {
+        // A record is markdown too, but its shape is the reason it was given this strategy.
+        if (IsContentPinned(fallbackStrategy)) return fallbackStrategy;
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
         return MarkdownExtensions.Contains(ext) ? "DocumentAware" : fallbackStrategy;
     }
+
+    /// <summary>
+    /// A strategy chosen for what the content is, not configured: it is kept on reindex and never
+    /// counted as stale when the instance's configured strategy changes.
+    /// </summary>
+    public static bool IsContentPinned(string? strategy) =>
+        string.Equals(strategy, nameof(ChunkingStrategy.Record), StringComparison.OrdinalIgnoreCase);
 }
 
 

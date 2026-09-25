@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -45,6 +45,13 @@ public class SourceSyncService(
     internal const string RemoteLastModifiedKey = "RemoteLastModified";
     internal const string RemoteSizeKey = "RemoteSize";
 
+    /// <summary>
+    /// The longest the delta path holds a source's cursor waiting for in-flight documents. Long
+    /// enough for a large ingestion backlog to drain; short enough that a document stuck in
+    /// Processing by a crashed worker cannot stop the source from ever advancing.
+    /// </summary>
+    internal static readonly TimeSpan MaxCursorHold = TimeSpan.FromHours(6);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(DefaultSyncInterval);
@@ -77,12 +84,35 @@ public class SourceSyncService(
 
         foreach (var source in sources.Where(s => s.Enabled))
         {
-            var connection = await connectionStore.GetAsync(source.ConnectionId, ct);
+            // The timer ticks for every source; a source that asked for a longer interval sits
+            // out the ticks in between. A GitHub source relies on it to stay within its
+            // installation's hourly request budget.
+            if (!IsDue(source, DateTime.UtcNow))
+                continue;
+
+            if (source.ConnectionId is not Guid connectionId)
+            {
+                // A connection-less source (a GitHub source added before App connections) builds its connector from its own
+                // Provider. The store's CHECK constraint guarantees one of the two is set, so
+                // a row with neither is not expected — but skipping it beats throwing for
+                // every other source in the cycle.
+                if (source.Provider is null)
+                {
+                    logger.LogWarning(
+                        "Source {SourceId} has neither a connection nor a provider; skipping", source.Id);
+                    continue;
+                }
+
+                await SyncSourceAsync(source, connection: null, ct);
+                continue;
+            }
+
+            var connection = await connectionStore.GetAsync(connectionId, ct);
             if (connection is null)
             {
                 logger.LogWarning(
                     "Source {SourceId} references missing connection {ConnectionId}; skipping",
-                    source.Id, source.ConnectionId);
+                    source.Id, connectionId);
                 continue;
             }
 
@@ -91,9 +121,29 @@ public class SourceSyncService(
     }
 
     /// <summary>
+    /// Whether a source's own interval has elapsed since its last cycle. No interval, or no
+    /// cycle yet, means every tick. A failed cycle counts as a cycle, so a source whose remote
+    /// is down is not retried faster than it asked to be polled.
+    /// </summary>
+    /// <remarks>
+    /// Half a tick of slack: a source runs on whichever tick lands nearest its due time. The last
+    /// cycle is stamped when it ends while the timer ticks from when cycles start, so the gap a
+    /// tick sees is short by however long the cycle took. A fixed 30 seconds was not enough — a
+    /// five-minute source whose cycle took a minute read as not due and waited ten.
+    /// </remarks>
+    internal static bool IsDue(Source source, DateTime utcNow) =>
+        source.SyncIntervalSeconds is not int seconds
+        || source.LastSyncedAt is not DateTime last
+        || utcNow - last >= TimeSpan.FromSeconds(seconds) - DefaultSyncInterval / 2;
+
+    /// <summary>
     /// Runs one sync cycle for one source. Never throws: a remote failure is recorded on the
     /// source and reported, so one unreachable provider cannot stall every other source.
     /// </summary>
+    /// <param name="connection">
+    /// The source's connection, or null for a connection-less source (a GitHub source added before App connections), whose
+    /// connector is built from its own <see cref="Source.Provider"/>.
+    /// </param>
     /// <param name="applyWithheldDeletions">
     /// Applies deletions an administrator has already approved. The vanished set is recomputed
     /// rather than replayed, so a source whose remote recovered in the meantime deletes
@@ -102,7 +152,7 @@ public class SourceSyncService(
     /// Inert when nothing was withheld: the flag cannot lift a guard that never tripped.
     /// </param>
     internal async Task<SourceSyncResult> SyncSourceAsync(
-        Source source, Connection connection, CancellationToken ct, bool applyWithheldDeletions = false)
+        Source source, Connection? connection, CancellationToken ct, bool applyWithheldDeletions = false)
     {
         if (!source.Enabled)
             return new SourceSyncResult(0, 0, UsedDeltaPath: false, RequiredResync: false, Error: null);
@@ -141,21 +191,51 @@ public class SourceSyncService(
             // read model, so the common providers cost no query and no decrypt per cycle. A
             // key ring that cannot decrypt throws, which the catch below records as a sync
             // failure — the right outcome, since retrying will not help.
-            string? secret = connection.HasSecret
-                ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
-                    .GetSecretAsync(connection.Id, ct)
-                : null;
+            //
+            // A null connection is a connection-less source, which has no secret to fetch.
+            if (connection is null)
+            {
+                connector = connectorFactory.Create(source);
+            }
+            else
+            {
+                string? secret = connection.HasSecret
+                    ? await scope.ServiceProvider.GetRequiredService<IConnectionStore>()
+                        .GetSecretAsync(connection.Id, ct)
+                    : null;
 
-            connector = connectorFactory.Create(source, connection, secret);
+                connector = connectorFactory.Create(source, connection, secret);
+            }
 
-            return connector is ISyncCursorConnector cursorConnector
-                ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct)
+            var result = connector is ISyncCursorConnector cursorConnector
+                ? await SyncViaDeltaAsync(source, cursorConnector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions)
                 : await SyncViaListAndDiffAsync(
                     source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
+
+            // The remote answered, so it is readable again: its documents come back into search.
+            if (source.AccessRevokedAt is not null)
+            {
+                await sourceStore.UpdateAccessRevokedAsync(source.Id, revokedAt: null, ct);
+                logger.LogInformation(
+                    "Source {SourceId} ({Name}) is readable again; its documents are back in search",
+                    source.Id, Sanitize(source.Name));
+            }
+
+            return result;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Sync failed for source {SourceId} ({Name})", source.Id, Sanitize(source.Name));
+
+            // Fail closed. Content indexed while the remote was public stays indexed (nothing is
+            // deleted on one refusal) but leaves search until a read succeeds again.
+            if (ex is SourceAccessRevokedException && source.AccessRevokedAt is null)
+            {
+                await sourceStore.UpdateAccessRevokedAsync(source.Id, DateTime.UtcNow, ct);
+                logger.LogWarning(
+                    "Source {SourceId} ({Name}) refused access; its documents are hidden from search until it is readable again",
+                    source.Id, Sanitize(source.Name));
+            }
 
             // Record the failure without discarding progress: a transient outage must not
             // clear the cursor, or the next cycle would re-list the entire remote.
@@ -182,7 +262,8 @@ public class SourceSyncService(
     }
 
     private async Task<SourceSyncResult> SyncViaDeltaAsync(
-        Source source, ISyncCursorConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct)
+        Source source, ISyncCursorConnector connector, ISourceStore sourceStore, IServiceProvider sp, CancellationToken ct,
+        bool applyWithheldDeletions = false)
     {
         SyncDelta delta = await connector.GetChangesAsync(source.SyncCursor, ct);
 
@@ -204,14 +285,80 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
-        int upserted = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
-        int deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+        int upserted;
+        int deleted;
+        int inFlight;
+        int withheld = 0;
+
+        if (delta.IsFullListing)
+        {
+            // Everything the source holds, so anything indexed and missing from it went away
+            // while there was no cursor to report it — the same question list-and-diff answers.
+            (upserted, deleted, withheld, inFlight) = await ReconcileAsync(
+                source, delta.Upserted, sourceStore, context, sp, applyWithheldDeletions, ct);
+            deleted += await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+
+            // Withheld deletions are only applied by a later full listing, so the cursor stays
+            // where it was: advancing it would turn the next cycle into an ordinary delta and
+            // leave the administrator's approval nothing to act on.
+            if (withheld > 0)
+            {
+                await sourceStore.UpdateSyncStateAsync(
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+
+                return new SourceSyncResult(
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+            }
+        }
+        else
+        {
+            (upserted, inFlight) = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
+            deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+        }
+
+        // A change reported for a document that is still being ingested could not be queued: the
+        // job already running may have read the previous version. Advancing past it would lose
+        // that change for good, because a delta never reports it again. So the cursor stays put
+        // and the next cycle reports it once more, by which time the document has settled and its
+        // signature decides. Bounded, so a document stuck in flight cannot freeze the source.
+        if (inFlight > 0)
+        {
+            DateTime now = DateTime.UtcNow;
+            DateTime heldSince = source.SyncHeldSince ?? now;
+
+            if (now - heldSince < MaxCursorHold)
+            {
+                if (source.SyncHeldSince is null)
+                    await sourceStore.UpdateSyncHoldAsync(source.Id, heldSince, ct);
+
+                await sourceStore.UpdateSyncStateAsync(
+                    source.Id, source.SyncCursor, SyncStatus.Succeeded, error: delta.Notice, now, ct);
+
+                logger.LogInformation(
+                    "Source {SourceId}: {InFlight} changed document(s) are still being ingested; "
+                    + "holding the cursor so the change is reported again next cycle",
+                    source.Id, inFlight);
+
+                return new SourceSyncResult(
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+            }
+
+            logger.LogWarning(
+                "Source {SourceId}: {InFlight} document(s) have been in flight for over {Hours} hours; "
+                + "advancing anyway. A change to one of them made meanwhile may not be picked up until it changes again.",
+                source.Id, inFlight, MaxCursorHold.TotalHours);
+        }
+
+        if (source.SyncHeldSince is not null)
+            await sourceStore.UpdateSyncHoldAsync(source.Id, heldSince: null, ct);
 
         // Compare-and-swap: a cycle that started earlier but finished later must not
         // overwrite newer progress with its own stale cursor.
+        // A notice (a provider's request limit, say) is kept beside the success, so the Sources
+        // page can show the cycle was cut short rather than a plain "synced".
         bool advanced = await sourceStore.TryAdvanceSyncStateAsync(
             source.Id, expectedCursor: source.SyncCursor, newCursor: delta.NextCursor,
-            SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+            SyncStatus.Succeeded, error: delta.Notice, DateTime.UtcNow, ct);
 
         if (!advanced)
         {
@@ -224,7 +371,9 @@ public class SourceSyncService(
                 source.Id, upserted, deleted);
         }
 
-        return new SourceSyncResult(upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null);
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
+            Notice: delta.Notice);
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(
@@ -236,6 +385,29 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
+        // In-flight documents need no hold here: the next listing reports every file again.
+        var (upserted, deleted, withheld, _) = await ReconcileAsync(
+            source, remote, sourceStore, context, sp, applyWithheldDeletions, ct);
+
+        // No cursor to advance on this path, so record the outcome directly. The stored
+        // cursor stays null, which is what marks this source as fallback-synced.
+        await sourceStore.UpdateSyncStateAsync(
+            source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
+
+        return new SourceSyncResult(
+            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
+            WithheldDeletions: withheld);
+    }
+
+    /// <summary>
+    /// Brings the indexed documents in line with a complete listing of the remote: enqueues what
+    /// changed and deletes what is gone, unless the deletion guard withholds it. Shared by
+    /// list-and-diff sources and by a delta source's full listing.
+    /// </summary>
+    private async Task<(int Upserted, int Deleted, int Withheld, int InFlight)> ReconcileAsync(
+        Source source, IReadOnlyList<ConnectorFile> remote, ISourceStore sourceStore, KnowledgeDbContext context,
+        IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
+    {
         var indexedPaths = await context.Documents
             .AsNoTracking()
             .Where(d => d.SourceId == source.Id)
@@ -247,7 +419,7 @@ public class SourceSyncService(
 
         // Upserts apply regardless. A source that trips the guard must keep ingesting new
         // content, or the safety mechanism becomes the outage it exists to prevent.
-        int upserted = await EnqueueAllAsync(source, remote, context, sp, ct);
+        var (upserted, inFlight) = await EnqueueAllAsync(source, remote, context, sp, ct);
 
         // An approval authorises the deletion set the administrator was shown a count of, not
         // whatever the next listing happens to produce. Recomputing stays — a remote that
@@ -296,14 +468,7 @@ public class SourceSyncService(
         await sourceStore.UpdateWithheldDeletionsAsync(
             source.Id, withhold ? vanished.Count : null, ct);
 
-        // No cursor to advance on this path, so record the outcome directly. The stored
-        // cursor stays null, which is what marks this source as fallback-synced.
-        await sourceStore.UpdateSyncStateAsync(
-            source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
-
-        return new SourceSyncResult(
-            upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
-            WithheldDeletions: withhold ? vanished.Count : 0);
+        return (upserted, deleted, withhold ? vanished.Count : 0, inFlight);
     }
 
     /// <summary>
@@ -335,17 +500,22 @@ public class SourceSyncService(
         return byPath;
     }
 
-    private async Task<int> EnqueueAllAsync(
+    /// <returns>
+    /// How many files were enqueued, and how many were skipped because their document is still
+    /// pending or being ingested.
+    /// </returns>
+    private async Task<(int Enqueued, int InFlight)> EnqueueAllAsync(
         Source source, IReadOnlyList<ConnectorFile> files, KnowledgeDbContext context,
         IServiceProvider sp, CancellationToken ct)
     {
-        if (files.Count == 0) return 0;
+        if (files.Count == 0) return (0, 0);
 
         var existingByPath = await LoadByPathsAsync(
             context, source.Id, files.Select(f => f.Path).ToList(), ct);
 
         int count = 0;
         int skipped = 0;
+        int inFlight = 0;
 
         var due = new List<ConnectorFile>();
         var claims = new Dictionary<string, Guid>(StringComparer.Ordinal);
@@ -382,6 +552,9 @@ public class SourceSyncService(
             // the content hash is computed after the download and parse, so it dedupes
             // nothing that costs money. Skipping here is what keeps a five-minute poll from
             // re-embedding every file a source holds.
+            if (existing is { Status: "Pending" or "Queued" or "Processing" })
+                inFlight++;
+
             if (existing is not null && !HasRemoteChanged(existing, file))
             {
                 skipped++;
@@ -467,7 +640,11 @@ public class SourceSyncService(
                     FileName: fileName,
                     ContentType: file.ContentType,
                     Path: file.Path,
-                    Metadata: new Dictionary<string, string>
+                    Strategy: file.Strategy ?? ChunkingStrategy.Semantic,
+                    // Seeded from what the connector reported, then overwritten by the sync's
+                    // own keys: a connector must not be able to forge the signature below.
+                    Metadata: new Dictionary<string, string>(
+                        file.Metadata ?? new Dictionary<string, string>(), StringComparer.Ordinal)
                     {
                         ["OriginalFileName"] = fileName,
                         ["Source"] = "SourceSync",
@@ -493,7 +670,7 @@ public class SourceSyncService(
             "Enqueued {Count} file(s) for source {SourceId} ({Name}); {Skipped} unchanged",
             count, source.Id, Sanitize(source.Name), skipped);
 
-        return count;
+        return (count, inFlight);
     }
 
     /// <summary>

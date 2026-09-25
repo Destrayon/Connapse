@@ -1,0 +1,234 @@
+@page "/sources/{Id:guid}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Storage.Connectors
+@using Connapse.Storage.Connectors.GitHub
+@using Connapse.Web.Components.Settings
+@using Connapse.Web.Components.Shared
+@using Connapse.Web.Services
+@inject ISourceStore SourceStore
+@inject IConnectionStore ConnectionStore
+@inject IConnectorFactory ConnectorFactory
+@inject IAuditLogger AuditLogger
+
+@*
+    One source's settings. What it reads from — the connection and the bucket, directory, or
+    repository — is shown but not editable: pointing a source somewhere else is a new source,
+    and silently re-pointing one would leave its indexed documents describing the old place.
+*@
+
+<PageTitle>Edit source — Connapse</PageTitle>
+
+<div class="container py-4" style="max-width:52rem">
+    <a href="/sources" class="small text-decoration-none"><span class="bi-arrow-left me-1"></span>Sources</a>
+
+    @if (loadError is not null)
+    {
+        <div class="alert alert-danger mt-3">@loadError</div>
+    }
+    else if (source is null || form is null)
+    {
+        <div class="text-muted mt-3"><span class="spinner-border spinner-border-sm me-1"></span> Loading…</div>
+    }
+    else
+    {
+        <h1 class="h4 mt-2 mb-4">@source.Name</h1>
+
+        <section class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">General</h2>
+                <div class="mb-3">
+                    <label class="form-label" for="source-name">Name</label>
+                    <input id="source-name" class="form-control" @bind="form.Name" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="source-description">Description <span class="text-muted">(optional)</span></label>
+                    <input id="source-description" class="form-control" @bind="form.Description" />
+                </div>
+                <div>
+                    <label class="form-label" for="source-interval">Sync interval, seconds <span class="text-muted">(optional)</span></label>
+                    <input id="source-interval" type="number" min="60" class="form-control" style="max-width:12rem"
+                           @bind="form.SyncIntervalSeconds" aria-describedby="source-interval-help" />
+                    <div id="source-interval-help" class="form-text">Empty uses the configured default. The minimum is 60.</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-2">Reads from</h2>
+                <dl class="row small mb-0">
+                    <dt class="col-sm-3 fw-normal text-muted">Connection</dt>
+                    <dd class="col-sm-9">@(connection?.Name ?? (source.Provider is { } p ? $"{p} (no connection)" : "(missing connection)"))</dd>
+                    <dt class="col-sm-3 fw-normal text-muted">Scope</dt>
+                    <dd class="col-sm-9 font-monospace">@(SourceScopeSummary.Describe(source.ScopeJson) ?? "—")</dd>
+                </dl>
+                <div class="form-text">To read from somewhere else, add a new source.</div>
+            </div>
+        </section>
+
+        @if (form.GitHubKind == GitHubContentKind.IssuesAndPullRequests)
+        {
+            <section class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">Issues and pull requests</h2>
+                    <div class="form-check mb-3">
+                        <input id="include-comments" type="checkbox" class="form-check-input" @bind="form.IncludeComments" />
+                        <label for="include-comments" class="form-check-label">Include comments</label>
+                    </div>
+
+                    @if (form.IncludeComments)
+                    {
+                        <p id="comment-authors-help" class="small text-muted mb-3">
+                            Comments from bots, such as review bots and CI reports, are left out. People's comments are kept.
+                            Descriptions are always kept, whoever wrote them. Change that for specific accounts here.
+                            @if (authors.Count == 0)
+                            {
+                                <text>Suggestions appear once the source has synced.</text>
+                            }
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold" for="include-bots">Also index comments from these bots</label>
+                            <AuthorPicker Id="include-bots" Selected="form.IncludedBots" Authors="authors"
+                                          Suggest="a => a.IsBot" Placeholder="None — bots are left out" OnChanged="PickerChanged"
+                                          Label="Bots whose comments are indexed" DescribedBy="comment-authors-help" />
+                        </div>
+                        <div>
+                            <label class="form-label small fw-semibold" for="exclude-people">Leave out comments from these accounts</label>
+                            <AuthorPicker Id="exclude-people" Selected="form.ExcludedPeople" Authors="authors"
+                                          Suggest="a => !a.IsBot" Placeholder="None — everyone else is kept" OnChanged="PickerChanged"
+                                          Label="Accounts whose comments are left out" DescribedBy="comment-authors-help" />
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+        else if (form.GitHubKind == GitHubContentKind.Docs)
+        {
+            <section class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">Docs</h2>
+                    <ProviderField Spec="GitHubFieldSpecs.DocPatterns" Small="true" CssClass="mb-0" @bind-Value="form.DocPatterns" />
+                </div>
+            </section>
+        }
+
+        @if (message is not null)
+        {
+            <div class="alert @(success ? "alert-success" : "alert-danger") small" role="@(success ? "status" : "alert")">
+                <span class="@(success ? "bi-check-circle" : "bi-x-circle") me-1" aria-hidden="true"></span>@message
+            </div>
+        }
+
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-primary" @onclick="Save" disabled="@saving">
+                @if (saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                    <span>Saving…</span>
+                }
+                else
+                {
+                    <span>Save</span>
+                }
+            </button>
+            <a class="btn btn-outline-secondary" href="/sources">Cancel</a>
+            @if (form.ChangesScope(source))
+            {
+                <span class="small text-muted">Saving re-reads everything on the next sync, so the change applies throughout.</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private Source? source;
+    private Connection? connection;
+    private SourceEditForm? form;
+    private IReadOnlyList<GitHubCommentAuthor> authors = [];
+    private string? loadError;
+    private string? message;
+    private bool success;
+    private bool saving;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            source = await SourceStore.GetAsync(Id);
+            if (source is null)
+            {
+                loadError = "That source no longer exists.";
+                return;
+            }
+
+            connection = source.ConnectionId is Guid connectionId ? await ConnectionStore.GetAsync(connectionId) : null;
+            form = SourceEditForm.From(source, connection?.Provider);
+
+            // Read from the source's local records, so suggesting authors costs no GitHub requests.
+            if (form.GitHubKind == GitHubContentKind.IssuesAndPullRequests && connection is not null
+                && ConnectorFactory.Create(source, connection) is GitHubConnector github)
+            {
+                authors = github.CommentAuthors();
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Could not load the source: {ex.Message}";
+        }
+    }
+
+    /// <summary>Re-renders the page, so the note about a full re-read follows the pickers.</summary>
+    private void PickerChanged() => message = null;
+
+    private async Task Save()
+    {
+        if (source is null || form is null) return;
+
+        message = null;
+        if (form.Validate() is { } invalid)
+        {
+            (message, success) = (invalid, false);
+            return;
+        }
+
+        var request = form.ToRequest(source);
+        if (request is null)
+        {
+            (message, success) = ("Nothing changed.", true);
+            return;
+        }
+
+        saving = true;
+        try
+        {
+            bool rereads = request.ScopeJson is not null;
+            var updated = await SourceStore.UpdateAsync(source.Id, request);
+            if (updated is null)
+            {
+                (message, success) = ("That source no longer exists.", false);
+                return;
+            }
+
+            await AuditLogger.LogAsync("source.updated", "source", source.Id.ToString(), new { updated.Name });
+            source = updated;
+            form = SourceEditForm.From(updated, connection?.Provider);
+            (message, success) = (rereads
+                ? "Saved. The next sync re-reads everything with the new settings — or sync it now from Sources."
+                : "Saved.", true);
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit.
+            (message, success) = ($"Could not save: {ex.Message}", false);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

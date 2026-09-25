@@ -689,6 +689,43 @@ namespace Connapse.Identity.Migrations
                     b.ToTable("user_azure_identity_links", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("ConnectedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("connected_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long>("GitHubUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("github_user_id");
+
+                    b.Property<string>("Login")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("login");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_github_identity_links_user_id");
+
+                    b.ToTable("user_github_identity_links", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserInvitation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -958,6 +995,17 @@ namespace Connapse.Identity.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity", b =>
+                {
+                    b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "User")
+                        .WithMany("GitHubIdentityLinks")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.UserInvitation", b =>
                 {
                     b.HasOne("Connapse.Identity.Data.Entities.ConnapseUser", "AcceptedByUser")
@@ -1037,6 +1085,8 @@ namespace Connapse.Identity.Migrations
                     b.Navigation("AuditLogs");
 
                     b.Navigation("AzureIdentityLinks");
+
+                    b.Navigation("GitHubIdentityLinks");
 
                     b.Navigation("PersonalAccessTokens");
 

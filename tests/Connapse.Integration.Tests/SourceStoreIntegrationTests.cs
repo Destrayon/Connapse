@@ -43,6 +43,24 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task UpdateAsync_ScopeChanged_ClearsTheCursorSoTheNextCycleIsAFullListing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
+
+        var source = await NewSourceAsync(sources, connections);
+        await sources.UpdateSyncStateAsync(source.Id, "cursor-abc", SyncStatus.Succeeded, error: null, DateTime.UtcNow);
+
+        // Same scope, reformatted: not a change.
+        await sources.UpdateAsync(source.Id, new UpdateSourceRequest(ScopeJson: """{ "prefix" : "docs/" }"""));
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be("cursor-abc");
+
+        await sources.UpdateAsync(source.Id, new UpdateSourceRequest(ScopeJson: """{"prefix":"other/"}"""));
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().BeNull();
+    }
+
+    [Fact]
     public async Task UpdateSyncStateAsync_AfterSuccessfulSync_PersistsCursor()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
@@ -196,5 +214,53 @@ public class SourceStoreIntegrationTests(SharedWebAppFixture fixture)
 
         var reloaded = await sources.GetAsync(source.Id);
         reloaded!.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CreateAsync_ConnectionLessGitHubSource_PersistsProviderAndNullConnection()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        var created = await store.CreateAsync(new CreateSourceRequest(
+            Name: $"gh-docs-{Guid.NewGuid():N}",
+            ConnectionId: null,
+            ScopeJson: "{\"owner\":\"octocat\",\"repo\":\"Hello-World\",\"kind\":\"Docs\"}",
+            Provider: ConnectionProvider.GitHub));
+        created.ConnectionId.Should().BeNull();
+        created.Provider.Should().Be(ConnectionProvider.GitHub);
+
+        var fetched = await store.GetAsync(created.Id);
+        fetched!.ConnectionId.Should().BeNull();
+        fetched.Provider.Should().Be(ConnectionProvider.GitHub);
+    }
+
+    [Fact]
+    public async Task CreateAsync_NoConnectionAndNoProvider_ThrowsArgumentException()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = async () => await sources.CreateAsync(new CreateSourceRequest(
+            Name: $"s-{Guid.NewGuid():N}"[..24],
+            ConnectionId: null,
+            ScopeJson: "{}"));
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_BothConnectionAndProvider_ThrowsArgumentException()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+
+        Func<Task> act = async () => await sources.CreateAsync(new CreateSourceRequest(
+            Name: $"s-{Guid.NewGuid():N}"[..24],
+            ConnectionId: Guid.NewGuid(),
+            ScopeJson: "{}",
+            Provider: ConnectionProvider.GitHub));
+
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 }

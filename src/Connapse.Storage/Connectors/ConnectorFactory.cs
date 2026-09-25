@@ -12,11 +12,17 @@ namespace Connapse.Storage.Connectors;
 /// </summary>
 public class ConnectorFactory(
     IOptionsMonitor<SourceSecuritySettings> sourceSecurity,
+    IOptionsMonitor<GitHubSourceSettings> gitHubSettings,
     ISshHostKeyStore hostKeyStore,
     CloudScope.ConnapseAwsCredentials awsCredentials,
     CloudScope.ConnapseAzureCredentials azureCredentials,
-    ILogger<ConnectorFactory> logger) : IConnectorFactory
+    IHttpClientFactory httpClientFactory,
+    ILogger<ConnectorFactory> logger,
+    GitHub.GitHubCredentialPool? gitHubPool = null) : IConnectorFactory
 {
+    /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
+    public const string GitHubHttpClientName = "GitHub";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -131,7 +137,119 @@ public class ConnectorFactory(
                 ExcludePatterns = Arr(scope, "excludePatterns"),
             }, hostKeyStore),
 
+            ConnectionProvider.GitHub => CreateGitHub(source, scope, connection, credential),
+
             _ => throw new NotSupportedException($"Unknown connection provider: {connection.Provider}")
+        };
+    }
+
+    public IConnector Create(Source source)
+    {
+        if (source.Provider is null)
+            throw new ArgumentException(
+                "a connection-less source must have a Provider", nameof(source));
+
+        using var scope = JsonDocument.Parse(
+            string.IsNullOrWhiteSpace(source.ScopeJson) ? "{}" : source.ScopeJson);
+
+        RequireJsonObject(scope, $"Source '{source.Name}' has a scope that");
+
+        return source.Provider.Value switch
+        {
+            // Anonymous reads are gone: 60 requests an hour per IP cannot carry a real
+            // deployment, and every GitHub source now reads as an installation of the App.
+            ConnectionProvider.GitHub => throw new InvalidOperationException(
+                $"Source '{source.Name}' has no connection. GitHub sources read as a GitHub App "
+                + "installation: set the App up on the Providers page, add an installation on the "
+                + "Connections page, and recreate this source on that connection."),
+
+            _ => throw new NotSupportedException(
+                $"Provider {source.Provider} is not supported for connection-less sources")
+        };
+    }
+
+    /// <summary>
+    /// A GitHub source on an App installation. The connection names the installation its reads
+    /// prefer; the shared pool may stand in another for a public repository when that one is
+    /// spent. The HTTP client comes from the factory rather than being held here: this factory is a
+    /// singleton, and a held client would pin its handler past DNS changes.
+    /// </summary>
+    private GitHubConnector CreateGitHub(Source source, JsonDocument scope, Connection connection, JsonDocument credential)
+    {
+        long installationId = Long(credential, "installationId")
+            ?? throw new InvalidOperationException($"Connection '{connection.Name}' names no GitHub App installation.");
+
+        if (gitHubPool is null)
+            throw new InvalidOperationException("GitHub sources need the GitHub App credential pool, which is not registered.");
+
+        var config = GitHubConfig(source, scope) with { InstallationId = installationId };
+
+        // A private repository's documents are filtered by an address built from its id. Without
+        // the id they would carry no address — and a document without one is shown to everyone.
+        if (config.IsPrivate && config.RepoId is null)
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' is a private GitHub repository without a repository id, so its documents could not be filtered. Add it again from New source.");
+
+        // A private repository is read only as the installation that covers it — never a borrowed
+        // one, which would read through a different organisation's grant.
+        var access = config.IsPrivate
+            ? GitHub.GitHubAccess.Pinned(installationId)
+            : GitHub.GitHubAccess.Public(installationId);
+        var auth = new GitHub.GitHubAuth(gitHubPool, access);
+
+        return new GitHubConnector(config, httpClientFactory.CreateClient(GitHubHttpClientName), logger, auth);
+    }
+
+    /// <summary>
+    /// Reads a GitHub source's scope. Owner and repo are checked against GitHub's own naming
+    /// rules because both are spliced into the fetch URL, and the host is refused outright
+    /// unless it is github.com: reads carry an installation token, and a scope that could name
+    /// another host would send that token wherever it said.
+    /// </summary>
+    private GitHubConnectorConfig GitHubConfig(Source source, JsonDocument scope)
+    {
+        string owner = Str(scope, "owner") ?? "";
+        if (!GitHubConnectorConfig.IsValidOwner(owner))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has no valid GitHub owner in its scope.");
+
+        string repo = Str(scope, "repo") ?? "";
+        if (!GitHubConnectorConfig.IsValidRepo(repo))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has no valid GitHub repo in its scope.");
+
+        string host = Str(scope, "host") ?? GitHubConnectorConfig.PublicHost;
+        if (!string.Equals(host, GitHubConnectorConfig.PublicHost, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' names GitHub host '{LogSanitizer.Sanitize(host)}'; GitHub sources "
+                + $"can only read {GitHubConnectorConfig.PublicHost}.");
+
+        string kindName = Str(scope, "kind") ?? nameof(GitHubContentKind.Docs);
+        if (!Enum.TryParse(kindName, ignoreCase: true, out GitHubContentKind kind)
+            || !Enum.IsDefined(kind))
+            throw new InvalidOperationException(
+                $"Source '{source.Name}' has unknown GitHub content kind '{LogSanitizer.Sanitize(kindName)}'.");
+
+        IReadOnlyList<string> include = Arr(scope, "includePatterns");
+
+        return new GitHubConnectorConfig
+        {
+            Owner = owner,
+            Repo = repo,
+            RepoId = Long(scope, "repoId"),
+            IsPrivate = Bool(scope, "private") ?? false,
+            RequirePublic = !(Bool(scope, "private") ?? false),
+            Kind = kind,
+            IncludePatterns = include.Count > 0 ? include : GitHubConnectorConfig.DefaultDocPatterns,
+            ExcludePatterns = Arr(scope, "excludePatterns"),
+            IncludeComments = Bool(scope, "includeComments") ?? true,
+            IncludeCommentAuthors = Arr(scope, "includeCommentAuthors"),
+            ExcludeCommentAuthors = Arr(scope, "excludeCommentAuthors"),
+
+            // Keyed on the source id, not owner/repo: a rename must not orphan the mirror, and
+            // two sources for one repository must not share a fetch target.
+            MirrorPath = Path.GetFullPath(Path.Combine(
+                gitHubSettings.CurrentValue.MirrorDirectory, source.Id.ToString("N"))),
         };
     }
 
@@ -146,6 +264,17 @@ public class ConnectorFactory(
         doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
         && v.TryGetInt32(out int i)
             ? i
+            : null;
+
+    private static bool? Bool(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? v.GetBoolean()
+            : null;
+
+    private static long? Long(JsonDocument doc, string name) =>
+        doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number
+        && v.TryGetInt64(out long l)
+            ? l
             : null;
 
     private static string? Str(JsonDocument doc, string name) =>

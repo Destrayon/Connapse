@@ -64,5 +64,7 @@ aws/*
 # Playwright MCP session artifacts (snapshots, traces)
 .playwright-mcp/
 
-# Local secrets for docker compose; never committed.
+# Local Docker env (secrets) — never commit
 .env
+.env.*
+!.env.example

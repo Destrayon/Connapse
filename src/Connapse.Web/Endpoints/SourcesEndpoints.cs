@@ -39,6 +39,7 @@ public static class SourcesEndpoints
             [FromQuery] int? take,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IAuthorizationService authorization,
+            [FromServices] PrivateSourceVisibility visibility,
             HttpContext http,
             CancellationToken ct) =>
         {
@@ -52,7 +53,9 @@ public static class SourcesEndpoints
             var page = hasMore ? sources.Take(effectiveTake).ToList() : sources;
 
             bool diagnostics = await IsAdminAsync(authorization, http);
-            var items = page.Select(s => SourceResponse.From(s, diagnostics)).ToList();
+            // A private GitHub source names a private repository; it is listed only to those who may read it.
+            var visible = await visibility.ForAsync(http.User, ct);
+            var items = page.Where(visible).Select(s => SourceResponse.From(s, diagnostics)).ToList();
 
             return Results.Ok(new PagedResponse<SourceResponse>(items, items.Count, hasMore));
         })
@@ -65,11 +68,12 @@ public static class SourcesEndpoints
             Guid sourceId,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IAuthorizationService authorization,
+            [FromServices] PrivateSourceVisibility visibility,
             HttpContext http,
             CancellationToken ct) =>
         {
             var source = await sourceStore.GetAsync(sourceId, ct);
-            if (source is null)
+            if (source is null || !(await visibility.ForAsync(http.User, ct))(source))
                 return Results.NotFound(new { error = $"Source {sourceId} not found" });
 
             bool diagnostics = await IsAdminAsync(authorization, http);
@@ -85,24 +89,58 @@ public static class SourcesEndpoints
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
             [FromServices] IAuditLogger auditLogger,
+            [FromServices] Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup gitHubRepositories,
             CancellationToken ct) =>
         {
+            string? scopeJson = request.ScopeJson;
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { error = "Source name is required" });
 
             string name = request.Name.Trim();
 
-            // Checked before anything else touches the database: a source whose connection
-            // does not exist is skipped silently by SourceSyncService, so it would look
-            // created and never sync.
-            var connection = await connectionStore.GetAsync(request.ConnectionId, ct);
-            if (connection is null)
-                return Results.BadRequest(new { error = $"Connection {request.ConnectionId} not found" });
+            if (request.ConnectionId is not null && request.Provider is not null)
+            {
+                return Results.BadRequest(new { error = "a source must have exactly one of a connectionId or a provider" });
+            }
 
-            if (!string.IsNullOrWhiteSpace(request.ScopeJson))
+            if (request.ConnectionId is Guid cid)
+            {
+                // Checked before anything else touches the database: a source whose connection
+                // does not exist is skipped silently by SourceSyncService, so it would look
+                // created and never sync.
+                var connection = await connectionStore.GetAsync(cid, ct);
+                if (connection is null)
+                    return Results.BadRequest(new { error = $"Connection {cid} not found" });
+
+                // The same lookup the New source dialog makes: GitHub, as this installation, says
+                // which repository the name is and whether it is private. Its answer replaces
+                // whatever the request claimed, so an API-created source matches a UI-created one.
+                if (connection.Provider == ConnectionProvider.GitHub)
+                {
+                    var resolved = await GitHubSourceScope.ResolveAsync(scopeJson, connection, gitHubRepositories, ct);
+                    if (resolved.Error is not null)
+                        return Results.BadRequest(new { error = resolved.Error });
+                    scopeJson = resolved.ScopeJson;
+                }
+            }
+            else if (request.Provider is null)
+            {
+                return Results.BadRequest(new { error = "a source needs a connectionId or a provider" });
+            }
+            else if (request.Provider is ConnectionProvider.GitHub)
+            {
+                // Refused rather than stored: the connector no longer reads GitHub anonymously, so
+                // such a source would be created only to fail every sync.
+                return Results.BadRequest(new
+                {
+                    error = "GitHub sources need a GitHub App connection: pass the connectionId of a GitHub installation instead of a provider",
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(scopeJson))
             {
                 // Disposed: JsonDocument rents pooled buffers, and this runs per request.
-                try { using var _ = JsonDocument.Parse(request.ScopeJson); }
+                try { using var _ = JsonDocument.Parse(scopeJson); }
                 catch (JsonException ex)
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
             }
@@ -116,8 +154,8 @@ public static class SourcesEndpoints
             {
                 created = await sourceStore.CreateAsync(
                     new CreateSourceRequest(
-                        name, request.ConnectionId, request.ScopeJson ?? "{}",
-                        request.Description, request.SyncIntervalSeconds), ct);
+                        name, request.ConnectionId, scopeJson ?? "{}",
+                        request.Description, request.SyncIntervalSeconds, request.Provider), ct);
             }
             catch (ArgumentException ex)
             {
@@ -147,6 +185,21 @@ public static class SourcesEndpoints
                 try { using var _ = JsonDocument.Parse(request.ScopeJson); }
                 catch (JsonException ex)
                 { return Results.BadRequest(new { error = $"Invalid scope JSON: {ex.Message}" }); }
+            }
+
+            // A GitHub source's documents are addressed — or deliberately not — by whether it is
+            // private, and keyed on its repository id. Changing either in place would leave the
+            // documents already indexed with the old addressing until a re-sync replaced them:
+            // public rows (no address) of a repository now marked private would stay visible to
+            // everyone. So they are fixed at creation; to change them, add the repository again.
+            if (!string.IsNullOrWhiteSpace(request.ScopeJson)
+                && await sourceStore.GetAsync(sourceId, ct) is { } existing
+                && GitHubIdentityChanged(existing.ScopeJson, request.ScopeJson))
+            {
+                return Results.BadRequest(new
+                {
+                    error = "A GitHub source's private flag and repository id cannot be changed. Add the repository again as a new source.",
+                });
             }
 
             var updated = await sourceStore.UpdateAsync(sourceId, request, ct);
@@ -203,9 +256,19 @@ public static class SourcesEndpoints
             if (!source.Enabled)
                 return Results.BadRequest(new { error = $"Source '{source.Name}' is disabled" });
 
-            var connection = await connectionStore.GetAsync(source.ConnectionId, ct);
-            if (connection is null)
-                return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
+            // A connection-less source (a GitHub source added before App connections) syncs through its Provider; only a source
+            // that names a connection can be missing one.
+            Connection? connection = null;
+            if (source.ConnectionId is Guid connectionId)
+            {
+                connection = await connectionStore.GetAsync(connectionId, ct);
+                if (connection is null)
+                    return Results.BadRequest(new { error = $"Source '{source.Name}' references a missing connection" });
+            }
+            else if (source.Provider is null)
+            {
+                return Results.BadRequest(new { error = $"Source '{source.Name}' has neither a connection nor a provider" });
+            }
 
             var result = await syncService.SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
 
@@ -241,6 +304,32 @@ public static class SourcesEndpoints
         return app;
     }
 
+    /// <summary>Whether an update changes a GitHub source's private flag or repository id.</summary>
+    internal static bool GitHubIdentityChanged(string before, string after)
+    {
+        static (bool Private, long? RepoId, bool IsGitHub) Read(string json)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                bool isPrivate = root.TryGetProperty("private", out var p) && p.ValueKind == JsonValueKind.True;
+                long? repoId = root.TryGetProperty("repoId", out var r) && r.TryGetInt64(out long id) ? id : null;
+                bool isGitHub = root.TryGetProperty("owner", out _) && root.TryGetProperty("repo", out _);
+                return (isPrivate, repoId, isGitHub);
+            }
+            catch (JsonException)
+            {
+                return (false, null, false);
+            }
+        }
+
+        var old = Read(before);
+        if (!old.IsGitHub) return false;
+        var now = Read(after);
+        return old.Private != now.Private || old.RepoId != now.RepoId;
+    }
+
     /// <summary>
     /// Whether the caller may see diagnostic detail. Reads are open to viewers, but a
     /// provider's failure text tends to quote the resource that failed, so it is withheld
@@ -256,7 +345,8 @@ public static class SourcesEndpoints
 /// </summary>
 public record CreateSourceApiRequest(
     string Name,
-    Guid ConnectionId,
+    Guid? ConnectionId,
     string? ScopeJson = null,
     string? Description = null,
-    int? SyncIntervalSeconds = null);
+    int? SyncIntervalSeconds = null,
+    ConnectionProvider? Provider = null);

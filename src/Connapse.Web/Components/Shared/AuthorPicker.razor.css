@@ -1,0 +1,7 @@
+.author-picker-row {
+    cursor: pointer;
+}
+
+.author-picker-row:hover {
+    background: var(--bs-tertiary-bg);
+}

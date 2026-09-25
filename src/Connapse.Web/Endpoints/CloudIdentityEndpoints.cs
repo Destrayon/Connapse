@@ -35,6 +35,8 @@ public static class CloudIdentityEndpoints
     /// is the property this whole confirm hop exists to use.
     /// </remarks>
     private const string AzureConfirmCookieName = "__connapse_azure_link";
+    private const string GitHubConfirmCookieName = "__connapse_github_link";
+    private const string GitHubConfirmCookiePath = "/api/v1/auth/cloud/github";
 
     private const string AzureConfirmCookiePath = "/api/v1/auth/cloud/azure";
 
@@ -389,11 +391,138 @@ public static class CloudIdentityEndpoints
             return Results.Redirect("/profile/integrations");
         }).RequireAuthorization();
 
+        // ── GitHub ─────────────────────────────────────────────────────────
+        //
+        // The same three steps as Entra, for the same reason (see GitHubLinkFlow): connect records
+        // who started the sign-in, the anonymous callback only parks the account GitHub resolved, and
+        // confirm saves it only when the signed-in user is the one who started it. The user token is
+        // read once for the account and revoked; nothing GitHub issues is stored.
+
+        // GET /api/v1/auth/cloud/github/connect — send the browser to GitHub through the provider App.
+        group.MapGet("/github/connect", async (
+            HttpContext http,
+            [FromServices] Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp gitHubApp,
+            [FromServices] GitHubLinkFlow flow,
+            CancellationToken ct) =>
+        {
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            var (verifier, challenge) = OidcPkce.Create();
+            string state = GenerateRandomToken();
+            string? url = await gitHubApp.UserSignInUrlAsync(GitHubCallbackUrl(http), state, challenge, ct);
+            if (url is null)
+                return Results.Redirect("/profile/integrations?error=github_not_configured");
+
+            flow.AddSignIn(new GitHubPendingSignIn(state, verifier, userId.Value,
+                DateTime.UtcNow.Add(GitHubLinkFlow.SignInLifetime), DateTime.UtcNow));
+            return Results.Redirect(url);
+        }).RequireAuthorization();
+
+        // GET /api/v1/auth/cloud/github/callback — GitHub's redirect with the sign-in code. Saves nothing.
+        group.MapGet("/github/callback", async (
+            HttpContext http,
+            string? code,
+            string? state,
+            string? error,
+            [FromServices] GitHubLinkFlow flow,
+            [FromServices] Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp gitHubApp,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.GitHub");
+            try
+            {
+                var pending = flow.TakeSignIn(state);
+                if (pending is null)
+                {
+                    logger.LogWarning("A GitHub sign-in callback arrived for a sign-in this deployment did not start or that already expired");
+                    return Results.Redirect("/profile/integrations?error=github_link_expired");
+                }
+
+                // GitHub sends error=access_denied when the person cancels on its consent page.
+                if (string.Equals(error, "access_denied", StringComparison.Ordinal))
+                    return Results.Redirect("/profile/integrations?error=github_link_declined");
+
+                if (string.IsNullOrEmpty(code))
+                    return Results.Redirect("/profile/integrations?error=github_link_failed");
+
+                var account = await gitHubApp.ResolveUserSignInAsync(code, pending.CodeVerifier, GitHubCallbackUrl(http), ct);
+                string confirmCode = flow.Park(new PendingGitHubLink(pending.UserId, account.Id, account.Login, pending.StartedAtUtc));
+
+                http.Response.Cookies.Append(GitHubConfirmCookieName, confirmCode, new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = http.Request.IsHttps,
+                    SameSite = SameSiteMode.Lax,
+                    MaxAge = GitHubLinkFlow.ConfirmLifetime,
+                    Path = GitHubConfirmCookiePath,
+                });
+                return Results.Redirect("/api/v1/auth/cloud/github/confirm");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Logged, never echoed: the redirect is not a place for exception text, and the code
+                // is a credential until spent.
+                logger.LogWarning(ex, "GitHub sign-in callback failed");
+                return Results.Redirect("/profile/integrations?error=github_link_failed");
+            }
+        }).AllowAnonymous();
+
+        // GET /api/v1/auth/cloud/github/confirm — where the link is saved, for the user who started it only.
+        group.MapGet("/github/confirm", async (
+            HttpContext http,
+            [FromServices] GitHubLinkFlow flow,
+            [FromServices] GitHubIdentityLinkStore links,
+            [FromServices] IAuditLogger audit,
+            [FromServices] ILoggerFactory loggerFactory,
+            CancellationToken ct) =>
+        {
+            var logger = loggerFactory.CreateLogger("CloudIdentityEndpoints.GitHub");
+            string? code = http.Request.Cookies[GitHubConfirmCookieName];
+            http.Response.Cookies.Delete(GitHubConfirmCookieName, new CookieOptions { Path = GitHubConfirmCookiePath });
+
+            var userId = GetUserId(http);
+            if (userId is null) return Results.Unauthorized();
+
+            var link = flow.Claim(code);
+            if (link is null)
+            {
+                logger.LogWarning("A GitHub link confirmation arrived without a claim this deployment issued");
+                return Results.Redirect("/profile/integrations?error=github_link_expired");
+            }
+
+            if (link.StartedByUserId != userId.Value)
+            {
+                logger.LogWarning("A GitHub sign-in was completed by a different user than the one who started it; refusing to link");
+                return Results.Redirect("/profile/integrations?error=github_link_wrong_user");
+            }
+
+            await links.SaveAsync(userId.Value, link.GitHubUserId, link.Login, ct);
+
+            // An unlink that landed between the claim above and the save must win: it was the later
+            // decision. Checked again after writing, so whichever order the two land in, the link
+            // does not survive it.
+            if (flow.WasRevokedSince(userId.Value, link.SignInStartedAtUtc))
+            {
+                await links.DeleteAsync(userId.Value, ct);
+                logger.LogInformation("A GitHub link confirmed while the user was unlinking was discarded");
+                return Results.Redirect("/profile/integrations?error=github_link_unlinked");
+            }
+
+            await audit.LogAsync("identity.github.linked", "user", userId.Value.ToString(),
+                new { link.GitHubUserId, link.Login }, ct);
+            return Results.Redirect("/profile/integrations?linked=github");
+        }).RequireAuthorization();
+
         group.MapDelete("/{provider}", async (
             string provider,
             HttpContext httpContext,
             [FromServices] IAwsIdentityLinkService awsLinks,
             [FromServices] IAzureIdentityLinkService azureLinks,
+            [FromServices] GitHubIdentityLinkStore gitHubLinks,
+            [FromServices] GitHubLinkFlow gitHubFlow,
+            [FromServices] IAuditLogger audit,
             [FromServices] IConnectorScopeCache scopeCache,
             [FromServices] ISourceStore sourceStore,
             [FromServices] IConnectionStore connectionStore,
@@ -403,13 +532,23 @@ public static class CloudIdentityEndpoints
             if (userId is null) return Results.Unauthorized();
 
             if (!Enum.TryParse<CloudProvider>(provider, ignoreCase: true, out var cloudProvider)
-                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure))
+                || cloudProvider is not (CloudProvider.AWS or CloudProvider.Azure or CloudProvider.GitHub))
             {
                 return Results.BadRequest(new
                 {
                     error = "invalid_provider",
-                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure."
+                    message = $"Unknown provider: {provider}. Valid values: AWS, Azure, GitHub."
                 });
+            }
+
+            if (cloudProvider == CloudProvider.GitHub)
+            {
+                // Refused first, so a sign-in racing the delete cannot put the link back.
+                gitHubFlow.RevokeFor(userId.Value);
+                bool gitHubDeleted = await gitHubLinks.DeleteAsync(userId.Value, ct);
+                if (gitHubDeleted)
+                    await audit.LogAsync("identity.github.unlinked", "user", userId.Value.ToString(), null, ct);
+                return gitHubDeleted ? Results.NoContent() : Results.NotFound();
             }
 
             if (cloudProvider == CloudProvider.Azure)
@@ -453,7 +592,7 @@ public static class CloudIdentityEndpoints
                     if (matching.Count > 0)
                     {
                         var sources = await sourceStore.ListAsync(take: int.MaxValue, ct: ct);
-                        foreach (var s in sources.Where(s => matching.Contains(s.ConnectionId)))
+                        foreach (var s in sources.Where(s => s.ConnectionId is Guid cid && matching.Contains(cid)))
                             scopeCache.Invalidate(userId.Value, s.Id);
                     }
                 }
@@ -477,6 +616,13 @@ public static class CloudIdentityEndpoints
     /// <c>nonce</c> — both need to be unguessable, not merely unique, since either being
     /// predictable would let an attacker forge a callback for a sign-in they never started.
     /// </summary>
+    /// <summary>
+    /// The user sign-in callback at the address this browser reached Connapse on — the same root the
+    /// App's manifest registered, so GitHub accepts it as a redirect.
+    /// </summary>
+    private static string GitHubCallbackUrl(HttpContext http) =>
+        $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}/{Connapse.Web.Services.GitHubAppManifest.UserCallbackPath}";
+
     private static string GenerateRandomToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');

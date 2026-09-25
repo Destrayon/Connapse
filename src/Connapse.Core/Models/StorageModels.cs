@@ -1,6 +1,6 @@
 ﻿namespace Connapse.Core;
 
-public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5 }
+public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6 }
 
 public record ContainerSettingsOverrides
 {
@@ -20,6 +20,15 @@ public record ContainerSettingsOverrides
 /// Where the file actually is, absolutely and outside Connapse — <c>s3://bucket/key</c> for S3.
 /// Null for connectors with no meaningful external address.
 /// </param>
+/// <param name="Metadata">
+/// Facts the connector knows about the file that its content does not carry — a GitHub record's
+/// labels and links to other records. Copied onto the document when it is ingested. Null for
+/// connectors that have none.
+/// </param>
+/// <param name="Strategy">
+/// The chunker the file's shape calls for, when the connector knows better than the instance's
+/// configured strategy — a GitHub issue is a record, not a markdown article. Null for most files.
+/// </param>
 /// <remarks>
 /// <paramref name="ResourceUri"/> is reported rather than reconstructed, because reconstruction is
 /// wrong in cases nothing can detect. <paramref name="Path"/> is relative to the source's prefix,
@@ -36,7 +45,9 @@ public record ConnectorFile(
     long SizeBytes,
     DateTime LastModified,
     string? ContentType,
-    string? ResourceUri = null);
+    string? ResourceUri = null,
+    IReadOnlyDictionary<string, string>? Metadata = null,
+    ChunkingStrategy? Strategy = null);
 public record ConnectorFileEvent(ConnectorFileEventType EventType, string Path, string? OldPath = null);
 public enum ConnectorFileEventType { Created, Changed, Deleted, Renamed }
 

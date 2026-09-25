@@ -9,12 +9,21 @@ namespace Connapse.Core.Interfaces;
 /// date. When it is set, the caller must clear the stored cursor and re-list from scratch,
 /// which is why a resync response carries no <c>NextCursor</c>.
 /// </para>
+/// <para>
+/// <c>IsFullListing</c> says <c>Upserted</c> is everything the source currently holds, not only
+/// what changed — the answer to a null cursor. The caller then deletes whatever is indexed and
+/// not in it, under the same deletion guard as a list-and-diff source. Without that, a resync
+/// after a lost cursor, or after the source's scope was narrowed, re-adds what exists but never
+/// removes what went away in between.
+/// </para>
 /// </summary>
 public record SyncDelta(
     IReadOnlyList<ConnectorFile> Upserted,
     IReadOnlyList<string> DeletedPaths,
     string? NextCursor,
-    bool RequiresFullResync);
+    bool RequiresFullResync,
+    bool IsFullListing = false,
+    string? Notice = null);
 
 /// <summary>
 /// A connector that can report what changed since a durable cursor, rather than requiring

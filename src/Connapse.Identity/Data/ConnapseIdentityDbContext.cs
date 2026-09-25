@@ -21,6 +21,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<OAuthAuthCodeEntity> OAuthAuthCodes => Set<OAuthAuthCodeEntity>();
     public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
     public DbSet<UserAzureIdentityLinkEntity> UserAzureIdentityLinks => Set<UserAzureIdentityLinkEntity>();
+    public DbSet<UserGitHubIdentityLinkEntity> UserGitHubIdentityLinks => Set<UserGitHubIdentityLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,6 +38,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureOAuthAuthCodes(modelBuilder);
         ConfigureUserAwsIdentityLinks(modelBuilder);
         ConfigureUserAzureIdentityLinks(modelBuilder);
+        ConfigureUserGitHubIdentityLinks(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -689,6 +691,33 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.AzureIdentityLinks)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserGitHubIdentityLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserGitHubIdentityLinkEntity>(entity =>
+        {
+            entity.ToTable("user_github_identity_links");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+
+            // GitHub's numeric user id: permanent across renames, so it is what a link means.
+            entity.Property(e => e.GitHubUserId).HasColumnName("github_user_id").IsRequired();
+            entity.Property(e => e.Login).HasColumnName("login").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.ConnectedAt).HasColumnName("connected_at").HasDefaultValueSql("now()");
+
+            // One link per user: linking again replaces it.
+            entity.HasIndex(e => e.UserId)
+                .HasDatabaseName("ix_user_github_identity_links_user_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.GitHubIdentityLinks)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
