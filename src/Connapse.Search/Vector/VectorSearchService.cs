@@ -49,8 +49,25 @@ public class VectorSearchService
         }
 
         // Embed the query
-        var queryVector = await _embeddingProvider.EmbedAsync(query, ct);
+        var queryVector = await EmbedQueryAsync(query, ct);
 
+        return await SearchAsync(query, queryVector, options, scopes, ct);
+    }
+
+    public Task<float[]> EmbedQueryAsync(string query, CancellationToken ct = default) =>
+        _embeddingProvider.EmbedAsync(query, ct);
+
+    /// <summary>
+    /// Searches with a query vector the caller already embedded, so hybrid search can reuse it to
+    /// score keyword-only candidates without embedding the query twice.
+    /// </summary>
+    public async Task<List<SearchHit>> SearchAsync(
+        string query,
+        float[] queryVector,
+        SearchOptions options,
+        SearchScopes scopes,
+        CancellationToken ct = default)
+    {
         // Build filters for vector store
         var filters = new Dictionary<string, string>();
         if (!string.IsNullOrEmpty(options.ContainerId))
@@ -101,4 +118,14 @@ public class VectorSearchService
 
         return hits;
     }
+
+    /// <summary>
+    /// Similarity of the named chunks to <paramref name="queryVector"/> under the current embedding
+    /// model. Chunks embedded with another model have no comparable vector and are left out.
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
+        float[] queryVector,
+        IReadOnlyCollection<string> chunkIds,
+        CancellationToken ct = default) =>
+        _vectorStore.ScoreChunksAsync(queryVector, chunkIds, _embeddingSettings.CurrentValue.Model, ct);
 }

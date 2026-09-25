@@ -170,6 +170,42 @@ public class KeywordSearchService
         return hits;
     }
 
+    /// <summary>
+    /// The keyword rank the named chunks would have had for <paramref name="query"/>, scored the same
+    /// way as <see cref="SearchAsync"/>; a chunk that matches no term scores 0. Scores only — no
+    /// permission filter — so callers pass chunks a scoped search has already admitted.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
+        string query,
+        IReadOnlyCollection<string> chunkIds,
+        CancellationToken ct = default)
+    {
+        Guid[] ids = chunkIds
+            .Select(id => Guid.TryParse(id, out Guid g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .Distinct()
+            .ToArray();
+        if (string.IsNullOrWhiteSpace(query) || ids.Length == 0)
+            return new Dictionary<string, float>();
+
+        const string sql = @"
+            SELECT
+                c.id as ChunkId,
+                ts_rank_cd(c.search_vector,
+                    websearch_to_tsquery('simple', {0}) || websearch_to_tsquery('english', {0}),
+                    32) as Rank
+            FROM chunks c
+            WHERE c.id = ANY({1})";
+
+        List<ChunkRankRow> rows = await _context.Database
+            .SqlQueryRaw<ChunkRankRow>(sql, query, ids)
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
+    }
+
+    private record ChunkRankRow(Guid ChunkId, float Rank);
+
     private record KeywordSearchRow(
         Guid ChunkId,
         Guid DocumentId,

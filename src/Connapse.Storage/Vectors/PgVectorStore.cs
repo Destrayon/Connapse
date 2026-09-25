@@ -334,6 +334,45 @@ public class PgVectorStore : IVectorStore
         return searchResults;
     }
 
+    public async Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
+        float[] queryVector,
+        IReadOnlyCollection<string> chunkIds,
+        string modelId,
+        CancellationToken ct = default)
+    {
+        if (queryVector == null || queryVector.Length == 0)
+            throw new ArgumentException("Query vector cannot be null or empty", nameof(queryVector));
+
+        Guid[] ids = chunkIds
+            .Select(id => Guid.TryParse(id, out Guid g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .Distinct()
+            .ToArray();
+        if (ids.Length == 0)
+            return new Dictionary<string, float>();
+
+        int dims = queryVector.Length;
+        string sql = $@"
+            SELECT
+                cv.chunk_id as ""ChunkId"",
+                (cv.embedding::vector({dims}) <=> @queryVector) as ""Distance""
+            FROM chunk_vectors cv
+            WHERE cv.chunk_id = ANY(@chunkIds)
+              AND cv.model_id = @modelId";
+
+        List<ChunkDistanceRow> rows = await _context.Database
+            .SqlQueryRaw<ChunkDistanceRow>(
+                sql,
+                new NpgsqlParameter("@queryVector", new Vector(queryVector)),
+                new NpgsqlParameter("@chunkIds", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids },
+                new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(r => r.ChunkId.ToString(), r => (float)(1.0 - r.Distance));
+    }
+
+    private record ChunkDistanceRow(Guid ChunkId, double Distance);
+
     // DTO for raw SQL query result
     private record VectorSearchRow(
         Guid ChunkId,

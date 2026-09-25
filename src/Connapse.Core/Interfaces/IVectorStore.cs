@@ -9,6 +9,13 @@ public interface IVectorStore
     /// it compile, and forgetting it here returns everything to everyone.
     /// </param>
     Task<IReadOnlyList<VectorSearchResult>> SearchAsync(float[] queryVector, int topK, Dictionary<string, string>? filters, SearchScopes scopes, CancellationToken ct = default);
+    /// <summary>
+    /// Cosine similarity between <paramref name="queryVector"/> and the named chunks' vectors for
+    /// <paramref name="modelId"/>. Scores only — it applies no permission filter, so callers pass
+    /// chunks that have already been admitted by a scoped search. A chunk with no vector for the
+    /// model is absent from the result.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(float[] queryVector, IReadOnlyCollection<string> chunkIds, string modelId, CancellationToken ct = default);
     Task DeleteAsync(string id, CancellationToken ct = default);
     Task DeleteByDocumentIdAsync(string documentId, CancellationToken ct = default);
 
