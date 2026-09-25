@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search;
@@ -49,49 +50,91 @@ public sealed class EvalHost : IAsyncDisposable
             .WithImage("cgr.dev/chainguard/minio")
             .WithCreateParameterModifier(parameters => parameters.User = "0")
             .Build();
-        await Task.WhenAll(postgres.StartAsync(ct), minio.StartAsync(ct));
-
-        string minioHost = $"{minio.Hostname}:{minio.GetMappedPublicPort(9000)}";
-        WebApplicationFactory<Program> factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        try
         {
-            builder.UseContentRoot(webContentRoot);
-            builder.UseSetting("ConnectionStrings:DefaultConnection", postgres.GetConnectionString());
-            builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", minioHost);
-            builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
-            builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
-            builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-            builder.UseSetting("Knowledge:Summary:Enabled", "false");
-            builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
-            builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
-            builder.UseSetting("Identity:Jwt:Secret", JwtSecret);
-            builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
-            builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
-            foreach ((string key, string value) in config.Settings)
-                builder.UseSetting(key, value);
+            await Task.WhenAll(postgres.StartAsync(ct), minio.StartAsync(ct));
 
-            builder.ConfigureTestServices(services =>
+            string minioHost = $"{minio.Hostname}:{minio.GetMappedPublicPort(9000)}";
+            WebApplicationFactory<Program> factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
-                // The harness measures ranking, not permissions: every eval document is visible.
-                services.RemoveAll<ISearchScopeResolver>();
-                services.AddScoped<ISearchScopeResolver, UnrestrictedScopeResolver>();
+                builder.UseContentRoot(webContentRoot);
+                builder.UseSetting("ConnectionStrings:DefaultConnection", postgres.GetConnectionString());
+                builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", minioHost);
+                builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
+                builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
+                builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
+                builder.UseSetting("Knowledge:Summary:Enabled", "false");
+                builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
+                builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
+                builder.UseSetting("Identity:Jwt:Secret", JwtSecret);
+                builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
+                builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
+                foreach ((string key, string value) in config.Settings)
+                    builder.UseSetting(key, value);
 
-                ServiceDescriptor original = services.Last(d => d.ServiceType == typeof(IEmbeddingProvider));
-                services.RemoveAll<IEmbeddingProvider>();
-                services.AddScoped<IEmbeddingProvider>(sp => new CachingEmbeddingProvider(
-                    embeddingOverride ?? (IEmbeddingProvider)original.ImplementationFactory!(sp), cache));
+                builder.ConfigureTestServices(services =>
+                {
+                    // The harness measures ranking, not permissions: every eval document is visible.
+                    services.RemoveAll<ISearchScopeResolver>();
+                    services.AddScoped<ISearchScopeResolver, UnrestrictedScopeResolver>();
+
+                    ServiceDescriptor original = services.Last(d => d.ServiceType == typeof(IEmbeddingProvider));
+                    services.RemoveAll<IEmbeddingProvider>();
+                    services.AddScoped<IEmbeddingProvider>(sp => new CachingEmbeddingProvider(
+                        embeddingOverride ?? (IEmbeddingProvider)original.ImplementationFactory!(sp), cache));
+                });
             });
-        });
 
-        using HttpClient client = factory.CreateClient();
-        await WaitForHealthAsync(client, ct);
-        return new EvalHost(postgres, minio, factory);
+            try
+            {
+                using HttpClient client = factory.CreateClient();
+                await WaitForHealthAsync(client, ct);
+                return new EvalHost(postgres, minio, factory);
+            }
+            catch
+            {
+                await factory.DisposeAsync();
+                throw;
+            }
+        }
+        catch
+        {
+            await postgres.DisposeAsync();
+            await minio.DisposeAsync();
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await _factory.DisposeAsync();
-        await _postgres.DisposeAsync();
-        await _minio.DisposeAsync();
+        // Each disposal must run even if an earlier one throws, or the containers leak.
+        // The first exception wins; later ones are secondary noise once containers are torn down.
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            await _factory.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            failure = ExceptionDispatchInfo.Capture(ex);
+        }
+        try
+        {
+            await _postgres.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            failure ??= ExceptionDispatchInfo.Capture(ex);
+        }
+        try
+        {
+            await _minio.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            failure ??= ExceptionDispatchInfo.Capture(ex);
+        }
+        failure?.Throw();
     }
 
     private static async Task WaitForHealthAsync(HttpClient client, CancellationToken ct)
