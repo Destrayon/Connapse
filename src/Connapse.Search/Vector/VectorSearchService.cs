@@ -86,10 +86,7 @@ public class VectorSearchService
 
         // Filter by current embedding model to ensure dimension consistency.
         // Cosine similarity between vectors from different models is meaningless.
-        if (!filters.ContainsKey("modelId"))
-        {
-            filters["modelId"] = _embeddingSettings.CurrentValue.Model;
-        }
+        filters["modelId"] = ResolveModelId(options);
 
         // Search the vector store
         var results = await _vectorStore.SearchAsync(
@@ -120,12 +117,25 @@ public class VectorSearchService
     }
 
     /// <summary>
-    /// Similarity of the named chunks to <paramref name="queryVector"/> under the current embedding
-    /// model. Chunks embedded with another model have no comparable vector and are left out.
+    /// Similarity of the named chunks to <paramref name="queryVector"/> under the model
+    /// <see cref="SearchAsync(string, float[], SearchOptions, SearchScopes, CancellationToken)"/>
+    /// would search with the same <paramref name="options"/>, so both halves of a hybrid search
+    /// compare against one model. Chunks with no vector for it are left out.
     /// </summary>
     public Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
         float[] queryVector,
         IReadOnlyCollection<string> chunkIds,
+        SearchOptions options,
         CancellationToken ct = default) =>
-        _vectorStore.ScoreChunksAsync(queryVector, chunkIds, _embeddingSettings.CurrentValue.Model, ct);
+        _vectorStore.ScoreChunksAsync(queryVector, chunkIds, ResolveModelId(options), ct);
+
+    /// <summary>
+    /// The caller's explicit <c>modelId</c> filter, else the current embedding model.
+    /// </summary>
+    private string ResolveModelId(SearchOptions options) =>
+        options.Filters is not null
+        && options.Filters.TryGetValue("modelId", out string? modelId)
+        && !string.IsNullOrWhiteSpace(modelId)
+            ? modelId
+            : _embeddingSettings.CurrentValue.Model;
 }
