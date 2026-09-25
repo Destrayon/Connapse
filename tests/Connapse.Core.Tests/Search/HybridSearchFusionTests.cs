@@ -513,6 +513,34 @@ public class HybridSearchFusionTests
     }
 
     [Fact]
+    public void PooledScores_KeywordSideAllZero_GivesNoKeywordCredit()
+    {
+        // Keyword search found nothing, so pooling filled every vector hit's keyword side with 0.
+        // An all-zero tie must normalise to 0, not to a perfect 1.
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector"), Hit("c2", "doc2", 0.5f, "vector") };
+        var keyword = HybridSearchService.WithPoolScores(
+            [], vector, new Dictionary<string, float> { ["c1"] = 0f, ["c2"] = 0f });
+
+        var result = HybridSearchService.FuseResults(vector, keyword, alpha: 0.3f);
+
+        result.Single(h => h.ChunkId == "c1").Score.Should().BeApproximately(0.3f, 0.0001f);
+        result.Single(h => h.ChunkId == "c2").Score.Should().Be(0f);
+        result.Should().OnlyContain(h => h.Metadata["keywordScore"] == "0.0000");
+    }
+
+    [Fact]
+    public void PooledScores_KeywordSideAllZero_DbsfGivesNoKeywordCreditEither()
+    {
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector"), Hit("c2", "doc2", 0.5f, "vector") };
+        var keyword = HybridSearchService.WithPoolScores(
+            [], vector, new Dictionary<string, float> { ["c1"] = 0f, ["c2"] = 0f });
+
+        var result = HybridSearchService.FuseResultsDbsf(vector, keyword, alpha: 0.3f);
+
+        result.Should().OnlyContain(h => h.Metadata["keywordScore"] == "0.0000");
+    }
+
+    [Fact]
     public void TagRetrievalSource_TagsBySearchThatFoundTheHit_NotByPooledScoring()
     {
         var fused = new List<SearchHit>

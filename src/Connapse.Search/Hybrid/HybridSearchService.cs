@@ -253,7 +253,7 @@ public class HybridSearchService : IKnowledgeSearch
             keywordResults.Count);
 
         var (vectorPool, keywordPool) = await ScoreAcrossPoolAsync(
-            query, queryVector, vectorResults, keywordResults, ct);
+            query, queryVector, poolOptions, vectorResults, keywordResults, ct);
 
         List<SearchHit> fused;
         if (string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase))
@@ -280,6 +280,7 @@ public class HybridSearchService : IKnowledgeSearch
     private async Task<(List<SearchHit> Vector, List<SearchHit> Keyword)> ScoreAcrossPoolAsync(
         string query,
         float[] queryVector,
+        SearchOptions options,
         List<SearchHit> vectorResults,
         List<SearchHit> keywordResults,
         CancellationToken ct)
@@ -299,7 +300,7 @@ public class HybridSearchService : IKnowledgeSearch
                 if (needVector.Count == 0) return (IReadOnlyDictionary<string, float>)new Dictionary<string, float>();
                 await using var scope = _scopeFactory.CreateAsyncScope();
                 return await scope.ServiceProvider.GetRequiredService<VectorSearchService>()
-                    .ScoreChunksAsync(queryVector, needVector, ct);
+                    .ScoreChunksAsync(queryVector, needVector, options, ct);
             }, ct);
 
             var keywordScoresTask = Task.Run(async () =>
@@ -503,7 +504,7 @@ public class HybridSearchService : IKnowledgeSearch
         var stdDev = Math.Sqrt(scores.Average(s => (s - mean) * (s - mean)));
 
         if (stdDev < 1e-9)
-            return hits.Select(h => (h, 1f)).ToList();
+            return hits.Select(h => (h, TiedScore(h.Score))).ToList();
 
         var lower = mean - 3 * stdDev;
         var range = 6 * stdDev;
@@ -523,8 +524,15 @@ public class HybridSearchService : IKnowledgeSearch
         var min = hits.Min(h => h.Score);
         var range = max - min;
 
-        return hits.Select(h => (h, range > 0 ? (h.Score - min) / range : 1f)).ToList();
+        return hits.Select(h => (h, range > 0 ? (h.Score - min) / range : TiedScore(h.Score))).ToList();
     }
+
+    /// <summary>
+    /// Normalised score for a side whose scores are all equal. A tie at a real score keeps full
+    /// credit, but a tie at zero is "nothing matched" — pooling fills a side that retrieved nothing
+    /// with zeros, and those must not normalise to a perfect score.
+    /// </summary>
+    private static float TiedScore(float score) => score > 0 ? 1f : 0f;
 
     /// <summary>
     /// Trims results after the largest relative score gap.
