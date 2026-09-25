@@ -223,8 +223,10 @@ public record SearchSettings
 
     /// <summary>
     /// Cross-encoder model name (e.g., "BAAI/bge-reranker-large", "rerank-v3.5", "jina-reranker-v3").
+    /// The default is the model the optional Compose <c>reranker</c> service loads; TEI serves
+    /// whichever model it was started with, so for TEI this names it rather than selects it.
     /// </summary>
-    public string? CrossEncoderModel { get; set; }
+    public string? CrossEncoderModel { get; set; } = "Alibaba-NLP/gte-reranker-modernbert-base";
 
     /// <summary>
     /// Base URL for self-hosted reranker (TEI) or Azure AI Foundry endpoint.
@@ -242,9 +244,18 @@ public record SearchSettings
     public int CrossEncoderTopN { get; set; } = 0;
 
     /// <summary>
-    /// Request timeout in seconds for cross-encoder reranking.
+    /// Top-ranked candidates handed to the cross-encoder after fusion (default: 30). Reranking cost
+    /// grows with this; the 2026-09-24 evaluation measured 30 at about 45 ms on a GPU. Never
+    /// fewer than the search needs to fill its page.
     /// </summary>
-    public int CrossEncoderTimeoutSeconds { get; set; } = 30;
+    [Range(1, 500)]
+    public int RerankCandidates { get; set; } = 30;
+
+    /// <summary>
+    /// Request timeout in seconds for cross-encoder reranking (default: 5). A search waits this long
+    /// at most, then returns the un-reranked order.
+    /// </summary>
+    public int CrossEncoderTimeoutSeconds { get; set; } = 5;
 
     /// <summary>
     /// When true, Semantic searches automatically include keyword results to surface

@@ -119,6 +119,12 @@
             }
 
             <div class="col-md-3">
+                <label class="form-label">Candidates</label>
+                <InputNumber @bind-Value="localSettings.RerankCandidates" class="form-control" min="1" max="500" />
+                <small class="form-text text-muted">Top results sent to the reranker</small>
+            </div>
+
+            <div class="col-md-3">
                 <label class="form-label">Top N</label>
                 <InputNumber @bind-Value="localSettings.CrossEncoderTopN" class="form-control" />
                 <small class="form-text text-muted">0 = rerank all</small>
@@ -239,9 +245,18 @@
     private bool testSuccess;
     private string? testMessage;
 
+    // The TEI address this deployment resolved (in Compose, http://reranker:80 from the web
+    // container's environment), kept so switching providers and back doesn't replace it with
+    // localhost — which, saved, would outrank the environment and point the web container at itself.
+    private string? teiBaseUrl;
+    private string? currentProvider;
+
     protected override void OnParametersSet()
     {
         localSettings = Settings with { };
+        currentProvider = localSettings.CrossEncoderProvider;
+        if (currentProvider == "TEI" && !string.IsNullOrWhiteSpace(localSettings.CrossEncoderBaseUrl))
+            teiBaseUrl = localSettings.CrossEncoderBaseUrl;
     }
 
     protected override async Task OnInitializedAsync()
@@ -276,11 +291,15 @@
             "Jina" => "jina-reranker-v3",
             "AzureAIFoundry" => null,
             "Voyage" => "rerank-2.5-lite",
-            _ => "BAAI/bge-reranker-large"
+            _ => "Alibaba-NLP/gte-reranker-modernbert-base"
         };
 
+        if (currentProvider == "TEI" && !string.IsNullOrWhiteSpace(localSettings.CrossEncoderBaseUrl))
+            teiBaseUrl = localSettings.CrossEncoderBaseUrl;
+        currentProvider = localSettings.CrossEncoderProvider;
+
         localSettings.CrossEncoderBaseUrl = localSettings.CrossEncoderProvider == "TEI"
-            ? "http://localhost:8080"
+            ? teiBaseUrl ?? "http://localhost:8080"
             : null;
 
         localSettings.CrossEncoderApiKey = null;

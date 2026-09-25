@@ -566,6 +566,59 @@ public class HybridSearchFusionTests
         settings.HybridCandidatePool.Should().Be(30);
     }
 
+    [Fact]
+    public void TopCandidates_MoreHitsThanCount_KeepsTheBestByScore()
+    {
+        var hits = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.2f, "both"),
+            Hit("c2", "doc2", 0.9f, "both"),
+            Hit("c3", "doc3", 0.5f, "both"),
+        };
+
+        var top = HybridSearchService.TopCandidates(hits, 2);
+
+        top.Select(h => h.ChunkId).Should().Equal("c2", "c3");
+    }
+
+    [Fact]
+    public void AppendBelow_PoolLargerThanRerankHead_KeepsTheRestBelowInFirstStageOrder()
+    {
+        // The verifier backfills from these: dropping them would return an empty page when the
+        // searcher may not read the head but can read results further down.
+        var pool = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.9f, "both"), Hit("c2", "doc2", 0.8f, "both"),
+            Hit("c3", "doc3", 0.4f, "both"), Hit("c4", "doc4", 0.6f, "both"),
+        };
+        var head = HybridSearchService.TopCandidates(pool, 2);
+        var reranked = new List<SearchHit> { Hit("c2", "doc2", 0.2f, "both"), Hit("c1", "doc1", 0.05f, "both") };
+
+        var result = HybridSearchService.AppendBelow(reranked, pool, head)
+            .OrderByDescending(h => h.Score)
+            .ToList();
+
+        result.Select(h => h.ChunkId).Should().Equal("c2", "c1", "c4", "c3");
+        result.Skip(2).Should().OnlyContain(h => h.Score < 0.05f);
+    }
+
+    [Fact]
+    public void AppendBelow_EverythingWasReranked_ReturnsTheRerankedList()
+    {
+        var pool = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "both") };
+        var reranked = new List<SearchHit> { Hit("c1", "doc1", 0.7f, "both") };
+
+        HybridSearchService.AppendBelow(reranked, pool, pool).Should().BeSameAs(reranked);
+    }
+
+    [Fact]
+    public void TopCandidates_FewerHitsThanCount_ReturnsAll()
+    {
+        var hits = new List<SearchHit> { Hit("c1", "doc1", 0.2f, "both") };
+
+        HybridSearchService.TopCandidates(hits, 30).Should().BeSameAs(hits);
+    }
+
     private static SearchHit Hit(string chunkId, string documentId, float score, string source)
     {
         return new SearchHit(

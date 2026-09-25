@@ -63,7 +63,21 @@ docker compose up -d
 
 # With Ollama (includes local embedding + LLM)
 docker compose --profile with-ollama up -d
+
+# Add the optional local reranker (better search ranking, ~2 GB RAM)
+docker compose --profile with-ollama --profile with-reranker up -d
+
+# ...on an NVIDIA GPU (set RERANKER_GPU_IMAGE for GPUs older than RTX 50-series)
+docker compose -f docker-compose.yml -f docker-compose.reranker-gpu.yml --profile with-ollama --profile with-reranker up -d
 ```
+
+The reranker is a cross-encoder (`Alibaba-NLP/gte-reranker-modernbert-base`, served by Hugging Face
+TEI) that re-scores the top 30 hybrid-search candidates. It downloads the model on first start.
+To turn it on, open **Settings → Search**, set **Reranker** to **Cross-Encoder** and keep the TEI
+provider. The web container already points at `http://reranker:80`. If the reranker is down or takes
+longer than the timeout (5 s), search returns the un-reranked order and logs the error. In the
+2026-09-24 retrieval evaluation it was the largest single gain in ranking quality, at about 45–70 ms
+per search on a GPU. It's slower on CPU.
 
 > **Compose file layout**: `docker-compose.yml` is the production base (no host-exposed ports,
 > services isolated on an internal network). `docker-compose.dev.yml` is a development overlay —
