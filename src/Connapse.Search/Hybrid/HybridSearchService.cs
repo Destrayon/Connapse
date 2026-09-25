@@ -218,26 +218,33 @@ public class HybridSearchService : IKnowledgeSearch
         SearchScopes scopes,
         CancellationToken ct)
     {
+        var settings = _searchSettingsMonitor.CurrentValue;
+
+        // Each side retrieves a pool wider than the page. With only the top few per side, the other
+        // side's view of a candidate is mostly missing, and fusion can only guess it as zero.
+        SearchOptions poolOptions = options with { TopK = Math.Max(options.TopK, settings.HybridCandidatePool) };
+
         // Run both searches in parallel, each with its own scope (and thus separate DbContext)
         var vectorTask = Task.Run(async () =>
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
-            var results = await vectorSearch.SearchAsync(query, options, scopes, ct);
-            return results;
+            float[] queryVector = await vectorSearch.EmbedQueryAsync(query, ct);
+            var results = await vectorSearch.SearchAsync(query, queryVector, poolOptions, scopes, ct);
+            return (queryVector, results);
         }, ct);
 
         var keywordTask = Task.Run(async () =>
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var keywordSearch = scope.ServiceProvider.GetRequiredService<KeywordSearchService>();
-            var results = await keywordSearch.SearchAsync(query, options, scopes, ct);
+            var results = await keywordSearch.SearchAsync(query, poolOptions, scopes, ct);
             return results;
         }, ct);
 
         await Task.WhenAll(vectorTask, keywordTask);
 
-        var vectorResults = await vectorTask;
+        var (queryVector, vectorResults) = await vectorTask;
         var keywordResults = await keywordTask;
 
         _logger.LogDebug(
@@ -245,15 +252,127 @@ public class HybridSearchService : IKnowledgeSearch
             vectorResults.Count,
             keywordResults.Count);
 
-        var settings = _searchSettingsMonitor.CurrentValue;
+        var (vectorPool, keywordPool) = await ScoreAcrossPoolAsync(
+            query, queryVector, poolOptions, vectorResults, keywordResults, ct);
 
+        List<SearchHit> fused;
         if (string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase))
-            return FuseResultsDbsf(vectorResults, keywordResults, settings.FusionAlpha);
+        {
+            fused = FuseResultsDbsf(vectorPool, keywordPool, settings.FusionAlpha);
+        }
+        else
+        {
+            if (!string.Equals(settings.FusionMethod, "ConvexCombination", StringComparison.OrdinalIgnoreCase))
+                _logger.LogWarning("Unknown FusionMethod '{Method}', defaulting to ConvexCombination", settings.FusionMethod);
 
-        if (!string.Equals(settings.FusionMethod, "ConvexCombination", StringComparison.OrdinalIgnoreCase))
-            _logger.LogWarning("Unknown FusionMethod '{Method}', defaulting to ConvexCombination", settings.FusionMethod);
+            fused = FuseResults(vectorPool, keywordPool, settings.FusionAlpha);
+        }
 
-        return FuseResults(vectorResults, keywordResults, settings.FusionAlpha);
+        return TagRetrievalSource(fused, vectorResults, keywordResults);
+    }
+
+    /// <summary>
+    /// Gives every pooled candidate a score on both sides: vector similarity for the chunks only
+    /// keyword search found, keyword rank for the chunks only vector search found. Candidates were
+    /// all admitted by a scoped search already, so scoring them widens nothing. If the extra scoring
+    /// fails, fusion proceeds on what each side retrieved, as it did before pooling.
+    /// </summary>
+    private async Task<(List<SearchHit> Vector, List<SearchHit> Keyword)> ScoreAcrossPoolAsync(
+        string query,
+        float[] queryVector,
+        SearchOptions options,
+        List<SearchHit> vectorResults,
+        List<SearchHit> keywordResults,
+        CancellationToken ct)
+    {
+        HashSet<string> inVector = vectorResults.Select(h => h.ChunkId).ToHashSet();
+        HashSet<string> inKeyword = keywordResults.Select(h => h.ChunkId).ToHashSet();
+        List<string> needVector = inKeyword.Where(id => !inVector.Contains(id)).ToList();
+        List<string> needKeyword = inVector.Where(id => !inKeyword.Contains(id)).ToList();
+
+        if (needVector.Count == 0 && needKeyword.Count == 0)
+            return (vectorResults, keywordResults);
+
+        try
+        {
+            var vectorScoresTask = Task.Run(async () =>
+            {
+                if (needVector.Count == 0) return (IReadOnlyDictionary<string, float>)new Dictionary<string, float>();
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<VectorSearchService>()
+                    .ScoreChunksAsync(queryVector, needVector, options, ct);
+            }, ct);
+
+            var keywordScoresTask = Task.Run(async () =>
+            {
+                if (needKeyword.Count == 0) return (IReadOnlyDictionary<string, float>)new Dictionary<string, float>();
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                return await scope.ServiceProvider.GetRequiredService<KeywordSearchService>()
+                    .ScoreChunksAsync(query, needKeyword, ct);
+            }, ct);
+
+            await Task.WhenAll(vectorScoresTask, keywordScoresTask);
+
+            return (
+                WithPoolScores(vectorResults, keywordResults, await vectorScoresTask),
+                WithPoolScores(keywordResults, vectorResults, await keywordScoresTask));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not score hybrid candidates on both sides; fusing each side's own results");
+            return (vectorResults, keywordResults);
+        }
+    }
+
+    /// <summary>
+    /// One side's results plus the other side's candidates it did not retrieve, carrying the score
+    /// this side gives them. A candidate this side cannot score (no vector for the current model)
+    /// stays out and counts as this side's lowest score at fusion.
+    /// </summary>
+    internal static List<SearchHit> WithPoolScores(
+        List<SearchHit> side,
+        List<SearchHit> other,
+        IReadOnlyDictionary<string, float> scores)
+    {
+        var pooled = new List<SearchHit>(side);
+        HashSet<string> present = side.Select(h => h.ChunkId).ToHashSet();
+
+        foreach (SearchHit hit in other)
+        {
+            if (present.Add(hit.ChunkId) && scores.TryGetValue(hit.ChunkId, out float score))
+                pooled.Add(hit with { Score = score });
+        }
+
+        return pooled;
+    }
+
+    /// <summary>
+    /// Pooling scores every candidate on both sides, so fusion alone would tag them all "both".
+    /// The tag says which search actually found the hit.
+    /// </summary>
+    internal static List<SearchHit> TagRetrievalSource(
+        List<SearchHit> fused,
+        List<SearchHit> vectorResults,
+        List<SearchHit> keywordResults)
+    {
+        HashSet<string> inVector = vectorResults.Select(h => h.ChunkId).ToHashSet();
+        HashSet<string> inKeyword = keywordResults.Select(h => h.ChunkId).ToHashSet();
+
+        return fused
+            .Select(hit =>
+            {
+                string source = (inVector.Contains(hit.ChunkId), inKeyword.Contains(hit.ChunkId)) switch
+                {
+                    (true, true) => "both",
+                    (true, false) => "vector",
+                    _ => "keyword"
+                };
+
+                return hit.Metadata.GetValueOrDefault("source") == source
+                    ? hit
+                    : hit with { Metadata = new Dictionary<string, string>(hit.Metadata) { ["source"] = source } };
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -385,7 +504,7 @@ public class HybridSearchService : IKnowledgeSearch
         var stdDev = Math.Sqrt(scores.Average(s => (s - mean) * (s - mean)));
 
         if (stdDev < 1e-9)
-            return hits.Select(h => (h, 1f)).ToList();
+            return hits.Select(h => (h, TiedScore(h.Score))).ToList();
 
         var lower = mean - 3 * stdDev;
         var range = 6 * stdDev;
@@ -405,8 +524,15 @@ public class HybridSearchService : IKnowledgeSearch
         var min = hits.Min(h => h.Score);
         var range = max - min;
 
-        return hits.Select(h => (h, range > 0 ? (h.Score - min) / range : 1f)).ToList();
+        return hits.Select(h => (h, range > 0 ? (h.Score - min) / range : TiedScore(h.Score))).ToList();
     }
+
+    /// <summary>
+    /// Normalised score for a side whose scores are all equal. A tie at a real score keeps full
+    /// credit, but a tie at zero is "nothing matched" — pooling fills a side that retrieved nothing
+    /// with zeros, and those must not normalise to a perfect score.
+    /// </summary>
+    private static float TiedScore(float score) => score > 0 ? 1f : 0f;
 
     /// <summary>
     /// Trims results after the largest relative score gap.

@@ -463,6 +463,109 @@ public class HybridSearchFusionTests
         result.Should().HaveCount(3);
     }
 
+    // ── Candidate pooling (#521) ────────────────────────────────────────────
+
+    [Fact]
+    public void WithPoolScores_OtherSidesCandidate_AddedWithThisSidesScore()
+    {
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector") };
+        var keyword = new List<SearchHit> { Hit("c1", "doc1", 0.4f, "keyword"), Hit("c2", "doc2", 0.3f, "keyword") };
+
+        var pooled = HybridSearchService.WithPoolScores(vector, keyword, new Dictionary<string, float> { ["c2"] = 0.6f });
+
+        pooled.Should().HaveCount(2);
+        pooled.Single(h => h.ChunkId == "c1").Score.Should().Be(0.9f);
+        pooled.Single(h => h.ChunkId == "c2").Score.Should().Be(0.6f);
+    }
+
+    [Fact]
+    public void WithPoolScores_CandidateThisSideCannotScore_LeftOut()
+    {
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector") };
+        var keyword = new List<SearchHit> { Hit("c2", "doc2", 0.3f, "keyword") };
+
+        var pooled = HybridSearchService.WithPoolScores(vector, keyword, new Dictionary<string, float>());
+
+        pooled.Select(h => h.ChunkId).Should().Equal("c1");
+    }
+
+    [Fact]
+    public void PooledScores_KeywordOnlyHitWithStrongVectorScore_OutranksWhatZeroFillWouldGiveIt()
+    {
+        // c3 was found only by keyword search. Zero-filled, its vector side counts as 0; pooled,
+        // it gets its real (high) similarity and ranks above the weak vector hit c2.
+        var vector = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.90f, "vector"), Hit("c2", "doc2", 0.50f, "vector"), Hit("c4", "doc4", 0.30f, "vector"),
+        };
+        var keyword = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.20f, "keyword"), Hit("c3", "doc3", 0.10f, "keyword"), Hit("c5", "doc5", 0.05f, "keyword"),
+        };
+
+        var zeroFilled = HybridSearchService.FuseResults(vector, keyword, alpha: 0.7f);
+        var pooledVector = HybridSearchService.WithPoolScores(vector, keyword, new Dictionary<string, float> { ["c3"] = 0.85f });
+        var pooledKeyword = HybridSearchService.WithPoolScores(keyword, vector, new Dictionary<string, float> { ["c2"] = 0f, ["c4"] = 0f });
+        var pooled = HybridSearchService.FuseResults(pooledVector, pooledKeyword, alpha: 0.7f);
+
+        zeroFilled.Take(3).Select(h => h.ChunkId).Should().Equal("c1", "c2", "c3");
+        pooled.Take(3).Select(h => h.ChunkId).Should().Equal("c1", "c3", "c2");
+    }
+
+    [Fact]
+    public void PooledScores_KeywordSideAllZero_GivesNoKeywordCredit()
+    {
+        // Keyword search found nothing, so pooling filled every vector hit's keyword side with 0.
+        // An all-zero tie must normalise to 0, not to a perfect 1.
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector"), Hit("c2", "doc2", 0.5f, "vector") };
+        var keyword = HybridSearchService.WithPoolScores(
+            [], vector, new Dictionary<string, float> { ["c1"] = 0f, ["c2"] = 0f });
+
+        var result = HybridSearchService.FuseResults(vector, keyword, alpha: 0.3f);
+
+        result.Single(h => h.ChunkId == "c1").Score.Should().BeApproximately(0.3f, 0.0001f);
+        result.Single(h => h.ChunkId == "c2").Score.Should().Be(0f);
+        result.Should().OnlyContain(h => h.Metadata["keywordScore"] == "0.0000");
+    }
+
+    [Fact]
+    public void PooledScores_KeywordSideAllZero_DbsfGivesNoKeywordCreditEither()
+    {
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector"), Hit("c2", "doc2", 0.5f, "vector") };
+        var keyword = HybridSearchService.WithPoolScores(
+            [], vector, new Dictionary<string, float> { ["c1"] = 0f, ["c2"] = 0f });
+
+        var result = HybridSearchService.FuseResultsDbsf(vector, keyword, alpha: 0.3f);
+
+        result.Should().OnlyContain(h => h.Metadata["keywordScore"] == "0.0000");
+    }
+
+    [Fact]
+    public void TagRetrievalSource_TagsBySearchThatFoundTheHit_NotByPooledScoring()
+    {
+        var fused = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.9f, "both"),
+            Hit("c2", "doc2", 0.5f, "both"),
+            Hit("c3", "doc3", 0.4f, "both"),
+        };
+        var vector = new List<SearchHit> { Hit("c1", "doc1", 0.9f, "vector"), Hit("c2", "doc2", 0.5f, "vector") };
+        var keyword = new List<SearchHit> { Hit("c1", "doc1", 0.2f, "keyword"), Hit("c3", "doc3", 0.1f, "keyword") };
+
+        var tagged = HybridSearchService.TagRetrievalSource(fused, vector, keyword);
+
+        tagged.Select(h => h.Metadata["source"]).Should().Equal("both", "vector", "keyword");
+    }
+
+    [Fact]
+    public void SearchSettings_Defaults_LeanTowardKeywordWithAPoolOfThirty()
+    {
+        var settings = new SearchSettings();
+
+        settings.FusionAlpha.Should().Be(0.3f);
+        settings.HybridCandidatePool.Should().Be(30);
+    }
+
     private static SearchHit Hit(string chunkId, string documentId, float score, string source)
     {
         return new SearchHit(

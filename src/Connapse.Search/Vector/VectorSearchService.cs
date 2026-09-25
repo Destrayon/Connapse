@@ -49,8 +49,25 @@ public class VectorSearchService
         }
 
         // Embed the query
-        var queryVector = await _embeddingProvider.EmbedAsync(query, ct);
+        var queryVector = await EmbedQueryAsync(query, ct);
 
+        return await SearchAsync(query, queryVector, options, scopes, ct);
+    }
+
+    public Task<float[]> EmbedQueryAsync(string query, CancellationToken ct = default) =>
+        _embeddingProvider.EmbedAsync(query, ct);
+
+    /// <summary>
+    /// Searches with a query vector the caller already embedded, so hybrid search can reuse it to
+    /// score keyword-only candidates without embedding the query twice.
+    /// </summary>
+    public async Task<List<SearchHit>> SearchAsync(
+        string query,
+        float[] queryVector,
+        SearchOptions options,
+        SearchScopes scopes,
+        CancellationToken ct = default)
+    {
         // Build filters for vector store
         var filters = new Dictionary<string, string>();
         if (!string.IsNullOrEmpty(options.ContainerId))
@@ -69,10 +86,7 @@ public class VectorSearchService
 
         // Filter by current embedding model to ensure dimension consistency.
         // Cosine similarity between vectors from different models is meaningless.
-        if (!filters.ContainsKey("modelId"))
-        {
-            filters["modelId"] = _embeddingSettings.CurrentValue.Model;
-        }
+        filters["modelId"] = ResolveModelId(options);
 
         // Search the vector store
         var results = await _vectorStore.SearchAsync(
@@ -101,4 +115,27 @@ public class VectorSearchService
 
         return hits;
     }
+
+    /// <summary>
+    /// Similarity of the named chunks to <paramref name="queryVector"/> under the model
+    /// <see cref="SearchAsync(string, float[], SearchOptions, SearchScopes, CancellationToken)"/>
+    /// would search with the same <paramref name="options"/>, so both halves of a hybrid search
+    /// compare against one model. Chunks with no vector for it are left out.
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
+        float[] queryVector,
+        IReadOnlyCollection<string> chunkIds,
+        SearchOptions options,
+        CancellationToken ct = default) =>
+        _vectorStore.ScoreChunksAsync(queryVector, chunkIds, ResolveModelId(options), ct);
+
+    /// <summary>
+    /// The caller's explicit <c>modelId</c> filter, else the current embedding model.
+    /// </summary>
+    private string ResolveModelId(SearchOptions options) =>
+        options.Filters is not null
+        && options.Filters.TryGetValue("modelId", out string? modelId)
+        && !string.IsNullOrWhiteSpace(modelId)
+            ? modelId
+            : _embeddingSettings.CurrentValue.Model;
 }
