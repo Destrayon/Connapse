@@ -52,6 +52,20 @@ public class FailClosedWiringTests
     private static string Source => ReadHybridSearchServiceSource();
 
     [Fact]
+    public void SearchAsync_Source_VerifiesCandidatesBeforeTheyReachTheReranker()
+    {
+        // The reranker can be a third-party service; a hit the searcher may not read must not be
+        // sent to it. Fails if the pre-rerank verify is removed or moved after the rerank call.
+        string source = Source;
+        int rerank = source.IndexOf("reranker.RerankAsync(", StringComparison.Ordinal);
+        int verify = source.IndexOf("verifier.VerifyAsync(", StringComparison.Ordinal);
+
+        rerank.Should().BeGreaterThan(0);
+        verify.Should().BeGreaterThan(0).And.BeLessThan(rerank);
+        source.Should().Contain("verifiedBeforeRerank = true");
+    }
+
+    [Fact]
     public void SearchAsync_Source_CallsScopeResolutionGuard()
     {
         // Pins presence, not correctness: this fails if the Guard call is deleted (for example,

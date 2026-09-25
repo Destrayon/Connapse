@@ -154,6 +154,7 @@ public class HybridSearchService : IKnowledgeSearch
         }
 
         // Apply reranking if configured
+        bool verifiedBeforeRerank = false;
         var rerankerName = searchSettings.Reranker;
         if (!string.IsNullOrEmpty(rerankerName) && rerankerName != "None")
         {
@@ -163,6 +164,15 @@ public class HybridSearchService : IKnowledgeSearch
             if (reranker != null)
             {
                 _logger.LogDebug("Applying {Reranker} reranker", rerankerName);
+
+                // Only what the searcher may read goes to the reranker, which can be a third-party
+                // service. The verifier checks every candidate it is given either way, so checking
+                // here instead of after ranking costs no extra permission calls; the cap is the whole
+                // pool so the backfill material survives.
+                hits = (await verifier.VerifyAsync(
+                    hits.OrderByDescending(h => h.Score).ToList(), options.UserId, hits.Count, ct)).ToList();
+                verifiedBeforeRerank = true;
+
                 List<SearchHit> head = TopCandidates(hits, Math.Max(searchSettings.RerankCandidates, retrieveOptions.TopK));
                 List<SearchHit> reranked = await reranker.RerankAsync(query, head, ct);
 
@@ -187,7 +197,9 @@ public class HybridSearchService : IKnowledgeSearch
         // Per-hit verify + backfill: drops hits the searcher may not read and backfills from the
         // over-fetched, lower-ranked candidates so up to options.TopK survivors come back where
         // possible. Passes s3/non-cloud hits and everything else untouched when not enforcing.
-        IReadOnlyList<SearchHit> verified = await verifier.VerifyAsync(ordered, options.UserId, options.TopK, ct);
+        IReadOnlyList<SearchHit> verified = verifiedBeforeRerank
+            ? ordered
+            : await verifier.VerifyAsync(ordered, options.UserId, options.TopK, ct);
 
         var filtered = verified.ToList();
         if (searchSettings.AutoCut)
