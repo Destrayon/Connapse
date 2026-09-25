@@ -163,7 +163,10 @@ public class HybridSearchService : IKnowledgeSearch
             if (reranker != null)
             {
                 _logger.LogDebug("Applying {Reranker} reranker", rerankerName);
-                hits = await reranker.RerankAsync(query, hits, ct);
+                hits = await reranker.RerankAsync(
+                    query,
+                    TopCandidates(hits, Math.Max(searchSettings.RerankCandidates, retrieveOptions.TopK)),
+                    ct);
             }
             else
             {
@@ -207,6 +210,15 @@ public class HybridSearchService : IKnowledgeSearch
             finalHits.Count,
             stopwatch.Elapsed);
     }
+
+    /// <summary>
+    /// The <paramref name="count"/> best hits by first-stage score. A reranker scores against a
+    /// different scale, so the ones left out are dropped rather than appended below reranked hits.
+    /// </summary>
+    internal static List<SearchHit> TopCandidates(List<SearchHit> hits, int count) =>
+        hits.Count <= count
+            ? hits
+            : hits.OrderByDescending(h => h.Score).Take(count).ToList();
 
     /// <summary>
     /// Performs hybrid search by running vector and keyword search in parallel and merging results.

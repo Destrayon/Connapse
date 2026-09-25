@@ -119,6 +119,12 @@
             }
 
             <div class="col-md-3">
+                <label class="form-label">Candidates</label>
+                <InputNumber @bind-Value="localSettings.RerankCandidates" class="form-control" min="1" max="500" />
+                <small class="form-text text-muted">Top results sent to the reranker</small>
+            </div>
+
+            <div class="col-md-3">
                 <label class="form-label">Top N</label>
                 <InputNumber @bind-Value="localSettings.CrossEncoderTopN" class="form-control" />
                 <small class="form-text text-muted">0 = rerank all</small>
@@ -276,7 +282,7 @@
             "Jina" => "jina-reranker-v3",
             "AzureAIFoundry" => null,
             "Voyage" => "rerank-2.5-lite",
-            _ => "BAAI/bge-reranker-large"
+            _ => "Alibaba-NLP/gte-reranker-modernbert-base"
         };
 
         localSettings.CrossEncoderBaseUrl = localSettings.CrossEncoderProvider == "TEI"

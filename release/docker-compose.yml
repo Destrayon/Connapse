@@ -61,6 +61,27 @@ services:
           memory: 4G
           cpus: "2.0"
 
+  # Optional local reranker: a cross-encoder that re-scores the top search candidates. Start it with
+  # `--profile with-reranker`, then set Search → Reranker to Cross-Encoder in Settings. For an NVIDIA
+  # GPU, set RERANKER_IMAGE to a CUDA build (e.g. ghcr.io/huggingface/text-embeddings-inference:89-1.9
+  # for RTX 40) and add a GPU reservation.
+  reranker:
+    image: ${RERANKER_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    command: ["--model-id", "Alibaba-NLP/gte-reranker-modernbert-base", "--max-client-batch-size", "128"]
+    volumes:
+      - rerankerdata:/data
+    profiles:
+      - with-reranker
+    # The model downloads from Hugging Face on first start; backend is internal (no internet).
+    networks:
+      - backend
+      - frontend
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+
   web:
     image: ghcr.io/destrayon/connapse:${CONNAPSE_VERSION:-latest}
     ports:
@@ -73,6 +94,7 @@ services:
       Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD}"
       Knowledge__Storage__MinIO__UseSSL: "false"
       Knowledge__Embedding__BaseUrl: "${Knowledge__Embedding__BaseUrl:-http://ollama:11434}"
+      Knowledge__Search__CrossEncoderBaseUrl: "${Knowledge__Search__CrossEncoderBaseUrl:-http://reranker:80}"
       CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL}
       CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD}
       Identity__Jwt__Secret: ${Identity__Jwt__Secret}
@@ -96,6 +118,7 @@ volumes:
   pgdata:
   miniodata:
   ollamadata:
+  rerankerdata:
   appdata:
 
 networks:

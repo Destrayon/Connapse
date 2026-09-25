@@ -538,6 +538,29 @@ public class HybridSearchFusionTests
         settings.HybridCandidatePool.Should().Be(30);
     }
 
+    [Fact]
+    public void TopCandidates_MoreHitsThanCount_KeepsTheBestByScore()
+    {
+        var hits = new List<SearchHit>
+        {
+            Hit("c1", "doc1", 0.2f, "both"),
+            Hit("c2", "doc2", 0.9f, "both"),
+            Hit("c3", "doc3", 0.5f, "both"),
+        };
+
+        var top = HybridSearchService.TopCandidates(hits, 2);
+
+        top.Select(h => h.ChunkId).Should().Equal("c2", "c3");
+    }
+
+    [Fact]
+    public void TopCandidates_FewerHitsThanCount_ReturnsAll()
+    {
+        var hits = new List<SearchHit> { Hit("c1", "doc1", 0.2f, "both") };
+
+        HybridSearchService.TopCandidates(hits, 30).Should().BeSameAs(hits);
+    }
+
     private static SearchHit Hit(string chunkId, string documentId, float score, string source)
     {
         return new SearchHit(

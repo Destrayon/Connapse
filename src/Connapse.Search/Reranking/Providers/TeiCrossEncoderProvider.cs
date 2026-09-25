@@ -44,7 +44,10 @@ internal class TeiCrossEncoderProvider : ICrossEncoderProvider
         {
             Query = query,
             Texts = documents,
-            RawScores = false
+            RawScores = false,
+            // Whether TEI truncates by default depends on its version and --auto-truncate flag; a
+            // server that doesn't rejects the whole request when one chunk exceeds the model's limit.
+            Truncate = true
         };
 
         _logger.LogDebug("TEI rerank: {Count} documents via {BaseUrl}", documents.Count, _settings.CrossEncoderBaseUrl);
@@ -71,6 +74,7 @@ internal class TeiCrossEncoderProvider : ICrossEncoderProvider
         public required string Query { get; init; }
         public required IReadOnlyList<string> Texts { get; init; }
         public bool RawScores { get; init; }
+        public bool Truncate { get; init; }
     }
 
     private record TeiRerankResult

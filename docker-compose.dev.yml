@@ -34,6 +34,11 @@ services:
               count: all
               capabilities: [gpu]
 
+  # Matches the default Search → Base URL (http://localhost:8080) for `dotnet run`.
+  reranker:
+    ports:
+      - "8080:80"
+
   web:
     environment:
       ASPNETCORE_ENVIRONMENT: Development

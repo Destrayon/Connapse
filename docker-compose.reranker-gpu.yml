@@ -1,0 +1,15 @@
+# Runs the optional reranker on an NVIDIA GPU. Load it alongside the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.reranker-gpu.yml --profile with-reranker up -d
+# TEI publishes one CUDA build per GPU generation; the default is RTX 50-series (Blackwell, sm_120).
+# Set RERANKER_GPU_IMAGE for others: turing-1.9 (RTX 20), 86-1.9 (RTX 30), 89-1.9 (RTX 40),
+# 1.9 (A100), hopper-1.9 (H100) — all under ghcr.io/huggingface/text-embeddings-inference.
+services:
+  reranker:
+    image: ${RERANKER_GPU_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:120-1.9}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

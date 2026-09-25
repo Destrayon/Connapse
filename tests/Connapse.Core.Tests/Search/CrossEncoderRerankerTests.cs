@@ -406,6 +406,31 @@ public class CrossEncoderRerankerTests
 
     // --- Helpers ---
 
+    [Fact]
+    public async Task RerankAsync_TeiProvider_AsksTeiToTruncateLongChunks()
+    {
+        var handler = new MockHttpHandler(HttpStatusCode.OK, "[{\"index\":0,\"score\":0.7}]");
+        var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
+        monitor.CurrentValue.Returns(new SearchSettings { CrossEncoderProvider = "TEI" });
+        var reranker = new CrossEncoderReranker(monitor, CreateHttpClientFactory(handler), _logger);
+
+        await reranker.RerankAsync("q", [CreateHit("chunk1", 0.5f)]);
+
+        using JsonDocument body = JsonDocument.Parse(handler.LastRequestBody!);
+        body.RootElement.GetProperty("truncate").GetBoolean().Should().BeTrue();
+        body.RootElement.GetProperty("raw_scores").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public void SearchSettings_RerankerDefaults_MatchTheComposeService()
+    {
+        var settings = new SearchSettings();
+
+        settings.CrossEncoderModel.Should().Be("Alibaba-NLP/gte-reranker-modernbert-base");
+        settings.RerankCandidates.Should().Be(30);
+        settings.CrossEncoderTimeoutSeconds.Should().Be(5);
+    }
+
     private CrossEncoderReranker CreateReranker(SearchSettings settings, string? httpResponse = null)
     {
         var monitor = Substitute.For<IOptionsMonitor<SearchSettings>>();
@@ -440,13 +465,18 @@ public class CrossEncoderRerankerTests
     /// </summary>
     private class MockHttpHandler(HttpStatusCode statusCode, string content) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(
+        public string? LastRequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            return Task.FromResult(new HttpResponseMessage(statusCode)
+            if (request.Content is not null)
+                LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(content, System.Text.Encoding.UTF8, "application/json")
-            });
+            };
         }
     }
 }
