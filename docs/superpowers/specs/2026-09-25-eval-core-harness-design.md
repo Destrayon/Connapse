@@ -70,13 +70,16 @@ public enum DocumentKind { Text, Image }
 public sealed record EvalQuery(string Id, string Text, Split Split, IReadOnlyList<string> Tags);
 public enum Split { Dev, Test }
 
+// One instance per (system, config): settings are applied when the system starts.
 public interface ISystemUnderTest : IAsyncDisposable
 {
     string Name { get; }                                  // "connapse"
-    Task IndexAsync(EvalDataset dataset, SystemConfig config, CancellationToken ct);
-    Task<SearchOutcome> SearchAsync(EvalQuery query, int k, CancellationToken ct);
+    IReadOnlyDictionary<string, string> Describe();       // effective model IDs and settings, for the manifest
+    Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct);
+    Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct);
 }
 
+public sealed record IndexReport(int Documents, int Failed, IReadOnlyList<string> FailedDocumentIds);
 public sealed record SearchOutcome(IReadOnlyList<RankedDoc> Ranked, Trace Trace, string? Error);
 public sealed record RankedDoc(string DocId, double Score);
 public sealed record Trace(TimeSpan Total, IReadOnlyDictionary<string, TimeSpan> Stages,
@@ -90,13 +93,14 @@ public sealed record Trace(TimeSpan Total, IReadOnlyDictionary<string, TimeSpan>
 ## Data flow
 
 1. **Resolve.** Read `eval/MANIFEST.json`, select the suite, download missing files into `eval/.cache/`, verify SHA-256 for every file. Any mismatch stops the run with the file named.
-2. **Adapt.** The adapter produces an `EvalDataset`. Query splits are assigned by a stable hash of (dataset name, query ID, seed) so they never move between runs: 50% dev, 50% test, unless the source defines its own split, in which case the source split wins. Sources that ship only a test split (all of NanoBEIR, for example) are entirely `Test`: they measure, and nothing is tuned against them. Tuning uses the dev split of datasets that have one.
-3. **Index.** `ConnapseSearchSystem` starts Connapse in-process with `WebApplicationFactory` on a Testcontainers PostgreSQL (pgvector) and MinIO, the same way `SharedWebAppFixture` does, applies the config's settings overrides, creates one container per dataset, and uploads every document through `IUploadService.BulkUploadAsync` at path `/{dataset}/{doc_id}.{ext}`. It waits until every document is Ready or Failed. Embedding calls go through a disk cache keyed by (provider, model, SHA-256 of the input text).
-4. **Search.** For each query, call `IKnowledgeSearch.SearchAsync` scoped to the dataset's container with `TopK` large enough to return k distinct documents after collapsing (start at 3 × k chunks; widen once to 10 × k if fewer than k distinct documents come back). Collapse chunk hits to documents by best rank; map each hit's `path` metadata back to the dataset document ID. Record per-stage latency.
+2. **Adapt.** The adapter produces an `EvalDataset`. Splits come from the source. Sources that ship only a test split (NanoBEIR, CQADupStack) are entirely `Test`: they measure, and nothing is tuned against them. RAGBench's validation questions are `Dev` and its test questions `Test`. Tuning uses dev splits only. A stable hash-based dev/test assigner arrives with the first hand-built set (sub-project 2), since no v1 source needs one.
+3. **Index.** `ConnapseSearchSystem` starts Connapse in-process with `WebApplicationFactory` on a Testcontainers PostgreSQL (pgvector) and MinIO, the same way `SharedWebAppFixture` does, applies the config's settings overrides, creates one container per dataset, and uploads every document through `IUploadService.BulkUploadAsync` as a numbered `.txt` file, keeping a map from the Connapse document ID in each `UploadResult` to the dataset document ID. It waits until every document is Ready or Failed (`ContainerStats`). Embedding calls go through a disk cache keyed by (provider, model, SHA-256 of the input text).
+4. **Search.** For each query, call `IKnowledgeSearch.SearchAsync` scoped to the dataset's container with `TopK` large enough to return k distinct documents after collapsing (start at 3 × k chunks; widen once to 10 × k if fewer than k distinct documents come back). Collapse chunk hits to documents by best rank and map each hit's `DocumentId` back to the dataset document ID. Record total latency; per-stage latency is recorded only when a system reports stages, and `ConnapseSearchSystem` reports total only in v1 because Connapse does not expose stage timings.
 5. **Record.** Write `eval/runs/{utc-timestamp}-{gitsha7}-{suite}-{system}-{config}/`:
-   - `manifest.json`: git SHA and dirty flag, suite, system, config name and hash, embedding and reranker model IDs, dataset names, versions and checksums, machine name, CPU/GPU, start and end times, failed-document counts.
-   - `results.jsonl`: one line per query: dataset, query ID, split, ranked documents with scores, trace, error.
-   - `{dataset}.trec`: TREC run file per dataset, for cross-checking with external tools.
+   - `manifest.json`: git SHA and dirty flag, suite, system, config name and hash, the system's effective settings (embedding and reranker model IDs among them), dataset names, versions and checksums, machine name, OS, processor count, start and end times, failed-document counts.
+   - `results/{dataset}.jsonl`: one line per query: dataset, query ID, query text, split, ranked documents with scores, trace, error. A `results/{dataset}.done` marker is written last, so resume skips only datasets that finished.
+   - `qrels/{dataset}.tsv` and `titles/{dataset}.json`: copies that make the run folder self-contained for `compare` and `report`.
+   - `trec/{dataset}.trec`: TREC run file per dataset, for cross-checking with external tools.
 6. **Score and report.** Compute metrics per query, aggregate per dataset (test split for headline numbers), per domain tag, and across the portfolio. Write `report.html` and `report.json` into the run folder.
 
 ## Metrics
@@ -125,7 +129,7 @@ Per query, document level, k = 10 unless stated: MRR@10, nDCG@10, Recall@5, Reca
 
 A dataset's difference is shown as significant only when its Holm-corrected permutation p < 0.05. `compare` refuses runs with different dataset versions or checksums unless `--allow-dataset-mismatch` is passed, and then prints a warning banner in the report.
 
-**Aggregation.** The portfolio score for a metric is the unweighted mean over datasets. Domain scores are the unweighted mean over datasets tagged with that domain. In a comparison, the verdict line reads "improves" only if the portfolio mean rises and no dataset shows a significant drop; otherwise it names the datasets that dropped.
+**Aggregation.** The portfolio score for a metric is the unweighted mean over datasets. Domain scores are the unweighted mean over datasets tagged with that domain. In a comparison, the verdict line reads "improves" only if the portfolio nDCG@10 rises and no dataset shows a significant drop on any quality metric; otherwise it names the datasets that dropped.
 
 **Tests.** Statistics code is tested against known cases: a zero-difference sample gives p ≈ 1 and an interval containing 0; a constant positive shift gives p < 0.001; the t-test matches a hand-computed value; BCa matches a reference value computed once with SciPy and committed.
 
@@ -145,7 +149,7 @@ run      --suite <name> --system <name> --config <name> [--datasets a,b] [--resu
 compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
 report   <runDir>
 pool     <runDir> [<runDir> …] --out <file>     lists unjudged top-10 documents per query (grading is sub-project 2)
-datasets list | verify | fetch --suite <name>
+datasets list | verify | fetch | pin --suite <name>   pin records SHA-256 for files the manifest has not pinned yet
 ```
 
 `run` prints the run folder path and a one-screen summary. Exit code is non-zero on any hard failure (checksum, duplicate IDs, invalid dataset).
@@ -166,9 +170,9 @@ Defined in `eval/MANIFEST.json` as suite `v1`. Public data is downloaded at runt
 |---|---|---|---|
 | `domain:general` (plus `science`, `finance`, `argument` sub-tags) | NanoBEIR, all 13 subsets | ≤ 10K docs, 50 queries each | Human, mostly binary |
 | `domain:engineering` | CQADupStack programmers | ~32K posts, 876 queries | Human, binary |
-| `domain:business-docs` | RAGBench TechQA, RAGBench EManual | ~1.3K+ queries | Relevant-sentence keys → document qrels |
+| `domain:business-docs` | RAGBench TechQA, RAGBench EManual | ~1.3K+ queries | **LLM-annotated** relevant-sentence keys → document qrels |
 
-The RAGBench adapter must derive document-level qrels from its relevant-sentence keys; how it does so is documented in the dataset card. Licences are checked at the upstream source and recorded in each card before the dataset is added; the mteb/NanoBEIR mirrors' licence labels are not trusted on their own.
+The RAGBench adapter derives document-level qrels from its relevant-sentence keys (key `3b` means sentence b of document 3). Its corpus is the union of documents across train, validation and test, so train documents act as distractors. RAGBench's relevance keys were produced by an LLM annotator, not people; its dataset card says so, and its scores should be read with that in mind. Licences are checked at the upstream source and recorded in each card before the dataset is added; the mteb/NanoBEIR mirrors' licence labels are not trusted on their own.
 
 ## Out of scope for version 1
 
