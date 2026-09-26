@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Eval.Metrics;
 using Connapse.Eval.Model;
+using Connapse.Eval.Reports;
 using Connapse.Eval.Runs;
 using Connapse.Eval.Systems;
 using FluentAssertions;
@@ -79,6 +80,22 @@ public class ScoringTests : IDisposable
         scores.Domains["domain:engineering"][MetricNames.Mrr10].Should().Be(0.5);
         scores.Portfolio[MetricNames.Mrr10].Should().Be(0.5);
         scores.Portfolio[MetricNames.Hit1].Should().Be(0.25);
+    }
+
+    [Fact]
+    public void Score_InvalidAndUnfinishedDatasets_GiveDifferentReasons()
+    {
+        RunFolder run = WriteRun();
+        RunManifest manifest = run.ReadManifest();
+        run.WriteManifest(manifest with { Datasets = [.. manifest.Datasets, Info("delta", "domain:general")] }); // no .done marker
+
+        RunScores scores = Scoring.Score(run);
+
+        scores.Datasets.Single(d => d.Name == "gamma").NotScoredReason.Should().Be("more than 1% of documents failed to ingest");
+        scores.Datasets.Single(d => d.Name == "delta").NotScoredReason.Should().Be("did not finish (no .done marker)");
+        scores.Datasets.Single(d => d.Name == "alpha").NotScoredReason.Should().BeNull();
+        HtmlReport.RenderRun(scores, run).Should().Contain("delta is not scored: did not finish (no .done marker)")
+            .And.Contain("gamma is not scored: more than 1% of documents failed to ingest");
     }
 
     [Fact]

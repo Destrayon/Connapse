@@ -3,6 +3,7 @@ using Connapse.Eval.Model;
 
 namespace Connapse.Eval.Runs;
 
+/// <param name="Invalid">True when the dataset is not scored; <paramref name="NotScoredReason"/> says why.</param>
 public sealed record DatasetScores(
     string Name,
     IReadOnlyList<string> Tags,
@@ -13,7 +14,8 @@ public sealed record DatasetScores(
     IReadOnlyDictionary<string, double> Means,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, double>> PerQuery,
     double LatencyP50Ms,
-    double LatencyP95Ms);
+    double LatencyP95Ms,
+    string? NotScoredReason);
 
 public sealed record RunScores(
     string RunName,
@@ -35,9 +37,12 @@ public static class Scoring
 
         foreach (RunDatasetInfo info in manifest.Datasets)
         {
-            if (info.Invalid || !run.IsDatasetComplete(info.Name))
+            string? notScored = info.Invalid ? "more than 1% of documents failed to ingest"
+                : !run.IsDatasetComplete(info.Name) ? "did not finish (no .done marker)"
+                : null;
+            if (notScored is not null)
             {
-                datasets.Add(new DatasetScores(info.Name, info.Tags, true, 0, 0, 0, NoMeans, NoQueries, 0, 0));
+                datasets.Add(new DatasetScores(info.Name, info.Tags, true, 0, 0, 0, NoMeans, NoQueries, 0, 0, notScored));
                 continue;
             }
 
@@ -59,7 +64,7 @@ public static class Scoring
                 m => m, m => perQuery.Count == 0 ? double.NaN : perQuery.Values.Average(v => v[m]));
             List<double> latencies = test.Select(r => r.Trace.Total.TotalMilliseconds).ToList();
             datasets.Add(new DatasetScores(info.Name, info.Tags, false, test.Count, noAnswer,
-                test.Count(r => r.Error is not null), means, perQuery, Percentile(latencies, 50), Percentile(latencies, 95)));
+                test.Count(r => r.Error is not null), means, perQuery, Percentile(latencies, 50), Percentile(latencies, 95), null));
         }
 
         List<DatasetScores> valid = datasets.Where(d => !d.Invalid && d.PerQuery.Count > 0).ToList();

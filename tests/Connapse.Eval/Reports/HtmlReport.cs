@@ -33,7 +33,7 @@ public static class HtmlReport
         html.Append("</p>");
 
         foreach (DatasetScores d in scores.Datasets.Where(d => d.Invalid))
-            html.Append($"<div class=banner>{E(d.Name)} is INVALID (more than 1% of documents failed to ingest) and is not scored.</div>");
+            html.Append($"<div class=banner>{E(d.Name)} is not scored: {E(d.NotScoredReason ?? "unknown reason")}.</div>");
         foreach (DatasetScores d in scores.Datasets.Where(d => !d.Invalid && d.PerQuery.Count == 0))
             html.Append($"<div class=banner>{E(d.Name)} has no scored test queries and is left out of the domain and portfolio averages.</div>");
         int errors = scores.Datasets.Sum(d => d.ErrorQueries);

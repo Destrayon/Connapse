@@ -17,7 +17,7 @@ public class ComparisonTests
                 i => $"q{i}",
                 i => (IReadOnlyDictionary<string, double>)MetricNames.All.ToDictionary(m => m, m => ndcg(name, i)));
             Dictionary<string, double> means = MetricNames.All.ToDictionary(m => m, m => perQuery.Values.Average(v => v[m]));
-            return new DatasetScores(name, ["domain:general"], false, 30, 0, 0, means, perQuery, 10, 20);
+            return new DatasetScores(name, ["domain:general"], false, 30, 0, 0, means, perQuery, 10, 20, null);
         }).ToList();
         RunManifest manifest = new("sha", false, "v1", "connapse", "cfg", "h", SearchMode.Hybrid,
             new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,

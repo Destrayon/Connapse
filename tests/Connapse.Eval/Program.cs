@@ -63,7 +63,7 @@ internal static class Commands
         Console.WriteLine(run.Path);
         foreach (DatasetScores d in scores.Datasets)
             Console.WriteLine(d.Invalid
-                ? $"  {d.Name,-28} INVALID"
+                ? $"  {d.Name,-28} not scored: {d.NotScoredReason}"
                 : d.PerQuery.Count == 0
                 ? $"  {d.Name,-28} no scored test queries"
                 : $"  {d.Name,-28} nDCG@10 {d.Means["nDCG@10"]:F3}  MRR@10 {d.Means["MRR@10"]:F3}  judged@10 {d.Means["judged@10"]:F2}");

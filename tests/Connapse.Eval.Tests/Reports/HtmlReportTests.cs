@@ -58,7 +58,7 @@ public class HtmlReportTests : IDisposable
 
         html.Should().Contain("what is &lt;b&gt;bold&lt;/b&gt;?");
         html.Should().NotContain("what is <b>bold</b>?");
-        html.Should().Contain("beta").And.Contain("INVALID");
+        html.Should().Contain("beta is not scored: more than 1% of documents failed to ingest");
         html.Should().Contain("grade 1, rank —");
         html.Should().NotContain("http://").And.NotContain("https://", "the report must be self-contained");
     }
