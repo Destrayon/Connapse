@@ -1,0 +1,1 @@
+{ "searchMode": "keyword", "settings": { "Knowledge:Search:KeywordRanker": "Bm25" } }

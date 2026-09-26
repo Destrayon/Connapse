@@ -2,6 +2,7 @@
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Keyword;
@@ -10,6 +11,7 @@ public class KeywordSearchService
 {
     private readonly KnowledgeDbContext _context;
     private readonly ILogger<KeywordSearchService> _logger;
+    private readonly IOptionsMonitor<SearchSettings>? _settings;
 
     public KeywordSearchService(
         KnowledgeDbContext context,
@@ -18,6 +20,21 @@ public class KeywordSearchService
         _context = context;
         _logger = logger;
     }
+
+    public KeywordSearchService(
+        KnowledgeDbContext context,
+        ILogger<KeywordSearchService> logger,
+        IOptionsMonitor<SearchSettings> settings)
+        : this(context, logger)
+    {
+        _settings = settings;
+    }
+
+    /// <summary>The search settings when BM25 ranking is configured; null means ts_rank.</summary>
+    private SearchSettings? Bm25Settings =>
+        string.Equals(_settings?.CurrentValue.KeywordRanker, "Bm25", StringComparison.OrdinalIgnoreCase)
+            ? _settings!.CurrentValue
+            : null;
 
     /// <param name="scopes">
     /// What the caller may reach. Required rather than optional: a default would make forgetting
@@ -124,6 +141,17 @@ public class KeywordSearchService
         var whereClause = string.Join(" AND ", whereClauses);
         string tsQuery = TsQuerySql("{0}", "{1}");
 
+        if (Bm25Settings is { } bm25 && !string.IsNullOrEmpty(options.ContainerId))
+        {
+            List<KeywordSearchRow> bm25Rows = await Bm25SearchAsync(
+                whereClause, tsQuery, parameters, topKIdx, Guid.Parse(options.ContainerId), bm25, ct);
+
+            // A query of nothing but stop words has no BM25 terms; ts_rank's exact-token fallback
+            // below still finds "the who".
+            if (bm25Rows.Count > 0)
+                return ToHits(query, bm25Rows, options.TopK);
+        }
+
         var sql = @$"
             SELECT
                 c.id as ChunkId,
@@ -146,6 +174,56 @@ public class KeywordSearchService
             .SqlQueryRaw<KeywordSearchRow>(sql, parameters.ToArray())
             .ToListAsync(ct);
 
+        return ToHits(query, results, options.TopK);
+    }
+
+    /// <summary>
+    /// Lucene BM25 over the owner's chunks that match the query (#548). Every GIN match is scored
+    /// exactly; tf and chunk length come from the english (B) positions of search_vector, and df, N
+    /// and avgdl from the owner's statistics (see <see cref="Bm25StatsSql"/>).
+    /// </summary>
+    private async Task<List<KeywordSearchRow>> Bm25SearchAsync(
+        string whereClause, string tsQuery, List<object> parameters, int topKIdx, Guid ownerId,
+        SearchSettings bm25, CancellationToken ct)
+    {
+        int ownerIdx = parameters.Count, k1Idx = ownerIdx + 1, bIdx = ownerIdx + 2;
+        List<object> bm25Parameters = [.. parameters, ownerId, bm25.Bm25K1, bm25.Bm25B];
+
+        // c.owner_id as well as d.owner_id: the statistics are the owner's, so the chunks must be.
+        string sql = @$"
+            {Bm25StatsSql($"{{{ownerIdx}}}", "{0}")}
+            SELECT
+                c.id as ChunkId,
+                c.document_id as DocumentId,
+                c.content as Content,
+                c.chunk_index as ChunkIndex,
+                s.score::real as Rank,
+                d.file_name as FileName,
+                d.content_type as ContentType,
+                d.owner_id as ContainerId,
+                d.path as Path
+            FROM (
+                SELECT c.id, {Bm25ScoreSql($"{{{k1Idx}}}", $"{{{bIdx}}}")} AS score
+                FROM chunks c
+                INNER JOIN documents d ON c.document_id = d.id
+                {Bm25JoinSql}
+                WHERE {whereClause}
+                  AND c.owner_id = {{{ownerIdx}}}
+                  AND c.search_vector @@ {tsQuery}
+                GROUP BY c.id
+                ORDER BY score DESC
+                LIMIT {{{topKIdx}}}) s
+            INNER JOIN chunks c ON c.id = s.id
+            INNER JOIN documents d ON c.document_id = d.id
+            ORDER BY s.score DESC";
+
+        return await _context.Database
+            .SqlQueryRaw<KeywordSearchRow>(sql, bm25Parameters.ToArray())
+            .ToListAsync(ct);
+    }
+
+    private List<SearchHit> ToHits(string query, List<KeywordSearchRow> results, int topK)
+    {
         var hits = results
             .Select(r => new SearchHit(
                 ChunkId: r.ChunkId.ToString(),
@@ -168,7 +246,7 @@ public class KeywordSearchService
             "Keyword search for query '{Query}' returned {Count} results (topK={TopK})",
             Sanitize(query),
             hits.Count,
-            options.TopK);
+            topK);
 
         return hits;
     }
@@ -191,6 +269,35 @@ public class KeywordSearchService
         var parsed = KeywordQuery.Parse(query ?? "");
         if (parsed.Clauses.Count == 0 || ids.Length == 0)
             return new Dictionary<string, float>();
+
+        if (Bm25Settings is { } bm25)
+        {
+            // BM25 scores only mean something against one owner's statistics, so a pool spanning
+            // owners (not something a container-scoped search produces) is scored with ts_rank.
+            List<Guid> owners = await _context.Database
+                .SqlQueryRaw<Guid>("SELECT DISTINCT owner_id AS \"Value\" FROM chunks WHERE id = ANY({0})", ids)
+                .ToListAsync(ct);
+            if (owners.Count == 1)
+            {
+                string bm25Sql = @$"
+                    {Bm25StatsSql("{3}", "{0}")}
+                    SELECT c.id as ChunkId, COALESCE(s.score, 0)::real as Rank
+                    FROM chunks c
+                    LEFT JOIN (
+                        SELECT c.id, {Bm25ScoreSql("{4}", "{5}")} AS score
+                        FROM chunks c
+                        {Bm25JoinSql}
+                        WHERE c.id = ANY({{2}}) AND c.search_vector @@ {TsQuerySql("{0}", "{1}")}
+                        GROUP BY c.id) s ON s.id = c.id
+                    WHERE c.id = ANY({{2}})";
+
+                List<ChunkRankRow> bm25Rows = await _context.Database
+                    .SqlQueryRaw<ChunkRankRow>(bm25Sql, parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(),
+                        ids, owners[0], bm25.Bm25K1, bm25.Bm25B)
+                    .ToListAsync(ct);
+                return bm25Rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
+            }
+        }
 
         string sql = @$"
             SELECT
@@ -235,6 +342,58 @@ public class KeywordSearchService
     /// </summary>
     internal static string RankSql(string vector, string tsQuery) =>
         $"ts_rank(ARRAY[0, 0, 1, 0]::float4[], {vector}, {tsQuery}, 1|32)";
+
+    /// <summary>
+    /// CTEs "q" (the query's terms with their BM25 IDF) and "os" (the owner's N and avgdl).
+    /// Statistics are the folded tables plus any deltas not folded yet, so they are exact at all
+    /// times: the chunks triggers write the deltas and Bm25StatsFolder folds them. Query terms are
+    /// the english lexemes of every clause, a repeated term counted once per occurrence as Lucene
+    /// does. IDF is Lucene's ln(1 + (N - df + 0.5) / (df + 0.5)), which is always positive.
+    /// Ported from DuckDB fts match_bm25 (duckdb v1.1.3 extension/fts/fts_indexing.cpp, MIT,
+    /// Copyright Stichting DuckDB Foundation); its log() is base 10, as PostgreSQL's is, hence ln().
+    /// </summary>
+    internal static string Bm25StatsSql(string ownerParam, string clausesParam) => $"""
+        WITH qt AS MATERIALIZED (
+            SELECT u.lexeme AS term, cardinality(u.positions)::float8 AS qtf
+            FROM unnest(to_tsvector('english', array_to_string({clausesParam}::text[], ' '))) u),
+        os AS MATERIALIZED (
+            SELECT n, CASE WHEN n > 0 THEN total / n ELSE 1 END AS avgdl
+            FROM (SELECT
+                    (COALESCE((SELECT n_docs FROM bm25_owner_stats WHERE owner_id = {ownerParam}), 0)
+                   + COALESCE((SELECT sum(d_n) FROM bm25_delta WHERE owner_id = {ownerParam} AND term IS NULL), 0))::float8 AS n,
+                    (COALESCE((SELECT total_len FROM bm25_owner_stats WHERE owner_id = {ownerParam}), 0)
+                   + COALESCE((SELECT sum(d_len) FROM bm25_delta WHERE owner_id = {ownerParam} AND term IS NULL), 0))::float8 AS total) t),
+        q AS MATERIALIZED (
+            SELECT qt.term, qt.qtf, ln(1 + (os.n - x.df + 0.5) / (x.df + 0.5)) AS idf
+            FROM qt CROSS JOIN os
+            CROSS JOIN LATERAL (SELECT
+                    (COALESCE((SELECT df FROM bm25_term_stats WHERE owner_id = {ownerParam} AND term = qt.term), 0)
+                   + COALESCE((SELECT sum(d_df) FROM bm25_delta WHERE owner_id = {ownerParam} AND term = qt.term), 0))::float8 AS df) x
+            WHERE x.df > 0)
+        """;
+
+    /// <summary>
+    /// Joins each candidate chunk (alias c) to its english (weight B) term frequencies, its length
+    /// and the owner statistics. Weight B only: search_vector also holds a simple (A) copy of every
+    /// word, and counting both would double every term frequency and length.
+    /// </summary>
+    private const string Bm25JoinSql = """
+        CROSS JOIN os
+        CROSS JOIN LATERAL (SELECT bm25_doc_length(c.search_vector)::float8 AS dl) l
+        CROSS JOIN LATERAL unnest(ts_filter(c.search_vector, ARRAY['b']::"char"[])) u
+        INNER JOIN q ON q.term = u.lexeme
+        """;
+
+    /// <summary>
+    /// Lucene BM25Similarity (lucene/core/src/java/org/apache/lucene/search/similarities/
+    /// BM25Similarity.java, Apache-2.0): idf * f / (f + k1 * (1 - b + b * dl / avgdl)), summed over
+    /// query terms. Lucene 8+ drops the textbook's constant (k1 + 1) factor; it rescales every score
+    /// alike, so the ranking is the same. Chunk lengths are exact, not Lucene's lossy one-byte norms.
+    /// </summary>
+    internal static string Bm25ScoreSql(string k1Param, string bParam) => $"""
+        sum(q.qtf * q.idf * cardinality(u.positions)
+            / (cardinality(u.positions) + {k1Param}::float8 * (1 - {bParam}::float8 + {bParam}::float8 * l.dl / os.avgdl)))
+        """;
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 

@@ -102,6 +102,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SourceSyncService>
 // would come back up unfiltered -- the exact failure that separation exists to prevent.
 builder.Services.AddHostedService<CloudEnforcementLatch>();
 
+// Folds BM25 keyword-statistics deltas written by the chunks triggers (#548).
+builder.Services.AddHostedService<Bm25StatsFoldService>();
+
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();
 
