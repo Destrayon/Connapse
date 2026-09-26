@@ -99,6 +99,29 @@ public class ScoringTests : IDisposable
     }
 
     [Fact]
+    public void Score_ErroredResultWithRelevantDocInRanking_ScoresZeroInsteadOfUsingTheRanking()
+    {
+        RunFolder run = RunFolder.Create(_root, "v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);
+        Qrels qrels = new();
+        qrels.Add("q1", "d1", 1);
+        run.WriteDataset("alpha", qrels, new Dictionary<string, string>(),
+        [
+            Result("alpha", "q1", Split.Test, "boom", "d1"), // errored, but Ranked still has the relevant doc at rank 1
+        ]);
+        run.MarkComplete("alpha");
+        run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
+            new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [Info("alpha", "domain:general")], null, []));
+
+        RunScores scores = Scoring.Score(run);
+
+        DatasetScores alpha = scores.Datasets.Single(d => d.Name == "alpha");
+        alpha.ErrorQueries.Should().Be(1);
+        alpha.PerQuery["q1"][MetricNames.Mrr10].Should().Be(0);
+    }
+
+    [Fact]
     public void Score_DuplicateQueryIdInResults_ThrowsInvalidDataException()
     {
         RunFolder run = RunFolder.Create(_root, "v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);

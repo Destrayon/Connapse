@@ -57,7 +57,11 @@ public static class Scoring
             int noAnswer = 0;
             foreach (QueryResult result in test)
             {
-                IReadOnlyDictionary<string, double>? scores = RankingMetrics.Score(result.Ranked, qrels.For(result.QueryId));
+                // An errored result's ranking is not trustworthy (the search may have failed before
+                // producing it, or partway through), so score it as an empty ranking rather than
+                // whatever it happened to return.
+                IReadOnlyList<RankedDoc> scored = result.Error is null ? result.Ranked : [];
+                IReadOnlyDictionary<string, double>? scores = RankingMetrics.Score(scored, qrels.For(result.QueryId));
                 if (scores is null)
                     noAnswer++;
                 else
