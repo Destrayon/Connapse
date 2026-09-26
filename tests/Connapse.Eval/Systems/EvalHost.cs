@@ -58,6 +58,12 @@ public sealed class EvalHost : IAsyncDisposable
             WebApplicationFactory<Program> factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
                 builder.UseContentRoot(webContentRoot);
+                // Applied before the harness's own infrastructure settings below, so that even if
+                // SystemConfig validation were ever bypassed, the harness's throwaway endpoints
+                // still win (UseSetting: last write wins).
+                foreach ((string key, string value) in config.Settings)
+                    builder.UseSetting(key, value);
+
                 builder.UseSetting("ConnectionStrings:DefaultConnection", postgres.GetConnectionString());
                 builder.UseSetting("Knowledge:Storage:MinIO:Endpoint", minioHost);
                 builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
@@ -69,8 +75,6 @@ public sealed class EvalHost : IAsyncDisposable
                 builder.UseSetting("Identity:Jwt:Secret", JwtSecret);
                 builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
                 builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
-                foreach ((string key, string value) in config.Settings)
-                    builder.UseSetting(key, value);
 
                 builder.ConfigureTestServices(services =>
                 {

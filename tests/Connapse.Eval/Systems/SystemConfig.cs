@@ -13,6 +13,16 @@ namespace Connapse.Eval.Systems;
 /// </summary>
 public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyDictionary<string, string> Settings)
 {
+    /// <summary>Setting-key prefixes that would let a config redirect the harness's throwaway
+    /// infrastructure (database, storage, admin account, JWT secret, rate limits) instead of
+    /// only tuning search/embedding/chunking behaviour.</summary>
+    private static readonly string[] ForbiddenPrefixes =
+    [
+        "ConnectionStrings:", "Knowledge:Storage:", "Identity:", "CONNAPSE_ADMIN_", "RateLimiting:",
+    ];
+
+    public IReadOnlyDictionary<string, string> Settings { get; init; } = Validate(Settings);
+
     public string Hash
     {
         get
@@ -33,6 +43,20 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
             ?? throw new InvalidOperationException($"{path} is empty.");
         return new SystemConfig(name, Enum.Parse<SearchMode>(file.SearchMode, ignoreCase: true),
             file.Settings ?? new Dictionary<string, string>());
+    }
+
+    private static IReadOnlyDictionary<string, string> Validate(IReadOnlyDictionary<string, string> settings)
+    {
+        foreach (string key in settings.Keys)
+        {
+            string? forbidden = ForbiddenPrefixes.FirstOrDefault(
+                p => key.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            if (forbidden is not null)
+                throw new ArgumentException(
+                    $"Config setting '{key}' is not allowed: configs may only set search/embedding/chunking "
+                    + $"behaviour, not infrastructure settings (forbidden prefix '{forbidden}').");
+        }
+        return settings;
     }
 
     private sealed record ConfigFile(string SearchMode, Dictionary<string, string>? Settings);
