@@ -93,48 +93,42 @@ public sealed class EvalHost : IAsyncDisposable
             }
             catch
             {
-                await factory.DisposeAsync();
+                // Cleanup failures here are secondary noise; the exception that triggered this
+                // catch is the one that must propagate.
+                await DisposeAllAsync(factory);
                 throw;
             }
         }
         catch
         {
-            await postgres.DisposeAsync();
-            await minio.DisposeAsync();
+            await DisposeAllAsync(postgres, minio);
             throw;
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync() =>
+        (await DisposeAllAsync(_factory, _postgres, _minio))?.Throw();
+
+    /// <summary>
+    /// Disposes each item independently — one throwing must not skip the rest, or a container
+    /// leaks. Returns the first failure instead of throwing, so callers can decide whether to
+    /// surface it or let an already-in-flight exception take priority.
+    /// </summary>
+    private static async Task<ExceptionDispatchInfo?> DisposeAllAsync(params IAsyncDisposable[] disposables)
     {
-        // Each disposal must run even if an earlier one throws, or the containers leak.
-        // The first exception wins; later ones are secondary noise once containers are torn down.
         ExceptionDispatchInfo? failure = null;
-        try
+        foreach (IAsyncDisposable disposable in disposables)
         {
-            await _factory.DisposeAsync();
+            try
+            {
+                await disposable.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(ex);
+            }
         }
-        catch (Exception ex)
-        {
-            failure = ExceptionDispatchInfo.Capture(ex);
-        }
-        try
-        {
-            await _postgres.DisposeAsync();
-        }
-        catch (Exception ex)
-        {
-            failure ??= ExceptionDispatchInfo.Capture(ex);
-        }
-        try
-        {
-            await _minio.DisposeAsync();
-        }
-        catch (Exception ex)
-        {
-            failure ??= ExceptionDispatchInfo.Capture(ex);
-        }
-        failure?.Throw();
+        return failure;
     }
 
     private static async Task WaitForHealthAsync(HttpClient client, CancellationToken ct)
