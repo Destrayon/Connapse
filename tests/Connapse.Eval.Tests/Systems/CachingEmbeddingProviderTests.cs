@@ -52,10 +52,21 @@ public class CachingEmbeddingProviderTests : IDisposable
         inner.Calls.Should().Be(0);
     }
 
-    private sealed class CountingProvider : IEmbeddingProvider
+    [Fact]
+    public async Task EmbedAsync_SameModelDifferentDimensions_DoesNotShareEntries()
+    {
+        await new CachingEmbeddingProvider(new CountingProvider(dimensions: 2), new EmbeddingDiskCache(_root)).EmbedAsync("dims");
+        CountingProvider inner = new(dimensions: 3);
+
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root)).EmbedAsync("dims");
+
+        inner.Calls.Should().Be(1);
+    }
+
+    private sealed class CountingProvider(int dimensions = 2) : IEmbeddingProvider
     {
         public int Calls { get; private set; }
-        public int Dimensions => 2;
+        public int Dimensions => dimensions;
         public string ModelId => "counting";
 
         public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)

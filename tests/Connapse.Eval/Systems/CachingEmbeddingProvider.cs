@@ -2,10 +2,10 @@ using Connapse.Core.Interfaces;
 
 namespace Connapse.Eval.Systems;
 
-/// <summary>Caches embeddings on disk keyed by (provider type, model, text), so reruns re-embed only changed chunks.</summary>
+/// <summary>Caches embeddings on disk keyed by (provider type, model, dimensions, text), so reruns re-embed only changed chunks.</summary>
 public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, EmbeddingDiskCache cache) : IEmbeddingProvider
 {
-    private string Namespace => $"{inner.GetType().Name}-{inner.ModelId}";
+    private string Namespace => $"{inner.GetType().Name}-{inner.ModelId}-{inner.Dimensions}";
 
     public int Dimensions => inner.Dimensions;
 
