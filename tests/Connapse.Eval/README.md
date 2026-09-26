@@ -22,3 +22,4 @@ host ports, so run it on a trusted machine.
 - `--limit-queries N` is for quick smoke runs: it keeps up to N test and up to N dev queries per dataset, each
   in source order. A resumed run must use the same limit it was started with.
 - `pool` lists top-10 documents that have no judgment; grading them is sub-project 2.
+- Exit codes: 0 success; 1 hard failure (checksum, invalid dataset, download timeout); 2 usage error; 130 cancelled with Ctrl+C.

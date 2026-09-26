@@ -160,6 +160,23 @@ public class AdapterTests : IDisposable
         await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*d1*");
     }
 
+    [Theory]
+    [InlineData("query-id\tcorpus-id\tscore\nq1\td1\t1\nq1\td2\n", "*qrels.tsv*line 3*")]
+    [InlineData("query-id\tcorpus-id\tscore\nq1\td1\tone\n", "*qrels.tsv*line 2*")]
+    [InlineData("query-id\tcorpus-id\tscore\nq1\td1\t1\nq1\td1\t2\n", "*qrels.tsv*line 3*q1*d1*")]
+    public async Task BeirJsonl_MalformedOrDuplicateQrelsLine_ThrowsNamingFileAndLine(string qrels, string message)
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "corpus.jsonl"),
+            "{\"_id\":\"d1\",\"text\":\"body one\"}\n{\"_id\":\"d2\",\"text\":\"body two\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "queries.jsonl"), "{\"_id\":\"q1\",\"text\":\"question one\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "qrels.tsv"), qrels);
+
+        Func<Task> act = () => DatasetAdapters.Get("beir-jsonl")
+            .LoadAsync("cqa-bad-qrels", Entry("beir-jsonl"), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage(message);
+    }
+
     [Fact]
     public void Get_UnknownAdapter_ThrowsListingKnownAdapters()
     {

@@ -36,7 +36,18 @@ internal static class EvalEntryPoint
             Console.Error.WriteLine(ex.Message);
             return 2;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("cancelled");
+            return 130;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // HttpClient reports its timeout as a TaskCanceledException wrapping a TimeoutException.
+            Console.Error.WriteLine($"error: timed out: {ex.InnerException?.Message ?? ex.Message}");
+            return 1;
+        }
+        catch (Exception ex)
         {
             Console.Error.WriteLine($"error: {ex.Message}");
             return 1;

@@ -19,12 +19,20 @@ public sealed class BeirJsonlAdapter : IDatasetAdapter
             queries.Add((row.GetProperty("_id").GetString()!, row.GetProperty("text").GetString() ?? ""));
 
         Qrels qrels = new();
-        foreach (string line in (await File.ReadAllLinesAsync(Path.Combine(directory, "qrels.tsv"), ct)).Skip(1))
+        string[] lines = await File.ReadAllLinesAsync(Path.Combine(directory, "qrels.tsv"), ct);
+        for (int i = 1; i < lines.Length; i++)
         {
+            string line = lines[i];
             if (string.IsNullOrWhiteSpace(line))
                 continue;
+            int lineNumber = i + 1;
             string[] fields = line.Split('\t');
-            qrels.Add(fields[0], fields[1], int.Parse(fields[2], System.Globalization.CultureInfo.InvariantCulture));
+            if (fields.Length != 3
+                || !int.TryParse(fields[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int grade))
+                throw new InvalidDataException($"qrels.tsv line {lineNumber}: expected 'query-id<TAB>corpus-id<TAB>score', got '{line}'.");
+            if (qrels.For(fields[0]).ContainsKey(fields[1]))
+                throw new InvalidDataException($"qrels.tsv line {lineNumber}: duplicate judgment for query '{fields[0]}' and document '{fields[1]}'.");
+            qrels.Add(fields[0], fields[1], grade);
         }
 
         return DatasetAdapters.BuildBeir(datasetName, entry, corpus, queries, qrels);

@@ -19,8 +19,20 @@ public sealed class HashingEmbeddingProvider : IEmbeddingProvider
         float[] vector = new float[Dimensions];
         foreach (string token in text.ToLowerInvariant().Split(' ', '.', ',', '\n', '\t'))
             if (token.Length > 2)
-                vector[(int)((uint)StringComparer.Ordinal.GetHashCode(token) % Dimensions)] += 1;
+                vector[(int)(Fnv1a(token) % (uint)Dimensions)] += 1;
         double norm = Math.Sqrt(vector.Sum(v => v * v));
         return norm == 0 ? vector : vector.Select(v => (float)(v / norm)).ToArray();
+    }
+
+    // string.GetHashCode is seeded per process; FNV-1a gives the same buckets in every run.
+    private static uint Fnv1a(string token)
+    {
+        uint hash = 2166136261;
+        foreach (char c in token)
+        {
+            hash ^= c;
+            hash *= 16777619;
+        }
+        return hash;
     }
 }
