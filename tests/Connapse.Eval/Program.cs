@@ -18,6 +18,7 @@ internal static class EvalEntryPoint
 
         try
         {
+            cli.EnsureKnownOptions();
             RepoPaths paths = RepoPaths.Find(Directory.GetCurrentDirectory());
             using HttpClient http = new() { Timeout = TimeSpan.FromMinutes(30) };
             return cli.Command switch
@@ -48,7 +49,7 @@ internal static class Commands
     public static async Task<int> RunAsync(CliArgs cli, RepoPaths paths, HttpClient http, CancellationToken ct)
     {
         RunRequest request = new(cli.Required("suite"), cli.Option("system") ?? "connapse", cli.Required("config"),
-            cli.List("datasets"), cli.Option("resume"), cli.Int("limit-queries"));
+            cli.List("datasets"), cli.Option("resume"), cli.PositiveInt("limit-queries"));
         if (request.System != "connapse")
             throw new ArgumentException($"Unknown system '{request.System}'. Known: connapse.");
 

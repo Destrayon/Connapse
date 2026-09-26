@@ -40,8 +40,38 @@ public sealed class CliArgs
 
     public bool Flag(string name) => _options.ContainsKey(name);
 
-    public int? Int(string name) =>
-        Option(name) is string value ? int.Parse(value, CultureInfo.InvariantCulture) : null;
+    /// <summary>The options each command accepts; anything else is a typo that would otherwise be ignored.</summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedOptions =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["run"] = ["suite", "config", "system", "datasets", "resume", "limit-queries"],
+            ["compare"] = ["allow-dataset-mismatch"],
+            ["report"] = [],
+            ["pool"] = ["out"],
+            ["datasets"] = ["suite", "datasets"],
+        };
+
+    /// <summary>Throws when an option is not accepted by the command. Unknown commands are left to the caller.</summary>
+    public void EnsureKnownOptions()
+    {
+        if (!AllowedOptions.TryGetValue(Command, out IReadOnlyList<string>? allowed))
+            return;
+        string[] unknown = _options.Keys.Where(o => !allowed.Contains(o)).Order(StringComparer.Ordinal).ToArray();
+        if (unknown.Length > 0)
+            throw new ArgumentException(
+                $"Unknown option{(unknown.Length > 1 ? "s" : "")} for '{Command}': {string.Join(", ", unknown.Select(o => "--" + o))}. "
+                + $"Allowed: {(allowed.Count == 0 ? "none" : string.Join(", ", allowed.Select(o => "--" + o)))}.");
+    }
+
+    public int? PositiveInt(string name)
+    {
+        if (!Flag(name))
+            return null;
+        string? value = Option(name);
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) || parsed < 1)
+            throw new ArgumentException($"--{name} needs a positive integer (got '{value ?? ""}').");
+        return parsed;
+    }
 
     public IReadOnlyList<string> List(string name) =>
         Option(name)?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];

@@ -15,7 +15,7 @@ public class CliArgsTests
         args.Positionals.Should().Equal("runA", "runB");
         args.Flag("allow-dataset-mismatch").Should().BeTrue();
         args.List("datasets").Should().Equal("a", "b");
-        args.Int("limit-queries").Should().Be(5);
+        args.PositiveInt("limit-queries").Should().Be(5);
         args.Option("missing").Should().BeNull();
     }
 
@@ -23,5 +23,53 @@ public class CliArgsTests
     public void Parse_NoArguments_HasEmptyCommand()
     {
         CliArgs.Parse([]).Command.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void EnsureKnownOptions_UnknownOption_ThrowsArgumentExceptionNamingIt()
+    {
+        CliArgs args = CliArgs.Parse(["run", "--suite", "v1", "--config", "c", "--limit-querys", "5"]);
+
+        Action act = args.EnsureKnownOptions;
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--limit-querys*");
+    }
+
+    [Fact]
+    public void EnsureKnownOptions_OptionOfAnotherCommand_Throws()
+    {
+        Action act = CliArgs.Parse(["report", "runA", "--out", "x"]).EnsureKnownOptions;
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--out*");
+    }
+
+    [Fact]
+    public void EnsureKnownOptions_AllowedOptions_DoesNotThrow()
+    {
+        Action act = CliArgs.Parse(["run", "--suite", "v1", "--config", "c", "--system", "connapse", "--datasets", "a",
+            "--resume", "r", "--limit-queries", "5"]).EnsureKnownOptions;
+
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData("five")]
+    [InlineData("0")]
+    [InlineData("-3")]
+    public void PositiveInt_BadValue_ThrowsArgumentException(string value)
+    {
+        CliArgs args = CliArgs.Parse(["run", "--limit-queries", value]);
+
+        Action act = () => args.PositiveInt("limit-queries");
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--limit-queries*");
+    }
+
+    [Fact]
+    public void PositiveInt_OptionWithoutValue_ThrowsArgumentException()
+    {
+        Action act = () => CliArgs.Parse(["run", "--limit-queries"]).PositiveInt("limit-queries");
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--limit-queries*");
     }
 }
