@@ -34,4 +34,17 @@ public class KeywordSearchServiceTests
 
         results.Should().BeEmpty();
     }
+
+    [Theory]
+    [InlineData("does calcium intake prevent fractures", false)]
+    [InlineData("state-of-the-art 25-hydroxyvitamin", false)]
+    [InlineData("organic farming", false)]
+    [InlineData("\"bone density\"", true)]
+    [InlineData("calcium -supplements", true)]
+    [InlineData("calcium OR magnesium", true)]
+    [InlineData("calcium or magnesium", true)]
+    public void UsesSearchSyntax_Query_DetectsPhrasesExclusionsAndOr(string query, bool expected)
+    {
+        KeywordSearchService.UsesSearchSyntax(query).Should().Be(expected);
+    }
 }

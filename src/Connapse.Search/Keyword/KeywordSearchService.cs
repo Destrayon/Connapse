@@ -114,10 +114,8 @@ public class KeywordSearchService
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
+        string tsQuery = TsQuerySql(query, "{0}");
 
-        // websearch_to_tsquery handles user input natively: quoted phrases, negation, OR.
-        // Query both 'simple' (exact tokens) and 'english' (stemmed) configs so that
-        // technical terms like "README" match exactly while "running" still matches "run".
         // ts_rank_cd uses cover density ranking; normalization flag 32 = rank/(rank+1) for 0-1 range.
         var sql = @$"
             SELECT
@@ -125,9 +123,7 @@ public class KeywordSearchService
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                ts_rank_cd(c.search_vector,
-                    websearch_to_tsquery('simple', {{{0}}}) || websearch_to_tsquery('english', {{{0}}}),
-                    32) as Rank,
+                ts_rank_cd(c.search_vector, {tsQuery}, 32) as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -135,7 +131,7 @@ public class KeywordSearchService
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
-              AND c.search_vector @@ (websearch_to_tsquery('simple', {{{0}}}) || websearch_to_tsquery('english', {{{0}}}))
+              AND c.search_vector @@ {tsQuery}
             ORDER BY Rank DESC
             LIMIT {{{topKIdx}}}";
 
@@ -188,14 +184,12 @@ public class KeywordSearchService
         if (string.IsNullOrWhiteSpace(query) || ids.Length == 0)
             return new Dictionary<string, float>();
 
-        const string sql = @"
+        string sql = @$"
             SELECT
                 c.id as ChunkId,
-                ts_rank_cd(c.search_vector,
-                    websearch_to_tsquery('simple', {0}) || websearch_to_tsquery('english', {0}),
-                    32) as Rank
+                ts_rank_cd(c.search_vector, {TsQuerySql(query, "{0}")}, 32) as Rank
             FROM chunks c
-            WHERE c.id = ANY({1})";
+            WHERE c.id = ANY({{1}})";
 
         List<ChunkRankRow> rows = await _context.Database
             .SqlQueryRaw<ChunkRankRow>(sql, query, ids)
@@ -203,6 +197,31 @@ public class KeywordSearchService
 
         return rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
     }
+
+    /// <summary>
+    /// The tsquery SQL for <paramref name="query"/>, bound through <paramref name="param"/>.
+    /// A plain query matches a chunk containing <em>any</em> of its terms and leaves the ordering to
+    /// ts_rank_cd: requiring every term matched almost nothing for natural-language questions (#544).
+    /// A query that uses search syntax (quoted phrases, -exclusion, OR) keeps websearch_to_tsquery
+    /// semantics, over both 'simple' (exact tokens like "README") and 'english' (stemmed).
+    /// </summary>
+    internal static string TsQuerySql(string query, string param) =>
+        UsesSearchSyntax(query)
+            ? $"(websearch_to_tsquery('simple', {param}) || websearch_to_tsquery('english', {param}))"
+            // Stemmed and stop-word free, so "the" doesn't match every chunk. A query of nothing but
+            // stop words ("the who") has no english lexemes and falls back to all of its exact tokens.
+            // plainto_tsquery joins lexemes with " & " and a lexeme never contains a space, so the
+            // replace turns every AND into an OR and nothing else.
+            : $"""
+               (CASE WHEN numnode(plainto_tsquery('english', {param})) = 0
+                    THEN plainto_tsquery('simple', {param})
+                    ELSE replace(plainto_tsquery('english', {param})::text, ' & ', ' | ')::tsquery END)
+               """;
+
+    internal static bool UsesSearchSyntax(string query) =>
+        query.Contains('"')
+        || query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Any(w => (w.Length > 1 && w[0] == '-') || w.Equals("or", StringComparison.OrdinalIgnoreCase));
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 

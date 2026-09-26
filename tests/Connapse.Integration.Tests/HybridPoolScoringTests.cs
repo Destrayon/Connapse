@@ -78,6 +78,69 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task KeywordSearchAsync_NoChunkHasEveryTerm_ReturnsPartialMatchesByOverlap()
+    {
+        Guid containerId = await CreateContainerAsync("kw-any");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid both = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
+        Guid one = await SeedChunkAsync(docId, containerId, "calcium supplements", "model-A", [1f, 0f]);
+        Guid none = await SeedChunkAsync(docId, containerId, "completely unrelated text", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+            const string query = "does high dietary calcium intake prevent hyperparathyroidism";
+
+            var hits = await keyword.SearchAsync(query,
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync(query, [both.ToString(), none.ToString()]);
+
+            hits.Select(h => h.ChunkId).Should().Equal(both.ToString(), one.ToString());
+            scores[both.ToString()].Should().BeGreaterThan(0f);
+            scores[none.ToString()].Should().Be(0f);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Theory]
+    [InlineData("\"bone density\"", true)]
+    [InlineData("the who", false)]
+    public async Task KeywordSearchAsync_PhraseOrStopWordQuery_MatchesOnlyTheExactText(string query, bool phraseChunkFirst)
+    {
+        Guid containerId = await CreateContainerAsync("kw-exact");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid phrase = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
+        Guid split = await SeedChunkAsync(docId, containerId, "density of bone marrow", "model-A", [1f, 0f]);
+        Guid band = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+
+            var hits = await keyword.SearchAsync(query,
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+
+            hits.Select(h => h.ChunkId).Should().Equal(phraseChunkFirst ? phrase.ToString() : band.ToString());
+            hits.Select(h => h.ChunkId).Should().NotContain(split.ToString());
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private async Task<Guid> CreateContainerAsync(string prefix)
