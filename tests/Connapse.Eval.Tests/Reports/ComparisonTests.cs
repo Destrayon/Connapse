@@ -108,6 +108,34 @@ public class ComparisonTests
     }
 
     [Fact]
+    public void Build_DatasetWithFewerThanTwoSharedQueries_ExcludedFromPortfolioDeltaAndVerdict()
+    {
+        // Dataset x: 30 identical shared queries, no change. Dataset y: only 1 shared query, where
+        // the candidate is much better — too few shared queries to trust, so it must not move the
+        // portfolio delta or let the verdict claim improvement.
+        RunScores baselineX = Scores("a", Base, "1", "x");
+        RunScores candidateX = Scores("b", Base, "1", "x");
+        DatasetScores baselineYFull = Scores("a", Base, "1", "y").Datasets.Single();
+        DatasetScores candidateYFull = Scores("b", (d, i) => Base(d, i) + 1.0, "1", "y").Datasets.Single();
+        Dictionary<string, IReadOnlyDictionary<string, double>> baselineYOne =
+            baselineYFull.PerQuery.Where(p => p.Key == "q0").ToDictionary(p => p.Key, p => p.Value);
+        Dictionary<string, IReadOnlyDictionary<string, double>> candidateYOne =
+            candidateYFull.PerQuery.Where(p => p.Key == "q0").ToDictionary(p => p.Key, p => p.Value);
+        DatasetScores baselineY = baselineYFull with { PerQuery = baselineYOne, TestQueries = 1 };
+        DatasetScores candidateY = candidateYFull with { PerQuery = candidateYOne, TestQueries = 1 };
+
+        RunScores baseline = baselineX with { Datasets = [.. baselineX.Datasets, baselineY] };
+        RunScores candidate = candidateX with { Datasets = [.. candidateX.Datasets, candidateY] };
+
+        Comparison c = ComparisonBuilder.Build(baseline, candidate, false);
+
+        c.PortfolioDelta[MetricNames.Ndcg10].Should().Be(0);
+        c.Verdict.Should().NotStartWith("Improves").And.Contain("too few shared queries: y");
+        c.TooFewSharedQueries.Should().Equal("y");
+        HtmlReport.RenderComparison(c).Should().Contain("too few shared queries");
+    }
+
+    [Fact]
     public void Build_NoPairedDatasets_SaysSoInsteadOfNaN()
     {
         Comparison c = ComparisonBuilder.Build(Scores("a", Base, "1", "x"), Scores("b", Base, "1", "y"), false);

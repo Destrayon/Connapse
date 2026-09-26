@@ -74,6 +74,8 @@ public static class HtmlReport
         IReadOnlyList<string> partial = ComparisonBuilder.PartialOverlap(c.Pairings);
         if (partial.Count > 0)
             html.Append($"<div class=banner>Partial query overlap for {E(string.Join(", ", partial))}: only queries both runs scored are compared.</div>");
+        if (c.TooFewSharedQueries.Count > 0)
+            html.Append($"<div class=banner>Too few shared queries for {E(string.Join(", ", c.TooFewSharedQueries))}: excluded from the portfolio delta and verdict.</div>");
         html.Append($"<p><strong>{E(c.Verdict)}</strong></p>");
 
         html.Append("<table><tr><th>Dataset</th><th>Metric</th><th>Δ</th><th>95% CI</th><th>p (Holm)</th><th>p (t-test)</th><th>d_z</th><th>MDE</th><th>n</th></tr>");

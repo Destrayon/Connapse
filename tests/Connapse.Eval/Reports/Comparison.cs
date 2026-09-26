@@ -24,7 +24,8 @@ public sealed record Comparison(
     string Verdict,
     IReadOnlyList<string> DatasetMismatches,
     IReadOnlyList<string> UnpairedDatasets,
-    IReadOnlyList<DatasetPairing> Pairings);
+    IReadOnlyList<DatasetPairing> Pairings,
+    IReadOnlyList<string> TooFewSharedQueries);
 
 public sealed class DatasetMismatchException(IReadOnlyList<string> datasets)
     : Exception($"Runs used different dataset versions or files for: {string.Join(", ", datasets)}. "
@@ -70,9 +71,11 @@ public static class ComparisonBuilder
             .ToList();
 
         // Each paired dataset contributes the mean of per-query differences over the queries both runs scored,
-        // so a query one run skipped cannot move the delta.
+        // so a query one run skipped cannot move the delta. A dataset needs the same minimum of 2 shared
+        // scored queries as the stats rows above, or it cannot move the portfolio delta or the verdict either.
         List<DatasetPairing> pairings = [];
         List<Dictionary<string, double>> datasetDeltas = [];
+        List<string> tooFewShared = [];
         foreach (string name in paired)
         {
             DatasetScores a = baseline.Datasets.First(d => d.Name == name);
@@ -80,9 +83,11 @@ public static class ComparisonBuilder
             List<string> common = a.PerQuery.Keys.Intersect(b.PerQuery.Keys).ToList();
             pairings.Add(new DatasetPairing(name, a.PerQuery.Count, b.PerQuery.Count, common.Count,
                 a.Means[MetricNames.Judged10], b.Means[MetricNames.Judged10]));
-            if (common.Count >= 1)
+            if (common.Count >= 2)
                 datasetDeltas.Add(MetricNames.All.ToDictionary(
                     m => m, m => common.Average(q => b.PerQuery[q][m] - a.PerQuery[q][m])));
+            else
+                tooFewShared.Add(name);
         }
 
         Dictionary<string, double> delta = MetricNames.All.ToDictionary(m => m, m => datasetDeltas.Count == 0
@@ -90,7 +95,7 @@ public static class ComparisonBuilder
             : datasetDeltas.Average(d => d[m]));
 
         return new Comparison(baseline.RunName, candidate.RunName, rows, delta,
-            Verdict(rows, delta, unpaired, PartialOverlap(pairings)), mismatches, unpaired, pairings);
+            Verdict(rows, delta, unpaired, PartialOverlap(pairings), tooFewShared), mismatches, unpaired, pairings, tooFewShared);
     }
 
     /// <summary>Paired datasets where fewer queries are shared than at least one run scored.</summary>
@@ -99,10 +104,11 @@ public static class ComparisonBuilder
             .Select(p => p.Dataset).ToList();
 
     private static string Verdict(IReadOnlyList<MetricComparison> rows, IReadOnlyDictionary<string, double> delta,
-        IReadOnlyList<string> unpaired, IReadOnlyList<string> partial)
+        IReadOnlyList<string> unpaired, IReadOnlyList<string> partial, IReadOnlyList<string> tooFewShared)
     {
         string suffix = (unpaired.Count > 0 ? $" — not compared: {string.Join(", ", unpaired)}" : "")
-            + (partial.Count > 0 ? $" — partial query overlap: {string.Join(", ", partial)}" : "");
+            + (partial.Count > 0 ? $" — partial query overlap: {string.Join(", ", partial)}" : "")
+            + (tooFewShared.Count > 0 ? $" — too few shared queries: {string.Join(", ", tooFewShared)}" : "");
         if (double.IsNaN(delta[MetricNames.Ndcg10]))
             return $"No paired datasets to compare{suffix}";
         List<string> drops = rows.Where(r => r.Significant && r.Stats.MeanDifference < 0)
