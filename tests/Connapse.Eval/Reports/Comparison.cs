@@ -7,6 +7,15 @@ namespace Connapse.Eval.Reports;
 
 public sealed record MetricComparison(string Dataset, string Metric, PairedComparison Stats, double HolmP, bool Significant);
 
+/// <summary>How many scored test queries each run has for a dataset, and how many both share.</summary>
+public sealed record DatasetPairing(
+    string Dataset,
+    int BaselineQueries,
+    int CandidateQueries,
+    int PairedQueries,
+    double BaselineJudgedAt10,
+    double CandidateJudgedAt10);
+
 public sealed record Comparison(
     string Baseline,
     string Candidate,
@@ -14,7 +23,8 @@ public sealed record Comparison(
     IReadOnlyDictionary<string, double> PortfolioDelta,
     string Verdict,
     IReadOnlyList<string> DatasetMismatches,
-    IReadOnlyList<string> UnpairedDatasets);
+    IReadOnlyList<string> UnpairedDatasets,
+    IReadOnlyList<DatasetPairing> Pairings);
 
 public sealed class DatasetMismatchException(IReadOnlyList<string> datasets)
     : Exception($"Runs used different dataset versions or files for: {string.Join(", ", datasets)}. "
@@ -59,21 +69,45 @@ public static class ComparisonBuilder
             .Order(StringComparer.Ordinal)
             .ToList();
 
-        Dictionary<string, double> delta = MetricNames.All.ToDictionary(m => m, m => paired.Count == 0
-            ? double.NaN
-            : paired.Average(name =>
-                candidate.Datasets.First(d => d.Name == name).Means[m] - baseline.Datasets.First(d => d.Name == name).Means[m]));
+        // Each paired dataset contributes the mean of per-query differences over the queries both runs scored,
+        // so a query one run skipped cannot move the delta.
+        List<DatasetPairing> pairings = [];
+        List<Dictionary<string, double>> datasetDeltas = [];
+        foreach (string name in paired)
+        {
+            DatasetScores a = baseline.Datasets.First(d => d.Name == name);
+            DatasetScores b = candidate.Datasets.First(d => d.Name == name);
+            List<string> common = a.PerQuery.Keys.Intersect(b.PerQuery.Keys).ToList();
+            pairings.Add(new DatasetPairing(name, a.PerQuery.Count, b.PerQuery.Count, common.Count,
+                a.Means[MetricNames.Judged10], b.Means[MetricNames.Judged10]));
+            if (common.Count >= 1)
+                datasetDeltas.Add(MetricNames.All.ToDictionary(
+                    m => m, m => common.Average(q => b.PerQuery[q][m] - a.PerQuery[q][m])));
+        }
 
-        return new Comparison(baseline.RunName, candidate.RunName, rows, delta, Verdict(rows, delta, unpaired), mismatches, unpaired);
+        Dictionary<string, double> delta = MetricNames.All.ToDictionary(m => m, m => datasetDeltas.Count == 0
+            ? double.NaN
+            : datasetDeltas.Average(d => d[m]));
+
+        return new Comparison(baseline.RunName, candidate.RunName, rows, delta,
+            Verdict(rows, delta, unpaired, PartialOverlap(pairings)), mismatches, unpaired, pairings);
     }
 
+    /// <summary>Paired datasets where fewer queries are shared than at least one run scored.</summary>
+    public static IReadOnlyList<string> PartialOverlap(IEnumerable<DatasetPairing> pairings) =>
+        pairings.Where(p => p.PairedQueries < p.BaselineQueries || p.PairedQueries < p.CandidateQueries)
+            .Select(p => p.Dataset).ToList();
+
     private static string Verdict(IReadOnlyList<MetricComparison> rows, IReadOnlyDictionary<string, double> delta,
-        IReadOnlyList<string> unpaired)
+        IReadOnlyList<string> unpaired, IReadOnlyList<string> partial)
     {
+        string suffix = (unpaired.Count > 0 ? $" — not compared: {string.Join(", ", unpaired)}" : "")
+            + (partial.Count > 0 ? $" — partial query overlap: {string.Join(", ", partial)}" : "");
+        if (double.IsNaN(delta[MetricNames.Ndcg10]))
+            return $"No paired datasets to compare{suffix}";
         List<string> drops = rows.Where(r => r.Significant && r.Stats.MeanDifference < 0)
             .Select(r => r.Dataset).Distinct().ToList();
         string change = delta[MetricNames.Ndcg10].ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture);
-        string suffix = unpaired.Count > 0 ? $" — not compared: {string.Join(", ", unpaired)}" : "";
         if (drops.Count > 0)
             return $"Regresses on {string.Join(", ", drops)} (portfolio nDCG@10 {change}){suffix}";
         return delta[MetricNames.Ndcg10] > 0

@@ -79,4 +79,39 @@ public class ComparisonTests
         c.UnpairedDatasets.Should().Equal("y");
         c.Verdict.Should().NotStartWith("Improves").And.Contain("not compared: y");
     }
+
+    [Fact]
+    public void Build_CandidateHasSubsetOfQueries_DeltaUsesOnlyPairedQueries()
+    {
+        // Baseline scored q0..q29, and its q20..q29 score 0. The candidate scored only q0..q19, identically.
+        // Each run's own means differ, but on the queries both runs share nothing changed.
+        RunScores baseline = Scores("a", (d, i) => i < 20 ? Base(d, i) : 0.0, "1", "x");
+        DatasetScores cand = Scores("b", Base, "1", "x").Datasets.Single();
+        Dictionary<string, IReadOnlyDictionary<string, double>> subset = cand.PerQuery
+            .Where(p => int.Parse(p.Key[1..], System.Globalization.CultureInfo.InvariantCulture) < 20)
+            .ToDictionary(p => p.Key, p => p.Value);
+        Dictionary<string, double> means = MetricNames.All.ToDictionary(m => m, m => subset.Values.Average(v => v[m]));
+        RunScores candidate = Scores("b", Base, "1", "x") with
+        {
+            Datasets = [cand with { PerQuery = subset, Means = means, TestQueries = 20 }],
+        };
+        baseline.Datasets.Single().Means[MetricNames.Ndcg10].Should().NotBe(means[MetricNames.Ndcg10]);
+
+        Comparison c = ComparisonBuilder.Build(baseline, candidate, false);
+
+        c.PortfolioDelta[MetricNames.Ndcg10].Should().Be(0);
+        c.PortfolioDelta[MetricNames.Judged10].Should().Be(0);
+        c.Pairings.Should().ContainSingle().Which.Should().Be(new DatasetPairing("x", 30, 20, 20,
+            baseline.Datasets.Single().Means[MetricNames.Judged10], means[MetricNames.Judged10]));
+        c.Verdict.Should().EndWith(" — partial query overlap: x");
+        HtmlReport.RenderComparison(c).Should().Contain("Partial query overlap for x");
+    }
+
+    [Fact]
+    public void Build_NoPairedDatasets_SaysSoInsteadOfNaN()
+    {
+        Comparison c = ComparisonBuilder.Build(Scores("a", Base, "1", "x"), Scores("b", Base, "1", "y"), false);
+
+        c.Verdict.Should().StartWith("No paired datasets to compare").And.NotContain("NaN");
+    }
 }

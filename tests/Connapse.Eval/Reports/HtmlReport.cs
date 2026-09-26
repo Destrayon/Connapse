@@ -67,6 +67,9 @@ public static class HtmlReport
             html.Append($"<div class=banner>Dataset versions differ for {E(string.Join(", ", c.DatasetMismatches))}; those rows compare different data.</div>");
         if (c.UnpairedDatasets.Count > 0)
             html.Append($"<div class=banner>Not compared (missing or invalid on one side): {E(string.Join(", ", c.UnpairedDatasets))}.</div>");
+        IReadOnlyList<string> partial = ComparisonBuilder.PartialOverlap(c.Pairings);
+        if (partial.Count > 0)
+            html.Append($"<div class=banner>Partial query overlap for {E(string.Join(", ", partial))}: only queries both runs scored are compared.</div>");
         html.Append($"<p><strong>{E(c.Verdict)}</strong></p>");
 
         html.Append("<table><tr><th>Dataset</th><th>Metric</th><th>Δ</th><th>95% CI</th><th>p (Holm)</th><th>p (t-test)</th><th>d_z</th><th>MDE</th><th>n</th></tr>");
@@ -77,9 +80,13 @@ public static class HtmlReport
                 + $"<td>[{S(row.Stats.CiLow)}, {S(row.Stats.CiHigh)}]</td><td>{row.HolmP:F4}</td><td>{row.Stats.TTestP:F4}</td>"
                 + $"<td>{F(row.Stats.EffectSizeDz)}</td><td>{F(row.Stats.MinimumDetectableEffect)}</td><td>{row.Stats.N}</td></tr>");
         }
+        html.Append("</table><h2>Queries and judged@10</h2><table><tr><th>Dataset</th><th>baseline queries</th><th>candidate queries</th><th>paired</th><th>judged@10</th></tr>");
+        foreach (DatasetPairing p in c.Pairings)
+            html.Append($"<tr><td>{E(p.Dataset)}</td><td>{p.BaselineQueries}</td><td>{p.CandidateQueries}</td><td>{p.PairedQueries}</td>"
+                + $"<td>{F(p.BaselineJudgedAt10)} → {F(p.CandidateJudgedAt10)}</td></tr>");
         html.Append("</table><h2>Portfolio change</h2><table><tr><th>Metric</th><th>Δ</th></tr>");
         foreach ((string metric, double delta) in c.PortfolioDelta)
-            html.Append($"<tr><td>{E(metric)}</td><td>{S(delta)}</td></tr>");
+            html.Append($"<tr><td>{E(metric)}</td><td>{(double.IsNaN(delta) ? "—" : S(delta))}</td></tr>");
         return html.Append("</table></body></html>").ToString();
     }
 
