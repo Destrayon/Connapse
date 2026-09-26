@@ -57,7 +57,7 @@ public static class Scoring
 
             Dictionary<string, double> means = MetricNames.All.ToDictionary(
                 m => m, m => perQuery.Count == 0 ? double.NaN : perQuery.Values.Average(v => v[m]));
-            List<double> latencies = all.Select(r => r.Trace.Total.TotalMilliseconds).ToList();
+            List<double> latencies = test.Select(r => r.Trace.Total.TotalMilliseconds).ToList();
             datasets.Add(new DatasetScores(info.Name, info.Tags, false, test.Count, noAnswer,
                 test.Count(r => r.Error is not null), means, perQuery, Percentile(latencies, 50), Percentile(latencies, 95)));
         }

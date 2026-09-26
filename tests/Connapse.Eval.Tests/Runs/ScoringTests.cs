@@ -100,4 +100,35 @@ public class ScoringTests : IDisposable
         File.ReadAllText(System.IO.Path.Combine(run.Path, "trec", "beta.trec"))
             .Should().StartWith("q1 Q0 x 1 ");
     }
+
+    [Fact]
+    public void Score_Run_ComputesLatencyPercentilesFromTestSplitOnly()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "eval-latency-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            RunFolder run = RunFolder.Create(root, "v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);
+            Qrels qrels = new();
+            qrels.Add("q1", "d1", 1);
+            run.WriteDataset("alpha", qrels, new Dictionary<string, string>(),
+            [
+                Result("alpha", "q1", Split.Test, null, "d1"),                                          // latency 30ms
+                Result("alpha", "qd", Split.Dev, null, "a", "b", "c", "d", "e", "f", "g", "h", "i", "j"), // Dev outlier, latency 120ms
+            ]);
+            run.MarkComplete("alpha");
+            run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
+                new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
+                DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+                [Info("alpha", "domain:general")]));
+
+            RunScores scores = Scoring.Score(run);
+
+            scores.Datasets.Single(d => d.Name == "alpha").LatencyP95Ms.Should().Be(30);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }
