@@ -40,6 +40,7 @@ public sealed class EvalRunner(
         (RunFolder run, RunManifest runManifest) = OpenOrCreate(request, config);
 
         List<string> pending = names.Where(n => !run.IsDatasetComplete(n)).ToList();
+        RefuseMixedDatasetRevisions(names.Except(pending), runManifest, manifest, hashes, run);
         if (pending.Count > 0)
         {
             await using ISystemUnderTest system = await systemFactory(config, ct);
@@ -86,6 +87,33 @@ public sealed class EvalRunner(
         runManifest = runManifest with { FinishedUtc = DateTimeOffset.UtcNow };
         run.WriteManifest(runManifest);
         return run;
+    }
+
+    /// <summary>
+    /// On resume, a dataset already marked complete in <paramref name="run"/> must still match the
+    /// version and file hashes the current manifest just verified — otherwise the run would mix
+    /// results scored against one dataset revision with results scored against another.
+    /// </summary>
+    private static void RefuseMixedDatasetRevisions(
+        IEnumerable<string> completed, RunManifest runManifest, EvalManifest manifest,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> hashes, RunFolder run)
+    {
+        List<string> mismatched = [];
+        foreach (string name in completed)
+        {
+            RunDatasetInfo? recorded = runManifest.Datasets.FirstOrDefault(d => d.Name == name);
+            if (recorded is null)
+                continue;
+            DatasetEntry current = manifest.Datasets[name];
+            IReadOnlyDictionary<string, string> currentHashes = hashes[name];
+            bool sameHashes = recorded.FileSha256.Count == currentHashes.Count
+                && recorded.FileSha256.All(p => currentHashes.TryGetValue(p.Key, out string? h) && h == p.Value);
+            if (recorded.Version != current.Version || !sameHashes)
+                mismatched.Add($"{name} (run has version {recorded.Version}, manifest now has {current.Version})");
+        }
+        if (mismatched.Count > 0)
+            throw new InvalidOperationException(
+                $"{run.Path} would mix dataset revisions on resume: {string.Join(", ", mismatched)}.");
     }
 
     private (RunFolder Run, RunManifest Manifest) OpenOrCreate(RunRequest request, SystemConfig config)

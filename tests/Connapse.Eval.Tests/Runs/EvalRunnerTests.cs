@@ -92,6 +92,34 @@ public class EvalRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ResumeWithChangedDatasetVersion_ThrowsNamingDatasetBeforeStartingSystem()
+    {
+        RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", ["one"], null, null), CancellationToken.None);
+
+        RepoPaths paths = new(_repo);
+        EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
+        Dictionary<string, DatasetEntry> datasets = new(manifest.Datasets)
+        {
+            ["one"] = manifest.Datasets["one"] with { Version = "2" },
+        };
+        manifest = manifest with { Datasets = datasets };
+        manifest.Save(paths.ManifestPath);
+
+        bool factoryInvoked = false;
+        EvalRunner runner = new(paths, TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (_, _) =>
+        {
+            factoryInvoked = true;
+            return Task.FromResult<ISystemUnderTest>(new FakeSystem(failPerDataset: 0));
+        });
+
+        Func<Task> act = () => runner.RunAsync(new RunRequest("s", "fake", "default", [], run.Path, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*one*");
+        factoryInvoked.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task RunAsync_ResumeUnderDifferentSystemDescription_RefusesBeforeIndexing()
     {
         RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
