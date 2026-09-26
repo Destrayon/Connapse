@@ -48,6 +48,10 @@ public static class Scoring
 
             Qrels qrels = run.ReadQrels(info.Name);
             IReadOnlyList<QueryResult> all = run.ReadResults(info.Name);
+            HashSet<string> seenQueryIds = new(StringComparer.Ordinal);
+            foreach (QueryResult result in all)
+                if (!seenQueryIds.Add(result.QueryId))
+                    throw new InvalidDataException($"Dataset '{info.Name}' results file contains duplicate query ID '{result.QueryId}'.");
             List<QueryResult> test = all.Where(r => r.Split == Split.Test).ToList();
             Dictionary<string, IReadOnlyDictionary<string, double>> perQuery = new(StringComparer.Ordinal);
             int noAnswer = 0;

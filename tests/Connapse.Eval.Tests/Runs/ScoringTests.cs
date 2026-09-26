@@ -99,6 +99,28 @@ public class ScoringTests : IDisposable
     }
 
     [Fact]
+    public void Score_DuplicateQueryIdInResults_ThrowsInvalidDataException()
+    {
+        RunFolder run = RunFolder.Create(_root, "v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);
+        Qrels qrels = new();
+        qrels.Add("q1", "d1", 1);
+        run.WriteDataset("alpha", qrels, new Dictionary<string, string>(),
+        [
+            Result("alpha", "q1", Split.Test, null, "d1"),
+            Result("alpha", "q1", Split.Test, null, "d1"),
+        ]);
+        run.MarkComplete("alpha");
+        run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
+            new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [Info("alpha", "domain:general")], null, []));
+
+        Action act = () => Scoring.Score(run);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*alpha*q1*");
+    }
+
+    [Fact]
     public void Percentile_NearestRank_MatchesDefinition()
     {
         Scoring.Percentile([5, 1, 3, 2, 4], 50).Should().Be(3);

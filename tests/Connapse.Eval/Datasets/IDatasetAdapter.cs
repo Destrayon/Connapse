@@ -28,15 +28,28 @@ public static class DatasetAdapters
         IEnumerable<(string Id, string Text)> queries,
         Qrels qrels)
     {
+        List<(string Id, string? Title, string Text)> corpusList = corpus.ToList();
+        List<(string Id, string Text)> queryList = queries.ToList();
+
+        HashSet<string> corpusIds = new(StringComparer.Ordinal);
+        foreach ((string Id, string? Title, string Text) document in corpusList)
+            if (!corpusIds.Add(document.Id))
+                throw new InvalidDataException($"Dataset '{name}' has duplicate corpus ID '{document.Id}'.");
+
+        HashSet<string> queryIdSet = new(StringComparer.Ordinal);
+        foreach ((string Id, string Text) query in queryList)
+            if (!queryIdSet.Add(query.Id))
+                throw new InvalidDataException($"Dataset '{name}' has duplicate query ID '{query.Id}'.");
+
         HashSet<string> judged = qrels.QueryIds.ToHashSet(StringComparer.Ordinal);
         return new EvalDataset(
             name,
             entry.Version,
             entry.Tags,
-            corpus.Select(c => new EvalDocument(
+            corpusList.Select(c => new EvalDocument(
                 c.Id, DocumentKind.Text, string.IsNullOrWhiteSpace(c.Title) ? null : c.Title, c.Text, null,
                 new Dictionary<string, string>())).ToList(),
-            queries.Where(q => judged.Contains(q.Id)).Select(q => new EvalQuery(q.Id, q.Text, Split.Test, [])).ToList(),
+            queryList.Where(q => judged.Contains(q.Id)).Select(q => new EvalQuery(q.Id, q.Text, Split.Test, [])).ToList(),
             qrels);
     }
 }

@@ -23,6 +23,7 @@ public sealed class RagBenchAdapter : IDatasetAdapter
         Dictionary<string, EvalDocument> corpus = new(StringComparer.Ordinal);
         List<EvalQuery> queries = [];
         Qrels qrels = new();
+        Dictionary<string, (Split Split, string Question)> seenQueries = new(StringComparer.Ordinal);
 
         foreach ((string file, Split? split) in new (string, Split?)[] { ("train.parquet", null), ("validation.parquet", Split.Dev), ("test.parquet", Split.Test) })
         {
@@ -37,7 +38,20 @@ public sealed class RagBenchAdapter : IDatasetAdapter
 
                 if (split is not Split querySplit)
                     continue;
-                queries.Add(new EvalQuery(row.Id, row.Question, querySplit, []));
+
+                if (seenQueries.TryGetValue(row.Id, out (Split Split, string Question) seen))
+                {
+                    if (seen.Split != querySplit)
+                        throw new InvalidDataException($"RAGBench query ID '{row.Id}' appears in more than one split.");
+                    if (seen.Question != row.Question)
+                        throw new InvalidDataException($"RAGBench query ID '{row.Id}' has differing question text across rows.");
+                }
+                else
+                {
+                    seenQueries[row.Id] = (querySplit, row.Question);
+                    queries.Add(new EvalQuery(row.Id, row.Question, querySplit, []));
+                }
+
                 foreach (string key in row.AllRelevantSentenceKeys ?? [])
                 {
                     int index = DocumentIndex(key);

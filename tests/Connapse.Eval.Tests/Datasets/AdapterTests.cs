@@ -88,6 +88,79 @@ public class AdapterTests : IDisposable
     }
 
     [Fact]
+    public async Task RagBench_DuplicateIdSameSplitSameQuestion_MergesIntoOneQueryWithUnionQrels()
+    {
+        await ParquetSerializer.SerializeAsync(Array.Empty<RagBenchRow>(), Path.Combine(_dir, "train.parquet"));
+        await ParquetSerializer.SerializeAsync(Array.Empty<RagBenchRow>(), Path.Combine(_dir, "validation.parquet"));
+        await ParquetSerializer.SerializeAsync(
+            new[]
+            {
+                new RagBenchRow { Id = "s1", Question = "test q", Documents = ["doc A", "doc B"], AllRelevantSentenceKeys = ["0a"] },
+                new RagBenchRow { Id = "s1", Question = "test q", Documents = ["doc A", "doc B"], AllRelevantSentenceKeys = ["1b"] },
+            },
+            Path.Combine(_dir, "test.parquet"));
+
+        EvalDataset dataset = await DatasetAdapters.Get("ragbench")
+            .LoadAsync("rb-dup-test", Entry("ragbench"), _dir, CancellationToken.None);
+
+        dataset.Queries.Should().ContainSingle(q => q.Id == "s1" && q.Split == Split.Test);
+        string docA = RagBenchAdapter.DocId("doc A");
+        string docB = RagBenchAdapter.DocId("doc B");
+        dataset.Qrels.For("s1").Keys.Should().BeEquivalentTo([docA, docB]);
+    }
+
+    [Fact]
+    public async Task RagBench_DuplicateIdDifferentQuestionText_Throws()
+    {
+        await ParquetSerializer.SerializeAsync(Array.Empty<RagBenchRow>(), Path.Combine(_dir, "train.parquet"));
+        await ParquetSerializer.SerializeAsync(Array.Empty<RagBenchRow>(), Path.Combine(_dir, "validation.parquet"));
+        await ParquetSerializer.SerializeAsync(
+            new[]
+            {
+                new RagBenchRow { Id = "s1", Question = "test q", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] },
+                new RagBenchRow { Id = "s1", Question = "different q", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] },
+            },
+            Path.Combine(_dir, "test.parquet"));
+
+        Func<Task> act = () => DatasetAdapters.Get("ragbench")
+            .LoadAsync("rb-dup-question", Entry("ragbench"), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*s1*");
+    }
+
+    [Fact]
+    public async Task RagBench_SameIdInValidationAndTest_Throws()
+    {
+        await ParquetSerializer.SerializeAsync(Array.Empty<RagBenchRow>(), Path.Combine(_dir, "train.parquet"));
+        await ParquetSerializer.SerializeAsync(
+            new[] { new RagBenchRow { Id = "s1", Question = "test q", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] } },
+            Path.Combine(_dir, "validation.parquet"));
+        await ParquetSerializer.SerializeAsync(
+            new[] { new RagBenchRow { Id = "s1", Question = "test q", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] } },
+            Path.Combine(_dir, "test.parquet"));
+
+        Func<Task> act = () => DatasetAdapters.Get("ragbench")
+            .LoadAsync("rb-dup-split", Entry("ragbench"), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*s1*");
+    }
+
+    [Fact]
+    public async Task BeirJsonl_DuplicateCorpusId_Throws()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "corpus.jsonl"),
+            "{\"_id\":\"d1\",\"title\":\"Title one\",\"text\":\"body one\"}\n{\"_id\":\"d1\",\"title\":\"\",\"text\":\"body two\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "queries.jsonl"),
+            "{\"_id\":\"q1\",\"text\":\"question one\"}\n");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "qrels.tsv"), "query-id\tcorpus-id\tscore\nq1\td1\t1\n");
+
+        Func<Task> act = () => DatasetAdapters.Get("beir-jsonl")
+            .LoadAsync("cqa-dup-corpus", Entry("beir-jsonl"), _dir, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*d1*");
+    }
+
+    [Fact]
     public void Get_UnknownAdapter_ThrowsListingKnownAdapters()
     {
         Action act = () => DatasetAdapters.Get("nope");
