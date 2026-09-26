@@ -1,15 +1,160 @@
-using Connapse.Eval.Judges;
+using System.Text.Json;
+using Connapse.Eval.Cli;
+using Connapse.Eval.Datasets;
+using Connapse.Eval.Model;
+using Connapse.Eval.Reports;
+using Connapse.Eval.Runs;
+using Connapse.Eval.Systems;
 
-Console.WriteLine("Connapse summary eval harness — manual run.");
-Console.WriteLine();
-Console.WriteLine("To run the eval against a real corpus:");
-Console.WriteLine("  1. Configure an LLM provider in your local appsettings or env vars.");
-Console.WriteLine("  2. Start Docker dev services (docker compose up -d).");
-Console.WriteLine("  3. Populate tests/Connapse.Eval/Corpora/<name>/ with seed documents.");
-Console.WriteLine("  4. Wire this Program.cs to: (a) ingest each corpus, (b) wait for rollup,");
-Console.WriteLine("     (c) fetch Container.Summary, (d) call SummaryJudge.EvaluateAsync,");
-Console.WriteLine("     (e) write results to docs/eval/baseline-scores-<date>.md.");
-Console.WriteLine();
-Console.WriteLine("v1 ships the harness scaffold + SummaryJudge class. The end-to-end runner");
-Console.WriteLine("requires Docker + LLM provider config and is left as a manual workflow.");
-return 0;
+namespace Connapse.Eval;
+
+internal static class EvalEntryPoint
+{
+    public static async Task<int> Main(string[] args)
+    {
+        CliArgs cli = CliArgs.Parse(args);
+        using CancellationTokenSource cts = new();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        try
+        {
+            cli.EnsureKnownOptions();
+            RepoPaths paths = RepoPaths.Find(Directory.GetCurrentDirectory());
+            using HttpClient http = new() { Timeout = TimeSpan.FromMinutes(30) };
+            return cli.Command switch
+            {
+                "run" => await Commands.RunAsync(cli, paths, http, cts.Token),
+                "pool" => Commands.PoolUnjudged(cli),
+                "datasets" => await Commands.DatasetsAsync(cli, paths, http, cts.Token),
+                "compare" => Commands.Compare(cli),
+                "report" => Commands.Report(cli),
+                _ => Commands.Usage(),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 2;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return 1;
+        }
+    }
+}
+
+internal static class Commands
+{
+    public static async Task<int> RunAsync(CliArgs cli, RepoPaths paths, HttpClient http, CancellationToken ct)
+    {
+        RunRequest request = new(cli.Required("suite"), cli.Option("system") ?? "connapse", cli.Required("config"),
+            cli.List("datasets"), cli.Option("resume"), cli.PositiveInt("limit-queries"));
+        if (request.System != "connapse")
+            throw new ArgumentException($"Unknown system '{request.System}'. Known: connapse.");
+
+        EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
+        EvalRunner runner = new(paths, Console.Out, http, async (config, token) =>
+            await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, Console.Out, null, token));
+        RunFolder run = await runner.RunAsync(request, ct);
+
+        RunScores scores = Scoring.Score(run);
+        ReportWriter.Write(run, scores);
+        Console.WriteLine(run.Path);
+        foreach (DatasetScores d in scores.Datasets)
+            Console.WriteLine(d.Invalid
+                ? $"  {d.Name,-28} not scored: {d.NotScoredReason}"
+                : d.PerQuery.Count == 0
+                ? $"  {d.Name,-28} no scored test queries"
+                : $"  {d.Name,-28} nDCG@10 {d.Means["nDCG@10"]:F3}  MRR@10 {d.Means["MRR@10"]:F3}  judged@10 {d.Means["judged@10"]:F2}");
+        Console.WriteLine($"  {"portfolio",-28} nDCG@10 {scores.Portfolio["nDCG@10"]:F3}");
+        return scores.Datasets.Any(d => d.Invalid) ? 1 : 0;
+    }
+
+    public static int PoolUnjudged(CliArgs cli)
+    {
+        if (cli.Positionals.Count == 0)
+            throw new ArgumentException("pool needs at least one run folder.");
+        IReadOnlyList<PoolItem> items = Pool.Unjudged(cli.Positionals.Select(RunFolder.Open));
+        string output = cli.Required("out");
+        File.WriteAllLines(output, items.Select(i => JsonSerializer.Serialize(i, EvalJson.Line)));
+        Console.WriteLine($"{items.Count} unjudged (query, document) pairs written to {output}");
+        return 0;
+    }
+
+    public static async Task<int> DatasetsAsync(CliArgs cli, RepoPaths paths, HttpClient http, CancellationToken ct)
+    {
+        EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
+        string action = cli.Positionals.FirstOrDefault() ?? "list";
+        if (action == "list")
+        {
+            foreach ((string suite, IReadOnlyList<string> names) in manifest.Suites)
+                Console.WriteLine($"{suite}: {string.Join(", ", names)}");
+            return 0;
+        }
+
+        if (action is not ("verify" or "fetch" or "pin"))
+            throw new ArgumentException($"Unknown datasets action '{action}'. Use list, verify, fetch or pin.");
+
+        IReadOnlyList<string> datasets = manifest.ResolveSuite(cli.Required("suite"), cli.List("datasets"));
+        DatasetCache cache = new(paths.CacheRoot, http);
+        foreach (string name in datasets)
+        {
+            IReadOnlyDictionary<string, string> hashes =
+                await cache.EnsureAsync(name, manifest.Datasets[name], allowUnpinned: action == "pin", ct);
+            if (action == "pin")
+                manifest = manifest.WithPinnedHashes(name, hashes);
+            Console.WriteLine($"{name}: ok");
+        }
+        if (action == "pin")
+            manifest.Save(paths.ManifestPath);
+        return 0;
+    }
+
+    public static int Compare(CliArgs cli)
+    {
+        if (cli.Positionals.Count != 2)
+            throw new ArgumentException("compare needs exactly two run folders: <baseline> <candidate>.");
+        RunFolder baseline = RunFolder.Open(cli.Positionals[0]);
+        RunFolder candidate = RunFolder.Open(cli.Positionals[1]);
+        Comparison comparison = ComparisonBuilder.Build(
+            Scoring.Score(baseline), Scoring.Score(candidate), cli.Flag("allow-dataset-mismatch"));
+        string stem = $"compare-vs-{baseline.Name}";
+        candidate.WriteText(stem + ".html", HtmlReport.RenderComparison(comparison));
+        candidate.WriteText(stem + ".json", JsonSerializer.Serialize(comparison, EvalJson.Options));
+        Console.WriteLine(comparison.Verdict);
+        Console.WriteLine(Path.Combine(candidate.Path, stem + ".html"));
+        return 0;
+    }
+
+    public static int Report(CliArgs cli)
+    {
+        RunFolder run = RunFolder.Open(cli.Positionals.FirstOrDefault()
+            ?? throw new ArgumentException("report needs a run folder."));
+        ReportWriter.Write(run, Scoring.Score(run));
+        Console.WriteLine(Path.Combine(run.Path, "report.html"));
+        return 0;
+    }
+
+    public static int Usage()
+    {
+        Console.Error.WriteLine("""
+            usage: dotnet run --project tests/Connapse.Eval -- <command>
+              run      --suite <name> --config <name> [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N]
+              compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
+              report   <runDir>
+              pool     <runDir>... --out <file>
+              datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
+            """);
+        return 2;
+    }
+}
+
+internal static class ReportWriter
+{
+    public static void Write(RunFolder run, RunScores scores)
+    {
+        run.WriteText("report.html", HtmlReport.RenderRun(scores, run));
+        run.WriteText("report.json", JsonSerializer.Serialize(scores, EvalJson.Options));
+    }
+}

@@ -1,0 +1,421 @@
+{
+  "suites": {
+    "v1": [
+      "nanobeir-arguana",
+      "nanobeir-climatefever",
+      "nanobeir-dbpedia",
+      "nanobeir-fever",
+      "nanobeir-fiqa",
+      "nanobeir-hotpotqa",
+      "nanobeir-msmarco",
+      "nanobeir-nfcorpus",
+      "nanobeir-nq",
+      "nanobeir-quora",
+      "nanobeir-scidocs",
+      "nanobeir-scifact",
+      "nanobeir-touche2020",
+      "cqadupstack-programmers",
+      "ragbench-techqa",
+      "ragbench-emanual"
+    ]
+  },
+  "datasets": {
+    "nanobeir-arguana": {
+      "adapter": "beir-parquet",
+      "version": "8f4a982d470a32c45817738b9d29042ca55d75ad",
+      "tags": [
+        "domain:general",
+        "topic:argument"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoArguAna/resolve/8f4a982d470a32c45817738b9d29042ca55d75ad/corpus/train-00000-of-00001.parquet",
+          "sha256": "05681e2b5ca7f8828a7d4a3179e9acf23e61e06043f68813517a22f67dba8965"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoArguAna/resolve/8f4a982d470a32c45817738b9d29042ca55d75ad/queries/train-00000-of-00001.parquet",
+          "sha256": "315492bdc168aeb77ab35980d891ce24f9d1075e58ea3a24161f2532a304ae15"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoArguAna/resolve/8f4a982d470a32c45817738b9d29042ca55d75ad/qrels/train-00000-of-00001.parquet",
+          "sha256": "ea913409965ae36b03ccce158a78d659b454508c5b53a714008d752c3459f681"
+        }
+      ]
+    },
+    "nanobeir-climatefever": {
+      "adapter": "beir-parquet",
+      "version": "96741bfa30b9f56db8c9eb7d08e775ed6474f206",
+      "tags": [
+        "domain:general",
+        "topic:science"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoClimateFEVER/resolve/96741bfa30b9f56db8c9eb7d08e775ed6474f206/corpus/train-00000-of-00001.parquet",
+          "sha256": "378d60ec0606cf718ff57163bbcac61a384876743fde268c8ea11130365ed09f"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoClimateFEVER/resolve/96741bfa30b9f56db8c9eb7d08e775ed6474f206/queries/train-00000-of-00001.parquet",
+          "sha256": "3e16e686f11820189c9a56f9256ede4c7b514aeb38c7889cf252c4852e01c5a4"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoClimateFEVER/resolve/96741bfa30b9f56db8c9eb7d08e775ed6474f206/qrels/train-00000-of-00001.parquet",
+          "sha256": "7bda449ec7e1965490bb862bae3d8c0f419b5611de561c7fd4ce7d7274b843ac"
+        }
+      ]
+    },
+    "nanobeir-dbpedia": {
+      "adapter": "beir-parquet",
+      "version": "438f1c25129f05db6238699b5afdc9c6b58d2096",
+      "tags": [
+        "domain:general",
+        "topic:entity"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoDBPedia/resolve/438f1c25129f05db6238699b5afdc9c6b58d2096/corpus/train-00000-of-00001.parquet",
+          "sha256": "fef96954e4a6f504b344e00d3e2da9b2cc4ae2df9fcfe9fe92ad03b2138ba6bc"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoDBPedia/resolve/438f1c25129f05db6238699b5afdc9c6b58d2096/queries/train-00000-of-00001.parquet",
+          "sha256": "7cdf62ac0270cafbc3ae927c731c9b366ef3bf6718ee4ccfd38685753ec42585"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoDBPedia/resolve/438f1c25129f05db6238699b5afdc9c6b58d2096/qrels/train-00000-of-00001.parquet",
+          "sha256": "139921c4abadda2183102080fd3070228871b60a31e8d45303331d4210f0e573"
+        }
+      ]
+    },
+    "nanobeir-fever": {
+      "adapter": "beir-parquet",
+      "version": "a8bfdf1bf15181167a7e22e69cf8754bdea9b4c8",
+      "tags": [
+        "domain:general",
+        "topic:fact-check"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFEVER/resolve/a8bfdf1bf15181167a7e22e69cf8754bdea9b4c8/corpus/train-00000-of-00001.parquet",
+          "sha256": "27030417f0df4af2f762bae0477215ea7c5df28ce4f2944df8847f57defd05ad"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFEVER/resolve/a8bfdf1bf15181167a7e22e69cf8754bdea9b4c8/queries/train-00000-of-00001.parquet",
+          "sha256": "f3741586cc44563a481b3d12891d46cf33266125cf91f6ddc2ff0d21c82bc9d5"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFEVER/resolve/a8bfdf1bf15181167a7e22e69cf8754bdea9b4c8/qrels/train-00000-of-00001.parquet",
+          "sha256": "cf09be06c30eeb422b688a6af06fcb15110549e7eb7d4df61082c5ba4ed3cf6f"
+        }
+      ]
+    },
+    "nanobeir-fiqa": {
+      "adapter": "beir-parquet",
+      "version": "4163ba032953d5044a7a6244261413f609c14342",
+      "tags": [
+        "domain:general",
+        "topic:finance"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFiQA2018/resolve/4163ba032953d5044a7a6244261413f609c14342/corpus/train-00000-of-00001.parquet",
+          "sha256": "8e993600400c59fc5054d94efcf5577be03cd1fc241b80912be0fae8babbd615"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFiQA2018/resolve/4163ba032953d5044a7a6244261413f609c14342/queries/train-00000-of-00001.parquet",
+          "sha256": "1659f57414d5b6a7f712062cdd92b06490fc228a7c7b3064a5b8f388f19bedae"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoFiQA2018/resolve/4163ba032953d5044a7a6244261413f609c14342/qrels/train-00000-of-00001.parquet",
+          "sha256": "dacc374246f91a5d32339b9c0b6993ee553061808575919716322ef76db80d33"
+        }
+      ]
+    },
+    "nanobeir-hotpotqa": {
+      "adapter": "beir-parquet",
+      "version": "d79c0cdda980aba54842756770928035e1b61a51",
+      "tags": [
+        "domain:general",
+        "topic:multihop"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoHotpotQA/resolve/d79c0cdda980aba54842756770928035e1b61a51/corpus/train-00000-of-00001.parquet",
+          "sha256": "ba6b24a43534da33144886762af4984dadcd54c8969deeb3cf6689d9fd3174b9"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoHotpotQA/resolve/d79c0cdda980aba54842756770928035e1b61a51/queries/train-00000-of-00001.parquet",
+          "sha256": "6b65aa944e0d12f9e9996a78fe6f3348c06c169da42cc85d6d4004eff9811890"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoHotpotQA/resolve/d79c0cdda980aba54842756770928035e1b61a51/qrels/train-00000-of-00001.parquet",
+          "sha256": "22cdc93f1f37ad3c39b1a94f902c115e79d2f0fe349d77ab960d80cdd5444be5"
+        }
+      ]
+    },
+    "nanobeir-msmarco": {
+      "adapter": "beir-parquet",
+      "version": "7b8ff22f2771dc65ac5b439f222eb19a1f56abda",
+      "tags": [
+        "domain:general",
+        "topic:web"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO/resolve/7b8ff22f2771dc65ac5b439f222eb19a1f56abda/corpus/train-00000-of-00001.parquet",
+          "sha256": "98a9e3acf124ede0af69e2691843321568a653207c615d648c3f79e8b92b8c2f"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO/resolve/7b8ff22f2771dc65ac5b439f222eb19a1f56abda/queries/train-00000-of-00001.parquet",
+          "sha256": "c61105bc59b5b7dfef6c03cdee008ff6b6ddba0c4f13d3f09807689ddb8efebd"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoMSMARCO/resolve/7b8ff22f2771dc65ac5b439f222eb19a1f56abda/qrels/train-00000-of-00001.parquet",
+          "sha256": "e804d7e5f0e90c9c06fd8d187fa6989efb9e041eef0000cd732928ca04b1174e"
+        }
+      ]
+    },
+    "nanobeir-nfcorpus": {
+      "adapter": "beir-parquet",
+      "version": "dd542a7efb9ad2136b9e00768b60fca9038f8156",
+      "tags": [
+        "domain:general",
+        "topic:medical"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus/resolve/dd542a7efb9ad2136b9e00768b60fca9038f8156/corpus/train-00000-of-00001.parquet",
+          "sha256": "b8a85ad4fa7b3c8a32dd167db1da9c31201c322e6490f4824a917df2b9de464a"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus/resolve/dd542a7efb9ad2136b9e00768b60fca9038f8156/queries/train-00000-of-00001.parquet",
+          "sha256": "ade8b0ee3c98a2ff14eea581b49e4b7ec8d73f5c51207536f0a38de2914c001d"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNFCorpus/resolve/dd542a7efb9ad2136b9e00768b60fca9038f8156/qrels/train-00000-of-00001.parquet",
+          "sha256": "8c3063fc746eb2d6da0acdd64f63ac52308404512fca578b4eb37c44088361c2"
+        }
+      ]
+    },
+    "nanobeir-nq": {
+      "adapter": "beir-parquet",
+      "version": "77540146379abf95df8326a3c5bb9eb21c7146c3",
+      "tags": [
+        "domain:general",
+        "topic:web"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ/resolve/77540146379abf95df8326a3c5bb9eb21c7146c3/corpus/train-00000-of-00001.parquet",
+          "sha256": "0a23818bfb7f8eeb0aa3c6db6dcd629122adeb1db9ee74a7344b0b17405d06f5"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ/resolve/77540146379abf95df8326a3c5bb9eb21c7146c3/queries/train-00000-of-00001.parquet",
+          "sha256": "fbcbcff5d8a537e68075a891b565c1891b51c0bcbac4556ed97ff48aa8cebc5b"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoNQ/resolve/77540146379abf95df8326a3c5bb9eb21c7146c3/qrels/train-00000-of-00001.parquet",
+          "sha256": "ec0344cbf2075407a0472ab1cc91186b42a0ca5387f4b0af92cb260b19d8b6f5"
+        }
+      ]
+    },
+    "nanobeir-quora": {
+      "adapter": "beir-parquet",
+      "version": "2ab2d73e6c862026282808b913a34f4136928545",
+      "tags": [
+        "domain:general",
+        "topic:duplicate-question"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoQuoraRetrieval/resolve/2ab2d73e6c862026282808b913a34f4136928545/corpus/train-00000-of-00001.parquet",
+          "sha256": "d58cbcea8c2cfaba79b3da37c1d6ebd0ab6f692ff17c783e832e1bd1a98198f3"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoQuoraRetrieval/resolve/2ab2d73e6c862026282808b913a34f4136928545/queries/train-00000-of-00001.parquet",
+          "sha256": "cd353dbc4baa746dcc5c5278b704a22dfaf2491d22b32a02c142e47be72412e8"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoQuoraRetrieval/resolve/2ab2d73e6c862026282808b913a34f4136928545/qrels/train-00000-of-00001.parquet",
+          "sha256": "cad732a7ae59eca75c0a1e00b541bcce1b4e7ede989761363a1d4188a5f33f00"
+        }
+      ]
+    },
+    "nanobeir-scidocs": {
+      "adapter": "beir-parquet",
+      "version": "484eb90549fc3f0b9c42b3551e80ceb999515537",
+      "tags": [
+        "domain:general",
+        "topic:science"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSCIDOCS/resolve/484eb90549fc3f0b9c42b3551e80ceb999515537/corpus/train-00000-of-00001.parquet",
+          "sha256": "549175725f66075c8815e3fff8b30477d45fd38b251b8041523c46fe649a1e5a"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSCIDOCS/resolve/484eb90549fc3f0b9c42b3551e80ceb999515537/queries/train-00000-of-00001.parquet",
+          "sha256": "887ec8b87145f41a7ae53d7cd42b7fbbccbcacf897513b75db74bad434440fc3"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSCIDOCS/resolve/484eb90549fc3f0b9c42b3551e80ceb999515537/qrels/train-00000-of-00001.parquet",
+          "sha256": "e7cb52e464f40a0f64b79bc7c74dd5f138713986e35eb9dfab536e29e4eba801"
+        }
+      ]
+    },
+    "nanobeir-scifact": {
+      "adapter": "beir-parquet",
+      "version": "309f1d1ae3ae2e092444a8a0c25bed59b82318bc",
+      "tags": [
+        "domain:general",
+        "topic:science"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSciFact/resolve/309f1d1ae3ae2e092444a8a0c25bed59b82318bc/corpus/train-00000-of-00001.parquet",
+          "sha256": "87a40077e7b19ded49aa582fcc7c936dabd982adc6e4f562a36ec9c08ce6909c"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSciFact/resolve/309f1d1ae3ae2e092444a8a0c25bed59b82318bc/queries/train-00000-of-00001.parquet",
+          "sha256": "85861ef816cafe12520d2aa264a530b187b0a372862005da93baed31bcd7fb44"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoSciFact/resolve/309f1d1ae3ae2e092444a8a0c25bed59b82318bc/qrels/train-00000-of-00001.parquet",
+          "sha256": "e8cd78d051a6a261af067153635e95540642c8bf990767955f4f504d92a7a89d"
+        }
+      ]
+    },
+    "nanobeir-touche2020": {
+      "adapter": "beir-parquet",
+      "version": "0d2f26ed8c5ad309f95c7f9499c70a40e140fccd",
+      "tags": [
+        "domain:general",
+        "topic:argument"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoTouche2020/resolve/0d2f26ed8c5ad309f95c7f9499c70a40e140fccd/corpus/train-00000-of-00001.parquet",
+          "sha256": "2733ae6fd21c473ffabe7bffdc4d5780c1ceacfd4b084e208e375363d184cb02"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoTouche2020/resolve/0d2f26ed8c5ad309f95c7f9499c70a40e140fccd/queries/train-00000-of-00001.parquet",
+          "sha256": "0bc4d782e7786cdbac17dbd240ccd034d132de15c0c82a062964b5ddb35ca040"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "https://huggingface.co/datasets/zeta-alpha-ai/NanoTouche2020/resolve/0d2f26ed8c5ad309f95c7f9499c70a40e140fccd/qrels/train-00000-of-00001.parquet",
+          "sha256": "7c9399a80c7c0c8c115140d39dc8580d77c9c72289cb13387a34d0ebc40bde87"
+        }
+      ]
+    },
+    "cqadupstack-programmers": {
+      "adapter": "beir-jsonl",
+      "version": "339629ee116f204b54b1cfd50b9084199a6d415c",
+      "tags": [
+        "domain:engineering"
+      ],
+      "files": [
+        {
+          "name": "corpus.jsonl",
+          "url": "https://huggingface.co/datasets/mteb/cqadupstack-programmers/resolve/339629ee116f204b54b1cfd50b9084199a6d415c/corpus.jsonl",
+          "sha256": "8ccab1a30048df7a873dcd1d41ee441f44cbbad430d427fc148051fe3836abd7"
+        },
+        {
+          "name": "queries.jsonl",
+          "url": "https://huggingface.co/datasets/mteb/cqadupstack-programmers/resolve/339629ee116f204b54b1cfd50b9084199a6d415c/queries.jsonl",
+          "sha256": "ffe238c984b80ac12be76af230835fe6412280b14ab9baa89e630d358bbc8426"
+        },
+        {
+          "name": "qrels.tsv",
+          "url": "https://huggingface.co/datasets/mteb/cqadupstack-programmers/resolve/339629ee116f204b54b1cfd50b9084199a6d415c/qrels/test.tsv",
+          "sha256": "ed69afa873c64d34298792d694c82c4293e4b7e3c6ea3edc7a73662d4b0cba76"
+        }
+      ]
+    },
+    "ragbench-techqa": {
+      "adapter": "ragbench",
+      "version": "97808f3e5fd16ede40bbff6c2949af8139b2eb7b",
+      "tags": [
+        "domain:business-docs"
+      ],
+      "files": [
+        {
+          "name": "train.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/techqa/train-00000-of-00001.parquet",
+          "sha256": "4a729452c82aabbe14ea8658c43bd23afd6cb8db66f26f00f3aa780b93e12a66"
+        },
+        {
+          "name": "validation.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/techqa/validation-00000-of-00001.parquet",
+          "sha256": "0a0fe4de7152af123ff482035bd6e495e690cfff0a4843230e082127262599a6"
+        },
+        {
+          "name": "test.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/techqa/test-00000-of-00001.parquet",
+          "sha256": "426f360d12b5d3589b66293c3417d3686a9d69eba3e82938e93d3e1545681264"
+        }
+      ]
+    },
+    "ragbench-emanual": {
+      "adapter": "ragbench",
+      "version": "97808f3e5fd16ede40bbff6c2949af8139b2eb7b",
+      "tags": [
+        "domain:business-docs"
+      ],
+      "files": [
+        {
+          "name": "train.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/emanual/train-00000-of-00001.parquet",
+          "sha256": "30844fe31992f25f509495d0a203caa51634188f081eb62277e279d674d5f497"
+        },
+        {
+          "name": "validation.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/emanual/validation-00000-of-00001.parquet",
+          "sha256": "b8155882e7fa0114e7610c3c7d76cf2f5f3a694eab6051ff26af392c2c0e5a30"
+        },
+        {
+          "name": "test.parquet",
+          "url": "https://huggingface.co/datasets/galileo-ai/ragbench/resolve/97808f3e5fd16ede40bbff6c2949af8139b2eb7b/emanual/test-00000-of-00001.parquet",
+          "sha256": "ba6164b48ec0792f9072f952af60062a14d1412dd472ddf08bd50b7006fc4504"
+        }
+      ]
+    }
+  }
+}
