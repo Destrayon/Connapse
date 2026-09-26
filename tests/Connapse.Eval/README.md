@@ -5,6 +5,8 @@ upload and ingestion path and searching through `IKnowledgeSearch`. Design:
 `docs/superpowers/specs/2026-09-25-eval-core-harness-design.md`.
 
 Needs Docker (throwaway PostgreSQL + MinIO) and the embedding provider the config uses (Ollama by default).
+During a run Testcontainers publishes those throwaway PostgreSQL and MinIO containers with default credentials on
+host ports, so run it on a trusted machine.
 
     dotnet run --project tests/Connapse.Eval -- datasets verify --suite v1
     dotnet run --project tests/Connapse.Eval -- run --suite v1 --config hybrid
@@ -17,4 +19,6 @@ Needs Docker (throwaway PostgreSQL + MinIO) and the embedding provider the confi
 - Headline numbers use the test split. Tune only on dev splits (RAGBench validation).
 - A difference is significant when its Holm-corrected permutation p < 0.05; each report prints the minimum
   detectable effect, so "no difference" and "too few queries to tell" read differently.
+- `--limit-queries N` is for quick smoke runs: it keeps up to N test and up to N dev queries per dataset, each
+  in source order. A resumed run must use the same limit it was started with.
 - `pool` lists top-10 documents that have no judgment; grading them is sub-project 2.

@@ -176,7 +176,7 @@ The RAGBench adapter derives document-level qrels from its relevant-sentence key
 
 ## Out of scope for version 1
 
-Permission suite, LLM grading and generation tooling, vector-index benchmark, load tests and micro-benchmarks, parser evaluation, CI scheduling, graph/image/agent systems, Microsoft.Extensions.AI.Evaluation. Only the xUnit project (`Connapse.Eval.Tests`, Category Unit) runs in per-PR CI.
+Permission suite, LLM grading and generation tooling, vector-index benchmark, load tests and micro-benchmarks, parser evaluation, CI scheduling, graph/image/agent systems, Microsoft.Extensions.AI.Evaluation. Only the xUnit project (`Connapse.Eval.Tests`) runs in per-PR CI: its Unit tests and its one Integration test, which uses a fake embedder and starts its own Testcontainers.
 
 ## Done when
 
