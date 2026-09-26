@@ -59,6 +59,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             ["search.crossEncoderModel"] = search.CrossEncoderModel ?? "",
             ["search.fusionAlpha"] = search.FusionAlpha.ToString(CultureInfo.InvariantCulture),
             ["search.hybridCandidatePool"] = search.HybridCandidatePool.ToString(CultureInfo.InvariantCulture),
+            ["search.keywordRanker"] = search.KeywordRanker,
             ["chunking.strategy"] = chunking.Strategy,
             ["chunking.maxChunkSize"] = chunking.MaxChunkSize.ToString(CultureInfo.InvariantCulture),
             ["chunking.overlap"] = chunking.Overlap.ToString(CultureInfo.InvariantCulture),

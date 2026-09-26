@@ -1,7 +1,9 @@
 ﻿using Connapse.Core;
 using Connapse.Storage.Data;
+using Connapse.Storage.Keyword;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Keyword;
@@ -10,6 +12,8 @@ public class KeywordSearchService
 {
     private readonly KnowledgeDbContext _context;
     private readonly ILogger<KeywordSearchService> _logger;
+    private readonly IOptionsMonitor<SearchSettings>? _settings;
+    private readonly Bm25IndexManager? _bm25;
 
     public KeywordSearchService(
         KnowledgeDbContext context,
@@ -18,6 +22,26 @@ public class KeywordSearchService
         _context = context;
         _logger = logger;
     }
+
+    public KeywordSearchService(
+        KnowledgeDbContext context,
+        ILogger<KeywordSearchService> logger,
+        IOptionsMonitor<SearchSettings> settings,
+        Bm25IndexManager bm25)
+        : this(context, logger)
+    {
+        _settings = settings;
+        _bm25 = bm25;
+    }
+
+    /// <summary>
+    /// The owner's BM25 index when BM25 ranking is configured and available; null means ts_rank.
+    /// </summary>
+    private async Task<string?> Bm25IndexAsync(Guid ownerId, CancellationToken ct) =>
+        _bm25 is not null
+        && string.Equals(_settings?.CurrentValue.KeywordRanker, "Bm25", StringComparison.OrdinalIgnoreCase)
+            ? await _bm25.GetIndexNameAsync(ownerId, ct)
+            : null;
 
     /// <param name="scopes">
     /// What the caller may reach. Required rather than optional: a default would make forgetting
@@ -122,6 +146,24 @@ public class KeywordSearchService
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
+
+        string? bm25Index = string.IsNullOrEmpty(options.ContainerId)
+            ? null
+            : await Bm25IndexAsync(Guid.Parse(options.ContainerId), ct);
+        if (bm25Index is not null)
+        {
+            List<SearchHit> bm25Hits = ToHits(await Bm25SearchAsync(
+                whereClause, parameters, topKIdx, parsed, bm25Index, Guid.Parse(options.ContainerId!), ct));
+
+            // A query of nothing but stop words has no BM25 terms; ts_rank's exact-token fallback
+            // still finds "the who".
+            if (bm25Hits.Count > 0)
+            {
+                LogResults(query, bm25Hits.Count, options.TopK);
+                return bm25Hits;
+            }
+        }
+
         string tsQuery = TsQuerySql("{0}", "{1}");
 
         var sql = @$"
@@ -146,7 +188,55 @@ public class KeywordSearchService
             .SqlQueryRaw<KeywordSearchRow>(sql, parameters.ToArray())
             .ToListAsync(ct);
 
-        var hits = results
+        var hits = ToHits(results);
+        LogResults(query, hits.Count, options.TopK);
+        return hits;
+    }
+
+    /// <summary>
+    /// Ranks with pg_textsearch BM25 over the owner's partial index. The index scan orders by the
+    /// negative BM25 score (lower is better) and every chunk it covers gets a score, 0 when no term
+    /// matches, so the "< 0" filter is what makes it a match. Exclusions reuse the tsquery path.
+    /// </summary>
+    private async Task<List<KeywordSearchRow>> Bm25SearchAsync(
+        string whereClause, List<object> parameters, int topKIdx, KeywordQuery parsed,
+        string indexName, Guid ownerId, CancellationToken ct)
+    {
+        List<object> bm25Parameters = [.. parameters, string.Join(' ', parsed.Clauses), indexName, ownerId];
+        int textIdx = parameters.Count, indexIdx = textIdx + 1, ownerIdx = textIdx + 2;
+        string score = $"(c.content <@> to_bm25query({{{textIdx}}}, {{{indexIdx}}}))";
+        string exclusions = parsed.Exclusions.Count == 0
+            ? ""
+            : $"AND NOT COALESCE(c.search_vector @@ {AnyOfSql("{1}")}, false)";
+
+        // c.owner_id (not only d.owner_id) so the planner can prove the partial index applies.
+        string sql = @$"
+            SELECT
+                c.id as ChunkId,
+                c.document_id as DocumentId,
+                c.content as Content,
+                c.chunk_index as ChunkIndex,
+                (-{score})::real as Rank,
+                d.file_name as FileName,
+                d.content_type as ContentType,
+                d.owner_id as ContainerId,
+                d.path as Path
+            FROM chunks c
+            INNER JOIN documents d ON c.document_id = d.id
+            WHERE {whereClause}
+              AND c.owner_id = {{{ownerIdx}}}
+              AND {score} < 0
+              {exclusions}
+            ORDER BY {score}
+            LIMIT {{{topKIdx}}}";
+
+        return await _context.Database
+            .SqlQueryRaw<KeywordSearchRow>(sql, bm25Parameters.ToArray())
+            .ToListAsync(ct);
+    }
+
+    private static List<SearchHit> ToHits(List<KeywordSearchRow> results) =>
+        results
             .Select(r => new SearchHit(
                 ChunkId: r.ChunkId.ToString(),
                 DocumentId: r.DocumentId.ToString(),
@@ -164,14 +254,12 @@ public class KeywordSearchService
                 }))
             .ToList();
 
+    private void LogResults(string query, int count, int topK) =>
         _logger.LogInformation(
             "Keyword search for query '{Query}' returned {Count} results (topK={TopK})",
             Sanitize(query),
-            hits.Count,
-            options.TopK);
-
-        return hits;
-    }
+            count,
+            topK);
 
     /// <summary>
     /// The keyword rank the named chunks would have had for <paramref name="query"/>, scored the same
@@ -191,6 +279,32 @@ public class KeywordSearchService
         var parsed = KeywordQuery.Parse(query ?? "");
         if (parsed.Clauses.Count == 0 || ids.Length == 0)
             return new Dictionary<string, float>();
+
+        // BM25 scores only mean something against one index's statistics, so a pool spanning owners
+        // (not something a container-scoped search produces) is scored with ts_rank instead.
+        List<Guid> owners = await _context.Database
+            .SqlQueryRaw<Guid>("SELECT DISTINCT owner_id AS \"Value\" FROM chunks WHERE id = ANY({0})", ids)
+            .ToListAsync(ct);
+        string? bm25Index = owners.Count == 1 ? await Bm25IndexAsync(owners[0], ct) : null;
+        if (bm25Index is not null)
+        {
+            string exclusions = parsed.Exclusions.Count == 0
+                ? "false"
+                : $"COALESCE(c.search_vector @@ {AnyOfSql("{1}")}, false)";
+            string bm25Sql = @$"
+                SELECT
+                    c.id as ChunkId,
+                    CASE WHEN {exclusions} THEN 0
+                         ELSE (-(c.content <@> to_bm25query({{3}}, {{4}})))::real END as Rank
+                FROM chunks c
+                WHERE c.id = ANY({{2}})";
+
+            List<ChunkRankRow> bm25Rows = await _context.Database
+                .SqlQueryRaw<ChunkRankRow>(bm25Sql,
+                    parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(), ids, string.Join(' ', parsed.Clauses), bm25Index)
+                .ToListAsync(ct);
+            return bm25Rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
+        }
 
         string sql = @$"
             SELECT
@@ -221,8 +335,15 @@ public class KeywordSearchService
                    string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery,
                    plainto_tsquery('simple', array_to_string({clausesParam}::text[], ' ')))
                FROM unnest({clausesParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) p(q),
-              (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
-               FROM unnest({exclusionsParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) n(q))
+              (SELECT {AnyOfSql(exclusionsParam)}) n(q))
+        """;
+
+    /// <summary>
+    /// A tsquery matching any of the phrases in a text[] parameter; NULL when none has a lexeme.
+    /// </summary>
+    internal static string AnyOfSql(string param) => $"""
+        (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+         FROM unnest({param}::text[]) t, LATERAL phraseto_tsquery('english', t) e)
         """;
 
     /// <summary>

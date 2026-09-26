@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Images;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
@@ -39,8 +41,17 @@ public sealed class EvalHost : IAsyncDisposable
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache,
         IEmbeddingProvider? embeddingOverride, CancellationToken ct)
     {
+        // The shipped Postgres image (pgvector + pg_textsearch), so BM25 configs can run; the
+        // extension does nothing unless a config sets Knowledge:Search:KeywordRanker to Bm25.
+        IFutureDockerImage image = new ImageFromDockerfileBuilder()
+            .WithDockerfileDirectory(CommonDirectoryPath.GetGitDirectory(), "docker/postgres")
+            .WithName("connapse-postgres:pg17-bm25-eval")
+            .WithCleanUp(false)
+            .Build();
+        await image.CreateAsync(ct);
+
         PostgreSqlContainer postgres = new PostgreSqlBuilder()
-            .WithImage("pgvector/pgvector:pg17")
+            .WithImage(image)
             .WithDatabase("connapse_eval")
             .WithUsername("eval")
             .WithPassword("eval")

@@ -196,6 +196,13 @@ public record SearchSettings
     public int HybridCandidatePool { get; set; } = 30;
 
     /// <summary>
+    /// Keyword ranking function: TsRank | Bm25 (default: TsRank).
+    /// Bm25 needs the pg_textsearch extension in the database image; without it, and for searches
+    /// not scoped to one container, keyword search falls back to TsRank.
+    /// </summary>
+    public string KeywordRanker { get; set; } = "TsRank";
+
+    /// <summary>
     /// Fusion method: ConvexCombination | DBSF (default: ConvexCombination).
     /// ConvexCombination: min-max normalizes inputs, then alpha-weighted sum.
     /// DBSF: Distribution-Based Score Fusion — normalizes using mean ± 3σ, more robust to outliers.

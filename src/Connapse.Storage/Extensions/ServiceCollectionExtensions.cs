@@ -164,6 +164,11 @@ public static class ServiceCollectionExtensions
         // Vector index management (partial IVFFlat indexes per embedding model)
         services.AddScoped<VectorColumnManager>();
 
+        // BM25 index management (pg_textsearch partial index per owner, when the extension exists).
+        // The state is a singleton: it caches which indexes exist and serialises their creation.
+        services.AddSingleton<Keyword.Bm25IndexState>();
+        services.AddScoped<Keyword.Bm25IndexManager>();
+
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 
