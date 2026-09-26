@@ -2,6 +2,7 @@ using System.Text.Json;
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
+using Connapse.Eval.Reports;
 using Connapse.Eval.Runs;
 using Connapse.Eval.Systems;
 
@@ -24,7 +25,8 @@ internal static class EvalEntryPoint
                 "run" => await Commands.RunAsync(cli, paths, http, cts.Token),
                 "pool" => Commands.PoolUnjudged(cli),
                 "datasets" => await Commands.DatasetsAsync(cli, paths, http, cts.Token),
-                "compare" or "report" => Commands.NotAvailable(cli.Command),
+                "compare" => Commands.Compare(cli),
+                "report" => Commands.Report(cli),
                 _ => Commands.Usage(),
             };
         }
@@ -106,10 +108,29 @@ internal static class Commands
         return 0;
     }
 
-    public static int NotAvailable(string command)
+    public static int Compare(CliArgs cli)
     {
-        Console.Error.WriteLine($"'{command}' is not available yet.");
-        return 2;
+        if (cli.Positionals.Count != 2)
+            throw new ArgumentException("compare needs exactly two run folders: <baseline> <candidate>.");
+        RunFolder baseline = RunFolder.Open(cli.Positionals[0]);
+        RunFolder candidate = RunFolder.Open(cli.Positionals[1]);
+        Comparison comparison = ComparisonBuilder.Build(
+            Scoring.Score(baseline), Scoring.Score(candidate), cli.Flag("allow-dataset-mismatch"));
+        string stem = $"compare-vs-{baseline.Name}";
+        candidate.WriteText(stem + ".html", HtmlReport.RenderComparison(comparison));
+        candidate.WriteText(stem + ".json", JsonSerializer.Serialize(comparison, EvalJson.Options));
+        Console.WriteLine(comparison.Verdict);
+        Console.WriteLine(Path.Combine(candidate.Path, stem + ".html"));
+        return 0;
+    }
+
+    public static int Report(CliArgs cli)
+    {
+        RunFolder run = RunFolder.Open(cli.Positionals.FirstOrDefault()
+            ?? throw new ArgumentException("report needs a run folder."));
+        ReportWriter.Write(run, Scoring.Score(run));
+        Console.WriteLine(Path.Combine(run.Path, "report.html"));
+        return 0;
     }
 
     public static int Usage()
@@ -128,7 +149,9 @@ internal static class Commands
 
 internal static class ReportWriter
 {
-    // Replaced in Task 10 with the HTML and JSON report writer.
-    public static void Write(RunFolder run, RunScores scores) =>
+    public static void Write(RunFolder run, RunScores scores)
+    {
+        run.WriteText("report.html", HtmlReport.RenderRun(scores, run));
         run.WriteText("report.json", JsonSerializer.Serialize(scores, EvalJson.Options));
+    }
 }
