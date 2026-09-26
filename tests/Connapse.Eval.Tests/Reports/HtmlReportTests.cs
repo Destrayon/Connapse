@@ -51,7 +51,7 @@ public class HtmlReportTests : IDisposable
         RunDatasetInfo betaInfo = new("beta", "1", new Dictionary<string, string>(), ["domain:general"], 2, 1, true, 1);
         run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
             new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
-            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, [alphaInfo, betaInfo]));
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, [alphaInfo, betaInfo], null, []));
 
         RunScores scores = Scoring.Score(run);
         string html = HtmlReport.RenderRun(scores, run);

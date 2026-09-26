@@ -25,6 +25,8 @@ public static class HtmlReport
         StringBuilder html = Start($"Eval run {scores.RunName}");
         RunManifest m = scores.Manifest;
         html.Append($"<h1>{E(scores.RunName)}</h1><p class=muted>{E(m.Suite)} · {E(m.System)}/{E(m.Config)} · git {E(m.GitSha)}{(m.GitDirty ? " (dirty)" : "")} · {E(m.Machine)} · {m.StartedUtc:u}</p>");
+        foreach (RunResume resume in m.Resumes ?? [])
+            html.Append($"<p class=muted>resumed {resume.Utc:u} from git {E(resume.GitSha)}{(resume.GitDirty ? " (dirty)" : "")}</p>");
         html.Append("<p class=muted>");
         foreach ((string key, string value) in m.SystemDescription)
             html.Append($"{E(key)}=<code>{E(value)}</code> ");

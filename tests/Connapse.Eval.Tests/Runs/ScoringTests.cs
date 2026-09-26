@@ -52,7 +52,7 @@ public class ScoringTests : IDisposable
         run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
             new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
             DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-            [Info("alpha", "domain:general"), Info("beta", "domain:engineering"), Info("gamma", "domain:general", invalid: true)]));
+            [Info("alpha", "domain:general"), Info("beta", "domain:engineering"), Info("gamma", "domain:general", invalid: true)], null, []));
         return run;
     }
 
@@ -119,7 +119,7 @@ public class ScoringTests : IDisposable
             run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
                 new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
                 DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
-                [Info("alpha", "domain:general")]));
+                [Info("alpha", "domain:general")], null, []));
 
             RunScores scores = Scoring.Score(run);
 

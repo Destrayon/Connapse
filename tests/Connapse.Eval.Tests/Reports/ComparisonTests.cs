@@ -23,7 +23,7 @@ public class ComparisonTests
             new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
             DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
             datasets.Select(d => new RunDatasetInfo(d, version, new Dictionary<string, string> { ["f"] = "abc" },
-                ["domain:general"], 10, 0, false, 30)).ToList());
+                ["domain:general"], 10, 0, false, 30)).ToList(), null, []);
         Dictionary<string, double> portfolio = MetricNames.All.ToDictionary(m => m, m => list.Average(d => d.Means[m]));
         return new RunScores(runName, manifest, list, new Dictionary<string, IReadOnlyDictionary<string, double>>(), portfolio);
     }

@@ -76,11 +76,49 @@ public class EvalRunnerTests : IDisposable
         run.ReadManifest().Datasets.Single().Invalid.Should().BeTrue();
     }
 
-    private sealed class FakeSystem(int failPerDataset) : ISystemUnderTest
+    [Fact]
+    public async Task RunAsync_ResumeWithDifferentLimitQueries_Refuses()
+    {
+        RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", ["one"], null, 1), CancellationToken.None);
+        FakeSystem second = new(failPerDataset: 0);
+
+        Func<Task> act = () => Runner(second).RunAsync(new RunRequest("s", "fake", "default", [], run.Path, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*1*none*");
+        second.Indexed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_ResumeUnderDifferentSystemDescription_RefusesBeforeIndexing()
+    {
+        RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", ["one"], null, null), CancellationToken.None);
+        FakeSystem second = new(failPerDataset: 0, kind: "other-model");
+
+        Func<Task> act = () => Runner(second).RunAsync(new RunRequest("s", "fake", "default", [], run.Path, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*kind=fake*kind=other-model*");
+        second.Indexed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_Create_StoresLimitQueriesAndNoResumes()
+    {
+        RunFolder run = await Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", ["one"], null, 3), CancellationToken.None);
+
+        RunManifest manifest = run.ReadManifest();
+        manifest.LimitQueries.Should().Be(3);
+        manifest.Resumes.Should().BeEmpty();
+    }
+
+    private sealed class FakeSystem(int failPerDataset, string kind = "fake") : ISystemUnderTest
     {
         public List<string> Indexed { get; } = [];
+        public List<string> Searched { get; } = [];
         public string Name => "fake";
-        public IReadOnlyDictionary<string, string> Describe() => new Dictionary<string, string> { ["kind"] = "fake" };
+        public IReadOnlyDictionary<string, string> Describe() => new Dictionary<string, string> { ["kind"] = kind };
 
         public Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct)
         {
@@ -89,9 +127,12 @@ public class EvalRunnerTests : IDisposable
         }
 
         // Echoes the judged document for each query: q1 → d1, q2 → d2.
-        public Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct) =>
-            Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
+        public Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct)
+        {
+            Searched.Add(query.Id);
+            return Task.FromResult(new SearchOutcome([new RankedDoc("d" + query.Id[1..], 1.0)],
                 new Trace(TimeSpan.FromMilliseconds(5), new Dictionary<string, TimeSpan>()), null));
+        }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

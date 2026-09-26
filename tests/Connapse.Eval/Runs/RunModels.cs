@@ -29,7 +29,12 @@ public sealed record RunManifest(
     int ProcessorCount,
     DateTimeOffset StartedUtc,
     DateTimeOffset? FinishedUtc,
-    IReadOnlyList<RunDatasetInfo> Datasets);
+    IReadOnlyList<RunDatasetInfo> Datasets,
+    int? LimitQueries,
+    IReadOnlyList<RunResume> Resumes);
+
+/// <summary>A resume that ran from different code than the run was started with.</summary>
+public sealed record RunResume(string GitSha, bool GitDirty, DateTimeOffset Utc);
 
 public sealed record QueryResult(
     string Dataset,
