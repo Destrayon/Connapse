@@ -69,4 +69,14 @@ public class ComparisonTests
         strict.Should().Throw<DatasetMismatchException>().WithMessage("*x*");
         ComparisonBuilder.Build(a, b, true).DatasetMismatches.Should().ContainSingle();
     }
+
+    [Fact]
+    public void Build_CandidateMissingDataset_ExcludesItFromPortfolioDeltaAndNamesItUnpaired()
+    {
+        Comparison c = ComparisonBuilder.Build(Scores("a", Base, "1", "x", "y"), Scores("b", Base, "1", "x"), false);
+
+        c.PortfolioDelta[MetricNames.Ndcg10].Should().Be(0);
+        c.UnpairedDatasets.Should().Equal("y");
+        c.Verdict.Should().NotStartWith("Improves").And.Contain("not compared: y");
+    }
 }

@@ -65,6 +65,8 @@ public static class HtmlReport
         html.Append($"<h1>{E(c.Candidate)}</h1><p class=muted>compared with baseline {E(c.Baseline)} · paired by query · Holm-corrected permutation p &lt; 0.05 is significant</p>");
         if (c.DatasetMismatches.Count > 0)
             html.Append($"<div class=banner>Dataset versions differ for {E(string.Join(", ", c.DatasetMismatches))}; those rows compare different data.</div>");
+        if (c.UnpairedDatasets.Count > 0)
+            html.Append($"<div class=banner>Not compared (missing or invalid on one side): {E(string.Join(", ", c.UnpairedDatasets))}.</div>");
         html.Append($"<p><strong>{E(c.Verdict)}</strong></p>");
 
         html.Append("<table><tr><th>Dataset</th><th>Metric</th><th>Δ</th><th>95% CI</th><th>p (Holm)</th><th>p (t-test)</th><th>d_z</th><th>MDE</th><th>n</th></tr>");

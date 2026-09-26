@@ -13,7 +13,8 @@ public sealed record Comparison(
     IReadOnlyList<MetricComparison> Rows,
     IReadOnlyDictionary<string, double> PortfolioDelta,
     string Verdict,
-    IReadOnlyList<string> DatasetMismatches);
+    IReadOnlyList<string> DatasetMismatches,
+    IReadOnlyList<string> UnpairedDatasets);
 
 public sealed class DatasetMismatchException(IReadOnlyList<string> datasets)
     : Exception($"Runs used different dataset versions or files for: {string.Join(", ", datasets)}. "
@@ -46,22 +47,38 @@ public static class ComparisonBuilder
         List<MetricComparison> rows = raw
             .Select((r, i) => new MetricComparison(r.Dataset, r.Metric, r.Stats, holm[i], holm[i] < 0.05))
             .ToList();
-        Dictionary<string, double> delta = MetricNames.All.ToDictionary(
-            m => m, m => candidate.Portfolio[m] - baseline.Portfolio[m]);
 
-        return new Comparison(baseline.RunName, candidate.RunName, rows, delta, Verdict(rows, delta), mismatches);
+        HashSet<string> baselineValid = baseline.Datasets
+            .Where(d => !d.Invalid && d.PerQuery.Count > 0).Select(d => d.Name).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> candidateValid = candidate.Datasets
+            .Where(d => !d.Invalid && d.PerQuery.Count > 0).Select(d => d.Name).ToHashSet(StringComparer.Ordinal);
+        List<string> paired = baselineValid.Intersect(candidateValid).Order(StringComparer.Ordinal).ToList();
+        List<string> unpaired = baseline.Datasets.Select(d => d.Name)
+            .Union(candidate.Datasets.Select(d => d.Name), StringComparer.Ordinal)
+            .Except(paired, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Dictionary<string, double> delta = MetricNames.All.ToDictionary(m => m, m => paired.Count == 0
+            ? double.NaN
+            : paired.Average(name =>
+                candidate.Datasets.First(d => d.Name == name).Means[m] - baseline.Datasets.First(d => d.Name == name).Means[m]));
+
+        return new Comparison(baseline.RunName, candidate.RunName, rows, delta, Verdict(rows, delta, unpaired), mismatches, unpaired);
     }
 
-    private static string Verdict(IReadOnlyList<MetricComparison> rows, IReadOnlyDictionary<string, double> delta)
+    private static string Verdict(IReadOnlyList<MetricComparison> rows, IReadOnlyDictionary<string, double> delta,
+        IReadOnlyList<string> unpaired)
     {
         List<string> drops = rows.Where(r => r.Significant && r.Stats.MeanDifference < 0)
             .Select(r => r.Dataset).Distinct().ToList();
         string change = delta[MetricNames.Ndcg10].ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture);
+        string suffix = unpaired.Count > 0 ? $" — not compared: {string.Join(", ", unpaired)}" : "";
         if (drops.Count > 0)
-            return $"Regresses on {string.Join(", ", drops)} (portfolio nDCG@10 {change})";
+            return $"Regresses on {string.Join(", ", drops)} (portfolio nDCG@10 {change}){suffix}";
         return delta[MetricNames.Ndcg10] > 0
-            ? $"Improves: portfolio nDCG@10 {change} with no significant drop on any dataset"
-            : $"No improvement: portfolio nDCG@10 {change}";
+            ? $"Improves: portfolio nDCG@10 {change} with no significant drop on any dataset{suffix}"
+            : $"No improvement: portfolio nDCG@10 {change}{suffix}";
     }
 
     private static List<string> Mismatches(RunManifest a, RunManifest b)
