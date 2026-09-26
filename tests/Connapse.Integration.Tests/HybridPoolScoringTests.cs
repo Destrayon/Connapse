@@ -85,6 +85,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         Guid docId = await SeedDocumentAsync(containerId);
         Guid both = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
         Guid one = await SeedChunkAsync(docId, containerId, "calcium supplements", "model-A", [1f, 0f]);
+        Guid repeated = await SeedChunkAsync(docId, containerId, "calcium calcium calcium calcium", "model-A", [1f, 0f]);
         Guid none = await SeedChunkAsync(docId, containerId, "completely unrelated text", "model-A", [1f, 0f]);
 
         try
@@ -100,7 +101,9 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
                 Connapse.Core.SearchScopes.Unrestricted);
             var scores = await keyword.ScoreChunksAsync(query, [both.ToString(), none.ToString()]);
 
-            hits.Select(h => h.ChunkId).Should().Equal(both.ToString(), one.ToString());
+            // Two distinct terms outrank one term repeated: the ts_rank_cd failure under OR.
+            hits.Select(h => h.ChunkId).Should().BeEquivalentTo([both.ToString(), one.ToString(), repeated.ToString()]);
+            hits[0].ChunkId.Should().Be(both.ToString());
             scores[both.ToString()].Should().BeGreaterThan(0f);
             scores[none.ToString()].Should().Be(0f);
         }
@@ -111,15 +114,23 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
-    [InlineData("\"bone density\"", true)]
-    [InlineData("the who", false)]
-    public async Task KeywordSearchAsync_PhraseOrStopWordQuery_MatchesOnlyTheExactText(string query, bool phraseChunkFirst)
+    [InlineData("\"bone density\"", new[] { "phrase" })]
+    [InlineData("\"bone density\" marrow", new[] { "phrase", "split" })]
+    [InlineData("the who", new[] { "band" })]
+    [InlineData("calcium -supplements", new[] { "phrase" })]
+    [InlineData("calcium -\"bone density\"", new[] { "supplements" })]
+    [InlineData("supplements or marrow", new[] { "split", "supplements" })]
+    public async Task KeywordSearchAsync_PhrasesExclusionsAndStopWords_MatchTheExpectedChunks(string query, string[] expected)
     {
-        Guid containerId = await CreateContainerAsync("kw-exact");
+        Guid containerId = await CreateContainerAsync("kw-syntax");
         Guid docId = await SeedDocumentAsync(containerId);
-        Guid phrase = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
-        Guid split = await SeedChunkAsync(docId, containerId, "density of bone marrow", "model-A", [1f, 0f]);
-        Guid band = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]);
+        var chunks = new Dictionary<string, Guid>
+        {
+            ["phrase"] = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]),
+            ["split"] = await SeedChunkAsync(docId, containerId, "density of bone marrow", "model-A", [1f, 0f]),
+            ["band"] = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]),
+            ["supplements"] = await SeedChunkAsync(docId, containerId, "calcium supplements", "model-A", [1f, 0f]),
+        };
 
         try
         {
@@ -132,8 +143,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
                 new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
                 Connapse.Core.SearchScopes.Unrestricted);
 
-            hits.Select(h => h.ChunkId).Should().Equal(phraseChunkFirst ? phrase.ToString() : band.ToString());
-            hits.Select(h => h.ChunkId).Should().NotContain(split.ToString());
+            hits.Select(h => h.ChunkId).Should().BeEquivalentTo(expected.Select(name => chunks[name].ToString()));
         }
         finally
         {

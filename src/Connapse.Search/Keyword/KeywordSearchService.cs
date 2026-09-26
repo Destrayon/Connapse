@@ -35,11 +35,19 @@ public class KeywordSearchService
             return [];
         }
 
+        var parsed = KeywordQuery.Parse(query);
+        if (parsed.Clauses.Count == 0)
+        {
+            // Nothing to match, only things to exclude: like Lucene, that matches nothing.
+            return [];
+        }
+
         // Build WHERE clause for filters
         // A source whose remote revoked access (a public repository gone private) is left out,
         // whatever else the caller asked for.
         var whereClauses = new List<string> { "1=1", "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
-        var parameters = new List<object> { query }; // {0} = raw query string
+        // {0} = clauses, {1} = exclusions
+        var parameters = new List<object> { parsed.Clauses.ToArray(), parsed.Exclusions.ToArray() };
 
         if (!string.IsNullOrEmpty(options.ContainerId))
         {
@@ -114,16 +122,15 @@ public class KeywordSearchService
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
-        string tsQuery = TsQuerySql(query, "{0}");
+        string tsQuery = TsQuerySql("{0}", "{1}");
 
-        // ts_rank_cd uses cover density ranking; normalization flag 32 = rank/(rank+1) for 0-1 range.
         var sql = @$"
             SELECT
                 c.id as ChunkId,
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                ts_rank_cd(c.search_vector, {tsQuery}, 32) as Rank,
+                {RankSql("c.search_vector", tsQuery)} as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -181,47 +188,53 @@ public class KeywordSearchService
             .Where(g => g != Guid.Empty)
             .Distinct()
             .ToArray();
-        if (string.IsNullOrWhiteSpace(query) || ids.Length == 0)
+        var parsed = KeywordQuery.Parse(query ?? "");
+        if (parsed.Clauses.Count == 0 || ids.Length == 0)
             return new Dictionary<string, float>();
 
         string sql = @$"
             SELECT
                 c.id as ChunkId,
-                ts_rank_cd(c.search_vector, {TsQuerySql(query, "{0}")}, 32) as Rank
+                COALESCE({RankSql("c.search_vector", TsQuerySql("{0}", "{1}"))}, 0) as Rank
             FROM chunks c
-            WHERE c.id = ANY({{1}})";
+            WHERE c.id = ANY({{2}})";
 
         List<ChunkRankRow> rows = await _context.Database
-            .SqlQueryRaw<ChunkRankRow>(sql, query, ids)
+            .SqlQueryRaw<ChunkRankRow>(sql, parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(), ids)
             .ToListAsync(ct);
 
         return rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
     }
 
     /// <summary>
-    /// The tsquery SQL for <paramref name="query"/>, bound through <paramref name="param"/>.
-    /// A plain query matches a chunk containing <em>any</em> of its terms and leaves the ordering to
-    /// ts_rank_cd: requiring every term matched almost nothing for natural-language questions (#544).
-    /// A query that uses search syntax (quoted phrases, -exclusion, OR) keeps websearch_to_tsquery
-    /// semantics, over both 'simple' (exact tokens like "README") and 'english' (stemmed).
+    /// The tsquery for a parsed <see cref="KeywordQuery"/>, bound through two text[] parameters.
+    /// A chunk matches when it contains <em>any</em> clause and no exclusion; requiring every term
+    /// matched almost nothing for natural-language questions (#544). Each clause goes through
+    /// phraseto_tsquery, so a quoted phrase stays a phrase and a lone word is just that word, stemmed
+    /// and stop-word free. The clauses are joined through tsquery's own text form, which it parses
+    /// back exactly. A query of nothing but stop words ("the who") has no english lexemes and falls
+    /// back to all of its exact tokens.
     /// </summary>
-    internal static string TsQuerySql(string query, string param) =>
-        UsesSearchSyntax(query)
-            ? $"(websearch_to_tsquery('simple', {param}) || websearch_to_tsquery('english', {param}))"
-            // Stemmed and stop-word free, so "the" doesn't match every chunk. A query of nothing but
-            // stop words ("the who") has no english lexemes and falls back to all of its exact tokens.
-            // plainto_tsquery joins lexemes with " & " and a lexeme never contains a space, so the
-            // replace turns every AND into an OR and nothing else.
-            : $"""
-               (CASE WHEN numnode(plainto_tsquery('english', {param})) = 0
-                    THEN plainto_tsquery('simple', {param})
-                    ELSE replace(plainto_tsquery('english', {param})::text, ' & ', ' | ')::tsquery END)
-               """;
+    internal static string TsQuerySql(string clausesParam, string exclusionsParam) => $"""
+        (SELECT CASE WHEN n.q IS NULL THEN p.q ELSE p.q && !!n.q END
+         FROM (SELECT COALESCE(
+                   string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery,
+                   plainto_tsquery('simple', array_to_string({clausesParam}::text[], ' ')))
+               FROM unnest({clausesParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) p(q),
+              (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+               FROM unnest({exclusionsParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) n(q))
+        """;
 
-    internal static bool UsesSearchSyntax(string query) =>
-        query.Contains('"')
-        || query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
-            .Any(w => (w.Length > 1 && w[0] == '-') || w.Equals("or", StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// ts_rank, not ts_rank_cd: under an OR query every cover is a single occurrence, so cover density
+    /// becomes an unsaturated term count ("cat cat cat cat" beats "cat dog"), where ts_rank saturates
+    /// repeats and rewards matching more distinct terms. Weights {D,C,B,A} = {0,0,1,0} score only the
+    /// english (B) copy of search_vector; the simple (A) copy would otherwise add weight to the terms
+    /// whose stem happens to equal the word. Normalization 1 divides by log length; 32 maps the rank
+    /// into 0-1 without changing its order. Neither function has IDF — that is #545.
+    /// </summary>
+    internal static string RankSql(string vector, string tsQuery) =>
+        $"ts_rank(ARRAY[0, 0, 1, 0]::float4[], {vector}, {tsQuery}, 1|32)";
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 
