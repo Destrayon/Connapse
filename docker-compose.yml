@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: pgvector/pgvector:pg17
+    # pgvector/pgvector:pg17 plus pg_textsearch for BM25 keyword ranking (Knowledge:Search:KeywordRanker=Bm25).
+    build: ./docker/postgres
+    image: connapse-postgres:pg17
     environment:
       POSTGRES_DB: connapse
       POSTGRES_USER: connapse

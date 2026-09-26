@@ -17,3 +17,7 @@ RUN apt-get update \
 # pg_textsearch must be preloaded. Set in the sample config initdb copies, not in CMD, so it
 # survives callers (Testcontainers, compose) that replace the command line.
 RUN echo "shared_preload_libraries = 'pg_textsearch'" >> /usr/share/postgresql/postgresql.conf.sample
+
+# The sample only reaches databases initialised from this image; the command line also covers a
+# data volume first created by the stock pgvector image.
+CMD ["postgres", "-c", "shared_preload_libraries=pg_textsearch"]
