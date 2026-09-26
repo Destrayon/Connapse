@@ -62,4 +62,24 @@ public class HtmlReportTests : IDisposable
         html.Should().Contain("grade 1, rank —");
         html.Should().NotContain("http://").And.NotContain("https://", "the report must be self-contained");
     }
+
+    [Fact]
+    public void RenderRun_ValidDatasetWithNoScoredTestQueries_NamesItInABanner()
+    {
+        RunFolder run = RunFolder.Create(_root, "v1", "connapse", "hybrid", "abcdef1234", DateTimeOffset.UnixEpoch);
+        Qrels qrels = new();
+        qrels.Add("qd", "d1", 1);
+        QueryResult devOnly = new("devonly", "qd", "dev question", Split.Dev,
+            [new RankedDoc("d1", 0.9)], new Trace(TimeSpan.FromMilliseconds(15), NoStages), null);
+        run.WriteDataset("devonly", qrels, new Dictionary<string, string>(), [devOnly]);
+        run.MarkComplete("devonly");
+        run.WriteManifest(new RunManifest("abcdef1234", false, "v1", "connapse", "hybrid", "hash", SearchMode.Hybrid,
+            new Dictionary<string, string>(), new Dictionary<string, string>(), "box", "os", 8,
+            DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
+            [new RunDatasetInfo("devonly", "1", new Dictionary<string, string>(), ["domain:general"], 1, 0, false, 1)], 1, []));
+
+        string html = HtmlReport.RenderRun(Scoring.Score(run), run);
+
+        html.Should().Contain("devonly has no scored test queries");
+    }
 }

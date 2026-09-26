@@ -24,6 +24,9 @@ public sealed class EvalRunner(
 
     public async Task<RunFolder> RunAsync(RunRequest request, CancellationToken ct)
     {
+        if (request.LimitQueries is < 1)
+            throw new ArgumentException($"--limit-queries must be at least 1 (got {request.LimitQueries}).");
+
         EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
         IReadOnlyList<string> names = manifest.ResolveSuite(request.Suite, request.OnlyDatasets);
         DatasetCache cache = new(paths.CacheRoot, http);
@@ -60,7 +63,7 @@ public sealed class EvalRunner(
                     log.WriteLine($"[{name}] INVALID: {index.Failed}/{dataset.Corpus.Count} documents failed to ingest");
 
                 IReadOnlyList<EvalQuery> queries = request.LimitQueries is int limit
-                    ? dataset.Queries.Take(limit).ToList()
+                    ? LimitPerSplit(dataset.Queries, limit)
                     : dataset.Queries;
                 List<QueryResult> results = [];
                 foreach (EvalQuery query in queries)
@@ -124,6 +127,22 @@ public sealed class EvalRunner(
             request.LimitQueries, []);
         run.WriteManifest(created);
         return (run, created);
+    }
+
+    /// <summary>Up to <paramref name="limit"/> queries of each split, keeping source order.</summary>
+    public static IReadOnlyList<EvalQuery> LimitPerSplit(IReadOnlyList<EvalQuery> queries, int limit)
+    {
+        Dictionary<Split, int> taken = [];
+        List<EvalQuery> result = [];
+        foreach (EvalQuery query in queries)
+        {
+            int count = taken.GetValueOrDefault(query.Split);
+            if (count >= limit)
+                continue;
+            taken[query.Split] = count + 1;
+            result.Add(query);
+        }
+        return result;
     }
 
     private static bool SameDescription(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b) =>

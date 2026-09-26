@@ -7,6 +7,7 @@ using Connapse.Eval.Model;
 using Connapse.Eval.Runs;
 using Connapse.Eval.Systems;
 using FluentAssertions;
+using Parquet.Serialization;
 
 namespace Connapse.Eval.Tests.Runs;
 
@@ -14,6 +15,7 @@ namespace Connapse.Eval.Tests.Runs;
 public class EvalRunnerTests : IDisposable
 {
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "eval-repo-" + Guid.NewGuid().ToString("N"));
+    private readonly Dictionary<string, byte[]> _extraFiles = new(StringComparer.Ordinal);
     private static readonly byte[] Corpus = Encoding.UTF8.GetBytes("{\"_id\":\"d1\",\"text\":\"one\"}\n{\"_id\":\"d2\",\"text\":\"two\"}\n");
     private static readonly byte[] Queries = Encoding.UTF8.GetBytes("{\"_id\":\"q1\",\"text\":\"one?\"}\n{\"_id\":\"q2\",\"text\":\"two?\"}\n");
     private static readonly byte[] QrelsFile = Encoding.UTF8.GetBytes("query-id\tcorpus-id\tscore\nq1\td1\t1\nq2\td2\t1\n");
@@ -39,7 +41,7 @@ public class EvalRunnerTests : IDisposable
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     private EvalRunner Runner(FakeSystem system) =>
-        new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler()), (_, _) => Task.FromResult<ISystemUnderTest>(system));
+        new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (_, _) => Task.FromResult<ISystemUnderTest>(system));
 
     [Fact]
     public async Task RunAsync_Suite_WritesEveryDatasetAndScoresIt()
@@ -113,6 +115,51 @@ public class EvalRunnerTests : IDisposable
         manifest.Resumes.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task RunAsync_LimitQueriesWithDevListedBeforeTest_LimitsEachSplitSeparately()
+    {
+        // RAGBench lists validation (Dev) questions before test (Test) questions.
+        RagBenchRow[] train = [new() { Id = "t1", Question = "train q", Documents = ["doc T"], AllRelevantSentenceKeys = ["0a"] }];
+        RagBenchRow[] dev =
+        [
+            new() { Id = "v1", Question = "dev q1", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] },
+            new() { Id = "v2", Question = "dev q2", Documents = ["doc B"], AllRelevantSentenceKeys = ["0a"] },
+        ];
+        RagBenchRow[] test =
+        [
+            new() { Id = "s1", Question = "test q1", Documents = ["doc A"], AllRelevantSentenceKeys = ["0a"] },
+            new() { Id = "s2", Question = "test q2", Documents = ["doc B"], AllRelevantSentenceKeys = ["0a"] },
+        ];
+        List<DatasetFile> files = [];
+        foreach ((string name, RagBenchRow[] rows) in new[] { ("train.parquet", train), ("validation.parquet", dev), ("test.parquet", test) })
+        {
+            using MemoryStream stream = new();
+            await ParquetSerializer.SerializeAsync(rows, stream);
+            _extraFiles["/" + name] = stream.ToArray();
+            files.Add(new DatasetFile(name, "https://x.test/" + name, Hash(stream.ToArray())));
+        }
+        RepoPaths paths = new(_repo);
+        EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
+        new EvalManifest(
+            new Dictionary<string, IReadOnlyList<string>>(manifest.Suites) { ["rb"] = ["rb-test"] },
+            new Dictionary<string, DatasetEntry>(manifest.Datasets) { ["rb-test"] = new("ragbench", "1", ["domain:test"], files) })
+            .Save(paths.ManifestPath);
+        FakeSystem system = new(failPerDataset: 0);
+
+        await Runner(system).RunAsync(new RunRequest("rb", "fake", "default", [], null, 1), CancellationToken.None);
+
+        system.Searched.Should().Equal("v1", "s1");
+    }
+
+    [Fact]
+    public async Task RunAsync_LimitQueriesZero_ThrowsArgumentException()
+    {
+        Func<Task> act = () => Runner(new FakeSystem(failPerDataset: 0))
+            .RunAsync(new RunRequest("s", "fake", "default", [], null, 0), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*limit-queries*");
+    }
+
     private sealed class FakeSystem(int failPerDataset, string kind = "fake") : ISystemUnderTest
     {
         public List<string> Indexed { get; } = [];
@@ -137,11 +184,11 @@ public class EvalRunnerTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class FileHandler : HttpMessageHandler
+    private sealed class FileHandler(IReadOnlyDictionary<string, byte[]> extraFiles) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            byte[] body = request.RequestUri!.AbsolutePath switch { "/c" => Corpus, "/q" => Queries, _ => QrelsFile };
+            byte[] body = extraFiles.TryGetValue(request.RequestUri!.AbsolutePath, out byte[]? extra) ? extra : request.RequestUri!.AbsolutePath switch { "/c" => Corpus, "/q" => Queries, _ => QrelsFile };
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) });
         }
     }

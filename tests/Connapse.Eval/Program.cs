@@ -63,6 +63,8 @@ internal static class Commands
         foreach (DatasetScores d in scores.Datasets)
             Console.WriteLine(d.Invalid
                 ? $"  {d.Name,-28} INVALID"
+                : d.PerQuery.Count == 0
+                ? $"  {d.Name,-28} no scored test queries"
                 : $"  {d.Name,-28} nDCG@10 {d.Means["nDCG@10"]:F3}  MRR@10 {d.Means["MRR@10"]:F3}  judged@10 {d.Means["judged@10"]:F2}");
         Console.WriteLine($"  {"portfolio",-28} nDCG@10 {scores.Portfolio["nDCG@10"]:F3}");
         return scores.Datasets.Any(d => d.Invalid) ? 1 : 0;
