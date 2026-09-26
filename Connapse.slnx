@@ -18,5 +18,6 @@
     <Project Path="tests/Connapse.Storage.Tests/Connapse.Storage.Tests.csproj" />
     <Project Path="tests/Connapse.Web.Tests/Connapse.Web.Tests.csproj" />
     <Project Path="tests/Connapse.Eval/Connapse.Eval.csproj" />
+    <Project Path="tests/Connapse.Eval.Tests/Connapse.Eval.Tests.csproj" />
   </Folder>
 </Solution>

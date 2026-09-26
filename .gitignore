@@ -68,3 +68,7 @@ aws/*
 .env
 .env.*
 !.env.example
+
+# Eval harness: downloaded datasets, embedding cache, run output
+eval/.cache/
+eval/runs/

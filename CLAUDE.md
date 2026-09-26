@@ -35,6 +35,9 @@ dotnet test --filter "FullyQualifiedName~Connapse.Core.Tests.CloudScope.CloudSco
 
 # Single test method
 dotnet test --filter "FullyQualifiedName~ClassName.MethodName_Scenario_ExpectedResult"
+
+# Retrieval eval harness (Docker + Ollama; see tests/Connapse.Eval/README.md)
+dotnet run --project tests/Connapse.Eval -- run --suite v1 --config hybrid
 ```
 
 - **xUnit** framework, **FluentAssertions** (`.Should()`), **NSubstitute** for mocking
