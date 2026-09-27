@@ -130,7 +130,7 @@ public class KeywordSearchService
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                {RankSql("c.search_vector", tsQuery, "{0}")} as Rank,
+                {RankSql("c.search_vector", PositiveQuerySql("{0}"), "{0}")} as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -175,8 +175,9 @@ public class KeywordSearchService
 
     /// <summary>
     /// The keyword rank the named chunks would have had for <paramref name="query"/>, scored the same
-    /// way as <see cref="SearchAsync"/>; a chunk that matches no term scores 0. Scores only — no
-    /// permission filter — so callers pass chunks a scoped search has already admitted.
+    /// way as <see cref="SearchAsync"/>; a chunk that does not match (no term, or an excluded one)
+    /// scores 0. Scores only — no permission filter — so callers pass chunks a scoped search has
+    /// already admitted.
     /// </summary>
     public async Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
         string query,
@@ -195,7 +196,9 @@ public class KeywordSearchService
         string sql = @$"
             SELECT
                 c.id as ChunkId,
-                COALESCE({RankSql("c.search_vector", TsQuerySql("{0}", "{1}"), "{0}")}, 0) as Rank
+                CASE WHEN c.search_vector @@ {TsQuerySql("{0}", "{1}")}
+                     THEN {RankSql("c.search_vector", PositiveQuerySql("{0}"), "{0}")}
+                     ELSE 0 END as Rank
             FROM chunks c
             WHERE c.id = ANY({{2}})";
 
@@ -222,13 +225,21 @@ public class KeywordSearchService
     /// </summary>
     internal static string TsQuerySql(string clausesParam, string exclusionsParam) => $"""
         (SELECT CASE WHEN n.q IS NULL THEN p.q ELSE p.q && !!n.q END
-         FROM (SELECT COALESCE({AnyClauseSql(clausesParam, "english")}, {AnyClauseSql(clausesParam, "simple")})) p(q),
+         FROM (SELECT {PositiveQuerySql(clausesParam)}) p(q),
               (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
                FROM unnest({exclusionsParam}::text[]) t,
                     LATERAL (SELECT CASE WHEN numnode(phraseto_tsquery('english', t)) > 0
                                          THEN phraseto_tsquery('english', t)
                                          ELSE phraseto_tsquery('simple', t) END) x(e)) n(q))
         """;
+
+    /// <summary>
+    /// The clauses alone, without exclusions: what a chunk is ranked against. ts_rank switches to
+    /// its all-terms formula for a query with an AND at the top, which "clauses AND NOT exclusions"
+    /// is, and it scores excluded chunks as if the NOT were not there.
+    /// </summary>
+    internal static string PositiveQuerySql(string clausesParam) =>
+        $"COALESCE({AnyClauseSql(clausesParam, "english")}, {AnyClauseSql(clausesParam, "simple")})";
 
     /// <summary>
     /// A tsquery matching any of the clauses in a text[] parameter, each a phrase in the given text
