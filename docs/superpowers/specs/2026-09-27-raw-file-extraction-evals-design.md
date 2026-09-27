@@ -106,7 +106,7 @@ A check has an ID, a dataset, a category, a type, and the document it applies to
 | `present` | olmOCR `TextPresenceTest` | passes if the text is found | passes if **one single chunk** contains it; this is the answer-in-single-chunk measure |
 | `absent` | olmOCR `TextPresenceTest` (absent) | passes if not found | passes if no chunk contains it |
 | `order` | olmOCR `TextOrderTest` | passes if `before` precedes `after` | not run: order is an extraction property |
-| `table` | olmOCR `TableTest` | passes if a markdown or HTML table contains the cell with its required neighbours | passes if one chunk does |
+| `table` | olmOCR `TableTest` | passes if a markdown table contains the cell with its required neighbours (HTML tables: see porting note) | passes if one chunk does |
 | `baseline` | olmOCR `BaselineTest` | passes if the text is non-trivial and not degenerate repetition | not run |
 | `math` | olmOCR `MathTest` | **skipped**: it compares rendered LaTeX, and math output is deferred | skipped |
 | `fails-loudly` | Connapse | see below | — |
@@ -136,6 +136,9 @@ This follows the project rule on reference implementations: port line by line, k
 - **Pinned sources:**
   - `allenai/olmocr` at `f7cfe4c22098b154c76b6ec950d1c0a464eecf8d` (Apache-2.0): `olmocr/bench/tests.py` (`normalize_text`, `TextPresenceTest`, `TextOrderTest`, `TableTest`, `BaselineTest`), `olmocr/bench/table_parsing.py` and `olmocr/repeatdetect.py`.
   - The matching functions those files call: `rapidfuzz.fuzz.ratio` and `rapidfuzz.fuzz.partial_ratio` (MIT), and `fuzzysearch.find_near_matches` with `max_l_dist` (MIT).
+- **HTML tables are not ported.** `parse_html_tables` depends on BeautifulSoup's HTML parser, and no Connapse parser emits HTML markup into chunk text. A `table` check therefore looks for markdown tables only. If a document's own text contains a literal `<table>`, the check can under-count; the report notes this. (Amended 2026-09-27 while writing the plan.)
+- **Scoring convention, as in olmOCR's `benchmark.py`:** a PDF with no `baseline` test gets a default one, grouped under a separate `baseline` category. The overall score is the mean of per-category pass rates. We report two overall numbers. One counts skipped `math` checks as failures, so it can be compared with published olmOCR-bench results. The native-PDF headline covers `headers_footers`, `long_tiny_text`, `multi_column`, `table_tests` and `baseline`.
+- **Strings are compared as Unicode code points, as Python does.** Slicing, lengths, `lower()` (including final sigma and `İ`), `isalnum()` and the regex `\s` class all follow Python's rules rather than .NET's UTF-16 defaults.
 - **Why port rather than depend:** FuzzySharp ports the older fuzzywuzzy, not rapidfuzz. Parity would need proving by fixtures either way, so we port the functions we call directly.
 - **Notices:** each ported file carries the upstream license notice and the pinned commit.
 - **Fixtures:** a Python script under `tests/Connapse.Eval.Tests/Fixtures/olmocr/` runs the reference at the pinned commit on:
@@ -148,7 +151,7 @@ This follows the project rule on reference implementations: port line by line, k
 
 | Dataset | Adapter | Contents | Kind of check |
 |---|---|---|---|
-| `olmocr-bench` | `olmocr-bench` | 1,403 single-page PDFs in 7 categories and 7,010 tests, from `allenai/olmOCR-bench` at revision `54a96a6fb6a2bd3b297e59869491db4d3625b711` (ODC-BY 1.0) | olmOCR checks + no-silent-failure |
+| `olmocr-bench` | `olmocr-bench` | 1,403 single-page PDFs in 7 categories and 7,019 tests, from `allenai/olmOCR-bench` at revision `54a96a6fb6a2bd3b297e59869491db4d3625b711` (ODC-BY 1.0) | olmOCR checks + no-silent-failure |
 | `pypdf-encryption` | `pypdf-encryption` | the 17 PDFs in `py-pdf/pypdf` `resources/encryption` at `54d35184b9e984834823b3558dc096bd4e6c9e80` (BSD-3-Clause) | see below |
 | `generated-negatives` | `generated-negatives` | files the harness generates deterministically at load time | fails-loudly |
 | `generated-encodings` | `generated-encodings` | text files in known encodings, generated at load time | `present` checks |
