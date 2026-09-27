@@ -25,6 +25,7 @@
       "generated-negatives"
     ],
     "dev": [
+      "dev-quora",
       "dev-fiqa",
       "dev-nfcorpus",
       "dev-scifact"
@@ -660,6 +661,31 @@
           "name": "qrels.parquet",
           "url": "build:eval/tools/build_dev_suite.py",
           "sha256": "7c287d31c21ec2afce010fd050f8e6c8ce0a1106dc9061ba47f72eb57feae1e5"
+        }
+      ]
+    },
+    "dev-quora": {
+      "adapter": "beir-parquet",
+      "version": "7f060c1bdc9b-s552",
+      "tags": [
+        "domain:general",
+        "topic:duplicate-question"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "5948073763c07f2797142628d4d982798f41d2288a2ac2708cb99dcd323ba26b"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "49102b40ba66b579bdaf1b913ad25d5a33e78299610ad953aac7377e4eb1fc93"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "650dbc47569eadb54b53712f6f61124653ed12afa126b8408472e7a43ffc4a02"
         }
       ]
     }
