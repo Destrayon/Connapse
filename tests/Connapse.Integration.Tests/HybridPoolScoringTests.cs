@@ -156,6 +156,38 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task KeywordSearch_Exclusions_NeitherChangeRanksNorScoreExcludedChunks()
+    {
+        Guid containerId = await CreateContainerAsync("kw-excl");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid kept = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
+        Guid excluded = await SeedChunkAsync(docId, containerId, "calcium supplements and calcium", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+            var options = new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() };
+
+            var plain = await keyword.SearchAsync("calcium bone", options, Connapse.Core.SearchScopes.Unrestricted);
+            var withExclusion = await keyword.SearchAsync("calcium bone -supplements", options, Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync("calcium bone -supplements", [kept.ToString(), excluded.ToString()]);
+
+            // An exclusion filters; it must not turn the ranking into ts_rank's all-terms formula.
+            withExclusion.Single().Score.Should().Be(plain.Single(h => h.ChunkId == kept.ToString()).Score);
+            // Hybrid pool scoring must not hand an excluded chunk a keyword score.
+            scores[excluded.ToString()].Should().Be(0f);
+            scores[kept.ToString()].Should().BeGreaterThan(0f);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
     public async Task KeywordSearchAsync_StopWordOnlyQuery_RanksAboveZero()
     {
         Guid containerId = await CreateContainerAsync("kw-stop");
