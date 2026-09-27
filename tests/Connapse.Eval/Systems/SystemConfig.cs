@@ -23,6 +23,9 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
 
     public IReadOnlyDictionary<string, string> Settings { get; init; } = Validate(Settings);
 
+    /// <summary>Chunking strategy passed on each upload; null leaves the product's upload default.</summary>
+    public string? ChunkingStrategy { get; init; }
+
     public string Hash
     {
         get
@@ -42,7 +45,10 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
         ConfigFile file = JsonSerializer.Deserialize<ConfigFile>(File.ReadAllText(path), EvalJson.Options)
             ?? throw new InvalidOperationException($"{path} is empty.");
         return new SystemConfig(name, Enum.Parse<SearchMode>(file.SearchMode, ignoreCase: true),
-            file.Settings ?? new Dictionary<string, string>());
+            file.Settings ?? new Dictionary<string, string>())
+        {
+            ChunkingStrategy = file.ChunkingStrategy,
+        };
     }
 
     private static IReadOnlyDictionary<string, string> Validate(IReadOnlyDictionary<string, string> settings)
@@ -59,5 +65,5 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
         return settings;
     }
 
-    private sealed record ConfigFile(string SearchMode, Dictionary<string, string>? Settings);
+    private sealed record ConfigFile(string SearchMode, Dictionary<string, string>? Settings, string? ChunkingStrategy = null);
 }

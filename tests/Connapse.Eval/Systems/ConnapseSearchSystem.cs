@@ -17,6 +17,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
 {
     public static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan DocumentTimeout = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, TimeSpan> NoStages = new Dictionary<string, TimeSpan>();
     private const int UploadBatchSize = 100;
 
@@ -35,6 +36,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     }
 
     public string Name => "connapse";
+
+    /// <summary>The in-process host's services, for reading back what ingestion produced.</summary>
+    public IServiceProvider Services => _host.Services;
 
     public static async Task<ConnapseSearchSystem> StartAsync(
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache, TextWriter log,
@@ -68,7 +72,15 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         };
     }
 
-    public async Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct)
+    public Task<IndexReport> IndexAsync(EvalDataset dataset, CancellationToken ct) =>
+        IndexAsync(dataset, IngestionWait.ThrowOnStall, ct);
+
+    /// <summary>
+    /// Uploads every document and waits for ingestion. <see cref="IngestionWait.RecordStalls"/> is for
+    /// extract runs, where a document that never settles is a finding: it is recorded as stalled
+    /// instead of aborting the run.
+    /// </summary>
+    public async Task<IndexReport> IndexAsync(EvalDataset dataset, IngestionWait wait, CancellationToken ct)
     {
         if (dataset.Corpus.Any(d => d.Kind == DocumentKind.Image))
             throw new NotSupportedException($"{dataset.Name} contains image documents; ConnapseSearchSystem indexes text only.");
@@ -81,17 +93,18 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         Container container = await containers.CreateAsync(new CreateContainerRequest($"eval-{dataset.Name}"), ct);
         Guid containerId = Guid.Parse(container.Id);
         Dictionary<string, string> docMap = new(StringComparer.Ordinal);
-        List<string> failed = [];
+        Dictionary<string, string> uploadErrors = new(StringComparer.Ordinal);
 
         for (int start = 0; start < dataset.Corpus.Count; start += UploadBatchSize)
         {
             List<EvalDocument> batch = dataset.Corpus.Skip(start).Take(UploadBatchSize).ToList();
-            List<MemoryStream> streams = batch.Select(d => new MemoryStream(Encoding.UTF8.GetBytes(Compose(d)))).ToList();
+            List<Stream> streams = batch.Select(OpenContent).ToList();
             try
             {
                 List<UploadRequest> requests = batch.Select((d, i) => new UploadRequest(
-                    containerId, $"{start + i:D7}.txt", streams[i], Path: "/", ContentType: "text/plain",
-                    IngestedVia: "Eval")).ToList();
+                    containerId, UploadName(d, start + i), streams[i], Path: "/",
+                    ContentType: d.Kind == DocumentKind.Text ? "text/plain" : null,
+                    Strategy: _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
                 BulkUploadResult result = await upload.BulkUploadAsync(new BulkUploadRequest(containerId, requests), ct);
                 for (int i = 0; i < batch.Count; i++)
                 {
@@ -99,26 +112,32 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                     if (item.Success && item.DocumentId is not null)
                         docMap[item.DocumentId] = batch[i].Id;
                     else
-                        failed.Add(batch[i].Id);
+                        uploadErrors[batch[i].Id] = item.Error ?? "upload rejected";
                 }
             }
             finally
             {
-                foreach (MemoryStream stream in streams)
+                foreach (Stream stream in streams)
                     await stream.DisposeAsync();
             }
             _log.WriteLine($"[{dataset.Name}] uploaded {Math.Min(start + UploadBatchSize, dataset.Corpus.Count)}/{dataset.Corpus.Count}");
         }
 
-        // ContainerStats.FailedCount is authoritative; the listed IDs can fall short of it if a
-        // document's IngestionState lags its status, so the count decides validity.
-        int uploadFailures = failed.Count;
-        int ingestionFailures = await WaitForIngestionAsync(documents, dataset.Name, containerId, docMap.Count, ct);
-        if (ingestionFailures > 0)
-            failed.AddRange(await FailedDatasetIdsAsync(documents, containerId, docMap, ct));
+        Dictionary<string, DocumentOutcome> settled = await WaitForDocumentsAsync(documents, dataset.Name, containerId, docMap, wait, ct);
+        List<DocumentOutcome> outcomes = dataset.Corpus
+            .Select(d => uploadErrors.TryGetValue(d.Id, out string? error)
+                ? new DocumentOutcome(d.Id, null, error, null, null, null, false, TimeSpan.Zero)
+                : settled[d.Id])
+            .ToList();
+        // Status is authoritative: the ingestion job can mark a document Indexed after the pipeline
+        // recorded it as Failed.
+        List<string> failed = outcomes
+            .Where(o => o.UploadError is not null || o.Stalled || o.Status == "Failed" || o.IngestionState == IngestionState.Failed)
+            .Select(o => o.DatasetDocId)
+            .ToList();
 
         _datasets[dataset.Name] = (containerId, docMap);
-        return new IndexReport(dataset.Corpus.Count, Math.Max(failed.Count, uploadFailures + ingestionFailures), failed);
+        return new IndexReport(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
     }
 
     public async Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct)
@@ -158,47 +177,91 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     private SearchOptions Options(Guid containerId, int topK) =>
         new(TopK: topK, ContainerId: containerId.ToString(), Mode: _config.SearchMode);
 
+    private static Stream OpenContent(EvalDocument doc) => doc.Kind == DocumentKind.File
+        ? File.OpenRead(doc.FilePath ?? throw new InvalidDataException($"File document '{doc.Id}' has no FilePath."))
+        : new MemoryStream(Encoding.UTF8.GetBytes(Compose(doc)));
+
+    // The extension is kept as the dataset wrote it; parser selection lowercases it, as for a user upload.
+    private static string UploadName(EvalDocument doc, int index) =>
+        doc.Kind == DocumentKind.File ? $"{index:D7}{Path.GetExtension(doc.FilePath)}" : $"{index:D7}.txt";
+
     private static string Compose(EvalDocument doc) =>
         string.IsNullOrWhiteSpace(doc.Title) ? doc.Text ?? "" : $"{doc.Title}\n\n{doc.Text}";
 
-    private async Task<int> WaitForIngestionAsync(
-        IDocumentStore documents, string dataset, Guid containerId, int expected, CancellationToken ct)
+    /// <summary>
+    /// Polls the container until every uploaded document settles: its status is Ready or Failed and its
+    /// ingestion state has left Pending (the job writes the state just after the pipeline returns).
+    /// With <see cref="IngestionWait.RecordStalls"/>, a document Processing for longer than
+    /// <see cref="DocumentTimeout"/> is recorded as stalled, and when nothing has settled for
+    /// <see cref="StallTimeout"/> every unsettled document is.
+    /// </summary>
+    private async Task<Dictionary<string, DocumentOutcome>> WaitForDocumentsAsync(
+        IDocumentStore documents, string dataset, Guid containerId, Dictionary<string, string> docMap,
+        IngestionWait wait, CancellationToken ct)
     {
-        int lastDone = -1;
-        DateTime lastProgress = DateTime.UtcNow;
+        Dictionary<string, DocumentOutcome> settled = new(StringComparer.Ordinal);
+        Dictionary<string, DateTime> processingSince = new(StringComparer.Ordinal);
+        Dictionary<string, Document> latest = new(StringComparer.Ordinal);
+        DateTime started = DateTime.UtcNow;
+        DateTime lastProgress = started;
+        int lastSettled = -1;
+
         while (true)
         {
-            ContainerStats stats = await documents.GetContainerStatsAsync(containerId, ct);
-            int done = stats.ReadyCount + stats.FailedCount;
-            if (done >= expected)
-                return stats.FailedCount;
-            if (done != lastDone)
+            for (int skip = 0; ; skip += 500)
             {
-                lastDone = done;
-                lastProgress = DateTime.UtcNow;
-                _log.WriteLine($"[{dataset}] ingested {done}/{expected}");
+                IReadOnlyList<Document> page = await documents.ListAsync(containerId, null, skip, 500, ct);
+                foreach (Document d in page)
+                    if (docMap.ContainsKey(d.Id))
+                        latest[d.Id] = d;
+                if (page.Count < 500)
+                    break;
             }
-            else if (DateTime.UtcNow - lastProgress > StallTimeout)
+
+            DateTime now = DateTime.UtcNow;
+            foreach ((string connapseId, Document d) in latest)
             {
-                throw new TimeoutException(
-                    $"[{dataset}] ingestion stalled at {done}/{expected} documents for {StallTimeout.TotalMinutes:F0} minutes.");
+                string datasetId = docMap[connapseId];
+                if (settled.ContainsKey(datasetId))
+                    continue;
+                string? status = d.Metadata.GetValueOrDefault("Status");
+                if (status is "Ready" or "Failed" && d.IngestionState != IngestionState.Pending)
+                {
+                    settled[datasetId] = Outcome(datasetId, d, false, now - started);
+                    continue;
+                }
+                if (status == "Processing")
+                    processingSince.TryAdd(connapseId, now);
+                if (wait == IngestionWait.RecordStalls && processingSince.TryGetValue(connapseId, out DateTime since)
+                    && now - since > DocumentTimeout)
+                    settled[datasetId] = Outcome(datasetId, d, true, now - started);
+            }
+
+            if (settled.Count >= docMap.Count)
+                return settled;
+            if (settled.Count != lastSettled)
+            {
+                lastSettled = settled.Count;
+                lastProgress = now;
+                _log.WriteLine($"[{dataset}] ingested {settled.Count}/{docMap.Count}");
+            }
+            else if (now - lastProgress > StallTimeout)
+            {
+                if (wait == IngestionWait.ThrowOnStall)
+                    throw new TimeoutException(
+                        $"[{dataset}] ingestion stalled at {settled.Count}/{docMap.Count} documents for {StallTimeout.TotalMinutes:F0} minutes.");
+                foreach ((string connapseId, string datasetId) in docMap)
+                    if (!settled.ContainsKey(datasetId))
+                        settled[datasetId] = latest.TryGetValue(connapseId, out Document? d)
+                            ? Outcome(datasetId, d, true, now - started)
+                            : new DocumentOutcome(datasetId, connapseId, null, null, null, null, true, now - started);
+                return settled;
             }
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
         }
     }
 
-    private static async Task<IEnumerable<string>> FailedDatasetIdsAsync(
-        IDocumentStore documents, Guid containerId, Dictionary<string, string> docMap, CancellationToken ct)
-    {
-        List<string> failed = [];
-        for (int skip = 0; ; skip += 500)
-        {
-            IReadOnlyList<Document> page = await documents.ListAsync(containerId, null, skip, 500, ct);
-            failed.AddRange(page
-                .Where(d => d.IngestionState == IngestionState.Failed && docMap.ContainsKey(d.Id))
-                .Select(d => docMap[d.Id]));
-            if (page.Count < 500)
-                return failed;
-        }
-    }
+    private static DocumentOutcome Outcome(string datasetId, Document d, bool stalled, TimeSpan elapsed) =>
+        new(datasetId, d.Id, null, d.Metadata.GetValueOrDefault("Status"), d.Metadata.GetValueOrDefault("ErrorMessage"),
+            d.IngestionState, stalled, elapsed);
 }

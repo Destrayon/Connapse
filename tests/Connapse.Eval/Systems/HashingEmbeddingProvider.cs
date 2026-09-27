@@ -1,8 +1,8 @@
 using Connapse.Core.Interfaces;
 
-namespace Connapse.Eval.Tests.Systems;
+namespace Connapse.Eval.Systems;
 
-/// <summary>Deterministic bag-of-words embedder so integration tests need no Ollama.</summary>
+/// <summary>Deterministic bag-of-words embedder: integration tests and extract runs need no Ollama.</summary>
 public sealed class HashingEmbeddingProvider : IEmbeddingProvider
 {
     public int Dimensions => 64;
