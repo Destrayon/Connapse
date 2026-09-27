@@ -42,6 +42,53 @@ public class DatasetCacheTests : IDisposable
         hashes["corpus.jsonl"].Should().Be(PayloadHash);
     }
 
+    private static DatasetEntry FileListEntry() =>
+        new("olmocr-bench", "rev1", [], [], new DatasetFileList("https://example.test/pdfs"));
+
+    private DatasetCache CacheWithLocks(out string locks)
+    {
+        locks = Path.Combine(_root, "locks");
+        return new DatasetCache(_root, new HttpClient(_handler), locks);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_FileList_DownloadsEveryLockedFileIntoItsSubfolder()
+    {
+        DatasetCache cache = CacheWithLocks(out string locks);
+        Directory.CreateDirectory(Path.Combine(locks, "ds"));
+        File.WriteAllLines(Path.Combine(locks, "ds", DatasetCache.LockFileName),
+            [$"{PayloadHash}  tables/a b.pdf", $"{PayloadHash}  multi_column/c.pdf"]);
+
+        IReadOnlyDictionary<string, string> hashes =
+            await cache.EnsureAsync("ds", FileListEntry(), allowUnpinned: false, CancellationToken.None);
+
+        _handler.Calls.Should().Be(2);
+        File.Exists(Path.Combine(cache.DirectoryFor("ds", FileListEntry()), "tables", "a b.pdf")).Should().BeTrue();
+        hashes.Should().ContainKey(DatasetCache.LockFileName);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_FileListWrongHash_Throws()
+    {
+        DatasetCache cache = CacheWithLocks(out string locks);
+        Directory.CreateDirectory(Path.Combine(locks, "ds"));
+        File.WriteAllLines(Path.Combine(locks, "ds", DatasetCache.LockFileName), [$"{new string('0', 64)}  tables/a.pdf"]);
+
+        Func<Task> act = () => cache.EnsureAsync("ds", FileListEntry(), allowUnpinned: false, CancellationToken.None);
+
+        await act.Should().ThrowAsync<ChecksumMismatchException>().WithMessage("*a.pdf*");
+    }
+
+    [Fact]
+    public async Task EnsureAsync_FileListWithoutLockFile_TellsYouToPin()
+    {
+        DatasetCache cache = CacheWithLocks(out _);
+
+        Func<Task> act = () => cache.EnsureAsync("ds", FileListEntry(), allowUnpinned: false, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*datasets pin*");
+    }
+
     [Fact]
     public async Task EnsureAsync_WrongHash_ThrowsNamingTheFile()
     {
