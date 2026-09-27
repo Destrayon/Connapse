@@ -63,10 +63,11 @@ public class ExtractionAdapterTests : IDisposable
     [InlineData("r2-user-password.pdf", true)]
     [InlineData("r6-both-passwords.pdf", true)]
     [InlineData("r4-aes-v2-no-key-length.pdf", true)]
+    [InlineData("r5-user-password.pdf", false)]
     [InlineData("r3-empty-password.pdf", false)]
     [InlineData("r4-owner-password.pdf", false)]
     [InlineData("unencrypted.pdf", false)]
-    public void PypdfEncryption_NeedsPassword_FollowsNamesAndTheOneException(string file, bool needsPassword) =>
+    public void PypdfEncryption_NeedsPassword_IsTheVerifiedList(string file, bool needsPassword) =>
         PypdfEncryptionAdapter.NeedsPassword(file).Should().Be(needsPassword);
 
     [Fact]
