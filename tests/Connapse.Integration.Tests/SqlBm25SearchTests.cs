@@ -131,6 +131,36 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
+    [InlineData("w1 w2 w3")]                  // common only: pruning must skip on frequency tiers
+    [InlineData("w1 w7 w40 w300")]            // mixed
+    [InlineData("w900 w1500")]                // rare
+    [InlineData("w1 w1 w2 w5 w9 w13 w20 w31")] // long, with a repeated term
+    public async Task SearchAsync_PrunedRounds_EqualExhaustiveScoring(string query)
+    {
+        // Zipf-like vocabulary with repeated words, so terms span frequency tiers and chunk lengths
+        // vary; enough chunks that the query's postings exceed the one-pass limit.
+        var random = new Random(548);
+        string[] corpus = Enumerable.Range(0, 1500)
+            .Select(_ => string.Join(' ', Enumerable.Range(0, random.Next(5, 40))
+                .Select(_ => "w" + (int)Math.Floor(Math.Exp(random.NextDouble() * Math.Log(2000))))))
+            .ToArray();
+        (Guid container, Guid[] chunks) = await SeedAsync(corpus);
+        try
+        {
+            var exhaustive = (await ScoreAsync(query, chunks))
+                .Select(p => p.Value).Where(v => v > 0).OrderByDescending(v => v).Take(30).ToList();
+
+            var hits = await SearchAsync(container, query, 30);
+
+            hits.Select(h => h.Score).Should().Equal(exhaustive, (a, e) => Math.Abs(a - e) < 1e-4f);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Theory]
     [InlineData("the who", "a concert by the who")]
     [InlineData("calcium -supplements", "calcium intake and bone density")]
     public async Task SearchAsync_StopWordsAndExclusions_BehaveAsWithTsRank(string query, string expected)
