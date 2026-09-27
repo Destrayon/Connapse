@@ -196,6 +196,23 @@ public record SearchSettings
     public int HybridCandidatePool { get; set; } = 30;
 
     /// <summary>
+    /// Keyword ranking function: TsRank | Bm25 (default: TsRank).
+    /// Bm25 is Lucene's BM25 computed in plain SQL from per-container statistics, so it runs on any
+    /// PostgreSQL, including managed services without search extensions.
+    /// </summary>
+    public string KeywordRanker { get; set; } = "TsRank";
+
+    /// <summary>
+    /// BM25 term-frequency saturation (default: 1.2, Lucene's default).
+    /// </summary>
+    public double Bm25K1 { get; set; } = 1.2;
+
+    /// <summary>
+    /// BM25 length normalisation, 0 (none) to 1 (full) (default: 0.75, Lucene's default).
+    /// </summary>
+    public double Bm25B { get; set; } = 0.75;
+
+    /// <summary>
     /// Fusion method: ConvexCombination | DBSF (default: ConvexCombination).
     /// ConvexCombination: min-max normalizes inputs, then alpha-weighted sum.
     /// DBSF: Distribution-Based Score Fusion — normalizes using mean ± 3σ, more robust to outliers.

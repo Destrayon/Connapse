@@ -164,6 +164,10 @@ public static class ServiceCollectionExtensions
         // Vector index management (partial IVFFlat indexes per embedding model)
         services.AddScoped<VectorColumnManager>();
 
+        // Folds BM25 statistics deltas into per-owner stats tables (plain-SQL BM25, #548)
+        services.AddScoped<Keyword.Bm25StatsFolder>();
+        services.AddScoped<Keyword.Bm25Backfiller>();
+
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 

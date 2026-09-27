@@ -297,7 +297,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.SearchVector)
                 .HasColumnName("search_vector")
                 .HasColumnType("tsvector")
-                .HasComputedColumnSql("setweight(to_tsvector('simple', coalesce(content, '')), 'A') || setweight(to_tsvector('english', coalesce(content, '')), 'B')", stored: true);
+                // Filled by the bm25_chunks_prepare trigger (AddBm25Statistics): exact tokens, english
+                // stems and BM25 frequency markers. EF never writes it.
+                .ValueGeneratedOnAddOrUpdate();
 
             entity.HasIndex(e => e.DocumentId)
                 .HasDatabaseName("idx_chunks_document_id");
