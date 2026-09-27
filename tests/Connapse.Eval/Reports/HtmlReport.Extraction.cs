@@ -36,7 +36,8 @@ public static partial class HtmlReport
         html.Append("</table>");
 
         html.Append("<h2>Checks by category</h2><p class=muted>parsed = the parser's text; chunks = one single stored chunk. "
-            + "A drop from parsed to chunks is text split by chunking.</p>"
+            + "A drop from parsed to chunks is text split by chunking. Absent checks can score higher on chunks: "
+            + "a header split across two chunks no longer matches either.</p>"
             + "<table><tr><th>Dataset</th><th>Category</th><th>parsed</th><th>chunks</th><th>parsed − chunks</th><th>checks</th><th>skipped</th></tr>");
         foreach (ExtractionDatasetScore d in scores.Datasets.Where(d => d.Complete))
             foreach (IGrouping<string, CategoryScore> category in d.Categories.GroupBy(c => c.Category))

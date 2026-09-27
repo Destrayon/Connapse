@@ -31,6 +31,8 @@ fails-loudly check for files Connapse cannot read; and a no-silent-failure check
 - The headline numbers are the silent-failure rate, the fails-loudly pass rate, and olmOCR's native-PDF score
   at the parsed and chunk levels. Scanned-PDF categories are reported apart from the headline, since
   Connapse has no OCR.
+- The no-silent-failure check catches missing text, not garbled text: a Latin-1 file decoded as UTF-8 is
+  indexed with replacement characters and still passes it. Its `present` checks fail instead.
 - Every run writes `documents/<dataset>.jsonl` (one row per file) and `checks/<dataset>.jsonl` (one row per
   check and level).
 
