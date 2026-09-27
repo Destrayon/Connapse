@@ -108,7 +108,7 @@ internal static class Commands
             throw new ArgumentException($"Unknown datasets action '{action}'. Use list, verify, fetch or pin.");
 
         IReadOnlyList<string> datasets = manifest.ResolveSuite(cli.Required("suite"), cli.List("datasets"));
-        DatasetCache cache = new(paths.CacheRoot, http);
+        DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
         foreach (string name in datasets)
         {
             IReadOnlyDictionary<string, string> hashes =

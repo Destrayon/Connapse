@@ -17,7 +17,7 @@ namespace Connapse.Eval.Datasets.Generated;
 /// Builds small documents in code, with no external tools, so generated datasets and tests are
 /// reproducible from source. Every builder is deterministic: package timestamps are fixed.
 /// </summary>
-public static class DocumentBuilders
+public static partial class DocumentBuilders
 {
     private static readonly DateTime FixedTime = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -111,7 +111,7 @@ public static class DocumentBuilders
                 y -= 16;
             }
         }
-        return builder.Build();
+        return FixTrailerId(builder.Build());
     }
 
     /// <summary>A one-page PDF containing only a picture: no text layer, like a scan.</summary>
@@ -120,7 +120,7 @@ public static class DocumentBuilders
         PdfDocumentBuilder builder = new();
         PdfPageBuilder page = builder.AddPage(UglyToad.PdfPig.Content.PageSize.A4);
         page.AddPng(png, new PdfRectangle(50, 500, 450, 700));
-        return builder.Build();
+        return FixTrailerId(builder.Build());
     }
 
     /// <summary>A deterministic grayscale PNG with horizontal stripes that look like lines of text.</summary>
@@ -151,6 +151,26 @@ public static class DocumentBuilders
         }
         WriteChunk(png, "IEND", []);
         return png.ToArray();
+    }
+
+    // PdfPig writes a random file ID into the trailer ("/ID [ <32 hex><32 hex> ]"). Both halves are
+    // replaced in place with hex digits hashed from the bytes before the trailer, so the length and
+    // every xref offset stay the same and the file depends only on its content.
+    private static byte[] FixTrailerId(byte[] pdf)
+    {
+        byte[] marker = Encoding.ASCII.GetBytes("/ID [ <");
+        int at = pdf.AsSpan().LastIndexOf(marker);
+        if (at < 0)
+            return pdf;
+        string digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pdf.AsSpan(0, at)));
+        byte[] fixedId = Encoding.ASCII.GetBytes(digest[..32]);
+        int first = at + marker.Length;
+        int second = first + 32 + 2;
+        if (pdf[first + 32] != '>' || pdf[second - 1] != '<' || pdf[second + 32] != '>')
+            throw new InvalidDataException("Unexpected PDF trailer ID layout.");
+        fixedId.CopyTo(pdf, first);
+        fixedId.CopyTo(pdf, second);
+        return pdf;
     }
 
     private static void WriteChunk(Stream png, string type, byte[] data)
@@ -187,22 +207,43 @@ public static class DocumentBuilders
         stream.Write(Encoding.UTF8.GetBytes(content));
     }
 
-    // OpenXml stamps zip entries with the current time; rewriting them with a fixed time makes the
-    // package bytes depend only on its content.
+    [System.Text.RegularExpressions.GeneratedRegex(@"\bR[0-9a-f]{16}\b")]
+    private static partial System.Text.RegularExpressions.Regex GeneratedRelationshipId();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[0-9a-f]{32}\.psmdcp")]
+    private static partial System.Text.RegularExpressions.Regex GeneratedCorePropertiesName();
+
+    // OpenXml stamps zip entries with the current time, names relationships "R" + 16 random hex digits
+    // and names the core-properties part after a random GUID. Rewriting all three (relationship IDs
+    // renamed rIdGen1, rIdGen2, ... in order of first appearance across every part; the properties part
+    // renamed core.psmdcp) makes the package bytes depend only on its content.
     private static byte[] Repack(byte[] package)
     {
         using MemoryStream input = new(package);
         using ZipArchive source = new(input, ZipArchiveMode.Read);
         using MemoryStream output = new();
+        Dictionary<string, string> renamed = new(StringComparer.Ordinal);
         using (ZipArchive target = new(output, ZipArchiveMode.Create, leaveOpen: true))
         {
-            foreach (ZipArchiveEntry entry in source.Entries.OrderBy(e => e.FullName, StringComparer.Ordinal))
+            foreach ((ZipArchiveEntry entry, string name) in source.Entries
+                .Select(e => (e, GeneratedCorePropertiesName().Replace(e.FullName, "core.psmdcp")))
+                .OrderBy(e => e.Item2, StringComparer.Ordinal))
             {
-                ZipArchiveEntry copy = target.CreateEntry(entry.FullName, CompressionLevel.Optimal);
+                using MemoryStream buffer = new();
+                using (Stream from = entry.Open())
+                    from.CopyTo(buffer);
+                byte[] bytes = buffer.ToArray();
+                if (name.EndsWith(".xml", StringComparison.Ordinal) || name.EndsWith(".rels", StringComparison.Ordinal))
+                {
+                    string xml = GeneratedRelationshipId().Replace(Encoding.UTF8.GetString(bytes),
+                        m => renamed.TryGetValue(m.Value, out string? id) ? id : renamed[m.Value] = $"rIdGen{renamed.Count + 1}");
+                    bytes = Encoding.UTF8.GetBytes(GeneratedCorePropertiesName().Replace(xml, "core.psmdcp"));
+                }
+
+                ZipArchiveEntry copy = target.CreateEntry(name, CompressionLevel.Optimal);
                 copy.LastWriteTime = FixedTime;
-                using Stream from = entry.Open();
                 using Stream to = copy.Open();
-                from.CopyTo(to);
+                to.Write(bytes);
             }
         }
         return output.ToArray();

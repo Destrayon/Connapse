@@ -29,7 +29,7 @@ public sealed class EvalRunner(
 
         EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
         IReadOnlyList<string> names = manifest.ResolveSuite(request.Suite, request.OnlyDatasets);
-        DatasetCache cache = new(paths.CacheRoot, http);
+        DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
 
         // Verify every file before starting containers, so a checksum problem fails in seconds.
         Dictionary<string, IReadOnlyDictionary<string, string>> hashes = new(StringComparer.Ordinal);

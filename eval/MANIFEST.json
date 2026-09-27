@@ -17,6 +17,12 @@
       "cqadupstack-programmers",
       "ragbench-techqa",
       "ragbench-emanual"
+    ],
+    "extract-v1": [
+      "generated-encodings",
+      "pypdf-encryption",
+      "olmocr-bench",
+      "generated-negatives"
     ]
   },
   "datasets": {
@@ -416,6 +422,166 @@
           "sha256": "ba6164b48ec0792f9072f952af60062a14d1412dd472ddf08bd50b7006fc4504"
         }
       ]
+    },
+    "olmocr-bench": {
+      "adapter": "olmocr-bench",
+      "version": "54a96a6fb6a2bd3b297e59869491db4d3625b711",
+      "tags": [
+        "shape:pdf",
+        "source:olmocr-bench"
+      ],
+      "files": [
+        {
+          "name": "arxiv_math.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/arxiv_math.jsonl",
+          "sha256": "5c1ba4770168a2312bf248c8b0125ed2279ec9f664ce64ba7cb52e3c41e4987c"
+        },
+        {
+          "name": "headers_footers.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/headers_footers.jsonl",
+          "sha256": "315822b0fcd684eab7099bfb162ea45dc2384b23874be9529d60cd85b7e9c274"
+        },
+        {
+          "name": "long_tiny_text.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/long_tiny_text.jsonl",
+          "sha256": "9ebe6a5fa690e78098e088b9eb677c4bb4212ed9b946be80b2d79a1a6c2a0e1a"
+        },
+        {
+          "name": "multi_column.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/multi_column.jsonl",
+          "sha256": "50192fd72f18434f3303b501bc9347763fb4b865238b7636604d3f6ebdf01595"
+        },
+        {
+          "name": "old_scans.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/old_scans.jsonl",
+          "sha256": "0cb14b2a5c3a08383f256931f79d1deea737e2635e0f1766b0fe0377f9416a0d"
+        },
+        {
+          "name": "old_scans_math.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/old_scans_math.jsonl",
+          "sha256": "aa514fb0c4c06aa077cadf316c2aede9716f62088ea1011683e059f7be67a8bd"
+        },
+        {
+          "name": "table_tests.jsonl",
+          "url": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/table_tests.jsonl",
+          "sha256": "e37a99bd60de56c62cd3f4c1b7910b603641901c15ae119f849ffefa86cde120"
+        }
+      ],
+      "fileList": {
+        "baseUrl": "https://huggingface.co/datasets/allenai/olmOCR-bench/resolve/54a96a6fb6a2bd3b297e59869491db4d3625b711/bench_data/pdfs"
+      }
+    },
+    "pypdf-encryption": {
+      "adapter": "pypdf-encryption",
+      "version": "54d35184b9e984834823b3558dc096bd4e6c9e80",
+      "tags": [
+        "shape:pdf",
+        "shape:encrypted"
+      ],
+      "files": [
+        {
+          "name": "r2-empty-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r2-empty-password.pdf",
+          "sha256": "6cae9391e37b942fbf61685ad603806514940c4af64f4611ec79651b20052202"
+        },
+        {
+          "name": "r2-owner-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r2-owner-password.pdf",
+          "sha256": "60987129fa1599aa14205e600fb6d583db58a101bf6715591e10f099a8fbe303"
+        },
+        {
+          "name": "r2-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r2-user-password.pdf",
+          "sha256": "da696a2d69841e9a6ccd07823ebd9f4f6276ae03802ea26800531ae3041815a2"
+        },
+        {
+          "name": "r3-empty-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r3-empty-password.pdf",
+          "sha256": "c519fef79688ba8b853d33087f883a5320902deea7a1e2ba776245ec98d15296"
+        },
+        {
+          "name": "r3-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r3-user-password.pdf",
+          "sha256": "5b1bdc0e8d9994e503ec6887775d743c222933e2a9253d94571b74a6edb438d8"
+        },
+        {
+          "name": "r4-aes-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r4-aes-user-password.pdf",
+          "sha256": "26eafc7f9ddbc5d87a2e522ef37a430121f32f4fca5015ee32f8da167527e91d"
+        },
+        {
+          "name": "r4-aes-v2-no-key-length.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r4-aes-v2-no-key-length.pdf",
+          "sha256": "d25c2b36582bb56e6a2eb7ab7eb50f0d7e37f026f34a4f4ca1c37f668b6a98db"
+        },
+        {
+          "name": "r4-owner-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r4-owner-password.pdf",
+          "sha256": "26bc009957639957d7fd9b49f17e123deb60bfca8617c5b0a3f6de25eef30e34"
+        },
+        {
+          "name": "r4-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r4-user-password.pdf",
+          "sha256": "55991f72562d2026854d0513da8cf9688db31010053b92715037248683b99a6d"
+        },
+        {
+          "name": "r5-empty-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r5-empty-password.pdf",
+          "sha256": "c3912034dff56b49de02e3e83861e04cdf86f73273ac2a956183bb7b7b4a92b1"
+        },
+        {
+          "name": "r5-owner-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r5-owner-password.pdf",
+          "sha256": "d84c096a019eef57468dc25daeb7a7c617b7d2fdac9c2638c4b07bd88e68a42d"
+        },
+        {
+          "name": "r5-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r5-user-password.pdf",
+          "sha256": "e36ad94829bbdb8634a3d5a41f8e4e555ffde6bac9ab966b8cefef4ae51368e0"
+        },
+        {
+          "name": "r6-both-passwords.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r6-both-passwords.pdf",
+          "sha256": "c792732c38f8b4d449133b8336519b17c14b5d4142a2c2204f4e20c565716e50"
+        },
+        {
+          "name": "r6-empty-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r6-empty-password.pdf",
+          "sha256": "ec9f1792e85a2dcad4d76c46505b87f62fe9e2bbbf167e1d5386b1d0576df468"
+        },
+        {
+          "name": "r6-owner-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r6-owner-password.pdf",
+          "sha256": "89e45c197f42ce7159f1485e0841d8716a51e1375f4eab53068961c6f10c0724"
+        },
+        {
+          "name": "r6-user-password.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/r6-user-password.pdf",
+          "sha256": "440f63996cdda90f55f94532d5986066baf2939d301010dd4a4b5f2d6509de42"
+        },
+        {
+          "name": "unencrypted.pdf",
+          "url": "https://raw.githubusercontent.com/py-pdf/pypdf/54d35184b9e984834823b3558dc096bd4e6c9e80/resources/encryption/unencrypted.pdf",
+          "sha256": "72f3e7124c9d82980d7ab24d069005da147cc17bf8b28299da9ef7831dcb6e90"
+        }
+      ]
+    },
+    "generated-negatives": {
+      "adapter": "generated-negatives",
+      "version": "gen-1",
+      "tags": [
+        "shape:negative"
+      ],
+      "files": []
+    },
+    "generated-encodings": {
+      "adapter": "generated-encodings",
+      "version": "gen-1",
+      "tags": [
+        "shape:text",
+        "shape:encoding"
+      ],
+      "files": []
     }
   }
 }

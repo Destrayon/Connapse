@@ -1,3 +1,4 @@
+using Connapse.Eval.Datasets.Generated;
 using Connapse.Eval.Model;
 
 namespace Connapse.Eval.Datasets;
@@ -12,7 +13,11 @@ public interface IDatasetAdapter
 public static class DatasetAdapters
 {
     private static readonly Dictionary<string, IDatasetAdapter> All =
-        new IDatasetAdapter[] { new BeirParquetAdapter(), new BeirJsonlAdapter(), new RagBenchAdapter() }
+        new IDatasetAdapter[]
+        {
+            new BeirParquetAdapter(), new BeirJsonlAdapter(), new RagBenchAdapter(),
+            new OlmOcrBenchAdapter(), new PypdfEncryptionAdapter(), new GeneratedNegativesAdapter(), new GeneratedEncodingsAdapter(),
+        }
             .ToDictionary(a => a.Name, StringComparer.Ordinal);
 
     public static IDatasetAdapter Get(string name) =>
