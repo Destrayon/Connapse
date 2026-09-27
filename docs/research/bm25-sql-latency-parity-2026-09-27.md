@@ -71,9 +71,15 @@ Across 16 eval datasets (1,748 test questions), 4.6% of questions contained only
 - **Conclusion.** Pruning helps well beyond the rare common-only case.
 
 ## Implemented design (#549)
-- **Migration.** `bm25_markers(tsvector)` is appended to the `search_vector` expression. `bm25_length` becomes a generated column. `bm25_term_stats` gains `max_tf` (only ever raised) and `min_len` (only ever lowered). Stale values after deletes are looser bounds, never unsafe.
+- **Migration.** No table rewrite, so an upgrade costs no downtime whether BM25 is used or not.
+  - `search_vector` drops its generated expression; its values are kept.
+  - A `BEFORE` trigger fills `search_vector` (now with markers) and `bm25_length` for new or edited chunks.
+  - `Bm25Backfiller` fills existing chunks in batches of 2k with `SKIP LOCKED`.
+  - A chunk counts towards the statistics once it has a length, and BM25 falls back to ts_rank for an owner until none of its chunks is waiting.
+  - `bm25_term_stats` has `max_tf` (only ever raised) and `min_len` (only ever lowered). Stale values after deletes are looser bounds, never unsafe.
+  - The first version rewrote `chunks` under an exclusive lock; Codex's review of #549 flagged the downtime.
 - **`Bm25Pruning`.** Computes the per-level bounds, the slack, the minimal clause enumeration (DFS with suffix-max pruning, dominated clauses dropped) and the tsquery text. A brute-force unit test checks that every level vector with a bound above θ matches a clause.
-- **`KeywordSearchService`.** Queries whose postings sum to 4,000 or fewer are scored in one pass. Otherwise θ starts at 70% of the summed maxima, and each round scores the new DNF's chunks minus those already scored, limited to k. It stops when the k-th score ≥ θ; otherwise θ becomes the k-th score, or drops 40% while fewer than k are found. After 6 rounds the remaining matches are scored in full.
+- **`KeywordSearchService`.** Statistics and every round read one repeatable-read snapshot, so a write or a revocation between rounds can neither break the bounds nor leak an already-scored chunk. Scores stay float8 through certification. Queries whose postings sum to 4,000 or fewer are scored in one pass. Otherwise θ starts at 70% of the summed maxima, and each round scores the new DNF's chunks minus those already scored, limited to k. It stops when the k-th score ≥ θ; otherwise θ becomes the k-th score, or drops 40% while fewer than k are found. After 6 rounds the remaining matches are scored in full.
 
 ### Measured: the shipped implementation (commit dbac6a5)
 The timings are end to end through `KeywordSearchService.SearchAsync`: the statistics lookup, the pruning rounds and the EF round trips. Setup: one container of synthetic chunks, top 30, median of 5 runs on the integration-test Postgres.
