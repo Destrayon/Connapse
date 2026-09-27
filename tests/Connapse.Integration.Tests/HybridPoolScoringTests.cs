@@ -120,6 +120,10 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
     [InlineData("calcium -supplements", new[] { "phrase" })]
     [InlineData("calcium -\"bone density\"", new[] { "supplements" })]
     [InlineData("supplements or marrow", new[] { "split", "supplements" })]
+    [InlineData("density -of", new[] { "phrase" })]          // a stop-word exclusion still excludes
+    [InlineData("concert -\"the who\"", new string[0])]     // so does a stop-word phrase
+    [InlineData("\"the who\"", new[] { "band" })]            // a stop-word phrase stays a phrase
+    [InlineData("\"who the\"", new string[0])]
     public async Task KeywordSearchAsync_PhrasesExclusionsAndStopWords_MatchTheExpectedChunks(string query, string[] expected)
     {
         Guid containerId = await CreateContainerAsync("kw-syntax");
@@ -144,6 +148,37 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
                 Connapse.Core.SearchScopes.Unrestricted);
 
             hits.Select(h => h.ChunkId).Should().BeEquivalentTo(expected.Select(name => chunks[name].ToString()));
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task KeywordSearchAsync_StopWordOnlyQuery_RanksAboveZero()
+    {
+        Guid containerId = await CreateContainerAsync("kw-stop");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid band = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]);
+        Guid article = await SeedChunkAsync(docId, containerId, "the concert", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+
+            var hits = await keyword.SearchAsync("the who",
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync("the who", [band.ToString(), article.ToString()]);
+
+            // Any-term: both match; the chunk with both words ranks first, and nothing scores zero.
+            hits.Select(h => h.ChunkId).Should().Equal(band.ToString(), article.ToString());
+            hits.Should().OnlyContain(h => h.Score > 0f);
+            scores[band.ToString()].Should().BeGreaterThan(scores[article.ToString()]);
         }
         finally
         {
