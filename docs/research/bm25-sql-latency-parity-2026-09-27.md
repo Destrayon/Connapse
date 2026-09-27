@@ -75,6 +75,25 @@ Across 16 eval datasets (1,748 test questions), 4.6% of questions contained only
 - **`Bm25Pruning`.** Computes the per-level bounds, the slack, the minimal clause enumeration (DFS with suffix-max pruning, dominated clauses dropped) and the tsquery text. A brute-force unit test checks that every level vector with a bound above θ matches a clause.
 - **`KeywordSearchService`.** Queries whose postings sum to 4,000 or fewer are scored in one pass. Otherwise θ starts at 70% of the summed maxima, and each round scores the new DNF's chunks minus those already scored, limited to k. It stops when the k-th score ≥ θ; otherwise θ becomes the k-th score, or drops 40% while fewer than k are found. After 6 rounds the remaining matches are scored in full.
 
+### Measured: the shipped implementation (commit dbac6a5)
+The timings are end to end through `KeywordSearchService.SearchAsync`: the statistics lookup, the pruning rounds and the EF round trips. Setup: one container of synthetic chunks, top 30, median of 5 runs on the integration-test Postgres.
+
+| chunks | rare | mixed | common-only |
+|---|---|---|---|
+| 100k | 9.1 ms | 11.6 ms | 13.1 ms |
+| 300k | 14.3 ms | 13.8 ms | 21.0 ms |
+
+**Comparison:**
+- **pg_textsearch, bare SQL:** 4 / 5 / 9 ms at 100k and 4 / 6 / 16 ms at 300k.
+- **The first plain-SQL version:** 3 / 40 / 950 ms at 100k and 9 / 70–146 / 3,400 ms at 300k.
+
+**Reading the gap:** the service numbers carry about 5 ms of per-request overhead that the bare-SQL extension timings do not. With that in mind, the common-only case is within 1.3× of the extension and the others within about 2–3×.
+
+**The fold bottleneck.** Benchmarking also exposed a flaw: a bulk load of 300k chunks wrote about 39M delta rows, one per term per chunk.
+- **Fold.** The single-statement fold's memory and running time grew with that backlog, it hit the 30 s command timeout, and it retried forever. Searches, which add unfolded deltas, timed out too, and the test Postgres was eventually killed for running out of memory.
+- **Fix.** The triggers now aggregate deltas per statement, one row per term, and the fold runs in batches of 50k rows, each in its own transaction.
+- **Result.** Seeding 300k chunks took 165 s, down from over 300 s; the fold then took 1 s; Postgres peaked at about 360 MB.
+
 ## Conflicts and uncertainties
 - **Exactness bar.** pg_textsearch is itself not exact (quantized lengths), so Connapse's exactness bar is stricter than the reference it is compared against.
 - **Chunk-length variation.** Bounds use each term's shortest chunk, so real corpora with very short chunks (a document's last chunk) loosen them. The synthetic corpus has uniform lengths, so it does not test this.
