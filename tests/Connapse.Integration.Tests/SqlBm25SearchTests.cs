@@ -103,6 +103,34 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
     }
 
     [Theory]
+    [InlineData(2)]  // as many rare-term candidates as asked for: the shortcut answers and proves itself
+    [InlineData(10)] // too few: falls back to scoring every match
+    public async Task SearchAsync_CommonAndRareTerms_EqualsExhaustiveScoring(int topK)
+    {
+        // "alpha" is in every chunk (common); "zeta" is in 2 of 40 (5%, so rare).
+        string[] corpus = Enumerable.Range(0, 40)
+            .Select(i => string.Join(' ', Enumerable.Repeat("alpha", 1 + i % 4))
+                + (i < 2 ? " zeta" : "") + $" filler{i}")
+            .ToArray();
+        (Guid container, Guid[] chunks) = await SeedAsync(corpus);
+        try
+        {
+            var exhaustive = (await ScoreAsync("alpha zeta", chunks))
+                .Select(p => p.Value).OrderByDescending(v => v).Take(topK).ToList();
+
+            var hits = await SearchAsync(container, "alpha zeta", topK);
+
+            // Scores, not ids: many alpha-only chunks tie, and which of them fills a slot is arbitrary.
+            hits.Select(h => h.Score).Should().Equal(exhaustive, (a, e) => Math.Abs(a - e) < 1e-5f);
+            hits.Take(2).Select(h => h.ChunkId).Should().BeEquivalentTo([chunks[0].ToString(), chunks[1].ToString()]);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Theory]
     [InlineData("the who", "a concert by the who")]
     [InlineData("calcium -supplements", "calcium intake and bone density")]
     public async Task SearchAsync_StopWordsAndExclusions_BehaveAsWithTsRank(string query, string expected)
@@ -174,11 +202,11 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         return await Service(context.Context).ScoreChunksAsync(query, chunks.Select(c => c.ToString()).ToList());
     }
 
-    private async Task<List<SearchHit>> SearchAsync(Guid container, string query)
+    private async Task<List<SearchHit>> SearchAsync(Guid container, string query, int topK = 10)
     {
         await using var context = await NewContextAsync();
         return await Service(context.Context).SearchAsync(query,
-            new SearchOptions { TopK = 10, ContainerId = container.ToString() }, SearchScopes.Unrestricted);
+            new SearchOptions { TopK = topK, ContainerId = container.ToString() }, SearchScopes.Unrestricted);
     }
 
     private static KeywordSearchService Service(KnowledgeDbContext context)

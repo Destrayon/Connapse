@@ -144,7 +144,8 @@ public class KeywordSearchService
         if (Bm25Settings is { } bm25 && !string.IsNullOrEmpty(options.ContainerId))
         {
             List<KeywordSearchRow> bm25Rows = await Bm25SearchAsync(
-                whereClause, tsQuery, parameters, topKIdx, Guid.Parse(options.ContainerId), bm25, ct);
+                whereClause, tsQuery, parameters, options.TopK, Guid.Parse(options.ContainerId),
+                parsed, bm25, ct);
 
             // A query of nothing but stop words has no BM25 terms; ts_rank's exact-token fallback
             // below still finds "the who".
@@ -178,20 +179,69 @@ public class KeywordSearchService
     }
 
     /// <summary>
-    /// Lucene BM25 over the owner's chunks that match the query (#548). Every GIN match is scored
-    /// exactly; tf and chunk length come from the english (B) positions of search_vector, and df, N
-    /// and avgdl from the owner's statistics (see <see cref="Bm25StatsSql"/>).
+    /// A query term is "common" when more than this share of the owner's chunks contain it. Common
+    /// terms still count towards every score; they only stop generating candidates, the way MaxScore
+    /// skips them, and <see cref="Bm25SearchAsync"/> proves the shortcut changed nothing.
+    /// </summary>
+    internal const double CommonTermFraction = 0.05;
+
+    /// <summary>
+    /// Lucene BM25 over the owner's chunks that match the query (#548), exact.
+    /// <para>
+    /// Scoring every chunk that contains a common term is what makes naive SQL BM25 slow (seconds
+    /// per 100k chunks), so candidates first come only from the rarer terms. That is safe to check:
+    /// a term's BM25 contribution is its weight times f / (f + k1·(…)), which is below the weight,
+    /// so a chunk containing only common terms scores below the common terms' summed weight. When
+    /// the k-th best candidate reaches that sum, no skipped chunk could have entered the top k;
+    /// otherwise the search runs again over every match.
+    /// </para>
     /// </summary>
     private async Task<List<KeywordSearchRow>> Bm25SearchAsync(
-        string whereClause, string tsQuery, List<object> parameters, int topKIdx, Guid ownerId,
-        SearchSettings bm25, CancellationToken ct)
+        string whereClause, string tsQuery, List<object> parameters, int topK, Guid ownerId,
+        KeywordQuery parsed, SearchSettings bm25, CancellationToken ct)
     {
-        int ownerIdx = parameters.Count, k1Idx = ownerIdx + 1, bIdx = ownerIdx + 2;
-        List<object> bm25Parameters = [.. parameters, ownerId, bm25.Bm25K1, bm25.Bm25B];
+        List<Bm25Term> terms = await Bm25TermsAsync(ownerId, parsed, ct);
+        if (terms.Count == 0)
+            return [];
+
+        double commonDf = CommonTermFraction * terms[0].N;
+        List<Bm25Term> rare = terms.Where(t => t.Df <= commonDf).ToList();
+        double commonWeight = terms.Where(t => t.Df > commonDf).Sum(t => t.Weight);
+
+        if (rare.Count > 0 && rare.Count < terms.Count)
+        {
+            List<KeywordSearchRow> rows = await Bm25TopKAsync(
+                whereClause, tsQuery, parameters, topK, ownerId, terms, rare, bm25, ct);
+            if (rows.Count == topK && rows[^1].Rank >= commonWeight)
+                return rows;
+        }
+
+        return await Bm25TopKAsync(whereClause, tsQuery, parameters, topK, ownerId, terms, null, bm25, ct);
+    }
+
+    /// <summary>
+    /// The top <paramref name="topK"/> chunks by BM25 over <paramref name="terms"/>, taking
+    /// candidates from chunks containing any of <paramref name="candidateTerms"/> (null: any match).
+    /// </summary>
+    private async Task<List<KeywordSearchRow>> Bm25TopKAsync(
+        string whereClause, string tsQuery, List<object> parameters, int topK, Guid ownerId,
+        List<Bm25Term> terms, List<Bm25Term>? candidateTerms, SearchSettings bm25, CancellationToken ct)
+    {
+        int ownerIdx = parameters.Count;
+        List<object> bm25Parameters =
+        [
+            .. parameters, ownerId,
+            terms.Select(t => t.Term).ToArray(), terms.Select(t => t.Weight).ToArray(),
+            bm25.Bm25K1, bm25.Bm25B, terms[0].Avgdl, topK,
+            (candidateTerms ?? terms).Select(t => t.Term).ToArray(),
+        ];
+        string score = Bm25ScoreSql($"{{{ownerIdx + 3}}}", $"{{{ownerIdx + 4}}}", $"{{{ownerIdx + 5}}}");
+        string candidates = candidateTerms is null
+            ? ""
+            : $"AND c.search_vector @@ {AnyLexemeSql($"{{{ownerIdx + 7}}}")}";
 
         // c.owner_id as well as d.owner_id: the statistics are the owner's, so the chunks must be.
         string sql = @$"
-            {Bm25StatsSql($"{{{ownerIdx}}}", "{0}")}
             SELECT
                 c.id as ChunkId,
                 c.document_id as DocumentId,
@@ -203,22 +253,39 @@ public class KeywordSearchService
                 d.owner_id as ContainerId,
                 d.path as Path
             FROM (
-                SELECT c.id, {Bm25ScoreSql($"{{{k1Idx}}}", $"{{{bIdx}}}")} AS score
+                SELECT c.id, {score}
                 FROM chunks c
                 INNER JOIN documents d ON c.document_id = d.id
-                {Bm25JoinSql}
+                {Bm25TermJoinSql($"{{{ownerIdx + 1}}}", $"{{{ownerIdx + 2}}}")}
                 WHERE {whereClause}
                   AND c.owner_id = {{{ownerIdx}}}
                   AND c.search_vector @@ {tsQuery}
+                  {candidates}
                 GROUP BY c.id
                 ORDER BY score DESC
-                LIMIT {{{topKIdx}}}) s
+                LIMIT {{{ownerIdx + 6}}}) s
             INNER JOIN chunks c ON c.id = s.id
             INNER JOIN documents d ON c.document_id = d.id
             ORDER BY s.score DESC";
 
         return await _context.Database
             .SqlQueryRaw<KeywordSearchRow>(sql, bm25Parameters.ToArray())
+            .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// The query's english terms with their BM25 weight (query frequency × IDF), df, and the owner's
+    /// N and avgdl. Empty when no term occurs in the owner's chunks.
+    /// </summary>
+    private async Task<List<Bm25Term>> Bm25TermsAsync(Guid ownerId, KeywordQuery parsed, CancellationToken ct)
+    {
+        string sql = $"""
+            {Bm25StatsSql("{0}", "{1}")}
+            SELECT q.term AS "Term", q.qtf * q.idf AS "Weight", q.df AS "Df", os.n AS "N", os.avgdl AS "Avgdl"
+            FROM q CROSS JOIN os
+            """;
+        return await _context.Database
+            .SqlQueryRaw<Bm25Term>(sql, ownerId, parsed.Clauses.ToArray())
             .ToListAsync(ct);
     }
 
@@ -277,23 +344,24 @@ public class KeywordSearchService
             List<Guid> owners = await _context.Database
                 .SqlQueryRaw<Guid>("SELECT DISTINCT owner_id AS \"Value\" FROM chunks WHERE id = ANY({0})", ids)
                 .ToListAsync(ct);
-            if (owners.Count == 1)
+            List<Bm25Term> terms = owners.Count == 1 ? await Bm25TermsAsync(owners[0], parsed, ct) : [];
+            if (terms.Count > 0)
             {
                 string bm25Sql = @$"
-                    {Bm25StatsSql("{3}", "{0}")}
                     SELECT c.id as ChunkId, COALESCE(s.score, 0)::real as Rank
                     FROM chunks c
                     LEFT JOIN (
-                        SELECT c.id, {Bm25ScoreSql("{4}", "{5}")} AS score
+                        SELECT c.id, {Bm25ScoreSql("{5}", "{6}", "{7}")}
                         FROM chunks c
-                        {Bm25JoinSql}
+                        {Bm25TermJoinSql("{3}", "{4}")}
                         WHERE c.id = ANY({{2}}) AND c.search_vector @@ {TsQuerySql("{0}", "{1}")}
                         GROUP BY c.id) s ON s.id = c.id
                     WHERE c.id = ANY({{2}})";
 
                 List<ChunkRankRow> bm25Rows = await _context.Database
-                    .SqlQueryRaw<ChunkRankRow>(bm25Sql, parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(),
-                        ids, owners[0], bm25.Bm25K1, bm25.Bm25B)
+                    .SqlQueryRaw<ChunkRankRow>(bm25Sql, parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(), ids,
+                        terms.Select(t => t.Term).ToArray(), terms.Select(t => t.Weight).ToArray(),
+                        bm25.Bm25K1, bm25.Bm25B, terms[0].Avgdl)
                     .ToListAsync(ct);
                 return bm25Rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
             }
@@ -364,7 +432,7 @@ public class KeywordSearchService
                     (COALESCE((SELECT total_len FROM bm25_owner_stats WHERE owner_id = {ownerParam}), 0)
                    + COALESCE((SELECT sum(d_len) FROM bm25_delta WHERE owner_id = {ownerParam} AND term IS NULL), 0))::float8 AS total) t),
         q AS MATERIALIZED (
-            SELECT qt.term, qt.qtf, ln(1 + (os.n - x.df + 0.5) / (x.df + 0.5)) AS idf
+            SELECT qt.term, qt.qtf, x.df, ln(1 + (os.n - x.df + 0.5) / (x.df + 0.5)) AS idf
             FROM qt CROSS JOIN os
             CROSS JOIN LATERAL (SELECT
                     (COALESCE((SELECT df FROM bm25_term_stats WHERE owner_id = {ownerParam} AND term = qt.term), 0)
@@ -373,27 +441,39 @@ public class KeywordSearchService
         """;
 
     /// <summary>
-    /// Joins each candidate chunk (alias c) to its english (weight B) term frequencies, its length
-    /// and the owner statistics. Weight B only: search_vector also holds a simple (A) copy of every
-    /// word, and counting both would double every term frequency and length.
+    /// Joins each chunk (alias c) to its term frequencies for the query's terms (a text[] parameter)
+    /// and their weights (a float8[] parameter). Only the english (weight B) positions count:
+    /// search_vector also holds a simple (A) copy of every word, and counting both would double every
+    /// frequency. setweight + ts_filter keep just the query's lexemes before unnesting, in C, so a
+    /// chunk costs its few query terms instead of its whole vocabulary.
     /// </summary>
-    private const string Bm25JoinSql = """
-        CROSS JOIN os
-        CROSS JOIN LATERAL (SELECT bm25_doc_length(c.search_vector)::float8 AS dl) l
-        CROSS JOIN LATERAL unnest(ts_filter(c.search_vector, ARRAY['b']::"char"[])) u
-        INNER JOIN q ON q.term = u.lexeme
+    internal static string Bm25TermJoinSql(string termsParam, string weightsParam) => $"""
+        CROSS JOIN LATERAL unnest(ts_filter(
+            setweight(ts_filter(c.search_vector, ARRAY['b']::"char"[]), 'd', {termsParam}::text[]),
+            ARRAY['d']::"char"[])) u
+        INNER JOIN unnest({termsParam}::text[], {weightsParam}::float8[]) w(term, weight) ON w.term = u.lexeme
         """;
 
     /// <summary>
     /// Lucene BM25Similarity (lucene/core/src/java/org/apache/lucene/search/similarities/
     /// BM25Similarity.java, Apache-2.0): idf * f / (f + k1 * (1 - b + b * dl / avgdl)), summed over
-    /// query terms. Lucene 8+ drops the textbook's constant (k1 + 1) factor; it rescales every score
-    /// alike, so the ranking is the same. Chunk lengths are exact, not Lucene's lossy one-byte norms.
+    /// query terms, with the query-frequency × IDF weight precomputed per term. Lucene 8+ drops the
+    /// textbook's constant (k1 + 1) factor; it rescales every score alike, so the ranking is the
+    /// same. Chunk lengths are exact (chunks.bm25_length), not Lucene's lossy one-byte norms.
     /// </summary>
-    internal static string Bm25ScoreSql(string k1Param, string bParam) => $"""
-        sum(q.qtf * q.idf * cardinality(u.positions)
-            / (cardinality(u.positions) + {k1Param}::float8 * (1 - {bParam}::float8 + {bParam}::float8 * l.dl / os.avgdl)))
+    internal static string Bm25ScoreSql(string k1Param, string bParam, string avgdlParam) => $"""
+        sum(w.weight * cardinality(u.positions)
+            / (cardinality(u.positions) + {k1Param}::float8 * (1 - {bParam}::float8
+               + {bParam}::float8 * COALESCE(c.bm25_length, bm25_doc_length(c.search_vector)) / {avgdlParam}::float8))) AS score
         """;
+
+    /// <summary>A tsquery matching any of the lexemes in a text[] parameter.</summary>
+    internal static string AnyLexemeSql(string lexemesParam) => $"""
+        (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+         FROM unnest({lexemesParam}::text[]) t, LATERAL plainto_tsquery('simple', t) e)
+        """;
+
+    private record Bm25Term(string Term, double Weight, double Df, double N, double Avgdl);
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 
