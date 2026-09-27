@@ -35,11 +35,19 @@ public class KeywordSearchService
             return [];
         }
 
+        var parsed = KeywordQuery.Parse(query);
+        if (parsed.Clauses.Count == 0)
+        {
+            // Nothing to match, only things to exclude: like Lucene, that matches nothing.
+            return [];
+        }
+
         // Build WHERE clause for filters
         // A source whose remote revoked access (a public repository gone private) is left out,
         // whatever else the caller asked for.
         var whereClauses = new List<string> { "1=1", "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
-        var parameters = new List<object> { query }; // {0} = raw query string
+        // {0} = clauses, {1} = exclusions
+        var parameters = new List<object> { parsed.Clauses.ToArray(), parsed.Exclusions.ToArray() };
 
         if (!string.IsNullOrEmpty(options.ContainerId))
         {
@@ -114,20 +122,15 @@ public class KeywordSearchService
         }
 
         var whereClause = string.Join(" AND ", whereClauses);
+        string tsQuery = TsQuerySql("{0}", "{1}");
 
-        // websearch_to_tsquery handles user input natively: quoted phrases, negation, OR.
-        // Query both 'simple' (exact tokens) and 'english' (stemmed) configs so that
-        // technical terms like "README" match exactly while "running" still matches "run".
-        // ts_rank_cd uses cover density ranking; normalization flag 32 = rank/(rank+1) for 0-1 range.
         var sql = @$"
             SELECT
                 c.id as ChunkId,
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                ts_rank_cd(c.search_vector,
-                    websearch_to_tsquery('simple', {{{0}}}) || websearch_to_tsquery('english', {{{0}}}),
-                    32) as Rank,
+                {RankSql("c.search_vector", PositiveQuerySql("{0}"), "{0}")} as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -135,7 +138,7 @@ public class KeywordSearchService
             FROM chunks c
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
-              AND c.search_vector @@ (websearch_to_tsquery('simple', {{{0}}}) || websearch_to_tsquery('english', {{{0}}}))
+              AND c.search_vector @@ {tsQuery}
             ORDER BY Rank DESC
             LIMIT {{{topKIdx}}}";
 
@@ -172,8 +175,9 @@ public class KeywordSearchService
 
     /// <summary>
     /// The keyword rank the named chunks would have had for <paramref name="query"/>, scored the same
-    /// way as <see cref="SearchAsync"/>; a chunk that matches no term scores 0. Scores only — no
-    /// permission filter — so callers pass chunks a scoped search has already admitted.
+    /// way as <see cref="SearchAsync"/>; a chunk that does not match (no term, or an excluded one)
+    /// scores 0. Scores only — no permission filter — so callers pass chunks a scoped search has
+    /// already admitted.
     /// </summary>
     public async Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
         string query,
@@ -185,24 +189,82 @@ public class KeywordSearchService
             .Where(g => g != Guid.Empty)
             .Distinct()
             .ToArray();
-        if (string.IsNullOrWhiteSpace(query) || ids.Length == 0)
+        var parsed = KeywordQuery.Parse(query ?? "");
+        if (parsed.Clauses.Count == 0 || ids.Length == 0)
             return new Dictionary<string, float>();
 
-        const string sql = @"
+        string sql = @$"
             SELECT
                 c.id as ChunkId,
-                ts_rank_cd(c.search_vector,
-                    websearch_to_tsquery('simple', {0}) || websearch_to_tsquery('english', {0}),
-                    32) as Rank
+                CASE WHEN c.search_vector @@ {TsQuerySql("{0}", "{1}")}
+                     THEN {RankSql("c.search_vector", PositiveQuerySql("{0}"), "{0}")}
+                     ELSE 0 END as Rank
             FROM chunks c
-            WHERE c.id = ANY({1})";
+            WHERE c.id = ANY({{2}})";
 
         List<ChunkRankRow> rows = await _context.Database
-            .SqlQueryRaw<ChunkRankRow>(sql, query, ids)
+            .SqlQueryRaw<ChunkRankRow>(sql, parsed.Clauses.ToArray(), parsed.Exclusions.ToArray(), ids)
             .ToListAsync(ct);
 
         return rows.ToDictionary(r => r.ChunkId.ToString(), r => r.Rank);
     }
+
+    /// <summary>
+    /// The tsquery for a parsed <see cref="KeywordQuery"/>, bound through two text[] parameters.
+    /// A chunk matches when it contains <em>any</em> clause and no exclusion; requiring every term
+    /// matched almost nothing for natural-language questions (#544). Each clause goes through
+    /// phraseto_tsquery, so a quoted phrase stays a phrase and a lone word is just that word, stemmed
+    /// and stop-word free. The clauses are joined through tsquery's own text form, which it parses
+    /// back exactly.
+    /// <para>
+    /// Stop words: a query of nothing but stop words ("the who") has no english lexemes, so its
+    /// clauses are matched on the simple config instead, still any-of and still phrases. When other
+    /// words are present, stop words are dropped, as Lucene's analyzers do. An exclusion is a hard
+    /// filter, so each one falls back on its own: "-the" or "-who" still excludes.
+    /// </para>
+    /// </summary>
+    internal static string TsQuerySql(string clausesParam, string exclusionsParam) => $"""
+        (SELECT CASE WHEN n.q IS NULL THEN p.q ELSE p.q && !!n.q END
+         FROM (SELECT {PositiveQuerySql(clausesParam)}) p(q),
+              (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+               FROM unnest({exclusionsParam}::text[]) t,
+                    LATERAL (SELECT CASE WHEN numnode(phraseto_tsquery('english', t)) > 0
+                                         THEN phraseto_tsquery('english', t)
+                                         ELSE phraseto_tsquery('simple', t) END) x(e)) n(q))
+        """;
+
+    /// <summary>
+    /// The clauses alone, without exclusions: what a chunk is ranked against. ts_rank switches to
+    /// its all-terms formula for a query with an AND at the top, which "clauses AND NOT exclusions"
+    /// is, and it scores excluded chunks as if the NOT were not there.
+    /// </summary>
+    internal static string PositiveQuerySql(string clausesParam) =>
+        $"COALESCE({AnyClauseSql(clausesParam, "english")}, {AnyClauseSql(clausesParam, "simple")})";
+
+    /// <summary>
+    /// A tsquery matching any of the clauses in a text[] parameter, each a phrase in the given text
+    /// search config; NULL when no clause has a lexeme in it.
+    /// </summary>
+    internal static string AnyClauseSql(string clausesParam, string config) => $"""
+        (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+         FROM unnest({clausesParam}::text[]) t, LATERAL phraseto_tsquery('{config}', t) e)
+        """;
+
+    /// <summary>
+    /// ts_rank, not ts_rank_cd: under an OR query every cover is a single occurrence, so cover density
+    /// becomes an unsaturated term count ("cat cat cat cat" beats "cat dog"), where ts_rank saturates
+    /// repeats and rewards matching more distinct terms. Weights {D,C,B,A} = {0,0,1,0} score only the
+    /// english (B) copy of search_vector; the simple (A) copy would otherwise add weight to the terms
+    /// whose stem happens to equal the word. A stop-word-only query matches only the simple copy, so
+    /// it is ranked on that instead; otherwise every match would tie at zero. Normalization 1 divides
+    /// by log length; 32 maps the rank into 0-1 without changing its order. Neither function has
+    /// IDF — that is #545.
+    /// </summary>
+    internal static string RankSql(string vector, string tsQuery, string clausesParam) => $"""
+        (CASE WHEN {AnyClauseSql(clausesParam, "english")} IS NULL
+              THEN ts_rank(ARRAY[0, 0, 0, 1]::float4[], {vector}, {tsQuery}, 1|32)
+              ELSE ts_rank(ARRAY[0, 0, 1, 0]::float4[], {vector}, {tsQuery}, 1|32) END)
+        """;
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 

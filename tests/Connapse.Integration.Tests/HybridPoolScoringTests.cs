@@ -78,6 +78,146 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task KeywordSearchAsync_NoChunkHasEveryTerm_ReturnsPartialMatchesByOverlap()
+    {
+        Guid containerId = await CreateContainerAsync("kw-any");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid both = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
+        Guid one = await SeedChunkAsync(docId, containerId, "calcium supplements", "model-A", [1f, 0f]);
+        Guid repeated = await SeedChunkAsync(docId, containerId, "calcium calcium calcium calcium", "model-A", [1f, 0f]);
+        Guid none = await SeedChunkAsync(docId, containerId, "completely unrelated text", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+            const string query = "does high dietary calcium intake prevent hyperparathyroidism";
+
+            var hits = await keyword.SearchAsync(query,
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync(query, [both.ToString(), none.ToString()]);
+
+            // Two distinct terms outrank one term repeated: the ts_rank_cd failure under OR.
+            hits.Select(h => h.ChunkId).Should().BeEquivalentTo([both.ToString(), one.ToString(), repeated.ToString()]);
+            hits[0].ChunkId.Should().Be(both.ToString());
+            scores[both.ToString()].Should().BeGreaterThan(0f);
+            scores[none.ToString()].Should().Be(0f);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Theory]
+    [InlineData("\"bone density\"", new[] { "phrase" })]
+    [InlineData("\"bone density\" marrow", new[] { "phrase", "split" })]
+    [InlineData("the who", new[] { "band" })]
+    [InlineData("calcium -supplements", new[] { "phrase" })]
+    [InlineData("calcium -\"bone density\"", new[] { "supplements" })]
+    [InlineData("supplements or marrow", new[] { "split", "supplements" })]
+    [InlineData("density -of", new[] { "phrase" })]          // a stop-word exclusion still excludes
+    [InlineData("concert -\"the who\"", new string[0])]     // so does a stop-word phrase
+    [InlineData("\"the who\"", new[] { "band" })]            // a stop-word phrase stays a phrase
+    [InlineData("\"who the\"", new string[0])]
+    public async Task KeywordSearchAsync_PhrasesExclusionsAndStopWords_MatchTheExpectedChunks(string query, string[] expected)
+    {
+        Guid containerId = await CreateContainerAsync("kw-syntax");
+        Guid docId = await SeedDocumentAsync(containerId);
+        var chunks = new Dictionary<string, Guid>
+        {
+            ["phrase"] = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]),
+            ["split"] = await SeedChunkAsync(docId, containerId, "density of bone marrow", "model-A", [1f, 0f]),
+            ["band"] = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]),
+            ["supplements"] = await SeedChunkAsync(docId, containerId, "calcium supplements", "model-A", [1f, 0f]),
+        };
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+
+            var hits = await keyword.SearchAsync(query,
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+
+            hits.Select(h => h.ChunkId).Should().BeEquivalentTo(expected.Select(name => chunks[name].ToString()));
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task KeywordSearch_Exclusions_NeitherChangeRanksNorScoreExcludedChunks()
+    {
+        Guid containerId = await CreateContainerAsync("kw-excl");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid kept = await SeedChunkAsync(docId, containerId, "calcium intake and bone density", "model-A", [1f, 0f]);
+        Guid excluded = await SeedChunkAsync(docId, containerId, "calcium supplements and calcium", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+            var options = new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() };
+
+            var plain = await keyword.SearchAsync("calcium bone", options, Connapse.Core.SearchScopes.Unrestricted);
+            var withExclusion = await keyword.SearchAsync("calcium bone -supplements", options, Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync("calcium bone -supplements", [kept.ToString(), excluded.ToString()]);
+
+            // An exclusion filters; it must not turn the ranking into ts_rank's all-terms formula.
+            withExclusion.Single().Score.Should().Be(plain.Single(h => h.ChunkId == kept.ToString()).Score);
+            // Hybrid pool scoring must not hand an excluded chunk a keyword score.
+            scores[excluded.ToString()].Should().Be(0f);
+            scores[kept.ToString()].Should().BeGreaterThan(0f);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
+    public async Task KeywordSearchAsync_StopWordOnlyQuery_RanksAboveZero()
+    {
+        Guid containerId = await CreateContainerAsync("kw-stop");
+        Guid docId = await SeedDocumentAsync(containerId);
+        Guid band = await SeedChunkAsync(docId, containerId, "a concert by the who", "model-A", [1f, 0f]);
+        Guid article = await SeedChunkAsync(docId, containerId, "the concert", "model-A", [1f, 0f]);
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            var keyword = new KeywordSearchService(db, NullLogger<KeywordSearchService>.Instance);
+
+            var hits = await keyword.SearchAsync("the who",
+                new Connapse.Core.SearchOptions { TopK = 10, ContainerId = containerId.ToString() },
+                Connapse.Core.SearchScopes.Unrestricted);
+            var scores = await keyword.ScoreChunksAsync("the who", [band.ToString(), article.ToString()]);
+
+            // Any-term: both match; the chunk with both words ranks first, and nothing scores zero.
+            hits.Select(h => h.ChunkId).Should().Equal(band.ToString(), article.ToString());
+            hits.Should().OnlyContain(h => h.Score > 0f);
+            scores[band.ToString()].Should().BeGreaterThan(scores[article.ToString()]);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     private async Task<Guid> CreateContainerAsync(string prefix)
