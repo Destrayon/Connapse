@@ -51,7 +51,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
     }
 
@@ -69,7 +69,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
     }
 
@@ -98,7 +98,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
     }
 
@@ -126,7 +126,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
     }
 
@@ -164,7 +164,42 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
+        }
+    }
+
+    [Fact]
+    public async Task Backfill_ChunksFromBeforeTheMigration_RankWithTsRankUntilFilledThenExactly()
+    {
+        (Guid container, Guid[] chunks) = await SeedAsync(Corpus);
+        try
+        {
+            // Put the chunks back the way the migration finds existing rows: no markers, no length.
+            await using (var context = await NewContextAsync())
+                await context.Database.ExecuteSqlRawAsync("""
+                    UPDATE chunks SET bm25_length = NULL,
+                        search_vector = setweight(to_tsvector('simple', content), 'A') || setweight(to_tsvector('english', content), 'B')
+                    WHERE owner_id = {0}
+                    """, container);
+
+            var beforeBackfill = await ScoreAsync("quick dog", chunks);
+
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            {
+                var backfiller = scope.ServiceProvider.GetRequiredService<Bm25Backfiller>();
+                while (await backfiller.BackfillBatchAsync() > 0) { }
+            }
+            var afterBackfill = await ScoreAsync("quick dog", chunks);
+
+            // Before: ts_rank, whose scores are nothing like BM25's. After: the golden BM25 scores.
+            beforeBackfill[chunks[2].ToString()].Should().NotBeApproximately(0.755084f, 1e-3f);
+            float[] golden = [0.355131f, 0.372966f, 0.755084f, 0.228811f, 0f];
+            for (int i = 0; i < chunks.Length; i++)
+                afterBackfill[chunks[i].ToString()].Should().BeApproximately(golden[i], 1e-5f, $"chunk {i}");
+        }
+        finally
+        {
+            await CleanupAsync(container);
         }
     }
 
@@ -183,7 +218,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
     }
 
@@ -230,8 +265,23 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await CleanupAsync(container);
         }
+    }
+
+    /// <summary>
+    /// Deletes the container and what the test seeded in it: the API refuses a container that still
+    /// holds documents, and leftovers would pile up in the shared database.
+    /// </summary>
+    private async Task CleanupAsync(Guid containerId)
+    {
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM documents WHERE container_id = {0}", containerId);
+        }
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
     }
 
     private async Task<IReadOnlyDictionary<string, float>> ScoreAsync(string query, Guid[] chunks, double b = 0.75)

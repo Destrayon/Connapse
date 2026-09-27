@@ -1,6 +1,8 @@
 ﻿using Connapse.Core;
 using Connapse.Storage.Data;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using static Connapse.Core.Utilities.LogSanitizer;
@@ -203,13 +205,21 @@ public class KeywordSearchService
         string whereClause, string tsQuery, List<object> parameters, int topK, Guid ownerId,
         KeywordQuery parsed, SearchSettings bm25, CancellationToken ct)
     {
+        // Statistics and every round read one snapshot: otherwise a chunk written between them could
+        // beat bounds taken from older statistics, and a source revoked between rounds could keep a
+        // chunk an earlier round had already scored.
+        await using IDbContextTransaction? snapshot = await SnapshotAsync(ct);
+
+        if (!await Bm25ReadyAsync(ownerId, ct))
+            return [];
         List<Bm25Term> terms = await Bm25TermsAsync(ownerId, parsed, ct);
         if (terms.Count == 0)
             return [];
         // The bounds assume a term's contribution rises with its frequency and falls with chunk
         // length, which holds only for k1 >= 0 and 0 <= b <= 1; outside that, score every match.
         if (terms.Sum(t => t.Df) <= ExhaustivePostings || bm25.Bm25K1 < 0 || bm25.Bm25B is < 0 or > 1)
-            return await Bm25TopKAsync(whereClause, tsQuery, parameters, topK, ownerId, terms, null, null, bm25, ct);
+            return (await Bm25TopKAsync(whereClause, tsQuery, parameters, topK, ownerId, terms, null, null, bm25, ct))
+                .Select(r => r.ToRow()).ToList();
 
         // A term with no recorded minimum length gets 0, the loosest (always safe) bound.
         List<Bm25Pruning.Term> pruning = terms
@@ -220,7 +230,9 @@ public class KeywordSearchService
             .ToList();
 
         double threshold = 0.7 * bounds.Sum(b => b.Length > 0 ? b[^1] : 0);
-        var best = new Dictionary<Guid, KeywordSearchRow>();
+        // Scores stay float8 until the top k is certified: rounding a score just under the threshold
+        // up to a float4 that reaches it would certify a top k that is not exact.
+        var best = new Dictionary<Guid, Bm25Row>();
         string? scored = null;
 
         for (int round = 0; round < MaxPruningRounds; round++)
@@ -230,29 +242,48 @@ public class KeywordSearchService
                 break;
 
             string candidates = Bm25Pruning.ToTsQuery(clauses, pruning);
-            foreach (KeywordSearchRow row in await Bm25TopKAsync(
+            foreach (Bm25Row row in await Bm25TopKAsync(
                          whereClause, tsQuery, parameters, topK, ownerId, terms, candidates, scored, bm25, ct))
                 best[row.ChunkId] = row;
             scored = scored is null ? candidates : $"{scored} | {candidates}";
 
-            List<KeywordSearchRow> top = best.Values.OrderByDescending(r => r.Rank).Take(topK).ToList();
-            if (top.Count == topK && top[^1].Rank >= threshold)
-                return top;
-            threshold = top.Count == topK ? top[^1].Rank : 0.6 * threshold;
+            List<Bm25Row> top = best.Values.OrderByDescending(r => r.Score).Take(topK).ToList();
+            if (top.Count == topK && top[^1].Score >= threshold)
+                return top.Select(r => r.ToRow()).ToList();
+            threshold = top.Count == topK ? top[^1].Score : 0.6 * threshold;
         }
 
-        foreach (KeywordSearchRow row in await Bm25TopKAsync(
+        foreach (Bm25Row row in await Bm25TopKAsync(
                      whereClause, tsQuery, parameters, topK, ownerId, terms, null, scored, bm25, ct))
             best[row.ChunkId] = row;
-        return best.Values.OrderByDescending(r => r.Rank).Take(topK).ToList();
+        return best.Values.OrderByDescending(r => r.Score).Take(topK).Select(r => r.ToRow()).ToList();
     }
+
+    /// <summary>
+    /// A repeatable-read transaction for a multi-statement read, unless the caller already has one.
+    /// Disposing it (a rollback) is all a read needs.
+    /// </summary>
+    private async Task<IDbContextTransaction?> SnapshotAsync(CancellationToken ct) =>
+        _context.Database.CurrentTransaction is null
+            ? await _context.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct)
+            : null;
+
+    /// <summary>
+    /// False while any of the owner's chunks still waits for the BM25 backfill: its statistics are
+    /// then incomplete, and keyword search ranks with ts_rank instead.
+    /// </summary>
+    private async Task<bool> Bm25ReadyAsync(Guid ownerId, CancellationToken ct) =>
+        !(await _context.Database
+            .SqlQueryRaw<bool>(
+                "SELECT EXISTS (SELECT 1 FROM chunks WHERE owner_id = {0} AND bm25_length IS NULL) AS \"Value\"", ownerId)
+            .ToListAsync(ct)).Single();
 
     /// <summary>
     /// The top <paramref name="topK"/> chunks by BM25 over <paramref name="terms"/> among the matches
     /// that also match the <paramref name="candidates"/> tsquery (null: any) and not the
     /// <paramref name="excluded"/> one (null: none).
     /// </summary>
-    private async Task<List<KeywordSearchRow>> Bm25TopKAsync(
+    private async Task<List<Bm25Row>> Bm25TopKAsync(
         string whereClause, string tsQuery, List<object> parameters, int topK, Guid ownerId,
         List<Bm25Term> terms, string? candidates, string? excluded, SearchSettings bm25, CancellationToken ct)
     {
@@ -275,7 +306,7 @@ public class KeywordSearchService
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                s.score::real as Rank,
+                s.score as Score,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -298,7 +329,7 @@ public class KeywordSearchService
             ORDER BY s.score DESC";
 
         return await _context.Database
-            .SqlQueryRaw<KeywordSearchRow>(sql, bm25Parameters.ToArray())
+            .SqlQueryRaw<Bm25Row>(sql, bm25Parameters.ToArray())
             .ToListAsync(ct);
     }
 
@@ -376,7 +407,10 @@ public class KeywordSearchService
             List<Guid> owners = await _context.Database
                 .SqlQueryRaw<Guid>("SELECT DISTINCT owner_id AS \"Value\" FROM chunks WHERE id = ANY({0})", ids)
                 .ToListAsync(ct);
-            List<Bm25Term> terms = owners.Count == 1 ? await Bm25TermsAsync(owners[0], parsed, ct) : [];
+            await using IDbContextTransaction? snapshot = await SnapshotAsync(ct);
+            List<Bm25Term> terms = owners.Count == 1 && await Bm25ReadyAsync(owners[0], ct)
+                ? await Bm25TermsAsync(owners[0], parsed, ct)
+                : [];
             if (terms.Count > 0)
             {
                 string bm25Sql = @$"
@@ -543,6 +577,21 @@ public class KeywordSearchService
     private record Bm25Term(string Term, double Weight, double Df, int MaxTf, int MinLen, double N, double Avgdl);
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
+
+    private record Bm25Row(
+        Guid ChunkId,
+        Guid DocumentId,
+        string Content,
+        int ChunkIndex,
+        double Score,
+        string FileName,
+        string? ContentType,
+        Guid ContainerId,
+        string Path)
+    {
+        public KeywordSearchRow ToRow() =>
+            new(ChunkId, DocumentId, Content, ChunkIndex, (float)Score, FileName, ContentType, ContainerId, Path);
+    }
 
     private record KeywordSearchRow(
         Guid ChunkId,

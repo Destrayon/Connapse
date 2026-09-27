@@ -47,7 +47,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
@@ -74,7 +74,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
@@ -109,7 +109,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
@@ -151,7 +151,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
@@ -183,7 +183,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
@@ -214,11 +214,26 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
         }
         finally
         {
-            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+            await CleanupAsync(containerId);
         }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Deletes the container and what the test seeded in it: the API refuses a container that still
+    /// holds documents, and leftovers would pile up in the shared database.
+    /// </summary>
+    private async Task CleanupAsync(Guid containerId)
+    {
+        await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+        {
+            await using var db = await scope.ServiceProvider
+                .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+            await db.Database.ExecuteSqlRawAsync("DELETE FROM documents WHERE container_id = {0}", containerId);
+        }
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+    }
+
 
     private async Task<Guid> CreateContainerAsync(string prefix)
     {
