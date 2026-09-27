@@ -25,9 +25,11 @@
       "generated-negatives"
     ],
     "dev": [
+      "dev-hotpotqa",
       "dev-quora",
       "dev-fiqa",
       "dev-nfcorpus",
+      "dev-dbpedia",
       "dev-scifact"
     ]
   },
@@ -686,6 +688,56 @@
           "name": "qrels.parquet",
           "url": "build:eval/tools/build_dev_suite.py",
           "sha256": "650dbc47569eadb54b53712f6f61124653ed12afa126b8408472e7a43ffc4a02"
+        }
+      ]
+    },
+    "dev-dbpedia": {
+      "adapter": "beir-parquet",
+      "version": "7d8780d8ef0d-s552",
+      "tags": [
+        "domain:general",
+        "topic:entity"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "e3d1a5f5063dfbd1a6ae585a8aa0f9377dc72894b7a1411db05e619e4640f263"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "873a09308a9db8b2c6d24093de3bec2b9047ae993680f5a27916f1b8b122e9e1"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "320e618bb6c42879ed4c31785975c25161c15611e96db5953cd81cdfd4d5a978"
+        }
+      ]
+    },
+    "dev-hotpotqa": {
+      "adapter": "beir-parquet",
+      "version": "60b39fafe9b0-s552",
+      "tags": [
+        "domain:general",
+        "topic:multihop"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "b21af2ea10d955e1b35bf90bbe634ee468fcd8e709300983a5fcda8378bbce18"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "f09dbcffd10b40a7d0e5c473ee64315d579daf03cf164794591342dc1517414a"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "c71a16554463138783262b1e2f7a7808d948638e5e7889d295030f54c38fb7ce"
         }
       ]
     }
