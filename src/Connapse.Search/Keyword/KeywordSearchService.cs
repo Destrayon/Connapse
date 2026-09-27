@@ -206,7 +206,9 @@ public class KeywordSearchService
         List<Bm25Term> terms = await Bm25TermsAsync(ownerId, parsed, ct);
         if (terms.Count == 0)
             return [];
-        if (terms.Sum(t => t.Df) <= ExhaustivePostings)
+        // The bounds assume a term's contribution rises with its frequency and falls with chunk
+        // length, which holds only for k1 >= 0 and 0 <= b <= 1; outside that, score every match.
+        if (terms.Sum(t => t.Df) <= ExhaustivePostings || bm25.Bm25K1 < 0 || bm25.Bm25B is < 0 or > 1)
             return await Bm25TopKAsync(whereClause, tsQuery, parameters, topK, ownerId, terms, null, null, bm25, ct);
 
         // A term with no recorded minimum length gets 0, the loosest (always safe) bound.

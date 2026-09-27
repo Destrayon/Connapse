@@ -136,6 +136,14 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
     [InlineData("w900 w1500")]                // rare
     [InlineData("w1 w1 w2 w5 w9 w13 w20 w31")] // long, with a repeated term
     public async Task SearchAsync_PrunedRounds_EqualExhaustiveScoring(string query)
+        => await PrunedEqualsExhaustiveAsync(query, b: 0.75);
+
+    [Fact]
+    public async Task SearchAsync_LengthNormalisationAboveOne_StillEqualsExhaustiveScoring()
+        // b > 1 breaks the pruning bounds, so the search must fall back to scoring every match.
+        => await PrunedEqualsExhaustiveAsync("w1 w2 w3", b: 1.5);
+
+    private async Task PrunedEqualsExhaustiveAsync(string query, double b)
     {
         // Zipf-like vocabulary with repeated words, so terms span frequency tiers and chunk lengths
         // vary; enough chunks that the query's postings exceed the one-pass limit.
@@ -147,10 +155,10 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         (Guid container, Guid[] chunks) = await SeedAsync(corpus);
         try
         {
-            var exhaustive = (await ScoreAsync(query, chunks))
+            var exhaustive = (await ScoreAsync(query, chunks, b))
                 .Select(p => p.Value).Where(v => v > 0).OrderByDescending(v => v).Take(30).ToList();
 
-            var hits = await SearchAsync(container, query, 30);
+            var hits = await SearchAsync(container, query, 30, b);
 
             hits.Select(h => h.Score).Should().Equal(exhaustive, (a, e) => Math.Abs(a - e) < 1e-4f);
         }
@@ -226,23 +234,23 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
         }
     }
 
-    private async Task<IReadOnlyDictionary<string, float>> ScoreAsync(string query, Guid[] chunks)
+    private async Task<IReadOnlyDictionary<string, float>> ScoreAsync(string query, Guid[] chunks, double b = 0.75)
     {
         await using var context = await NewContextAsync();
-        return await Service(context.Context).ScoreChunksAsync(query, chunks.Select(c => c.ToString()).ToList());
+        return await Service(context.Context, b).ScoreChunksAsync(query, chunks.Select(c => c.ToString()).ToList());
     }
 
-    private async Task<List<SearchHit>> SearchAsync(Guid container, string query, int topK = 10)
+    private async Task<List<SearchHit>> SearchAsync(Guid container, string query, int topK = 10, double b = 0.75)
     {
         await using var context = await NewContextAsync();
-        return await Service(context.Context).SearchAsync(query,
+        return await Service(context.Context, b).SearchAsync(query,
             new SearchOptions { TopK = topK, ContainerId = container.ToString() }, SearchScopes.Unrestricted);
     }
 
-    private static KeywordSearchService Service(KnowledgeDbContext context)
+    private static KeywordSearchService Service(KnowledgeDbContext context, double b = 0.75)
     {
         var settings = Substitute.For<IOptionsMonitor<SearchSettings>>();
-        settings.CurrentValue.Returns(new SearchSettings { KeywordRanker = "Bm25" });
+        settings.CurrentValue.Returns(new SearchSettings { KeywordRanker = "Bm25", Bm25B = b });
         return new KeywordSearchService(context, NullLogger<KeywordSearchService>.Instance, settings);
     }
 
