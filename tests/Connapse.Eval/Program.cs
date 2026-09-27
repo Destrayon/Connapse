@@ -24,6 +24,7 @@ internal static class EvalEntryPoint
             return cli.Command switch
             {
                 "run" => await Commands.RunAsync(cli, paths, http, cts.Token),
+                "extract" => await Commands.ExtractAsync(cli, paths, http, cts.Token),
                 "pool" => Commands.PoolUnjudged(cli),
                 "datasets" => await Commands.DatasetsAsync(cli, paths, http, cts.Token),
                 "compare" => Commands.Compare(cli),
@@ -82,6 +83,33 @@ internal static class Commands
         return scores.Datasets.Any(d => d.Invalid) ? 1 : 0;
     }
 
+    public static async Task<int> ExtractAsync(CliArgs cli, RepoPaths paths, HttpClient http, CancellationToken ct)
+    {
+        ExtractRequest request = new(cli.Required("suite"), cli.Option("config") ?? "extract", cli.List("datasets"),
+            cli.Option("resume"), cli.Flag("real-embedder"));
+        EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
+        ExtractRunner runner = new(paths, Console.Out, http, async (config, realEmbedder, token) =>
+            await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, Console.Out,
+                realEmbedder ? null : new HashingEmbeddingProvider(), token));
+        RunFolder run = await runner.RunAsync(request, ct);
+
+        ExtractionScores scores = ExtractionScoring.Score(run);
+        run.WriteText("report.html", HtmlReport.RenderExtraction(scores, run));
+        Console.WriteLine(run.Path);
+        Console.WriteLine($"  silent-failure rate      {Percent(scores.SilentFailureRate)}");
+        Console.WriteLine($"  fails-loudly pass rate   {Percent(scores.FailsLoudlyRate)}");
+        foreach ((string level, double value) in scores.OlmOcrNative)
+            Console.WriteLine($"  olmOCR native ({level,-7})  {Percent(value)}");
+        if (scores.OlmOcrComparable is double comparable)
+            Console.WriteLine($"  olmOCR comparable        {Percent(comparable)}");
+        foreach (ExtractionDatasetScore d in scores.Datasets.Where(d => !d.Complete))
+            Console.WriteLine($"  {d.Name} did not finish");
+        return scores.Datasets.Any(d => !d.Complete) ? 1 : 0;
+    }
+
+    private static string Percent(double value) =>
+        double.IsNaN(value) ? "—" : (value * 100).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
     public static int PoolUnjudged(CliArgs cli)
     {
         if (cli.Positionals.Count == 0)
@@ -128,6 +156,18 @@ internal static class Commands
             throw new ArgumentException("compare needs exactly two run folders: <baseline> <candidate>.");
         RunFolder baseline = RunFolder.Open(cli.Positionals[0]);
         RunFolder candidate = RunFolder.Open(cli.Positionals[1]);
+        if (baseline.IsExtraction != candidate.IsExtraction)
+            throw new ArgumentException("compare needs two ranking runs or two extract runs, not one of each.");
+        if (baseline.IsExtraction)
+        {
+            ExtractionComparisonResult extraction = ExtractionComparisonBuilder.Build(baseline, candidate);
+            string extractionStem = $"compare-vs-{baseline.Name}";
+            candidate.WriteText(extractionStem + ".html", HtmlReport.RenderExtractionComparison(extraction));
+            candidate.WriteText(extractionStem + ".json", JsonSerializer.Serialize(extraction, EvalJson.Options));
+            Console.WriteLine(extraction.Verdict);
+            Console.WriteLine(Path.Combine(candidate.Path, extractionStem + ".html"));
+            return 0;
+        }
         Comparison comparison = ComparisonBuilder.Build(
             Scoring.Score(baseline), Scoring.Score(candidate), cli.Flag("allow-dataset-mismatch"));
         string stem = $"compare-vs-{baseline.Name}";
@@ -152,6 +192,7 @@ internal static class Commands
         Console.Error.WriteLine("""
             usage: dotnet run --project tests/Connapse.Eval -- <command>
               run      --suite <name> --config <name> [--system connapse] [--datasets a,b] [--resume <runDir>] [--limit-queries N]
+              extract  --suite <name> [--config extract] [--datasets a,b] [--resume <runDir>] [--real-embedder]
               compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
               report   <runDir>
               pool     <runDir>... --out <file>

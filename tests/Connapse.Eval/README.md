@@ -13,6 +13,29 @@ host ports, so run it on a trusted machine.
     dotnet run --project tests/Connapse.Eval -- run --suite v1 --config keyword
     dotnet run --project tests/Connapse.Eval -- compare eval/runs/<keyword-run> eval/runs/<hybrid-run>
 
+## Extraction runs
+
+`extract` checks what Connapse's parsers and chunker keep from raw files (PDF, DOCX, PPTX, text) before any
+retrieval. It uploads each file under its own extension, then checks the parsed text and the stored chunks:
+olmOCR-bench checks for text present, headers and footers absent, reading order and table cells; a
+fails-loudly check for files Connapse cannot read; and a no-silent-failure check on every file. Design:
+`docs/superpowers/specs/2026-09-27-raw-file-extraction-evals-design.md`.
+
+    dotnet run --project tests/Connapse.Eval -- datasets pin --suite extract-v1     # first time: downloads ~335 MB
+    dotnet run --project tests/Connapse.Eval -- extract --suite extract-v1
+    dotnet run --project tests/Connapse.Eval -- compare eval/runs/<before> eval/runs/<after>
+
+- It needs Docker but not Ollama: chunks are embedded with an offline hashing embedder. The Semantic chunker
+  places boundaries by embedding similarity, so pass `--real-embedder` (with the config's provider running)
+  when chunk-level results must match production.
+- The headline numbers are the silent-failure rate, the fails-loudly pass rate, and olmOCR's native-PDF score
+  at the parsed and chunk levels. Scanned-PDF categories are reported apart from the headline, since
+  Connapse has no OCR.
+- Every run writes `documents/<dataset>.jsonl` (one row per file) and `checks/<dataset>.jsonl` (one row per
+  check and level).
+
+## Files and reports
+
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.
 - Configs: `eval/systems/connapse/*.json` (`searchMode` plus Connapse configuration keys).
 - Runs land in `eval/runs/` (gitignored) with `report.html`; downloads and the embedding cache in `eval/.cache/`.

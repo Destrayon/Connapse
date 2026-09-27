@@ -45,6 +45,7 @@ public sealed class CliArgs
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
         {
             ["run"] = ["suite", "config", "system", "datasets", "resume", "limit-queries"],
+            ["extract"] = ["suite", "config", "datasets", "resume", "real-embedder"],
             ["compare"] = ["allow-dataset-mismatch"],
             ["report"] = [],
             ["pool"] = ["out"],

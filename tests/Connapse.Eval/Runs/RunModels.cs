@@ -31,7 +31,12 @@ public sealed record RunManifest(
     DateTimeOffset? FinishedUtc,
     IReadOnlyList<RunDatasetInfo> Datasets,
     int? LimitQueries,
-    IReadOnlyList<RunResume> Resumes);
+    IReadOnlyList<RunResume> Resumes,
+    string? Kind = null)
+{
+    /// <summary>Written as <see cref="Kind"/> on extract runs; ranking runs leave it null.</summary>
+    public const string ExtractKind = "extract";
+}
 
 /// <summary>A resume that ran from different code than the run was started with.</summary>
 public sealed record RunResume(string GitSha, bool GitDirty, DateTimeOffset Utc);

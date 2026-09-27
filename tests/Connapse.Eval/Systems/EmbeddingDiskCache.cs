@@ -11,7 +11,16 @@ public sealed class EmbeddingDiskCache(string root)
         string path = PathFor(cacheNamespace, text);
         if (!File.Exists(path))
             return null;
-        byte[] bytes = File.ReadAllBytes(path);
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(path);
+        }
+        catch (IOException)
+        {
+            // Being replaced by a concurrent Put of the same key; recomputing is harmless.
+            return null;
+        }
         float[] vector = new float[bytes.Length / sizeof(float)];
         Buffer.BlockCopy(bytes, 0, vector, 0, bytes.Length);
         return vector;
@@ -25,7 +34,17 @@ public sealed class EmbeddingDiskCache(string root)
         Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
         string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         File.WriteAllBytes(temporary, bytes);
-        File.Move(temporary, path, overwrite: true);
+        try
+        {
+            File.Move(temporary, path, overwrite: true);
+        }
+        catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && File.Exists(path))
+        {
+            // Two documents embedding the same text race to write the same key; on Windows the losing
+            // rename is denied while the winner's file is open. The key is a hash of the text, so the
+            // file already there holds the same vector.
+            File.Delete(temporary);
+        }
     }
 
     private string PathFor(string cacheNamespace, string text)

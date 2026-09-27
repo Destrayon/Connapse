@@ -8,7 +8,7 @@ using Connapse.Eval.Runs;
 namespace Connapse.Eval.Reports;
 
 /// <summary>Self-contained HTML: inline CSS, no scripts, no external requests.</summary>
-public static class HtmlReport
+public static partial class HtmlReport
 {
     private const string Style = """
         :root { --bg:#fff; --fg:#1b1f24; --muted:#59636e; --line:#d1d9e0; --up:#1a7f37; --down:#cf222e; --warn:#9a6700; }

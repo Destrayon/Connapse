@@ -112,6 +112,8 @@ A check has an ID, a dataset, a category, a type, and the document it applies to
 | `fails-loudly` | Connapse | see below | — |
 | `no-silent-failure` | Connapse | see below | — |
 
+**Short chunks (amended while implementing).** olmOCR's `partial_ratio` aligns the shorter string inside the longer one. A chunk that is only a fragment of the reference text would therefore score 100 and pass a `present` check. At level 2, a chunk shorter than the reference text is treated as not containing it: it fails `present` and passes `absent` without being scored. Level 1 keeps olmOCR's behaviour unchanged.
+
 Comparing the two levels attributes each loss:
 - fails at level 1: extraction lost the text;
 - passes level 1 but fails level 2: chunking split it;
