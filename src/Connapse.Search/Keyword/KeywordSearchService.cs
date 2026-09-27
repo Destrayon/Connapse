@@ -159,7 +159,7 @@ public class KeywordSearchService
                 c.document_id as DocumentId,
                 c.content as Content,
                 c.chunk_index as ChunkIndex,
-                {RankSql("c.search_vector", tsQuery)} as Rank,
+                {RankSql("c.search_vector", tsQuery, "{0}")} as Rank,
                 d.file_name as FileName,
                 d.content_type as ContentType,
                 d.owner_id as ContainerId,
@@ -399,7 +399,7 @@ public class KeywordSearchService
         string sql = @$"
             SELECT
                 c.id as ChunkId,
-                COALESCE({RankSql("c.search_vector", TsQuerySql("{0}", "{1}"))}, 0) as Rank
+                COALESCE({RankSql("c.search_vector", TsQuerySql("{0}", "{1}"), "{0}")}, 0) as Rank
             FROM chunks c
             WHERE c.id = ANY({{2}})";
 
@@ -416,17 +416,31 @@ public class KeywordSearchService
     /// matched almost nothing for natural-language questions (#544). Each clause goes through
     /// phraseto_tsquery, so a quoted phrase stays a phrase and a lone word is just that word, stemmed
     /// and stop-word free. The clauses are joined through tsquery's own text form, which it parses
-    /// back exactly. A query of nothing but stop words ("the who") has no english lexemes and falls
-    /// back to all of its exact tokens.
+    /// back exactly.
+    /// <para>
+    /// Stop words: a query of nothing but stop words ("the who") has no english lexemes, so its
+    /// clauses are matched on the simple config instead, still any-of and still phrases. When other
+    /// words are present, stop words are dropped, as Lucene's analyzers do. An exclusion is a hard
+    /// filter, so each one falls back on its own: "-the" or "-who" still excludes.
+    /// </para>
     /// </summary>
     internal static string TsQuerySql(string clausesParam, string exclusionsParam) => $"""
         (SELECT CASE WHEN n.q IS NULL THEN p.q ELSE p.q && !!n.q END
-         FROM (SELECT COALESCE(
-                   string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery,
-                   plainto_tsquery('simple', array_to_string({clausesParam}::text[], ' ')))
-               FROM unnest({clausesParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) p(q),
+         FROM (SELECT COALESCE({AnyClauseSql(clausesParam, "english")}, {AnyClauseSql(clausesParam, "simple")})) p(q),
               (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
-               FROM unnest({exclusionsParam}::text[]) t, LATERAL phraseto_tsquery('english', t) e) n(q))
+               FROM unnest({exclusionsParam}::text[]) t,
+                    LATERAL (SELECT CASE WHEN numnode(phraseto_tsquery('english', t)) > 0
+                                         THEN phraseto_tsquery('english', t)
+                                         ELSE phraseto_tsquery('simple', t) END) x(e)) n(q))
+        """;
+
+    /// <summary>
+    /// A tsquery matching any of the clauses in a text[] parameter, each a phrase in the given text
+    /// search config; NULL when no clause has a lexeme in it.
+    /// </summary>
+    internal static string AnyClauseSql(string clausesParam, string config) => $"""
+        (SELECT string_agg('(' || e::text || ')', ' | ') FILTER (WHERE numnode(e) > 0)::tsquery
+         FROM unnest({clausesParam}::text[]) t, LATERAL phraseto_tsquery('{config}', t) e)
         """;
 
     /// <summary>
@@ -434,13 +448,22 @@ public class KeywordSearchService
     /// becomes an unsaturated term count ("cat cat cat cat" beats "cat dog"), where ts_rank saturates
     /// repeats and rewards matching more distinct terms. Weights {D,C,B,A} = {0,0,1,0} score only the
     /// english (B) copy of search_vector; the simple (A) copy would otherwise add weight to the terms
-    /// whose stem happens to equal the word. Normalization 1 divides by log length; 32 maps the rank
-    /// into 0-1 without changing its order. Neither function has IDF — that is #545.
+    /// whose stem happens to equal the word. A stop-word-only query matches only the simple copy, so
+    /// it is ranked on that instead; otherwise every match would tie at zero. Normalization 1 divides
+    /// by log length; 32 maps the rank into 0-1 without changing its order. Neither function has
+    /// IDF — that is #545.
     /// </summary>
-    internal static string RankSql(string vector, string tsQuery) =>
-        // ts_filter to A and B drops the positionless BM25 frequency markers (#548), which would
-        // otherwise count towards the length that normalization 1 divides by.
-        $"ts_rank(ARRAY[0, 0, 1, 0]::float4[], ts_filter({vector}, ARRAY['a', 'b']::\"char\"[]), {tsQuery}, 1|32)";
+    internal static string RankSql(string vector, string tsQuery, string clausesParam) => $"""
+        (CASE WHEN {AnyClauseSql(clausesParam, "english")} IS NULL
+              THEN ts_rank(ARRAY[0, 0, 0, 1]::float4[], {Unmarked(vector)}, {tsQuery}, 1|32)
+              ELSE ts_rank(ARRAY[0, 0, 1, 0]::float4[], {Unmarked(vector)}, {tsQuery}, 1|32) END)
+        """;
+
+    /// <summary>
+    /// The vector without the positionless BM25 frequency markers (#548), which would otherwise
+    /// count towards the length that ts_rank's normalization 1 divides by.
+    /// </summary>
+    private static string Unmarked(string vector) => $"ts_filter({vector}, ARRAY['a', 'b']::\"char\"[])";
 
     /// <summary>
     /// CTEs "q" (the query's terms with their BM25 IDF) and "os" (the owner's N and avgdl).
