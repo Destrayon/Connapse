@@ -23,6 +23,11 @@
       "pypdf-encryption",
       "olmocr-bench",
       "generated-negatives"
+    ],
+    "dev": [
+      "dev-fiqa",
+      "dev-nfcorpus",
+      "dev-scifact"
     ]
   },
   "datasets": {
@@ -582,6 +587,81 @@
         "shape:encoding"
       ],
       "files": []
+    },
+    "dev-nfcorpus": {
+      "adapter": "beir-parquet",
+      "version": "52ac3f19d344-s552",
+      "tags": [
+        "domain:general",
+        "topic:medical"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "121567d46ffd128bb706ac9a0450081d5d7baa954bceda3e447dbc20fb9dac0a"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "d078c788804e3d0838ee7c1d542895560b1b23555216c9b6f025e1e2572d3e8c"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "0daaecf7697f83342180b996087448c3980628d3c02b5d37b5ddea5d30acb2b6"
+        }
+      ]
+    },
+    "dev-scifact": {
+      "adapter": "beir-parquet",
+      "version": "cf10ab6856b1-s552",
+      "tags": [
+        "domain:general",
+        "topic:science"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "432a3def4a80913c51d537ab09b768eb3a1cfe48d5502a25da9777ac1362c94c"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "2911baef836f002618b13c003f7d8246eac097290abb0fc2f289cb3810f8808d"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "7ab9feaf0a8091291c17489447c5351fb2150f4d664a2b479100ce2d4b5669eb"
+        }
+      ]
+    },
+    "dev-fiqa": {
+      "adapter": "beir-parquet",
+      "version": "5e59eeb3a7df-s552",
+      "tags": [
+        "domain:general",
+        "topic:finance"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "eb8008ae56f6d5d796abb3c0c9e17d69371f45c30dc18c37701650de659a9be0"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "d8e6773437e9f57831211deac82af315150a42e3c2159f593641851563e51ae3"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "7c287d31c21ec2afce010fd050f8e6c8ce0a1106dc9061ba47f72eb57feae1e5"
+        }
+      ]
     }
   }
 }
