@@ -5,10 +5,9 @@ using Connapse.Eval.Model;
 namespace Connapse.Eval.Datasets;
 
 /// <summary>
-/// pypdf's encryption test files (py-pdf/pypdf resources/encryption). A PDF that needs a user password
-/// cannot be read without one, so Connapse must fail it loudly. A PDF with an empty user password
-/// (the "empty-password" and "owner-password" files) opens in any reader without a prompt, so its text
-/// must be extracted like the unencrypted copy's.
+/// pypdf's encryption test files (py-pdf/pypdf resources/encryption). A PDF that cannot be opened
+/// without a password must fail loudly. A PDF whose user or owner password is empty opens in any reader
+/// without a prompt, so its text must be extracted like the unencrypted copy's.
 /// </summary>
 public sealed class PypdfEncryptionAdapter : IExtractionAdapter
 {
@@ -18,13 +17,18 @@ public sealed class PypdfEncryptionAdapter : IExtractionAdapter
     public string Name => "pypdf-encryption";
 
     /// <summary>
-    /// Whether opening the file needs a password. Names say so, except r4-aes-v2-no-key-length.pdf,
-    /// which pypdf 6.1.1 could not open with an empty password.
+    /// The files that cannot be opened without a password, checked with pypdf 6.1.1 (with its AES
+    /// support): <c>decrypt("")</c> fails for these and succeeds for every other file. The names do not
+    /// decide it: r5-user-password.pdf and r6-user-password.pdf have an empty owner password, so any
+    /// reader opens them without a prompt.
     /// </summary>
-    public static bool NeedsPassword(string fileName) =>
-        fileName.Contains("user-password", StringComparison.Ordinal)
-        || fileName.Contains("both-passwords", StringComparison.Ordinal)
-        || fileName == "r4-aes-v2-no-key-length.pdf";
+    public static readonly IReadOnlySet<string> PasswordRequired = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "r2-user-password.pdf", "r3-user-password.pdf", "r4-user-password.pdf", "r4-aes-user-password.pdf",
+        "r4-aes-v2-no-key-length.pdf", "r6-both-passwords.pdf",
+    };
+
+    public static bool NeedsPassword(string fileName) => PasswordRequired.Contains(fileName);
 
     public Task<EvalDataset> LoadAsync(string datasetName, DatasetEntry entry, string directory, CancellationToken ct)
     {

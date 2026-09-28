@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Connapse.Eval.Checks;
 using Connapse.Eval.Metrics;
 using Connapse.Eval.Model;
 
@@ -82,6 +83,31 @@ public sealed class RunFolder
     public IReadOnlyDictionary<string, string> ReadTitles(string dataset) =>
         JsonSerializer.Deserialize<Dictionary<string, string>>(System.IO.File.ReadAllText(File("titles", dataset + ".json")), EvalJson.Options)
         ?? new Dictionary<string, string>();
+
+    public bool IsExtraction => ReadManifest().Kind == RunManifest.ExtractKind;
+
+    public void WriteExtraction(string dataset, IReadOnlyList<DocumentRecord> documents, IReadOnlyList<CheckRecord> checks)
+    {
+        WriteJsonl(File("documents", dataset + ".jsonl"), documents);
+        WriteJsonl(File("checks", dataset + ".jsonl"), checks);
+    }
+
+    public IReadOnlyList<DocumentRecord> ReadDocuments(string dataset) => ReadJsonl<DocumentRecord>(File("documents", dataset + ".jsonl"));
+
+    public IReadOnlyList<CheckRecord> ReadChecks(string dataset) => ReadJsonl<CheckRecord>(File("checks", dataset + ".jsonl"));
+
+    private static void WriteJsonl<T>(string path, IEnumerable<T> rows)
+    {
+        using StreamWriter writer = new(path);
+        foreach (T row in rows)
+            writer.Write(JsonSerializer.Serialize(row, EvalJson.Line) + "\n");
+    }
+
+    private static List<T> ReadJsonl<T>(string path) =>
+        System.IO.File.ReadLines(path)
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .Select(l => JsonSerializer.Deserialize<T>(l, EvalJson.Options)!)
+            .ToList();
 
     public void WriteText(string fileName, string content) => System.IO.File.WriteAllText(System.IO.Path.Combine(Path, fileName), content);
 
