@@ -30,6 +30,18 @@ public record EmbeddingSettings
     public string? BaseUrl { get; set; }
 
     /// <summary>
+    /// Text put before every search query before embedding. Null uses the model's published prompt
+    /// (nomic-embed-text's "search_query: ", for example); empty sends queries as they are.
+    /// </summary>
+    public string? QueryPrefix { get; set; }
+
+    /// <summary>
+    /// Text put before every stored chunk before embedding. Null uses the model's published prompt;
+    /// empty stores chunks as they are. Changing either prefix re-embeds on the next reindex.
+    /// </summary>
+    public string? DocumentPrefix { get; set; }
+
+    /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
     /// Prefer the provider-specific key properties below.
     /// </summary>

@@ -572,7 +572,7 @@ public class ReindexService : IReindexService
             return (false, null, null);
         }
 
-        var currentKey = $"{currentSettings.Provider}:{currentSettings.Model}";
+        var currentKey = $"{currentSettings.Provider}:{EmbeddingIdentity.For(currentSettings)}";
         var storedKey = $"{storedProvider}:{storedModel}";
 
         return (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase),

@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Systems;
 using FluentAssertions;
@@ -19,10 +20,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     public async Task EmbedAsync_SameTextTwice_CallsInnerOnce()
     {
         CountingProvider inner = new();
-        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root));
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None);
 
-        float[] first = await provider.EmbedAsync("hello");
-        float[] second = await provider.EmbedAsync("hello");
+        float[] first = await provider.EmbedAsync("hello", EmbeddingInputType.Document);
+        float[] second = await provider.EmbedAsync("hello", EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(1);
         second.Should().Equal(first);
@@ -32,10 +33,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     public async Task EmbedBatchAsync_MixedCachedAndNew_EmbedsOnlyNewAndKeepsOrder()
     {
         CountingProvider inner = new();
-        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root));
-        await provider.EmbedAsync("bb");
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None);
+        await provider.EmbedAsync("bb", EmbeddingInputType.Document);
 
-        IReadOnlyList<float[]> vectors = await provider.EmbedBatchAsync(["a", "bb", "ccc"]);
+        IReadOnlyList<float[]> vectors = await provider.EmbedBatchAsync(["a", "bb", "ccc"], EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(3, "one earlier call plus two uncached texts");
         vectors.Select(v => v[0]).Should().Equal(1f, 2f, 3f);
@@ -44,10 +45,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     [Fact]
     public async Task EmbedAsync_NewCacheInstanceSameDirectory_ReadsFromDisk()
     {
-        await new CachingEmbeddingProvider(new CountingProvider(), new EmbeddingDiskCache(_root)).EmbedAsync("persist");
+        await new CachingEmbeddingProvider(new CountingProvider(), new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("persist", EmbeddingInputType.Document);
         CountingProvider inner = new();
 
-        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root)).EmbedAsync("persist");
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("persist", EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(0);
     }
@@ -55,12 +56,26 @@ public class CachingEmbeddingProviderTests : IDisposable
     [Fact]
     public async Task EmbedAsync_SameModelDifferentDimensions_DoesNotShareEntries()
     {
-        await new CachingEmbeddingProvider(new CountingProvider(dimensions: 2), new EmbeddingDiskCache(_root)).EmbedAsync("dims");
+        await new CachingEmbeddingProvider(new CountingProvider(dimensions: 2), new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("dims", EmbeddingInputType.Document);
         CountingProvider inner = new(dimensions: 3);
 
-        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root)).EmbedAsync("dims");
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("dims", EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EmbedAsync_SameTextPromptedAndUnprompted_DoesNotShareEntries()
+    {
+        CountingProvider inner = new();
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingPrompts("q: ", "d: "));
+
+        await provider.EmbedAsync("text", EmbeddingInputType.Document);
+        await provider.EmbedAsync("text", EmbeddingInputType.Query);
+        await provider.EmbedAsync("text", EmbeddingInputType.Unspecified);
+        await provider.EmbedAsync("text", EmbeddingInputType.Document);
+
+        inner.Calls.Should().Be(3);
     }
 
     private sealed class CountingProvider(int dimensions = 2) : IEmbeddingProvider
@@ -69,13 +84,13 @@ public class CachingEmbeddingProviderTests : IDisposable
         public int Dimensions => dimensions;
         public string ModelId => "counting";
 
-        public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+        public Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default)
         {
             Calls++;
             return Task.FromResult(new float[] { text.Length, 1 });
         }
 
-        public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IEnumerable<string> texts, CancellationToken ct = default)
+        public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default)
         {
             List<string> list = texts.ToList();
             Calls += list.Count;

@@ -126,7 +126,7 @@ public static class SettingsEndpoints
                     var discovery = serviceProvider.GetRequiredService<VectorModelDiscovery>();
                     var models = await discovery.GetModelsAsync(containerId: null, ct);
                     var legacyModels = models
-                        .Where(m => !string.Equals(m.ModelId, embeddingSettings.Model, StringComparison.OrdinalIgnoreCase))
+                        .Where(m => !string.Equals(m.ModelId, EmbeddingIdentity.For(embeddingSettings), StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
                     if (legacyModels.Count > 0)
@@ -224,7 +224,7 @@ public static class SettingsEndpoints
             CancellationToken ct) =>
         {
             var models = await modelDiscovery.GetModelsAsync(containerId: null, ct);
-            var currentModel = embeddingSettings.CurrentValue.Model;
+            var currentModel = EmbeddingIdentity.For(embeddingSettings.CurrentValue);
 
             return Results.Ok(new
             {

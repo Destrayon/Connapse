@@ -119,7 +119,7 @@ public static class SearchEndpoints
                 return Results.NotFound(new { error = $"Container {containerId} not found" });
 
             var models = await modelDiscovery.GetModelsAsync(containerId, ct);
-            var currentModel = embeddingSettings.CurrentValue.Model;
+            var currentModel = EmbeddingIdentity.For(embeddingSettings.CurrentValue);
 
             return Results.Ok(new
             {

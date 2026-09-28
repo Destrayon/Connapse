@@ -31,7 +31,7 @@ public class SemanticChunkerTests
     /// </summary>
     private void SetupEmbeddings(int sentenceCount, bool highSimilarity = true)
     {
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns(callInfo =>
             {
                 var texts = callInfo.Arg<IEnumerable<string>>().ToArray();
@@ -60,7 +60,7 @@ public class SemanticChunkerTests
     /// </summary>
     private void SetupExplicitEmbeddings(float[][] embeddings)
     {
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<float[]>>(embeddings));
     }
 
@@ -119,7 +119,7 @@ public class SemanticChunkerTests
         await _chunker.ChunkAsync(parsedDoc, settings);
 
         await _embeddingProvider.DidNotReceive()
-            .EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>());
+            .EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -341,7 +341,7 @@ public class SemanticChunkerTests
         cts.Cancel();
 
         // EmbedBatchAsync should receive the cancelled token and throw
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<float[]>>(ci =>
             {
                 ci.Arg<CancellationToken>().ThrowIfCancellationRequested();
@@ -401,7 +401,7 @@ public class SemanticChunkerTests
 
         // Should call EmbedBatchAsync exactly once with all sentences
         await _embeddingProvider.Received(1)
-            .EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>());
+            .EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public class SemanticChunkerTests
         var content = "First. Second. Third. ";
 
         IEnumerable<string>? capturedZero = null;
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 capturedZero = ci.Arg<IEnumerable<string>>().ToArray();
@@ -489,7 +489,7 @@ public class SemanticChunkerTests
         var bufferZeroTexts = capturedZero!.ToArray();
 
         IEnumerable<string>? capturedOne = null;
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 capturedOne = ci.Arg<IEnumerable<string>>().ToArray();

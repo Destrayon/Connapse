@@ -16,7 +16,7 @@ public sealed class DocumentSummaryEmbeddingProvider(
         // Batch all summaries in a single provider call instead of one-by-one.
         // For N=1000 docs this avoids ~100 s of serial latency and satisfies the 30 s budget.
         List<string> summaries = docsWithSummaries.Select(d => d.Summary!).ToList();
-        IReadOnlyList<float[]> embeddings = await embeddingProvider.EmbedBatchAsync(summaries, ct);
+        IReadOnlyList<float[]> embeddings = await embeddingProvider.EmbedBatchAsync(summaries, EmbeddingInputType.Document, ct);
 
         if (embeddings.Count != docsWithSummaries.Count)
         {

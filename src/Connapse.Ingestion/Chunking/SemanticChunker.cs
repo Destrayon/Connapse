@@ -73,8 +73,11 @@ public class SemanticChunker(
         // Embed the context-windowed sentences in ONE batch.
         // These embeddings serve double duty: boundary detection here, and chunk
         // storage via mean-pooling (attached to each ChunkInfo.PrecomputedEmbedding).
+        // Document side: these vectors are stored as the chunks' vectors, and comparing two of them
+        // for boundaries stays symmetric because both carry the same prompt.
         IReadOnlyList<float[]> embeddings = await embeddingProvider.EmbedBatchAsync(
             combinedTexts,
+            EmbeddingInputType.Document,
             cancellationToken);
 
         // Compute adjacent-pair *distances* (1 - cosine similarity).

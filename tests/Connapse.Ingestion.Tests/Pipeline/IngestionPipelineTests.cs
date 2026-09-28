@@ -1,3 +1,4 @@
+using Connapse.Core;
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Pipeline;
@@ -89,7 +90,7 @@ public class IngestionPipelineTests
         _embeddingSettings = Substitute.For<IOptionsMonitor<EmbeddingSettings>>();
         _embeddingSettings.CurrentValue.Returns(embedSettings);
 
-        _embeddingProvider.EmbedBatchAsync(Arg.Any<string[]>(), Arg.Any<CancellationToken>())
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<string[]>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
                 var texts = ci.Arg<string[]>();
@@ -219,7 +220,7 @@ public class IngestionPipelineTests
 
         await pipeline.IngestAsync(stream, options);
 
-        await _embeddingProvider.DidNotReceive().EmbedBatchAsync(Arg.Any<string[]>(), Arg.Any<CancellationToken>());
+        await _embeddingProvider.DidNotReceive().EmbedBatchAsync(Arg.Any<string[]>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

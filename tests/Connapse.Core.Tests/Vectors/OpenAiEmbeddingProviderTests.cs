@@ -91,7 +91,7 @@ public class OpenAiEmbeddingProviderTests
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
         var provider = new OpenAiEmbeddingProvider(settings, logger);
 
-        var act = () => provider.EmbedAsync("", CancellationToken.None);
+        var act = () => provider.EmbedAsync("", EmbeddingInputType.Document, CancellationToken.None);
 
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*cannot be empty*");
@@ -109,7 +109,7 @@ public class OpenAiEmbeddingProviderTests
         var logger = Substitute.For<ILogger<OpenAiEmbeddingProvider>>();
         var provider = new OpenAiEmbeddingProvider(settings, logger);
 
-        var result = await provider.EmbedBatchAsync([], CancellationToken.None);
+        var result = await provider.EmbedBatchAsync([], EmbeddingInputType.Document, CancellationToken.None);
 
         result.Should().BeEmpty();
     }

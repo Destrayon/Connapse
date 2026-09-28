@@ -49,20 +49,22 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
 
     public string ModelId => _settings.Model;
 
-    public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
+    public async Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("Text cannot be empty", nameof(text));
 
-        var results = await EmbedBatchAsync([text], ct);
+        var results = await EmbedBatchAsync([text], inputType, ct);
         return results[0];
     }
 
     public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(
         IEnumerable<string> texts,
+        EmbeddingInputType inputType,
         CancellationToken ct = default)
     {
-        var textList = texts.ToList();
+        // The model's instruction for this side, if it has one (nomic's "search_query: ").
+        var textList = EmbeddingPrompts.Resolve(_settings).Apply(texts, inputType).ToList();
 
         if (textList.Count == 0)
             return Array.Empty<float[]>();

@@ -2,6 +2,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Connapse.Storage.Vectors;
 using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Search.Vector;
@@ -15,17 +16,23 @@ public class VectorSearchService
     private readonly IVectorStore _vectorStore;
     private readonly IEmbeddingProvider _embeddingProvider;
     private readonly IOptionsMonitor<EmbeddingSettings> _embeddingSettings;
+    private readonly VectorModelDiscovery _modelDiscovery;
+    private readonly VectorModelCountCache _modelCounts;
     private readonly ILogger<VectorSearchService> _logger;
 
     public VectorSearchService(
         IVectorStore vectorStore,
         IEmbeddingProvider embeddingProvider,
         IOptionsMonitor<EmbeddingSettings> embeddingSettings,
+        VectorModelDiscovery modelDiscovery,
+        VectorModelCountCache modelCounts,
         ILogger<VectorSearchService> logger)
     {
         _vectorStore = vectorStore;
         _embeddingProvider = embeddingProvider;
         _embeddingSettings = embeddingSettings;
+        _modelDiscovery = modelDiscovery;
+        _modelCounts = modelCounts;
         _logger = logger;
     }
 
@@ -48,22 +55,54 @@ public class VectorSearchService
             return [];
         }
 
-        // Embed the query
-        var queryVector = await EmbedQueryAsync(query, ct);
+        QueryEmbedding embedding = await EmbedQueryAsync(query, options, ct);
 
-        return await SearchAsync(query, queryVector, options, scopes, ct);
+        return await SearchAsync(query, embedding, options, scopes, ct);
     }
 
-    public Task<float[]> EmbedQueryAsync(string query, CancellationToken ct = default) =>
-        _embeddingProvider.EmbedAsync(query, ct);
+    /// <summary>
+    /// Embeds the query for the vector space it will search. That is the configured model's space
+    /// (its query prompt applied), except while a container still holds mostly vectors stored
+    /// before the model's prompts applied: then the query goes in as-is and searches those, so a
+    /// query never meets vectors made with a different recipe. A reindex moves the container over.
+    /// A caller's explicit <c>modelId</c> filter picks the space instead.
+    /// </summary>
+    public async Task<QueryEmbedding> EmbedQueryAsync(string query, SearchOptions options, CancellationToken ct = default)
+    {
+        EmbeddingSettings settings = _embeddingSettings.CurrentValue;
+        string current = EmbeddingIdentity.For(settings);
+        string modelId = current;
+
+        if (options.Filters is not null
+            && options.Filters.TryGetValue("modelId", out string? requested)
+            && !string.IsNullOrWhiteSpace(requested))
+        {
+            modelId = requested;
+        }
+        else if (!string.Equals(current, settings.Model, StringComparison.Ordinal))
+        {
+            Guid? containerId = Guid.TryParse(options.ContainerId, out Guid id) ? id : null;
+            IReadOnlyList<EmbeddingModelInfo> models = await _modelCounts.GetAsync(containerId, _modelDiscovery, ct);
+            long Count(string model) => models.Where(m => m.ModelId == model).Sum(m => m.VectorCount);
+            if (Count(settings.Model) > Count(current))
+            {
+                modelId = settings.Model;
+                _logger.LogDebug("Searching vectors stored before {Model}'s prompts applied; reindex to move them", settings.Model);
+            }
+        }
+
+        EmbeddingInputType inputType = modelId == current ? EmbeddingInputType.Query : EmbeddingInputType.Unspecified;
+        float[] vector = await _embeddingProvider.EmbedAsync(query, inputType, ct);
+        return new QueryEmbedding(vector, modelId);
+    }
 
     /// <summary>
-    /// Searches with a query vector the caller already embedded, so hybrid search can reuse it to
+    /// Searches with a query the caller already embedded, so hybrid search can reuse it to
     /// score keyword-only candidates without embedding the query twice.
     /// </summary>
     public async Task<List<SearchHit>> SearchAsync(
         string query,
-        float[] queryVector,
+        QueryEmbedding queryEmbedding,
         SearchOptions options,
         SearchScopes scopes,
         CancellationToken ct = default)
@@ -86,11 +125,11 @@ public class VectorSearchService
 
         // Filter by current embedding model to ensure dimension consistency.
         // Cosine similarity between vectors from different models is meaningless.
-        filters["modelId"] = ResolveModelId(options);
+        filters["modelId"] = queryEmbedding.ModelId;
 
         // Search the vector store
         var results = await _vectorStore.SearchAsync(
-            queryVector,
+            queryEmbedding.Vector,
             options.TopK,
             filters.Count > 0 ? filters : null,
             scopes,
@@ -117,25 +156,13 @@ public class VectorSearchService
     }
 
     /// <summary>
-    /// Similarity of the named chunks to <paramref name="queryVector"/> under the model
-    /// <see cref="SearchAsync(string, float[], SearchOptions, SearchScopes, CancellationToken)"/>
-    /// would search with the same <paramref name="options"/>, so both halves of a hybrid search
-    /// compare against one model. Chunks with no vector for it are left out.
+    /// Similarity of the named chunks to the query, in the vector space the query was embedded for,
+    /// so both halves of a hybrid search compare against one model. Chunks with no vector there are
+    /// left out.
     /// </summary>
     public Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
-        float[] queryVector,
+        QueryEmbedding queryEmbedding,
         IReadOnlyCollection<string> chunkIds,
-        SearchOptions options,
         CancellationToken ct = default) =>
-        _vectorStore.ScoreChunksAsync(queryVector, chunkIds, ResolveModelId(options), ct);
-
-    /// <summary>
-    /// The caller's explicit <c>modelId</c> filter, else the current embedding model.
-    /// </summary>
-    private string ResolveModelId(SearchOptions options) =>
-        options.Filters is not null
-        && options.Filters.TryGetValue("modelId", out string? modelId)
-        && !string.IsNullOrWhiteSpace(modelId)
-            ? modelId
-            : _embeddingSettings.CurrentValue.Model;
+        _vectorStore.ScoreChunksAsync(queryEmbedding.Vector, chunkIds, queryEmbedding.ModelId, ct);
 }
