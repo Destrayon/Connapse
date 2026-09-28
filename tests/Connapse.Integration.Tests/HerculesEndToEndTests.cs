@@ -56,13 +56,12 @@ public class HerculesEndToEndTests(SharedWebAppFixture fixture)
                 "This content should never be passed to an LLM summarizer because the " +
                 "container is in document-clustering mode.");
 
-            // Wait for both ingestion AND the PerDocSummary job to finish.
-            // In document-clustering mode, PerDocSummary early-returns and transitions to
-            // SummaryIndexed without writing a summary.
-            Document doc = await WaitForIngestionStateAsync(
-                documentId, IngestionState.SummaryIndexed, timeoutSeconds: 60);
+            // In document-clustering mode no per-doc summary is scheduled at all: the document
+            // goes straight to Ready with nothing left to summarize.
+            Document doc = await WaitForReadyAsync(documentId, timeoutSeconds: 60);
 
-            // Assert: the document reached SummaryIndexed without a summary text.
+            // Assert: the document is Ready without a summary text.
+            doc.SummaryStatus.Should().Be(SummaryStatus.NotNeeded);
             doc.Summary.Should().BeNullOrEmpty(
                 "document-clustering mode must not generate per-doc summaries at ingest");
             doc.SummaryContentHash.Should().BeNullOrEmpty();
@@ -95,8 +94,7 @@ public class HerculesEndToEndTests(SharedWebAppFixture fixture)
         return upload.Documents[0].DocumentId;
     }
 
-    private async Task<Document> WaitForIngestionStateAsync(
-        string documentId, IngestionState expected, int timeoutSeconds)
+    private async Task<Document> WaitForReadyAsync(string documentId, int timeoutSeconds)
     {
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTime.UtcNow < deadline)
@@ -106,7 +104,7 @@ public class HerculesEndToEndTests(SharedWebAppFixture fixture)
             Document? doc = await docStore.GetAsync(documentId, CancellationToken.None);
             if (doc is not null)
             {
-                if (doc.IngestionState == expected)
+                if (doc.Status == DocumentStatus.Ready)
                     return doc;
                 if (doc.Metadata.GetValueOrDefault("Status") == "Failed")
                     throw new Exception(
@@ -116,7 +114,7 @@ public class HerculesEndToEndTests(SharedWebAppFixture fixture)
             await Task.Delay(250);
         }
         throw new TimeoutException(
-            $"Document {documentId} did not reach state '{expected}' within {timeoutSeconds}s");
+            $"Document {documentId} did not become Ready within {timeoutSeconds}s");
     }
 
     // DTOs

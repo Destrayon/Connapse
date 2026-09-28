@@ -975,28 +975,30 @@ All settings endpoints require **Admin** role.
 
 **Auth**: Required — pass JWT via `?access_token=<token>` query string, or use cookie session.
 
-### Subscribe to Job Progress
+### Subscribe to Document Status
 
 ```javascript
 const connection = new signalR.HubConnectionBuilder()
   .withUrl("/hubs/ingestion?access_token=eyJ...")
   .build();
 
-// Subscribe
-await connection.invoke("SubscribeToJob", "job-id");
-
-// Listen for updates
-connection.on("IngestionProgress", (update) => {
-  // update: { jobId, state, currentPhase, percentComplete, errorMessage, startedAt, completedAt }
-  console.log(`${update.currentPhase}: ${update.percentComplete}%`);
-});
-
 await connection.start();
+
+// Subscribe to one document (the documentId returned by an upload)
+await connection.invoke("SubscribeToDocument", "document-id");
+
+// Sent after every status transition
+connection.on("DocumentStatusChanged", (update) => {
+  // update: { documentId, status, failureKind, summaryStatus }
+  console.log(`${update.documentId}: ${update.status}`);
+});
 ```
 
-**States**: `Pending` | `Processing` | `Completed` | `Failed`
+**Status**: `Pending` | `Processing` | `Ready` | `Failed` — the same strings as the document's `status` field.
 
-**Phases**: `Parsing` | `Chunking` | `Embedding` | `Storing` | `Complete`
+**Failure kind** (only when `Failed`): `Retryable` (a transient fault; sync retries it later) | `Permanent` (the file cannot be ingested as it is).
+
+**Summary status**: `NotNeeded` | `Pending` | `Done` | `Failed`
 
 ---
 

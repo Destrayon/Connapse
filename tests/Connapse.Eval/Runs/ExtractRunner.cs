@@ -111,7 +111,7 @@ public sealed class ExtractRunner(
                 outcome.UploadError is null ? outcome.ConnapseDocId : null, ct);
             DocumentExpectation expectation = spec.Documents[doc.Id];
             DocumentRecord record = new(name, doc.Id, expectation.Category, expectation.Expected,
-                outcome.UploadError, outcome.Status, outcome.ErrorMessage, outcome.IngestionState?.ToString(), outcome.Stalled,
+                outcome.UploadError, outcome.Status, outcome.ErrorMessage, outcome.IngestionStatus?.ToString(), outcome.Stalled,
                 outcome.Elapsed.TotalMilliseconds, probe.ParsedText?.Length, probe.PageCount, probe.EmptyPages, probe.Chunks.Count,
                 probe.ParserWarnings, probe.ParseError);
             documents.Add(record);

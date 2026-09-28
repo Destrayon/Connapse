@@ -66,6 +66,12 @@ public static class ExtractionEvaluator
     public const string FailsLoudly = "fails-loudly";
     public const string NoSilentFailure = "no-silent-failure";
 
+    /// <summary>
+    /// Whether a recorded lifecycle status is a failure. Runs made before #562 recorded the old
+    /// ingestion state, whose failure was plain "Failed"; later runs record which kind.
+    /// </summary>
+    public static bool IsFailedState(string? state) => state is "Failed" or "FailedRetryable" or "FailedPermanent";
+
     public static IEnumerable<CheckRecord> Evaluate(DocumentRecord doc, DocumentTexts texts, IEnumerable<ExtractionCheck> checks)
     {
         foreach (ExtractionCheck check in checks)
@@ -153,7 +159,7 @@ public static class ExtractionEvaluator
         (string outcome, string detail) =
             doc.Stalled ? (CheckOutcome.Fail, "stalled: never reached a final state")
             : doc.UploadError is not null ? (CheckOutcome.Pass, $"rejected at upload: {doc.UploadError}")
-            : doc.Status == "Failed" && !string.IsNullOrWhiteSpace(doc.ErrorMessage) && doc.IngestionState == "Failed"
+            : doc.Status == "Failed" && !string.IsNullOrWhiteSpace(doc.ErrorMessage) && IsFailedState(doc.IngestionState)
                 ? (CheckOutcome.Pass, $"failed: {doc.ErrorMessage}")
             : (CheckOutcome.Fail, $"status {doc.Status ?? "none"}, ingestion state {doc.IngestionState ?? "none"}, "
                 + $"error message {(string.IsNullOrWhiteSpace(doc.ErrorMessage) ? "empty" : $"'{doc.ErrorMessage}'")}");
@@ -168,7 +174,7 @@ public static class ExtractionEvaluator
     public static CheckRecord NoSilentFailureCheck(DocumentRecord doc)
     {
         string? problem = doc.Stalled ? "stalled: never reached a final state"
-            : doc.UploadError is not null || doc.IngestionState == "Failed" ? null
+            : doc.UploadError is not null || IsFailedState(doc.IngestionState) ? null
             : doc.ParsedChars is null or 0 ? "shown as indexed but the parser extracted no text"
             : doc.EmptyPages.Count > 0 ? $"shown as indexed but page(s) {string.Join(", ", doc.EmptyPages)} of {doc.PageCount} produced no text"
             : doc.ChunkCount == 0 ? "shown as indexed but no chunks were stored"

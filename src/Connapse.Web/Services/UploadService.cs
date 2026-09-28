@@ -129,7 +129,6 @@ public class UploadService(
         CancellationToken ct)
     {
         var documentId = Guid.NewGuid().ToString();
-        var jobId = Guid.NewGuid().ToString();
 
         var normalizedPath = PathUtilities.NormalizePath(request.Path ?? "/");
         var virtualFilePath = normalizedPath == "/"
@@ -146,9 +145,6 @@ public class UploadService(
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
         if (folderPath != "/")
             await EnsureIntermediateFoldersAsync(folderStore, request.ContainerId, folderPath, ct);
-
-        // Resolve job path
-        var jobPath = connector.ResolveJobPath(relativePath);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
         var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
@@ -184,9 +180,7 @@ public class UploadService(
 
         // Build and enqueue ingestion job with the current generation
         var job = new IngestionJob(
-            JobId: jobId,
             DocumentId: winnerDocId,
-            Path: jobPath,
             Options: new IngestionOptions(
                 DocumentId: winnerDocId,
                 FileName: request.FileName,
@@ -199,12 +193,10 @@ public class UploadService(
                     ["OriginalFileName"] = request.FileName,
                     ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                     ["IngestedVia"] = request.IngestedVia
-                },
-                Generation: storeResult.Generation),
-            Generation: storeResult.Generation,
+                }),
             BatchId: batchId);
 
-        await ingestionQueue.EnqueueAsync(job, ct);
+        string? jobId = await ingestionQueue.EnqueueAsync(job, ct);
 
         // Audit log
         await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,

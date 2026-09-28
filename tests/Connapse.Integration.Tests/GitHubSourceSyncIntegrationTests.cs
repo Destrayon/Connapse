@@ -131,7 +131,7 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         result.Error.Should().BeNull();
         result.UsedDeltaPath.Should().BeTrue("the GitHub connector reports changes against a commit SHA");
         result.Upserted.Should().Be(2);
-        queue.Jobs.Select(j => j.Path).Should().BeEquivalentTo("/README.md", "/docs/guide.md");
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/README.md", "/docs/guide.md");
         (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be(head);
     }
 
@@ -258,7 +258,7 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         string second = Commit(new Dictionary<string, string> { ["b.md"] = "b" });
         await service.SyncSourceAsync(held, connection: null, CancellationToken.None);
 
-        queue.Jobs.Select(j => j.Path).Should().Contain("/a.md");
+        queue.Jobs.Select(j => j.Options.Path).Should().Contain("/a.md");
         var advanced = (await sources.GetAsync(source.Id))!;
         advanced.SyncCursor.Should().Be(second);
         advanced.SyncHeldSince.Should().BeNull();
@@ -292,7 +292,7 @@ public sealed class GitHubSourceSyncIntegrationTests(SharedWebAppFixture fixture
         await using var ctx = await dbFactory.CreateDbContextAsync();
         foreach (var doc in await ctx.Documents.Where(d => d.SourceId == sourceId).ToListAsync())
         {
-            doc.Status = "Ready";
+            doc.IngestionStatus = DocumentStatus.Ready;
             doc.Metadata = new Dictionary<string, string>(doc.Metadata)
             {
                 [SourceSyncService.RemoteLastModifiedKey] = "settled-at-an-older-version",

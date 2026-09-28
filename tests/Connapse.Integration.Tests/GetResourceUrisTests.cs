@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -48,7 +49,7 @@ public class GetResourceUrisTests(SharedWebAppFixture fixture)
                     Path = "/a.md",
                     ResourceUri = "azblob://acct/docs/a",
                     ContentHash = Guid.NewGuid().ToString("N"),
-                    Status = "Ready",
+                    IngestionStatus = DocumentStatus.Ready,
                     CreatedAt = DateTime.UtcNow,
                     Metadata = [],
                 });
@@ -61,7 +62,7 @@ public class GetResourceUrisTests(SharedWebAppFixture fixture)
                     Path = "/b.md",
                     ResourceUri = null,
                     ContentHash = Guid.NewGuid().ToString("N"),
-                    Status = "Ready",
+                    IngestionStatus = DocumentStatus.Ready,
                     CreatedAt = DateTime.UtcNow,
                     Metadata = [],
                 });

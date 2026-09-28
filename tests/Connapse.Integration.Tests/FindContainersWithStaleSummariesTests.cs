@@ -1,4 +1,5 @@
-﻿using Connapse.Core.Interfaces;
+﻿using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using FluentAssertions;
@@ -175,7 +176,7 @@ public class FindContainersWithStaleSummariesTests(SharedWebAppFixture fixture)
             SizeBytes = 1,
             ChunkCount = 0,
             Generation = 1,
-            Status = "Pending",
+            IngestionStatus = DocumentStatus.Queued,
             CreatedAt = createdAt ?? DateTime.UtcNow,
             LastIndexedAt = lastIndexedAt,
             SummaryGeneratedAt = summaryAt,

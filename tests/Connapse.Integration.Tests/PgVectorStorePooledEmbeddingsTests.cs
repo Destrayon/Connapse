@@ -1,3 +1,4 @@
+using Connapse.Core;
 using System.Net.Http.Json;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -135,7 +136,7 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
             SizeBytes = 1,
             ChunkCount = 0,
             Generation = 1,
-            Status = "Pending",
+            IngestionStatus = DocumentStatus.Queued,
             CreatedAt = DateTime.UtcNow,
             Metadata = new Dictionary<string, string>(),
         });

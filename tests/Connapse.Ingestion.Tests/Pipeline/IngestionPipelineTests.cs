@@ -1,5 +1,4 @@
 using Connapse.Core;
-﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
@@ -114,6 +113,7 @@ public class IngestionPipelineTests
             _sourceStore,
             _connectionStore,
             _connectorFactory,
+            Substitute.For<IDocumentLifecycle>(),
             _logger);
 
     private static KnowledgeDbContext CreateInMemoryContext()
@@ -125,116 +125,77 @@ public class IngestionPipelineTests
         return new KnowledgeDbContext(options);
     }
 
+    // The InMemory provider cannot map the jsonb metadata column, so a pipeline that reaches the
+    // final write throws there. Tests that need to get that far assert on what happened before it.
+
+    private static IngestionOptions TextOptions(string fileName = "test.txt") =>
+        new(FileName: fileName) { Owner = OwnerRef.ForContainer(TestOwnerId) };
+
     [Fact]
-    public async Task IngestAsync_ProvidedDocumentId_UsesIt()
+    public async Task IngestAsync_UnsupportedExtension_ThrowsPermanentWithoutParsing()
     {
         using var dbContext = CreateInMemoryContext();
         var pipeline = CreatePipeline(dbContext);
-        var docId = Guid.NewGuid().ToString();
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(DocumentId: docId, FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
-        var result = await pipeline.IngestAsync(stream, options);
+        Func<Task> act = () => pipeline.IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions("test.xyz"));
 
-        result.DocumentId.Should().Be(docId);
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*Unsupported file type*");
+        await _parser.DidNotReceive().ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task IngestAsync_NoDocumentId_GeneratesGuid()
+    public async Task IngestAsync_ParserThrows_ThrowsPermanent()
     {
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidDataException("corrupt"));
         using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
-        var result = await pipeline.IngestAsync(stream, options);
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
 
-        result.DocumentId.Should().NotBeNullOrEmpty();
-        Guid.TryParse(result.DocumentId, out _).Should().BeTrue();
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*corrupt*");
     }
 
     [Fact]
-    public async Task IngestAsync_ReturnsDuration()
+    public async Task IngestAsync_NoChunks_ThrowsPermanentWithoutEmbedding()
     {
+        _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ChunkInfo>());
         using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
-        var result = await pipeline.IngestAsync(stream, options);
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
 
-        result.Duration.Should().BeGreaterThan(TimeSpan.Zero);
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("No extractable content*");
+        await _embeddingProvider.DidNotReceiveWithAnyArgs().EmbedBatchAsync(default!, default, default);
     }
 
     [Fact]
-    public async Task IngestAsync_DbFailure_CatchesAndReturnsZeroChunks()
+    public async Task IngestAsync_DatabaseFailure_Propagates()
     {
-        // The InMemory provider can't handle jsonb Dictionary properties,
-        // so SaveChangesAsync throws — pipeline catches it gracefully
+        // The pipeline used to swallow this and return zero chunks, which its caller then read as
+        // success. The job has to see it to schedule a retry.
         using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
-        var result = await pipeline.IngestAsync(stream, options);
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
 
-        result.ChunkCount.Should().Be(0);
-        result.Warnings.Should().NotBeEmpty();
-    }
-
-    [Fact]
-    public async Task IngestAsync_DbFailure_IncludesErrorInWarnings()
-    {
-        using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
-
-        var result = await pipeline.IngestAsync(stream, options);
-
-        result.Warnings.Should().Contain(w => w.Contains("failed", StringComparison.OrdinalIgnoreCase));
+        await act.Should().ThrowAsync<Exception>();
     }
 
     [Fact]
     public async Task IngestAsync_PrecomputedEmbeddings_SkipsEmbeddingProvider()
     {
-        // Precomputed embedding check happens after parse/chunk but before embed.
-        // Even though DB fails, we can verify embedding was not called by
-        // setting up the chunker to return precomputed embeddings.
-        // Since the DB failure happens before chunking in this setup,
-        // the embedding provider won't be called regardless — but the test
-        // validates the contract for when DB works.
-        var precomputedEmbedding = new float[] { 0.5f, 0.6f, 0.7f };
         _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())
             .Returns(new List<ChunkInfo>
             {
                 new("Chunk 1", 0, 5, 0, 7,
                     new Dictionary<string, string> { ["ChunkIndex"] = "0" },
-                    precomputedEmbedding),
+                    new float[] { 0.5f, 0.6f, 0.7f }),
             });
-
         using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
 
-        await pipeline.IngestAsync(stream, options);
+        try { await CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions()); }
+        catch (Exception) { /* the final write; see above */ }
 
         await _embeddingProvider.DidNotReceive().EmbedBatchAsync(Arg.Any<string[]>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task IngestAsync_UnsupportedExtension_ParserNotCalled()
-    {
-        using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var stream = new MemoryStream("Test content"u8.ToArray());
-        var options = new IngestionOptions(FileName: "test.xyz") { Owner = OwnerRef.ForContainer(TestOwnerId) };
-
-        await pipeline.IngestAsync(stream, options);
-
-        // Parser for .txt should not be called when file is .xyz
-        await _parser.DidNotReceive().ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -249,32 +210,15 @@ public class IngestionPipelineTests
     }
 
     [Fact]
-    public async Task IngestAsync_NonSeekableStream_ReturnsResult()
-    {
-        // Non-seekable stream is copied to MemoryStream before hash computation.
-        // DB will still fail, but we verify the pipeline doesn't crash on non-seekable input.
-        using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
-        var data = "Test content for non-seekable stream"u8.ToArray();
-        var innerStream = new MemoryStream(data);
-        var nonSeekableStream = new NonSeekableStream(innerStream);
-
-        var options = new IngestionOptions(FileName: "test.txt") { Owner = OwnerRef.ForContainer(TestOwnerId) };
-
-        var result = await pipeline.IngestAsync(nonSeekableStream, options);
-
-        result.Should().NotBeNull();
-        result.DocumentId.Should().NotBeNullOrEmpty();
-    }
-
-    [Fact]
-    public async Task IngestAsync_ImplementsIKnowledgeIngester()
+    public async Task IngestAsync_NonSeekableStream_IsBufferedAndParsed()
     {
         using var dbContext = CreateInMemoryContext();
-        var pipeline = CreatePipeline(dbContext);
+        var nonSeekableStream = new NonSeekableStream(new MemoryStream("Test content for non-seekable stream"u8.ToArray()));
 
-        // Verify it implements the interface
-        pipeline.Should().BeAssignableTo<IKnowledgeIngester>();
+        try { await CreatePipeline(dbContext).IngestAsync(nonSeekableStream, TextOptions()); }
+        catch (Exception) { /* the final write; see above */ }
+
+        await _parser.Received(1).ParseAsync(Arg.Any<Stream>(), "test.txt", Arg.Any<CancellationToken>());
     }
 
     /// <summary>
@@ -333,9 +277,13 @@ public class IngestionPipelineTests
         var sourceId = Guid.NewGuid();
         IConnector connector = ArrangeSourceDocument(documentId, sourceId, "/remote/test.txt");
 
-        await pipeline.IngestByIdAsync(
-            documentId,
-            new IngestionOptions(DocumentId: documentId, FileName: "test.txt", Path: "/remote/test.txt"));
+        try
+        {
+            await pipeline.IngestByIdAsync(
+                documentId,
+                new IngestionOptions(DocumentId: documentId, FileName: "test.txt", Path: "/remote/test.txt"));
+        }
+        catch (Exception) { /* the final write; see above */ }
 
         await connector.Received(1).ReadFileAsync("/remote/test.txt", Arg.Any<CancellationToken>());
     }

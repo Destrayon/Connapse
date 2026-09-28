@@ -295,15 +295,17 @@ public static class SettingsEndpoints
         .WithDescription("Start background re-embedding of documents with outdated embedding models");
 
         // GET /api/settings/reindex/status - Get queue depth as a proxy for re-embedding progress
-        group.MapGet("/reindex/status", (
+        group.MapGet("/reindex/status", async (
             [FromServices] IIngestionQueue queue,
-            [FromServices] ReindexStateService reindexState) =>
+            [FromServices] ReindexStateService reindexState,
+            CancellationToken ct) =>
         {
             var state = reindexState.Current;
+            int queueDepth = await queue.GetQueueDepthAsync(ct);
             return Results.Ok(new
             {
-                queueDepth = queue.QueueDepth,
-                isActive = queue.QueueDepth > 0,
+                queueDepth,
+                isActive = queueDepth > 0,
                 status = state.Status.ToString(),
                 isFailed = state.Status == ReindexStatus.Failed,
                 lastError = state.LastError,

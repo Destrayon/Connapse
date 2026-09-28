@@ -254,7 +254,7 @@ public class ReindexService : IReindexService
         }
 
         // Check if never indexed
-        if (!doc.LastIndexedAt.HasValue || doc.Status != "Ready")
+        if (!doc.LastIndexedAt.HasValue || doc.IngestionStatus != DocumentStatus.Ready)
         {
             return new ReindexCheck(
                 documentId,
@@ -392,12 +392,12 @@ public class ReindexService : IReindexService
             }
 
             // Check if never indexed successfully
-            if (!doc.LastIndexedAt.HasValue || doc.Status != "Ready")
+            if (!doc.LastIndexedAt.HasValue || doc.IngestionStatus != DocumentStatus.Ready)
             {
                 _logger.LogInformation(
                     "Document {DocumentId} was never successfully indexed (Status={Status})",
                     doc.Id,
-                    doc.Status);
+                    doc.IngestionStatus);
 
                 return await EnqueueDocumentAsync(doc, batchId, options, ReindexReason.NeverIndexed, ct);
             }
@@ -425,12 +425,34 @@ public class ReindexService : IReindexService
         }
     }
 
+    public async Task<int> RequeueAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct = default)
+    {
+        if (documentIds.Count == 0) return 0;
+
+        var docs = await _context.Documents
+            .AsNoTracking()
+            .Where(d => documentIds.Contains(d.Id))
+            .ToListAsync(ct);
+
+        string batchId = Guid.NewGuid().ToString();
+        int enqueued = 0;
+        foreach (var doc in docs)
+        {
+            var result = await EnqueueDocumentAsync(
+                doc, batchId, new ReindexOptions(), ReindexReason.Forced, ct, resetAttempts: false);
+            if (result.Action == ReindexAction.Enqueued) enqueued++;
+        }
+
+        return enqueued;
+    }
+
     private async Task<ReindexDocumentResult> EnqueueDocumentAsync(
         DocumentEntity doc,
         string batchId,
         ReindexOptions options,
         ReindexReason reason,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool resetAttempts = true)
     {
         // The chunks stay where they are. IngestionPipeline purges them itself on a reindex,
         // once the file has been read and the row updated — which is the only moment at which
@@ -440,15 +462,6 @@ public class ReindexService : IReindexService
         // document stayed searchable-looking and returned nothing.
         //
         // ChunkCount is left alone for the same reason: it describes chunks that still exist.
-
-        // Update document status
-        var docEntity = await _context.Documents.FindAsync([doc.Id], ct);
-        string? previousStatus = docEntity?.Status;
-        if (docEntity != null)
-        {
-            docEntity.Status = "Pending";
-            await _context.SaveChangesAsync(ct);
-        }
 
         // Determine chunking strategy. A record keeps the strategy its shape was given.
         doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyChunkingStrategy, out var indexedWith);
@@ -471,11 +484,10 @@ public class ReindexService : IReindexService
                 : throw new InvalidOperationException(
                     $"Document {doc.Id} has neither a container nor a source and cannot be reindexed.");
 
-        // Create and enqueue ingestion job
-        var job = new IngestionJob(
-            JobId: Guid.NewGuid().ToString(),
+        // Enqueuing marks the document Queued. The chunks stay where they are until the new
+        // version commits, so the document stays searchable throughout.
+        string? jobId = await _queue.EnqueueAsync(new IngestionJob(
             DocumentId: doc.Id.ToString(),
-            Path: doc.Path,
             Options: new IngestionOptions(
                 DocumentId: doc.Id.ToString(),
                 FileName: doc.FileName,
@@ -487,25 +499,8 @@ public class ReindexService : IReindexService
             {
                 Owner = owner,
             },
-            BatchId: batchId);
-
-        try
-        {
-            await _queue.EnqueueAsync(job, ct);
-        }
-        catch
-        {
-            // Pending means "a job is coming". If none is, the document is stranded: the sync
-            // engine skips Pending documents, so it would never be looked at again. Put the
-            // status back so the next cycle can.
-            if (docEntity != null && previousStatus != null)
-            {
-                docEntity.Status = previousStatus;
-                await _context.SaveChangesAsync(CancellationToken.None);
-            }
-
-            throw;
-        }
+            BatchId: batchId,
+            ResetAttempts: resetAttempts), ct);
 
         _logger.LogInformation(
             "Enqueued document {DocumentId} ({FileName}) for reindex, reason: {Reason}",
@@ -518,7 +513,7 @@ public class ReindexService : IReindexService
             doc.FileName,
             ReindexAction.Enqueued,
             reason,
-            JobId: job.JobId);
+            JobId: jobId);
     }
 
     private (bool changed, string? stored, string? current) CheckChunkingSettingsChanged(DocumentEntity doc)

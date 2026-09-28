@@ -14,10 +14,10 @@ public class ExtractRunnerTests
     /// <summary>
     /// Runs the generated encodings through the real TextParser and pins today's behaviour. UTF-8 and
     /// BOM-marked files read correctly. Latin-1 is decoded as UTF-8: it is indexed garbled and shown as
-    /// Ready. UTF-16 without a BOM decodes to text full of NUL characters that PostgreSQL rejects, and
-    /// even recording the failure fails, so the document stays Processing while the UI shows it as
-    /// indexed; the harness records it as stalled after two minutes. Fixing encoding detection or the
-    /// failure path should flip these assertions.
+    /// Ready. UTF-16 without a BOM decodes to text full of NUL characters that PostgreSQL rejects; that
+    /// is recorded as a permanent failure, so it fails loudly rather than silently (#562 — it used to
+    /// stay Processing while the UI showed it indexed). Fixing encoding detection should flip the
+    /// extraction assertions.
     /// </summary>
     [Fact]
     public async Task RunAsync_GeneratedEncodings_RecordsTodaysDecodingBehaviour()
@@ -40,9 +40,10 @@ public class ExtractRunnerTests
             ["utf8.txt", "utf8.md", "utf8-bom.txt", "utf8-bom.md", "utf16le-bom.txt", "utf16le-bom.md"]);
         Dictionary<string, DocumentRecord> documents = run.ReadDocuments("generated-encodings").ToDictionary(d => d.DocId);
         documents["latin1.txt"].Status.Should().Be("Ready");
-        documents["utf16le.txt"].Should().Match<DocumentRecord>(d => d.Stalled && d.Status == "Processing" && d.ChunkCount == 0);
-        checks.Where(c => c.Type == ExtractionEvaluator.NoSilentFailure && c.Outcome == CheckOutcome.Fail).Select(c => c.DocId)
-            .Should().BeEquivalentTo(["utf16le.txt", "utf16le.md"]);
-        ExtractionScoring.Score(run).SilentFailureRate.Should().Be(0.2);
+        documents["utf16le.txt"].Should().Match<DocumentRecord>(d =>
+            !d.Stalled && d.Status == "Failed" && d.IngestionState == "FailedPermanent" && d.ChunkCount == 0);
+        checks.Where(c => c.Type == ExtractionEvaluator.NoSilentFailure && c.Outcome == CheckOutcome.Fail)
+            .Should().BeEmpty();
+        ExtractionScoring.Score(run).SilentFailureRate.Should().Be(0);
     }
 }

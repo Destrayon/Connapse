@@ -52,15 +52,17 @@ public class PostgresDocumentStore : IDocumentStore
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, status, created_at, metadata)
-            VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Pending', @created, @meta::jsonb)
+            INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, ingestion_status, status_changed_at, created_at, metadata)
+            VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Queued', now(), @created, @meta::jsonb)
             ON CONFLICT (owner_id, path) DO UPDATE SET
                 file_name    = EXCLUDED.file_name,
                 content_type = EXCLUDED.content_type,
                 content_hash = EXCLUDED.content_hash,
                 size_bytes   = EXCLUDED.size_bytes,
                 generation   = documents.generation + 1,
-                status       = 'Pending',
+                ingestion_status  = 'Queued',
+                status_changed_at = now(),
+                attempt_count     = 0,
                 metadata     = EXCLUDED.metadata
             RETURNING id, generation
             """;
@@ -193,7 +195,7 @@ public class PostgresDocumentStore : IDocumentStore
         await using var context = await _factory.CreateDbContextAsync(ct);
 
         return await context.Documents
-            .AnyAsync(d => d.OwnerId == containerId && d.Path == path && d.Status == "Ready", ct);
+            .AnyAsync(d => d.OwnerId == containerId && d.Path == path && d.IngestionStatus == DocumentStatus.Ready, ct);
     }
 
     public async Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default)
@@ -240,45 +242,6 @@ public class PostgresDocumentStore : IDocumentStore
                 .SetProperty(d => d.SummaryGeneratedAt, (DateTime?)null)
                 .SetProperty(d => d.SummaryContentHash, (string?)null),
                 ct);
-    }
-
-    public async Task UpdateIngestionStateAsync(string documentId, IngestionState state, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(documentId, out var guid))
-        {
-            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
-            return;
-        }
-
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
-        if (entity is null) return;
-
-        entity.IngestionState = state;
-        await context.SaveChangesAsync(ct);
-    }
-
-    public async Task MarkIngestionFailedAsync(
-        string documentId, string? errorMessage, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(documentId, out var guid))
-        {
-            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
-            return;
-        }
-
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
-        if (entity is null) return;
-
-        entity.IngestionState = IngestionState.Failed;
-        entity.Status = "Failed";
-        if (!string.IsNullOrEmpty(errorMessage))
-            entity.ErrorMessage = errorMessage;
-
-        await context.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
@@ -331,9 +294,9 @@ public class PostgresDocumentStore : IDocumentStore
             .Select(g => new
             {
                 DocumentCount = g.Count(),
-                ReadyCount = g.Count(d => d.Status == "Ready"),
-                ProcessingCount = g.Count(d => d.Status == "Processing" || d.Status == "Pending" || d.Status == "Queued"),
-                FailedCount = g.Count(d => d.Status == "Failed"),
+                ReadyCount = g.Count(d => d.IngestionStatus == DocumentStatus.Ready),
+                ProcessingCount = g.Count(d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing),
+                FailedCount = g.Count(d => d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent),
                 TotalChunks = g.Sum(d => (long)d.ChunkCount),
                 TotalSizeBytes = g.Sum(d => d.SizeBytes),
                 LastIndexedAt = g.Max(d => d.LastIndexedAt)
@@ -373,10 +336,53 @@ public class PostgresDocumentStore : IDocumentStore
         return result;
     }
 
+    public async Task<string?> GetDocumentTextAsync(string documentId, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid)) return null;
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var chunks = await context.Chunks
+            .AsNoTracking()
+            .Where(c => c.DocumentId == guid)
+            .OrderBy(c => c.ChunkIndex)
+            .Select(c => new { c.Content, c.StartOffset, c.EndOffset })
+            .ToListAsync(ct);
+
+        if (chunks.Count == 0) return null;
+
+        // Chunkers overlap neighbouring chunks. Where a chunk's content is exactly the span its
+        // offsets describe, the part already covered by the previous chunk is dropped; where it is
+        // not — a chunker that prefixes headings, say — the chunk is kept whole, since repeating a
+        // little text costs a summary far less than cutting some.
+        var text = new System.Text.StringBuilder();
+        int covered = 0;
+        foreach (var chunk in chunks)
+        {
+            bool exactSpan = chunk.EndOffset - chunk.StartOffset == chunk.Content.Length;
+            if (exactSpan && chunk.StartOffset < covered && covered < chunk.EndOffset)
+            {
+                text.Append(chunk.Content, covered - chunk.StartOffset, chunk.EndOffset - covered);
+            }
+            else if (!exactSpan || chunk.StartOffset >= covered)
+            {
+                if (text.Length > 0) text.Append('\n');
+                text.Append(chunk.Content);
+            }
+
+            covered = Math.Max(covered, chunk.EndOffset);
+        }
+
+        return text.ToString();
+    }
+
     private static Document MapToModel(DocumentEntity entity)
     {
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
-        metadata["Status"] = entity.Status;
+        // The API string, derived: REST, MCP and the file details panel have always read it here.
+        metadata["Status"] = entity.IngestionStatus.ToApiString();
+        if (entity.IngestionStatus.IsFailed())
+            metadata["FailureKind"] = entity.IngestionStatus == DocumentStatus.FailedPermanent ? "Permanent" : "Retryable";
         metadata["ContentHash"] = entity.ContentHash;
         metadata["ChunkCount"] = entity.ChunkCount.ToString();
         if (!string.IsNullOrEmpty(entity.ErrorMessage))
@@ -399,13 +405,15 @@ public class PostgresDocumentStore : IDocumentStore
             entity.Summary,
             entity.SummaryGeneratedAt,
             entity.SummaryContentHash,
-            entity.IngestionState)
+            entity.IngestionStatus,
+            entity.SummaryStatus)
         {
             // Which of the two columns is set, kept alongside the collapsed OwnerId above so a
             // caller can tell a source-owned row from a container-owned one.
             Owner = entity.SourceId is Guid sourceId
                 ? OwnerRef.ForSource(sourceId)
                 : OwnerRef.ForContainer(entity.ContainerId!.Value),
+            AttemptCount = entity.AttemptCount,
         };
     }
 }

@@ -23,6 +23,13 @@ public interface IReindexService
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Information about whether reindex is needed and why.</returns>
     Task<ReindexCheck> CheckDocumentAsync(string documentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Re-enqueues documents whose ingestion job was lost, with the settings they were enqueued
+    /// with. Unlike a reindex, the attempt count carries on: a lost job is not a new version.
+    /// </summary>
+    /// <returns>How many were enqueued.</returns>
+    Task<int> RequeueAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct = default);
 }
 
 /// <summary>

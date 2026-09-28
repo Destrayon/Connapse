@@ -349,7 +349,7 @@ public class SqlBm25SearchTests(SharedWebAppFixture fixture)
             SizeBytes = 1,
             ChunkCount = contents.Length,
             Generation = 1,
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = new Dictionary<string, string>(),
         });

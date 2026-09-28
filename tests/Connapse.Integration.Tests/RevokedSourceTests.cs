@@ -40,7 +40,7 @@ public sealed class RevokedSourceTests(SharedWebAppFixture fixture)
             FileName = "readme.md",
             Path = "/readme.md",
             ContentHash = Guid.NewGuid().ToString("N"),
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = [],
         };

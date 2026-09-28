@@ -24,28 +24,6 @@ public record IngestionResult(
     TimeSpan Duration,
     List<string> Warnings);
 
-public record IngestionProgress(
-    IngestionPhase Phase,
-    double PercentComplete,
-    string? Message);
-
-/// <summary>
-/// DTO for SignalR real-time ingestion progress updates.
-/// Matches the structure sent by IngestionProgressBroadcaster.
-/// </summary>
-public record IngestionProgressUpdate(
-    string JobId,
-    string DocumentId,
-    string? ContainerId,
-    string State,
-    string? CurrentPhase,
-    double PercentComplete,
-    string? ErrorMessage,
-    DateTime? StartedAt,
-    DateTime? CompletedAt);
-
-public enum IngestionPhase { Parsing, Chunking, Embedding, Storing, Complete }
-
 public enum ChunkingStrategy
 {
     Semantic,

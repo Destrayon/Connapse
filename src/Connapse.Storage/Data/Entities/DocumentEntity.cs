@@ -53,7 +53,16 @@ public class DocumentEntity
     public long SizeBytes { get; set; }
     public int ChunkCount { get; set; }
     public int Generation { get; set; } = 1;
-    public string Status { get; set; } = "Pending";
+
+    // Written only by DocumentLifecycle.
+    public DocumentStatus IngestionStatus { get; set; } = DocumentStatus.Queued;
+    public SummaryStatus SummaryStatus { get; set; } = SummaryStatus.NotNeeded;
+    public int AttemptCount { get; set; }
+    public DateTime StatusChangedAt { get; set; }
+
+    /// <summary>The Hangfire job id of the current attempt; the stuck-job sweep checks it.</summary>
+    public string? JobId { get; set; }
+
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastIndexedAt { get; set; }
@@ -63,10 +72,6 @@ public class DocumentEntity
     public string? Summary { get; set; }
     public DateTime? SummaryGeneratedAt { get; set; }
     public string? SummaryContentHash { get; set; } // raw-file content hash (= content_hash) at time of summary
-
-    // Multi-stage enrichment lifecycle driving UI status pills.
-    // Distinct from Status (which tracks the ingestion job's lifecycle string).
-    public IngestionState IngestionState { get; set; } = IngestionState.Pending;
 
     // Navigation properties
     public ContainerEntity? Container { get; set; }

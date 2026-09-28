@@ -291,14 +291,13 @@ public static class ContainersEndpoints
             {
                 var virtualPath = file.Path.StartsWith('/') ? file.Path : "/" + file.Path;
 
-                if (existingByPath.TryGetValue(virtualPath, out var existing))
+                // Only files with no document are new. A document that is in flight already has
+                // a job (or the stuck-job sweep will give it one), and enqueueing it again would
+                // supersede that job and repeat its work.
+                if (existingByPath.ContainsKey(virtualPath))
                 {
-                    var status = existing.Metadata.GetValueOrDefault("Status");
-                    if (status is "Ready" or "Failed")
-                    {
-                        skipped++;
-                        continue;
-                    }
+                    skipped++;
+                    continue;
                 }
 
                 var fileName = Path.GetFileName(virtualPath);
@@ -325,9 +324,7 @@ public static class ContainersEndpoints
                 }
 
                 jobsToEnqueue.Add(new IngestionJob(
-                    JobId: Guid.NewGuid().ToString(),
                     DocumentId: documentId,
-                    Path: virtualPath,
                     Options: new IngestionOptions(
                         DocumentId: documentId,
                         FileName: fileName,

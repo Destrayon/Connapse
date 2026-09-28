@@ -1,241 +1,187 @@
 ﻿using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
+using FluentAssertions;
+using Hangfire;
+using Hangfire.Common;
+using Hangfire.States;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace Connapse.Background.Tests.Jobs;
 
 [Trait("Category", "Unit")]
 public class IngestionJobsTests
 {
-    [Fact]
-    public async Task IngestAsync_SummaryClusteringMode_TransitionsToIndexedAndEnqueuesPerDocSummary()
+    private readonly IKnowledgeIngester _ingester = Substitute.For<IKnowledgeIngester>();
+    private readonly IDocumentStore _docStore = Substitute.For<IDocumentStore>();
+    private readonly IDocumentLifecycle _lifecycle = Substitute.For<IDocumentLifecycle>();
+    private readonly IPerDocSummarizer _summarizer = Substitute.For<IPerDocSummarizer>();
+    private readonly IContainerSettingsResolver _settings = Substitute.For<IContainerSettingsResolver>();
+    private readonly IBackgroundJobClient _bgClient = Substitute.For<IBackgroundJobClient>();
+
+    private readonly Guid _containerId = Guid.NewGuid();
+    private readonly Guid _documentId = Guid.NewGuid();
+    private string DocumentId => _documentId.ToString();
+
+    public IngestionJobsTests()
     {
-        var ingester = Substitute.For<IKnowledgeIngester>();
-        var docStore = Substitute.For<IDocumentStore>();
-        var fileSystem = Substitute.For<IKnowledgeFileSystem>();
-        var parsers = Array.Empty<IDocumentParser>();
-        var summarizer = Substitute.For<IPerDocSummarizer>();
-        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
-        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
-        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
+        _lifecycle.TryClaimAsync(_documentId, Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(true);
+        _lifecycle.RetryScheduledAsync(_documentId, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new IngestionResult(DocumentId, ChunkCount: 3, TimeSpan.FromMilliseconds(5), []));
+        _bgClient.Create(Arg.Any<Job>(), Arg.Any<IState>()).Returns("retry-job");
+        UseSummaryMethod(enabled: false, SummaryStrategy.DocumentClustering);
+    }
 
-        Guid containerId = Guid.NewGuid();
-        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings
+    private IngestionJobs CreateJobs() => new(
+        _ingester, _docStore, _lifecycle, _summarizer, _settings, _bgClient,
+        Substitute.For<IDbContextFactory<KnowledgeDbContext>>(),
+        Substitute.For<JobStorage>(),
+        Substitute.For<IReindexService>(),
+        Substitute.For<ILogger<IngestionJobs>>());
+
+    private IngestionOptions Options(int generation = 7) => new(
+        DocumentId: DocumentId,
+        FileName: "test.txt",
+        ContentType: "text/plain",
+        ContainerId: _containerId.ToString(),
+        Generation: generation);
+
+    private void UseSummaryMethod(bool enabled, string method) =>
+        _settings.GetSummarySettingsAsync(_containerId, Arg.Any<CancellationToken>())
+            .Returns(new SummarySettings { Enabled = enabled, ContainerSummaryMethod = method });
+
+    private void DocumentHasAttempts(int attempts) =>
+        _docStore.GetAsync(DocumentId, Arg.Any<CancellationToken>())
+            .Returns(new Document(
+                DocumentId, _containerId.ToString(), "test.txt", "text/plain", "/test.txt",
+                SizeBytes: 12, CreatedAt: DateTime.UtcNow, Metadata: new Dictionary<string, string>())
             {
-                Enabled = true,
-                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
-            }));
+                AttemptCount = attempts,
+            });
 
-        var containerStore = Substitute.For<IContainerStore>();
-        var managedStorage = Substitute.For<IManagedStorageProvider>();
-        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
-        var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
-            settingsResolver, bgClient, stateBroadcaster, logger);
+    [Fact]
+    public async Task IngestAsync_ClaimRefused_DoesNotRunThePipeline()
+    {
+        _lifecycle.TryClaimAsync(_documentId, 7, Arg.Any<CancellationToken>()).Returns(false);
 
-        string documentId = Guid.NewGuid().ToString();
-        var options = new IngestionOptions(
-            DocumentId: documentId,
-            FileName: "test.txt",
-            ContentType: "text/plain",
-            ContainerId: containerId.ToString());
+        await CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
 
-        await jobs.IngestAsync(documentId, options, CancellationToken.None);
-
-        await ingester.Received(1).IngestByIdAsync(
-            documentId, options, Arg.Any<CancellationToken>());
-
-        // Eager mode: state transitions to Indexed and a follow-up PerDocSummary job is enqueued.
-        await docStore.Received(1).UpdateIngestionStateAsync(
-            documentId, IngestionState.Indexed, Arg.Any<CancellationToken>());
-        bgClient.Received(1).Create(
-            Arg.Any<Hangfire.Common.Job>(),
-            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
+        await _ingester.DidNotReceiveWithAnyArgs().IngestByIdAsync(default!, default!, default);
     }
 
     [Fact]
-    public async Task IngestAsync_DocumentClusteringMode_TransitionsDirectlyToSummaryIndexedNoEnqueue()
+    public async Task IngestAsync_SummaryClusteringMode_MarksSummaryPendingAndEnqueuesIt()
     {
-        var ingester = Substitute.For<IKnowledgeIngester>();
-        var docStore = Substitute.For<IDocumentStore>();
-        var parsers = Array.Empty<IDocumentParser>();
-        var summarizer = Substitute.For<IPerDocSummarizer>();
-        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
-        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
-        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
+        UseSummaryMethod(enabled: true, SummaryStrategy.SummaryClustering);
 
-        Guid containerId = Guid.NewGuid();
-        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings
-            {
-                Enabled = true,
-                ContainerSummaryMethod = SummaryStrategy.DocumentClustering,
-            }));
+        await CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
 
-        var containerStore = Substitute.For<IContainerStore>();
-        var managedStorage = Substitute.For<IManagedStorageProvider>();
-        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
-        var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
-            settingsResolver, bgClient, stateBroadcaster, logger);
-
-        string documentId = Guid.NewGuid().ToString();
-        var options = new IngestionOptions(
-            DocumentId: documentId,
-            FileName: "test.txt",
-            ContentType: "text/plain",
-            ContainerId: containerId.ToString());
-
-        await jobs.IngestAsync(documentId, options, CancellationToken.None);
-
-        // Lazy mode: terminal state is SummaryIndexed; no PerDoc job is enqueued.
-        await docStore.Received(1).UpdateIngestionStateAsync(
-            documentId, IngestionState.SummaryIndexed, Arg.Any<CancellationToken>());
-        await docStore.DidNotReceive().UpdateIngestionStateAsync(
-            documentId, IngestionState.Indexed, Arg.Any<CancellationToken>());
-        bgClient.DidNotReceive().Create(
-            Arg.Any<Hangfire.Common.Job>(),
-            Arg.Is<Hangfire.States.IState>(s => s is Hangfire.States.EnqueuedState));
+        await _lifecycle.Received(1).SetSummaryStatusAsync(_documentId, SummaryStatus.Pending, Arg.Any<CancellationToken>());
+        _bgClient.Received(1).Create(
+            Arg.Is<Job>(j => j.Method.Name == nameof(IIngestionJobs.PerDocSummaryAsync)),
+            Arg.Any<EnqueuedState>());
     }
 
     [Fact]
-    public async Task PerDocSummaryAsync_OnSummaryGenerated_TransitionsToSummaryIndexedAndDoesNotScheduleRollup()
+    public async Task IngestAsync_DocumentClusteringMode_NeedsNoPerDocSummary()
     {
-        var ingester = Substitute.For<IKnowledgeIngester>();
-        var docStore = Substitute.For<IDocumentStore>();
-        var fileSystem = Substitute.For<IKnowledgeFileSystem>();
-        // Fake parser that produces deterministic text for any extension we use in the test.
-        var parser = new FakeParser([".txt"], "Test content");
-        var parsers = new IDocumentParser[] { parser };
-        var summarizer = Substitute.For<IPerDocSummarizer>();
-        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
-        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
-        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
+        UseSummaryMethod(enabled: true, SummaryStrategy.DocumentClustering);
 
-        string documentId = Guid.NewGuid().ToString();
-        Guid containerId = Guid.NewGuid();
+        await CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
 
-        docStore.GetAsync(documentId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Document?>(new Document(
-                Id: documentId,
-                ContainerId: containerId.ToString(),
-                FileName: "doc.txt",
-                ContentType: "text/plain",
-                Path: "/doc.txt",
-                SizeBytes: 100,
-                CreatedAt: DateTime.UtcNow,
-                Metadata: new Dictionary<string, string>(),
-                Summary: null,
-                SummaryGeneratedAt: null,
-                SummaryContentHash: null,
-                IngestionState: IngestionState.Indexed)));
+        await _lifecycle.Received(1).SetSummaryStatusAsync(_documentId, SummaryStatus.NotNeeded, Arg.Any<CancellationToken>());
+        _bgClient.DidNotReceiveWithAnyArgs().Create(default!, default!);
+    }
 
-        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings
-            {
-                Enabled = true,
-                // Explicit: this test exercises the eager summary-clustering path, where
-                // PerDocSummaryAsync actually invokes the summarizer. The new default
-                // (document-clustering) takes a separate early-return path covered by
-                // IngestionJobsHerculesTests.
-                ContainerSummaryMethod = SummaryStrategy.SummaryClustering,
-            }));
+    [Fact]
+    public async Task IngestAsync_PermanentFailure_MarksFailedPermanentWithoutRetrying()
+    {
+        _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new PermanentIngestionException("No extractable content"));
 
-        // Container/connector chain: GetAsync → connector → ReadFileAsync
-        var container = new Container(
-            Id: containerId.ToString(),
-            Name: "test",
-            Description: null,
-            CreatedAt: DateTime.UtcNow,
-            UpdatedAt: DateTime.UtcNow);
-        var connector = Substitute.For<IConnector>();
-        connector.ResolveJobPath(Arg.Any<string>()).Returns(call => call.Arg<string>());
-        connector.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(call => Task.FromResult<Stream>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes("Test content"))));
+        Func<Task> act = () => CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
 
-        summarizer.GenerateAsync(
+        await act.Should().NotThrowAsync();
+        await _lifecycle.Received(1).FailAsync(
+            _documentId, 7, DocumentStatus.FailedPermanent, "No extractable content", Arg.Any<CancellationToken>());
+        _bgClient.DidNotReceiveWithAnyArgs().Create(default!, default!);
+    }
+
+    [Fact]
+    public async Task IngestAsync_TransientFailureWithAttemptsLeft_RequeuesAndSchedulesARetry()
+    {
+        DocumentHasAttempts(1);
+        _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("embedding provider unreachable"));
+
+        Func<Task> act = () => CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+        await _lifecycle.Received(1).RetryScheduledAsync(
+            _documentId, 7, "embedding provider unreachable", Arg.Any<CancellationToken>());
+        _bgClient.Received(1).Create(
+            Arg.Is<Job>(j => j.Method.Name == nameof(IIngestionJobs.IngestAsync)),
+            Arg.Is<ScheduledState>(s => s.EnqueueAt > DateTime.UtcNow));
+        await _lifecycle.Received(1).RecordJobAsync(_documentId, 7, "retry-job", Arg.Any<CancellationToken>());
+        await _lifecycle.DidNotReceiveWithAnyArgs().FailAsync(default, default, default, default!, default);
+    }
+
+    [Fact]
+    public async Task IngestAsync_TransientFailureOnLastAttempt_MarksFailedRetryable()
+    {
+        DocumentHasAttempts(IngestionJobs.MaxAttempts);
+        _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("still down"));
+
+        Func<Task> act = () => CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+        await _lifecycle.Received(1).FailAsync(
+            _documentId, 7, DocumentStatus.FailedRetryable, "still down", Arg.Any<CancellationToken>());
+        _bgClient.DidNotReceiveWithAnyArgs().Create(default!, default!);
+    }
+
+    [Fact]
+    public async Task PerDocSummaryAsync_SummaryGenerated_SummarizesTheStoredTextAndMarksDone()
+    {
+        UseSummaryMethod(enabled: true, SummaryStrategy.SummaryClustering);
+        DocumentHasAttempts(0);
+        _docStore.GetDocumentTextAsync(DocumentId, Arg.Any<CancellationToken>()).Returns("Text from chunks");
+        _summarizer.GenerateAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
                 Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new PerDocSummarizationResult(
-                Skipped: false, Summary: "Test summary", InputTokens: 10, OutputTokens: 5, Model: "test")));
+            .Returns(new PerDocSummarizationResult(
+                Skipped: false, Summary: "Test summary", InputTokens: 10, OutputTokens: 5, Model: "test"));
 
-        var containerStore = Substitute.For<IContainerStore>();
-        containerStore.GetAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Container?>(container));
-        var managedStorage = Substitute.For<IManagedStorageProvider>();
-        managedStorage.CreateConnector(Arg.Any<string>()).Returns(connector);
-        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
-        var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
-            settingsResolver, bgClient, stateBroadcaster, logger);
-        await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
+        await CreateJobs().PerDocSummaryAsync(DocumentId, CancellationToken.None);
 
-        await docStore.Received(1).UpdateIngestionStateAsync(
-            documentId, IngestionState.SummaryIndexed, Arg.Any<CancellationToken>());
-
-        // Rollup is NOT scheduled per-doc anymore — the recurring SweepStaleContainersAsync
-        // job (every 5 min) coalesces N per-doc completions into 1 rollup once the burst
-        // settles. This avoids the "1 rollup per upload" dashboard noise + LLM waste.
-        bgClient.DidNotReceive().Create(
-            Arg.Any<Hangfire.Common.Job>(),
-            Arg.Any<Hangfire.States.IState>());
-    }
-
-    [Fact]
-    public async Task PerDocSummaryAsync_WhenSettingsDisabled_SkipsAndDoesNotScheduleRollup()
-    {
-        var ingester = Substitute.For<IKnowledgeIngester>();
-        var docStore = Substitute.For<IDocumentStore>();
-        var fileSystem = Substitute.For<IKnowledgeFileSystem>();
-        var parsers = Array.Empty<IDocumentParser>();
-        var summarizer = Substitute.For<IPerDocSummarizer>();
-        var settingsResolver = Substitute.For<IContainerSettingsResolver>();
-        var bgClient = Substitute.For<Hangfire.IBackgroundJobClient>();
-        var logger = Substitute.For<Microsoft.Extensions.Logging.ILogger<IngestionJobs>>();
-
-        string documentId = Guid.NewGuid().ToString();
-        Guid containerId = Guid.NewGuid();
-
-        docStore.GetAsync(documentId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<Document?>(new Document(
-                Id: documentId, ContainerId: containerId.ToString(),
-                FileName: "doc.txt", ContentType: "text/plain", Path: "/doc.txt",
-                SizeBytes: 100, CreatedAt: DateTime.UtcNow,
-                Metadata: new Dictionary<string, string>(),
-                Summary: null, SummaryGeneratedAt: null, SummaryContentHash: null,
-                IngestionState: IngestionState.Indexed)));
-
-        settingsResolver.GetSummarySettingsAsync(containerId, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(new SummarySettings { Enabled = false }));
-
-        var containerStore = Substitute.For<IContainerStore>();
-        var managedStorage = Substitute.For<IManagedStorageProvider>();
-        var stateBroadcaster = Substitute.For<IIngestionStateBroadcaster>();
-        var jobs = new IngestionJobs(
-            ingester, docStore, containerStore, managedStorage, parsers, summarizer,
-            settingsResolver, bgClient, stateBroadcaster, logger);
-        await jobs.PerDocSummaryAsync(documentId, CancellationToken.None);
-
-        await summarizer.DidNotReceive().GenerateAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(),
+        await _summarizer.Received(1).GenerateAsync(
+            DocumentId, Arg.Any<string>(), "Text from chunks", Arg.Any<string?>(), Arg.Any<string>(),
             Arg.Any<SummarySettings>(), Arg.Any<CancellationToken>());
-        bgClient.DidNotReceive().Create(
-            Arg.Any<Hangfire.Common.Job>(), Arg.Any<Hangfire.States.IState>());
+        await _lifecycle.Received(1).SetSummaryStatusAsync(_documentId, SummaryStatus.Done, Arg.Any<CancellationToken>());
+
+        // Rollup is not scheduled per document: the recurring sweep coalesces a burst into one.
+        _bgClient.DidNotReceiveWithAnyArgs().Create(default!, default!);
     }
 
-    private sealed class FakeParser(string[] extensions, string content) : IDocumentParser
+    [Theory]
+    [InlineData(false, SummaryStrategy.SummaryClustering)]
+    [InlineData(true, SummaryStrategy.DocumentClustering)]
+    public async Task PerDocSummaryAsync_NoPerDocSummaryDue_SkipsTheSummarizer(bool enabled, string method)
     {
-        private readonly string _content = content;
+        UseSummaryMethod(enabled, method);
+        DocumentHasAttempts(0);
 
-        public IReadOnlySet<string> SupportedExtensions { get; } =
-            new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);
+        await CreateJobs().PerDocSummaryAsync(DocumentId, CancellationToken.None);
 
-        public Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new ParsedDocument(
-                Content: _content,
-                Metadata: new Dictionary<string, string>(),
-                Warnings: new List<string>()));
+        await _summarizer.DidNotReceiveWithAnyArgs().GenerateAsync(
+            default!, default!, default!, default!, default!, default!, default);
+        await _lifecycle.Received(1).SetSummaryStatusAsync(_documentId, SummaryStatus.NotNeeded, Arg.Any<CancellationToken>());
     }
 }

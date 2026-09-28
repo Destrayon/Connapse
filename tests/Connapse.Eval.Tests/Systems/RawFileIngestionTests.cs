@@ -48,10 +48,10 @@ public class RawFileIngestionTests
         pdfProbe.ParsedText.Should().Contain("fermentation").And.NotContain("--- Page");
         pdfProbe.Chunks.Should().NotBeEmpty().And.NotContain(c => c.Contains("--- Page"));
 
-        // Today an image-only PDF yields no text and a Failed status, but the ingestion job still
-        // marks it indexed, so the UI shows it as Ready. Fixing that defect should flip this assertion.
+        // An image-only PDF yields no text. That is a permanent failure — the same file will never
+        // yield any — and the UI shows it as one (#562; it used to be marked indexed, so shown Ready).
         outcomes["scan"].Status.Should().Be("Failed");
-        outcomes["scan"].IngestionState.Should().NotBe(IngestionState.Failed);
+        outcomes["scan"].IngestionStatus.Should().Be(DocumentStatus.FailedPermanent);
         ProbeResult scanProbe = await IngestionProbe.ProbeAsync(system.Services, scan, outcomes["scan"].ConnapseDocId, CancellationToken.None);
         scanProbe.EmptyPages.Should().Equal(1);
         scanProbe.Chunks.Should().BeEmpty();

@@ -79,13 +79,9 @@ builder.Services.AddSingleton<IngestionProgressNotifier>();
 // Downstream apps (e.g. multi-tenant Cloud) override via services.Replace().
 builder.Services.AddScoped<IProfileMenuProvider, DefaultProfileMenuProvider>();
 
-// Add background services
-// Singleton-as-hosted-service so the same instance also serves IIngestionStateBroadcaster
-// for Connapse.Background Hangfire jobs (which can't reference Web directly).
-builder.Services.AddSingleton<IngestionProgressBroadcaster>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<IngestionProgressBroadcaster>());
-builder.Services.AddSingleton<IIngestionStateBroadcaster>(sp =>
-    sp.GetRequiredService<IngestionProgressBroadcaster>());
+// Pushes document status transitions to the UI. Registered against the Core interface so the
+// document lifecycle in Connapse.Storage can call it without a Web reference.
+builder.Services.AddSingleton<IIngestionStateBroadcaster, IngestionProgressBroadcaster>();
 
 // Polls every enabled source and reconciles it with its remote. Replaces
 // ConnectorWatcherService, which enumerated containers — after the #350 backfill moved
@@ -357,6 +353,13 @@ using (var scope = app.Services.CreateScope())
         recurringJobId: "summary-sweep-stale-containers",
         methodCall: s => s.SweepStaleContainersAsync(default),
         cronExpression: "*/5 * * * *");
+
+    // Every 10 minutes: re-enqueue documents whose ingestion job was lost. Status lives on the
+    // document row, so a document whose job died would otherwise sit Queued or Processing for good.
+    recurringJobManager.AddOrUpdate<Connapse.Background.Jobs.IIngestionJobs>(
+        recurringJobId: "ingestion-requeue-stuck-documents",
+        methodCall: j => j.RequeueStuckDocumentsAsync(default),
+        cronExpression: "*/10 * * * *");
 
     // The orphaned-grant sweep was removed in #463, but Hangfire keeps recurring-job definitions
     // in the database independently of the code that registered them. Left in place, the old
