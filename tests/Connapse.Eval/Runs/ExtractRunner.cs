@@ -44,6 +44,7 @@ public sealed class ExtractRunner(
         (RunFolder run, RunManifest runManifest) = OpenOrCreate(request, config);
 
         List<string> pending = names.Where(n => !run.IsDatasetComplete(n)).ToList();
+        EvalRunner.RefuseMixedDatasetRevisions(names.Except(pending), runManifest, manifest, hashes, run);
         if (pending.Count > 0)
         {
             await using ConnapseSearchSystem system = await systemFactory(config, request.RealEmbedder, ct);

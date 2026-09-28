@@ -101,7 +101,7 @@ public sealed class EvalRunner(
     /// version and file hashes the current manifest just verified — otherwise the run would mix
     /// results scored against one dataset revision with results scored against another.
     /// </summary>
-    private static void RefuseMixedDatasetRevisions(
+    internal static void RefuseMixedDatasetRevisions(
         IEnumerable<string> completed, RunManifest runManifest, EvalManifest manifest,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> hashes, RunFolder run)
     {

@@ -78,14 +78,16 @@ public static partial class HtmlReport
         html.Append($"<h1>{E(c.Candidate)}</h1><p class=muted>compared with baseline {E(c.Baseline)} · paired by check · Holm-corrected permutation p &lt; 0.05 is significant</p>");
         if (c.UnpairedDatasets.Count > 0)
             html.Append($"<div class=banner>Not compared (missing or unfinished on one side): {E(string.Join(", ", c.UnpairedDatasets))}.</div>");
+        if (c.DatasetMismatches.Count > 0)
+            html.Append($"<div class=banner>Not compared (dataset revision or files differ): {E(string.Join(", ", c.DatasetMismatches))}.</div>");
         html.Append($"<p><strong>{E(c.Verdict)}</strong></p><p>Silent-failure rate Δ {S(c.SilentFailureDelta)} · fails-loudly pass rate Δ {S(c.FailsLoudlyDelta)}</p>");
-        html.Append("<table><tr><th>Dataset</th><th>Category</th><th>Level</th><th>baseline</th><th>candidate</th><th>Δ</th><th>p (Holm)</th><th>MDE</th><th>n</th></tr>");
+        html.Append("<table><tr><th>Dataset</th><th>Category</th><th>Level</th><th>baseline</th><th>candidate</th><th>Δ</th><th>p (Holm)</th><th>MDE</th><th>n</th><th>unmatched</th></tr>");
         foreach (CategoryComparison row in c.Rows)
         {
             string css = !row.Significant ? "" : row.Stats!.MeanDifference > 0 ? " class=up" : " class=down";
             html.Append($"<tr><td>{E(row.Dataset)}</td><td>{E(row.Category)}</td><td>{E(row.Level)}</td><td>{Pct(row.BaselineRate)}</td><td>{Pct(row.CandidateRate)}</td>"
                 + $"<td{css}>{(row.Stats is null ? "—" : S(row.Stats.MeanDifference))}</td><td>{(double.IsNaN(row.HolmP) ? "—" : row.HolmP.ToString("F4", System.Globalization.CultureInfo.InvariantCulture))}</td>"
-                + $"<td>{(row.Stats is null ? "—" : F(row.Stats.MinimumDetectableEffect))}</td><td>{row.Stats?.N ?? 0}</td></tr>");
+                + $"<td>{(row.Stats is null ? "—" : F(row.Stats.MinimumDetectableEffect))}</td><td>{row.Stats?.N ?? 0}</td><td>{row.Unmatched}</td></tr>");
         }
         return html.Append("</table></body></html>").ToString();
     }

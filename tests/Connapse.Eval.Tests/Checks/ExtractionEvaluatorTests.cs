@@ -1,6 +1,8 @@
 using Connapse.Core;
 using Connapse.Eval.Checks;
 using Connapse.Eval.Checks.OlmOcr;
+using Connapse.Eval.Datasets;
+using Connapse.Eval.Reports;
 using Connapse.Eval.Runs;
 using FluentAssertions;
 
@@ -135,5 +137,67 @@ public class ExtractionEvaluatorTests : IDisposable
         scores.Datasets.Single().Categories.Select(c => (c.Level, c.Rate))
             .Should().BeEquivalentTo([(CheckLevel.Chunks, 0.0), (CheckLevel.Parsed, 1.0)]);
         run.IsExtraction.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_AbsentCheckOnDocumentWithNoChunks_Fails()
+    {
+        ExtractionCheck check = Check(new TextPresenceTest("doc.pdf", 1, "a1", "absent", 0, "Journal of Examples"));
+
+        CheckRecord chunks = ExtractionEvaluator.Evaluate(Doc(chunks: 0), new DocumentTexts("body", []), [check])
+            .Single(r => r.CheckId == "a1" && r.Level == CheckLevel.Chunks);
+
+        chunks.Outcome.Should().Be(CheckOutcome.Fail);
+    }
+
+    private RunFolder Run(string name, string version, params CheckRecord[] checks)
+    {
+        RunFolder run = RunFolder.Create(Path.Combine(_root, name), "extract-v1", "connapse", "extract", "abc1234", DateTimeOffset.UtcNow);
+        run.WriteManifest(new RunManifest("abc1234", false, "extract-v1", "connapse", "extract", "h", SearchMode.Keyword,
+            new Dictionary<string, string>(), new Dictionary<string, string>(), "m", "os", 1, DateTimeOffset.UtcNow, null,
+            [new RunDatasetInfo("olmocr-bench", version, new Dictionary<string, string> { ["f"] = version }, [], 1, 0, false, 0)],
+            null, [], RunManifest.ExtractKind));
+        run.WriteExtraction("olmocr-bench", [Doc() with { Dataset = "olmocr-bench" }], checks);
+        run.MarkComplete("olmocr-bench");
+        return run;
+    }
+
+    private static CheckRecord Result(string id, string category, string outcome) =>
+        new("olmocr-bench", "doc.pdf", category, id, "present", CheckLevel.Parsed, outcome, "");
+
+    [Fact]
+    public void Score_NativeHeadlineIncludesBaseline()
+    {
+        RunFolder run = Run("native", "1",
+            Result("h1", "headers_footers", CheckOutcome.Pass),
+            Result("b1", OlmOcrBenchAdapter.BaselineCategory, CheckOutcome.Fail));
+
+        ExtractionScoring.Score(run).OlmOcrNative[CheckLevel.Parsed].Should().Be(0.5);
+    }
+
+    [Fact]
+    public void Compare_DifferentDatasetRevisions_AreNotCompared()
+    {
+        RunFolder before = Run("before", "1", Result("h1", "headers_footers", CheckOutcome.Fail), Result("h2", "headers_footers", CheckOutcome.Fail));
+        RunFolder after = Run("after", "2", Result("h1", "headers_footers", CheckOutcome.Pass), Result("h2", "headers_footers", CheckOutcome.Pass));
+
+        ExtractionComparisonResult result = ExtractionComparisonBuilder.Build(before, after);
+
+        result.DatasetMismatches.Should().Equal("olmocr-bench");
+        result.Rows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Compare_ChecksScoredByOneRunOnly_AreReportedAndBlockSignificance()
+    {
+        CheckRecord[] shared = Enumerable.Range(0, 20).Select(i => Result($"h{i}", "headers_footers", CheckOutcome.Fail)).ToArray();
+        RunFolder before = Run("before", "1", shared);
+        RunFolder after = Run("after", "1",
+            [.. shared.Select(c => c with { Outcome = CheckOutcome.Pass }), Result("extra", "headers_footers", CheckOutcome.Pass)]);
+
+        CategoryComparison row = ExtractionComparisonBuilder.Build(before, after).Rows.Single();
+
+        row.Unmatched.Should().Be(1);
+        row.Significant.Should().BeFalse();
     }
 }

@@ -22,7 +22,8 @@ public sealed record ExtractionDatasetScore(
 /// The headline numbers of an extract run.
 /// <para><see cref="SilentFailureRate"/>: File documents shown as fine although text is missing, ÷ all File documents.</para>
 /// <para><see cref="FailsLoudlyRate"/>: documents that must fail loudly and did, ÷ those that must.</para>
-/// <para><see cref="OlmOcrNative"/>: olmOCR mean of per-category pass rates over the native-PDF categories, per level.</para>
+/// <para><see cref="OlmOcrNative"/>: olmOCR mean of per-category pass rates over the native-PDF categories and
+/// baseline, per level (baseline checks run on the parsed text only, so the chunk level has no baseline).</para>
 /// <para><see cref="OlmOcrComparable"/>: olmOCR mean over all categories plus baseline at the parsed level, with
 /// skipped math checks counted as failures, as a system without LaTeX output scores on the published benchmark.</para>
 /// </summary>
@@ -75,7 +76,8 @@ public static class ExtractionScoring
                 foreach (string level in new[] { CheckLevel.Parsed, CheckLevel.Chunks })
                 {
                     List<double> rates = categories
-                        .Where(c => c.Level == level && OlmOcrBenchAdapter.HeadlineCategories.Contains(c.Category) && !double.IsNaN(c.Rate))
+                        .Where(c => c.Level == level && !double.IsNaN(c.Rate)
+                            && (OlmOcrBenchAdapter.HeadlineCategories.Contains(c.Category) || c.Category == OlmOcrBenchAdapter.BaselineCategory))
                         .Select(c => c.Rate).ToList();
                     if (rates.Count > 0)
                         native[level] = rates.Average();

@@ -34,16 +34,44 @@ public sealed class EmbeddingDiskCache(string root)
         Buffer.BlockCopy(vector, 0, bytes, 0, bytes.Length);
         string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         File.WriteAllBytes(temporary, bytes);
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, path, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Two documents embedding the same text race to write the same key; on Windows the losing
+                // rename is denied while the winner's file is open. Only that case is absorbed: the file
+                // already there must hold exactly this vector. The winner's handle closes within
+                // moments, so both the rename and the read-back get a few short retries; anything else
+                // propagates.
+                if (SameContent(path, bytes))
+                {
+                    File.Delete(temporary);
+                    return;
+                }
+                if (attempt == 5)
+                {
+                    File.Delete(temporary);
+                    throw;
+                }
+                Thread.Sleep(25 * attempt);
+            }
+        }
+    }
+
+    private static bool SameContent(string path, byte[] bytes)
+    {
         try
         {
-            File.Move(temporary, path, overwrite: true);
+            return File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes);
         }
-        catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && File.Exists(path))
+        catch (IOException)
         {
-            // Two documents embedding the same text race to write the same key; on Windows the losing
-            // rename is denied while the winner's file is open. The key is a hash of the text, so the
-            // file already there holds the same vector.
-            File.Delete(temporary);
+            return false;
         }
     }
 

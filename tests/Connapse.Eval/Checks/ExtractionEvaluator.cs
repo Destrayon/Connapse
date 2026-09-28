@@ -113,9 +113,10 @@ public static class ExtractionEvaluator
         }
 
         bool absent = test.Type == "absent";
+        // Nothing stored is lost output, not a clean page: every chunk-level check fails, absent included.
         if (texts.Chunks.Count == 0)
         {
-            yield return Record(CheckLevel.Chunks, absent ? CheckOutcome.Pass : CheckOutcome.Fail, "document has no chunks");
+            yield return Record(CheckLevel.Chunks, CheckOutcome.Fail, "document has no chunks");
             yield break;
         }
 
