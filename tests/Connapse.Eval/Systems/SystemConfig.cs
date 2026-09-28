@@ -31,6 +31,9 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
         get
         {
             StringBuilder canonical = new($"mode={SearchMode}\n");
+            // Only when set, so configs without a strategy keep the hashes their runs already carry.
+            if (ChunkingStrategy is not null)
+                canonical.Append("chunkingStrategy=").Append(ChunkingStrategy).Append('\n');
             foreach ((string key, string value) in Settings.OrderBy(p => p.Key, StringComparer.Ordinal))
                 canonical.Append(key).Append('=').Append(value).Append('\n');
             return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))[..16];

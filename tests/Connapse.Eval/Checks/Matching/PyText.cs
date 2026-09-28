@@ -14,11 +14,26 @@ public static class PyText
     /// <summary>A regex character class equal to Python's <c>\s</c> on str patterns (<c>str.isspace</c>).</summary>
     public const string SpaceClass = @"[\t-\r\x1c-\x20\x85\xa0  -     　]";
 
+    /// <summary>
+    /// Code points as Python sees them. A surrogate pair becomes one code point; an unpaired surrogate
+    /// keeps its own value (Python strings can hold lone surrogates), rather than becoming U+FFFD as
+    /// <see cref="string.EnumerateRunes"/> would make it, which would make distinct lone surrogates equal.
+    /// </summary>
     public static int[] CodePoints(string s)
     {
         List<int> points = new(s.Length);
-        foreach (Rune rune in s.EnumerateRunes())
-            points.Add(rune.Value);
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                points.Add(char.ConvertToUtf32(s[i], s[i + 1]));
+                i++;
+            }
+            else
+            {
+                points.Add(s[i]);
+            }
+        }
         return [.. points];
     }
 
@@ -26,17 +41,27 @@ public static class PyText
     {
         StringBuilder builder = new(points.Length);
         foreach (int point in points)
-            builder.Append(new Rune(point).ToString());
+        {
+            if (point is >= 0xD800 and <= 0xDFFF)
+                builder.Append((char)point);
+            else
+                builder.Append(new Rune(point).ToString());
+        }
         return builder.ToString();
     }
 
     /// <summary>Length in code points, as Python's <c>len(str)</c>.</summary>
-    public static int Length(string s)
+    public static int Length(string s) => CodePoints(s).Length;
+
+    /// <summary>Python's <c>seq[start:stop]</c> with step 1, including negative and out-of-range bounds.</summary>
+    public static ReadOnlySpan<int> Slice(int[] points, int? start, int? stop)
     {
-        int count = 0;
-        foreach (Rune _ in s.EnumerateRunes())
-            count++;
-        return count;
+        int length = points.Length;
+        int Bound(int? value, int fallback) =>
+            value is not int v ? fallback : Math.Clamp(v < 0 ? v + length : v, 0, length);
+        int from = Bound(start, 0);
+        int to = Bound(stop, length);
+        return to <= from ? [] : points.AsSpan(from, to - from);
     }
 
     public static bool IsSpace(int c) =>
@@ -75,7 +100,9 @@ public static class PyText
         for (int i = 0; i < points.Length; i++)
         {
             int c = points[i];
-            if (c == 0x130)
+            if (!Rune.IsValid(c))
+                builder.Append((char)c);
+            else if (c == 0x130)
                 builder.Append("i̇");
             else if (c == 0x3A3)
                 builder.Append(IsFinalSigma(points, i) ? 'ς' : 'σ');
@@ -100,6 +127,8 @@ public static class PyText
 
     private static bool IsCased(int c)
     {
+        if (!Rune.IsValid(c))
+            return false;
         Rune rune = new(c);
         return Rune.GetUnicodeCategory(rune) is UnicodeCategory.UppercaseLetter or UnicodeCategory.LowercaseLetter
                    or UnicodeCategory.TitlecaseLetter
@@ -108,6 +137,6 @@ public static class PyText
 
     private static bool IsCaseIgnorable(int c) =>
         c is '\'' or '.' or ':' or '^' or '`' or 0xB7 or 0x2018 or 0x2019 or 0x2024 or 0x2027
-        || Rune.GetUnicodeCategory(new Rune(c)) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
+        || Rune.IsValid(c) && Rune.GetUnicodeCategory(new Rune(c)) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
             or UnicodeCategory.Format or UnicodeCategory.ModifierLetter or UnicodeCategory.ModifierSymbol;
 }

@@ -19,6 +19,7 @@ public class OlmOcrMatchingTests
     public static TheoryData<int> NearMatchCases => Cases("near_matches");
     public static TheoryData<int> RepeatCases => Cases("repeats");
     public static TheoryData<int> TableCases => Cases("md_tables");
+    public static TheoryData<int> SurrogateCases => Cases("surrogates");
 
     internal static TheoryData<int> Cases(string key)
     {
@@ -53,6 +54,24 @@ public class OlmOcrMatchingTests
         RapidFuzz.Ratio(a, b).Should().BeApproximately(c.GetProperty("ratio").GetDouble(), 1e-9);
         RapidFuzz.PartialRatio(a, b).Should().BeApproximately(c.GetProperty("partial_ratio").GetDouble(), 1e-9);
     }
+
+    [Theory]
+    [MemberData(nameof(SurrogateCases))]
+    public void LoneSurrogates_KeepTheirOwnCodePoints(int index)
+    {
+        JsonElement c = Expected.GetProperty("surrogates")[index];
+        string a = FromUtf16Units(c.GetProperty("a"));
+        string b = FromUtf16Units(c.GetProperty("b"));
+
+        PyText.Length(a).Should().Be(c.GetProperty("len").GetInt32());
+        PyText.CodePoints(PyText.Lower(a)).Should().Equal(c.GetProperty("lower").EnumerateArray().Select(e => e.GetInt32()));
+        RapidFuzz.Ratio(a, b).Should().BeApproximately(c.GetProperty("ratio").GetDouble(), 1e-9);
+        RapidFuzz.PartialRatio(a, b).Should().BeApproximately(c.GetProperty("partial_ratio").GetDouble(), 1e-9);
+    }
+
+    // Python code points to a .NET string: astral code points become surrogate pairs, lone surrogates stay single units.
+    private static string FromUtf16Units(JsonElement codePoints) =>
+        PyText.FromCodePoints(codePoints.EnumerateArray().Select(e => e.GetInt32()).ToArray());
 
     [Theory]
     [MemberData(nameof(NearMatchCases))]

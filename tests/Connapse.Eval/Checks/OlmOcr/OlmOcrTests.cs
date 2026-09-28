@@ -43,16 +43,15 @@ public sealed record TextPresenceTest(
             md = PyText.Lower(md);
         }
 
+        // Python truthiness (0 and None are false) and slice semantics, so negative values count from the end.
         int firstN = FirstN ?? 0;
         int lastN = LastN ?? 0;
         if (firstN != 0 || lastN != 0)
         {
             int[] points = PyText.CodePoints(md);
-            ReadOnlySpan<int> head = points.AsSpan(0, Math.Min(firstN, points.Length));
-            ReadOnlySpan<int> tail = points.AsSpan(points.Length - Math.Min(lastN, points.Length));
-            md = firstN != 0 && lastN != 0 ? PyText.FromCodePoints(head) + PyText.FromCodePoints(tail)
-                : firstN != 0 ? PyText.FromCodePoints(head)
-                : PyText.FromCodePoints(tail);
+            string head = PyText.FromCodePoints(PyText.Slice(points, null, firstN));
+            string tail = PyText.FromCodePoints(PyText.Slice(points, -lastN, null));
+            md = firstN != 0 && lastN != 0 ? head + tail : firstN != 0 ? head : tail;
         }
 
         double threshold = Threshold(reference);

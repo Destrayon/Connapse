@@ -28,8 +28,13 @@ public sealed record ProbeResult(
 /// </summary>
 public static partial class IngestionProbe
 {
-    [GeneratedRegex(@"--- Page (\d+) ---")]
-    private static partial Regex PageMarker();
+    // PdfParser writes each marker on a line of its own, just before that page's text.
+    [GeneratedRegex(@"^--- Page (\d+) ---\r?$", RegexOptions.Multiline)]
+    private static partial Regex PageMarkerLine();
+
+    // PdfParser's warnings for a page with no text or a page that failed to extract.
+    [GeneratedRegex(@"^(?:Page (\d+) contains no extractable text|Error extracting text from page (\d+):)")]
+    private static partial Regex EmptyPageWarning();
 
     public static async Task<ProbeResult> ProbeAsync(
         IServiceProvider services, string filePath, string? connapseDocId, CancellationToken ct)
@@ -43,7 +48,8 @@ public static partial class IngestionProbe
         string extension = Path.GetExtension(filePath).ToLowerInvariant();
         IDocumentParser? parser = scope.ServiceProvider.GetServices<IDocumentParser>()
             .FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
-        HashSet<int> pagesWithText = [];
+        HashSet<int> emptyPageSet = [];
+        HashSet<int> markedPages = [];
 
         if (parser is null)
         {
@@ -55,10 +61,13 @@ public static partial class IngestionProbe
             {
                 await using FileStream stream = File.OpenRead(filePath);
                 ParsedDocument document = await parser.ParseAsync(stream, Path.GetFileName(filePath), ct);
-                foreach (Match marker in PageMarker().Matches(document.Content))
-                    pagesWithText.Add(int.Parse(marker.Groups[1].Value, CultureInfo.InvariantCulture));
-                parsed = StripPageMarkers(document.Content);
+                foreach (Match marker in PageMarkerLine().Matches(document.Content))
+                    markedPages.Add(int.Parse(marker.Groups[1].Value, CultureInfo.InvariantCulture));
+                parsed = PageMarkerLine().Replace(document.Content, "");
                 warnings = document.Warnings;
+                foreach (string warning in warnings)
+                    if (EmptyPageWarning().Match(warning) is { Success: true } empty)
+                        emptyPageSet.Add(int.Parse(empty.Groups[1].Success ? empty.Groups[1].Value : empty.Groups[2].Value, CultureInfo.InvariantCulture));
                 if (document.Metadata.TryGetValue("PageCount", out string? pages)
                     && int.TryParse(pages, NumberStyles.Integer, CultureInfo.InvariantCulture, out int count))
                     pageCount = count;
@@ -80,19 +89,22 @@ public static partial class IngestionProbe
                     .OrderBy(c => c.ChunkIndex)
                     .Select(c => c.Content)
                     .ToListAsync(ct))
-                .Select(StripPageMarkers)
+                .Select(chunk => StripPageMarkers(chunk, markedPages))
                 .ToList();
         }
 
-        IReadOnlyList<int> emptyPages = pageCount is { } n
-            ? Enumerable.Range(1, n).Where(p => !pagesWithText.Contains(p)).ToList()
-            : [];
+        IReadOnlyList<int> emptyPages = emptyPageSet.Order().ToList();
         return new ProbeResult(parsed, warnings, parseError, pageCount, emptyPages, chunks);
     }
 
     /// <summary>
-    /// Removes Connapse's page markers. They are an artifact of PdfParser, and an olmOCR "absent"
-    /// check on a page number would otherwise match them.
+    /// Removes Connapse's page markers from a chunk. They are an artifact of PdfParser, and an olmOCR
+    /// "absent" check on a page number would otherwise match them. Chunkers can join lines, so a marker
+    /// may sit mid-line; only markers for pages the parser actually marked are removed.
     /// </summary>
-    public static string StripPageMarkers(string text) => PageMarker().Replace(text, "");
+    public static string StripPageMarkers(string chunk, IReadOnlySet<int> markedPages) =>
+        markedPages.Count == 0
+            ? chunk
+            : Regex.Replace(chunk, @"--- Page (\d+) ---", m =>
+                markedPages.Contains(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)) ? "" : m.Value);
 }

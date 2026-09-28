@@ -28,4 +28,15 @@ public class SystemConfigTests
 
         config.Settings.Should().ContainKey("Knowledge:Search:FusionAlpha");
     }
+
+    [Fact]
+    public void Hash_ChunkingStrategy_ChangesTheHashOnlyWhenSet()
+    {
+        SystemConfig plain = new("c", SearchMode.Keyword, new Dictionary<string, string>());
+        SystemConfig recursive = plain with { ChunkingStrategy = "Recursive" };
+        SystemConfig semantic = plain with { ChunkingStrategy = "Semantic" };
+
+        recursive.Hash.Should().NotBe(plain.Hash).And.NotBe(semantic.Hash);
+        (plain with { ChunkingStrategy = null }).Hash.Should().Be(plain.Hash);
+    }
 }
