@@ -16,8 +16,8 @@
         </div>
 
         <div class="col-md-6">
-            <label class="form-label">Keyword Ranking</label>
-            <InputSelect @bind-Value="localSettings.KeywordRanker" class="form-select">
+            <label class="form-label" for="keywordRanker">Keyword Ranking</label>
+            <InputSelect @bind-Value="localSettings.KeywordRanker" class="form-select" id="keywordRanker">
                 <option value="Bm25">BM25</option>
                 <option value="TsRank">PostgreSQL ts_rank</option>
             </InputSelect>
