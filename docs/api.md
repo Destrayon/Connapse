@@ -885,6 +885,18 @@ Cascade deletes all nested files, subfolders, chunks, vectors, and MinIO objects
 
 ---
 
+### Retry a Container's Failed Documents
+
+**Endpoint**: `POST /api/containers/{id}/retry-failed`
+
+**Auth**: Editor minimum
+
+Queues every document in the container whose ingestion failed again, with a fresh attempt budget.
+
+**Response** (200 OK): `{ "enqueuedCount": 3 }`
+
+---
+
 ## Settings API
 
 All settings endpoints require **Admin** role.
@@ -1198,6 +1210,7 @@ A **source** is an external system Connapse mirrors read-only — an S3 bucket, 
 | PATCH | `/api/sources/{id}` | **Admin** |
 | DELETE | `/api/sources/{id}` | **Admin** |
 | POST | `/api/sources/{id}/sync` | **Admin** |
+| POST | `/api/sources/{id}/retry-failed` | **Admin** |
 
 ### Create Source
 
@@ -1236,6 +1249,8 @@ The scope must fall inside the `allowedLocations` or `allowedRoot` its connectio
   "lastSyncedAt": "2026-02-26T10:05:00Z",
   "syncIntervalSeconds": 300,
   "documentCount": 128,
+  "failedDocumentCount": 2,
+  "processingDocumentCount": 0,
   "summary": null,
   "lastSyncError": null,
   "createdAt": "2026-02-26T10:00:00Z",
@@ -1253,6 +1268,14 @@ The scope must fall inside the `allowedLocations` or `allowedRoot` its connectio
 **Endpoint**: `POST /api/sources/{id}/sync`
 
 Runs one reconciliation cycle immediately rather than waiting for the next scheduled poll. A source already syncing is reported as such rather than queued.
+
+### Retry a Source's Failed Documents
+
+**Endpoint**: `POST /api/sources/{id}/retry-failed`
+
+Queues every document of the source whose ingestion failed again, with a fresh attempt budget. Without it, a document that failed for a temporary reason (`failureKind: "Retryable"`) is retried by the sync engine 24 hours after it failed, and one that cannot be read as it is (`"Permanent"`) only when the file changes. Use this once whatever made them fail has been fixed.
+
+**Response** (200 OK): `{ "enqueuedCount": 2 }`
 
 ### Delete a Source
 

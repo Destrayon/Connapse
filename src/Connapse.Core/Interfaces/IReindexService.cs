@@ -25,11 +25,21 @@ public interface IReindexService
     Task<ReindexCheck> CheckDocumentAsync(string documentId, CancellationToken ct = default);
 
     /// <summary>
-    /// Re-enqueues documents whose ingestion job was lost, with the settings they were enqueued
-    /// with. Unlike a reindex, the attempt count carries on: a lost job is not a new version.
+    /// Re-enqueues documents with the settings they were last enqueued with.
+    /// </summary>
+    /// <param name="resetAttempts">
+    /// False for a job that was lost, whose attempts carry on; true for a manual retry, which
+    /// gets a fresh budget.
+    /// </param>
+    /// <returns>How many were enqueued.</returns>
+    Task<int> RequeueAsync(IReadOnlyCollection<Guid> documentIds, bool resetAttempts = false, CancellationToken ct = default);
+
+    /// <summary>
+    /// Re-enqueues every failed document of one container or source, with a fresh attempt budget —
+    /// the manual "retry" for when whatever made them fail has been fixed.
     /// </summary>
     /// <returns>How many were enqueued.</returns>
-    Task<int> RequeueAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct = default);
+    Task<int> RetryFailedAsync(Guid ownerId, CancellationToken ct = default);
 }
 
 /// <summary>

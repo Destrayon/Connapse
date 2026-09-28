@@ -234,3 +234,35 @@ Stacked PRs under the 300-line guideline (migrations excluded from the count):
 6. `EmbeddingThrottle` and worker pools.
 7. Provider resilience handlers.
 8. Visibility: queue depth, badges, failed list, retry endpoints.
+
+## Changes made during implementation
+
+- **Retries are scheduled by the job, not a Hangfire state filter.** Filters register in
+  process-global static state, which breaks the multi-host integration tests. The job reads
+  `attempt_count` (max 4) and either marks the document Queued and schedules the next attempt
+  (30 s, 2 min, 10 min) or marks it FailedRetryable. `AutomaticRetry` is off for ingestion.
+- **Sync retries FailedRetryable after a 24-hour cooldown**, with a fresh budget, instead of
+  "while `attempt_count < 3`". The job's own retries run out within the hour; the cooldown covers
+  longer outages without re-enqueueing a broken source every cycle. FailedPermanent waits for the
+  file to change.
+- **The job id is recorded at enqueue** (`RecordJobAsync`), so the sweep also catches a document
+  left Queued by an enqueue that failed after the status was written. `ResetStuckAsync` was
+  dropped: the sweep re-enqueues through the normal path. `MaxCursorHold` stays as a safety net.
+- **Parsing and chunking run before the first database read**, so unreadable input is classified
+  without touching a row. PostgreSQL data errors (SQLSTATE class 22, e.g. NUL characters from a
+  BOM-less UTF-16 file) during the swap are permanent.
+- **The embedding throttle uses `SemaphoreSlim`**, matching `LlmConcurrencyGate`, not
+  `ConcurrencyLimiter`. The default queue runs on the ingestion pool, so the stuck sweep is never
+  stuck behind a long summary.
+- **Resilience covers the Ollama embedding and cross-encoder clients only**, with one quick retry
+  and a circuit breaker. The OpenAI and Azure OpenAI SDKs already retry; Ollama LLM generation is
+  expensive and the summary job retries it. `Microsoft.Extensions.Http.Resilience` is pinned to
+  10.0.0 to match the repository's 10.0.x `Microsoft.Extensions` packages.
+- **Queue depth counts Queued and Processing documents**, not Hangfire's queue, since that is the
+  backlog a user means. `/api/batches/{id}/status` resolves the job's document through Hangfire's
+  job details and reports the document's status.
+- **Visibility is counts plus retry actions**, not a per-file failure list on the Sources page:
+  a source is never browsable, by design. Failed files in a container are already listed in the
+  file browser with their error and a per-file retry.
+- **The SignalR hub sends `DocumentStatusChanged` to clients subscribed to that document**
+  (`SubscribeToDocument`) instead of broadcasting every document id to every client.

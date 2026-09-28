@@ -67,9 +67,9 @@ public class PostgresSourceStore(
 
         logger.LogInformation("Created source {SourceId} ({Name})", entity.Id, Sanitize(entity.Name));
 
-        // A source that was created a line ago owns no documents, so both counts are genuinely
+        // A source that was created a line ago owns no documents, so every count is genuinely
         // zero rather than merely unknown.
-        return MapToModel(entity, documentCount: 0, failedDocumentCount: 0);
+        return MapToModel(entity, documentCount: 0, failedDocumentCount: 0, processingDocumentCount: 0);
     }
 
     public async Task<Source?> GetAsync(Guid id, CancellationToken ct = default)
@@ -84,10 +84,11 @@ public class PostgresSourceStore(
                 Source = s,
                 DocumentCount = s.Documents.Count,
                 FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
+                ProcessingDocumentCount = s.Documents.Count(d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing),
             })
             .FirstOrDefaultAsync(ct);
 
-        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount);
+        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount, result.ProcessingDocumentCount);
     }
 
     public async Task<Source?> GetByNameAsync(string name, CancellationToken ct = default)
@@ -104,10 +105,11 @@ public class PostgresSourceStore(
                 Source = s,
                 DocumentCount = s.Documents.Count,
                 FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
+                ProcessingDocumentCount = s.Documents.Count(d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing),
             })
             .FirstOrDefaultAsync(ct);
 
-        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount);
+        return result is null ? null : MapToModel(result.Source, result.DocumentCount, result.FailedDocumentCount, result.ProcessingDocumentCount);
     }
 
     public async Task<IReadOnlyList<Source>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
@@ -124,10 +126,11 @@ public class PostgresSourceStore(
                 Source = s,
                 DocumentCount = s.Documents.Count,
                 FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
+                ProcessingDocumentCount = s.Documents.Count(d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing),
             })
             .ToListAsync(ct);
 
-        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount)).ToList();
+        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount, r.ProcessingDocumentCount)).ToList();
     }
 
     public async Task<IReadOnlyList<Source>> ListByConnectionAsync(Guid connectionId, CancellationToken ct = default)
@@ -143,10 +146,11 @@ public class PostgresSourceStore(
                 Source = s,
                 DocumentCount = s.Documents.Count,
                 FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
+                ProcessingDocumentCount = s.Documents.Count(d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing),
             })
             .ToListAsync(ct);
 
-        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount)).ToList();
+        return results.Select(r => MapToModel(r.Source, r.DocumentCount, r.FailedDocumentCount, r.ProcessingDocumentCount)).ToList();
     }
 
     public async Task<Source?> UpdateAsync(Guid id, UpdateSourceRequest request, CancellationToken ct = default)
@@ -191,7 +195,10 @@ public class PostgresSourceStore(
         int failedDocumentCount = await context.Documents
             .CountAsync(d => d.SourceId == id && (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent), ct);
 
-        return MapToModel(entity, documentCount, failedDocumentCount);
+        int processingDocumentCount = await context.Documents
+            .CountAsync(d => d.SourceId == id && (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing), ct);
+
+        return MapToModel(entity, documentCount, failedDocumentCount, processingDocumentCount);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
@@ -311,7 +318,7 @@ public class PostgresSourceStore(
     }
 
     private static Source MapToModel(
-        SourceEntity entity, int documentCount, int failedDocumentCount) => new(
+        SourceEntity entity, int documentCount, int failedDocumentCount, int processingDocumentCount) => new(
         Id: entity.Id,
         Name: entity.Name,
         Description: entity.Description,
@@ -336,7 +343,8 @@ public class PostgresSourceStore(
         FailedDocumentCount: failedDocumentCount,
         Provider: (ConnectionProvider?)entity.Provider,
         SyncHeldSince: entity.SyncHeldSince,
-        AccessRevokedAt: entity.AccessRevokedAt);
+        AccessRevokedAt: entity.AccessRevokedAt,
+        ProcessingDocumentCount: processingDocumentCount);
 
     public async Task UpdateWithheldDeletionsAsync(Guid id, int? withheld, CancellationToken ct = default)
     {

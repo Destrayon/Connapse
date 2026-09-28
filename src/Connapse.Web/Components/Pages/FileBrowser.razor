@@ -18,6 +18,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IServiceScopeFactory ScopeFactory
 @implements IAsyncDisposable
 
 <PageTitle>@(container?.Name ?? "Files") - Connapse</PageTitle>
@@ -55,6 +56,13 @@
                 <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
             </li>
         </ul>
+        @if (canEdit && activeTab == "files" && failedCount > 0)
+        {
+            <button class="btn btn-sm btn-outline-warning" @onclick="RetryAllFailed"
+                    title="Queue every failed document in this container again, with a fresh attempt budget">
+                <span class="bi-arrow-clockwise me-1"></span> Retry @failedCount failed
+            </button>
+        }
         @if (canEdit && activeTab == "files")
         {
             <button class="btn btn-sm btn-outline-primary" @onclick="ShowCreateFolderModal">
@@ -582,6 +590,9 @@
     private bool canEdit;
 
     private Container? container;
+
+    // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
+    private int failedCount;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
     private bool isLoading = true;
@@ -657,6 +668,19 @@
         StateHasChanged();
 
         await IngestionQueue.EnqueueAsync(job);
+    }
+
+    private async Task RetryAllFailed()
+    {
+        if (!Guid.TryParse(ContainerId, out var containerId)) return;
+
+        // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must not
+        // share across its handlers.
+        await using var scope = ScopeFactory.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IReindexService>().RetryFailedAsync(containerId, CancellationToken.None);
+
+        failedCount = 0;
+        await RefreshEntries();
     }
 
     private async void OnStatusChanged(DocumentStatusChangedEvent ev)
@@ -781,6 +805,7 @@
             if (Guid.TryParse(ContainerId, out var containerId))
             {
                 container = await ContainerStore.GetAsync(containerId);
+                failedCount = (await DocumentStore.GetContainerStatsAsync(containerId)).FailedCount;
                 // A source id simply does not resolve here any more: sources live in their own
                 // table and this store only reads containers. The guard that used to catch an
                 // un-migrated external container went with the column it read (#353).

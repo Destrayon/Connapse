@@ -250,6 +250,26 @@ public static class ContainersEndpoints
         .WithDescription("Reindex all documents in a container")
         .RequireAuthorization("RequireEditor");
 
+        // POST /api/containers/{containerId}/retry-failed - Re-enqueue every failed document
+        group.MapPost("/{containerId:guid}/retry-failed", async (
+            Guid containerId,
+            [FromServices] IContainerStore containerStore,
+            [FromServices] IReindexService reindexService,
+            [FromServices] IAuditLogger auditLogger,
+            CancellationToken ct) =>
+        {
+            if (!await containerStore.ExistsAsync(containerId, ct))
+                return Results.NotFound(new { error = $"Container {containerId} not found" });
+
+            int enqueued = await reindexService.RetryFailedAsync(containerId, ct);
+            await auditLogger.LogAsync("container.retry_failed", "container", containerId.ToString(), new { enqueued }, ct);
+
+            return Results.Ok(new { enqueuedCount = enqueued });
+        })
+        .WithName("RetryFailedContainerDocuments")
+        .WithDescription("Re-enqueue every document in a container whose ingestion failed, with a fresh attempt budget")
+        .RequireAuthorization("RequireEditor");
+
         // POST /api/containers/{containerId}/sync - Reconcile managed storage with the document table
         group.MapPost("/{containerId:guid}/sync", async (
             Guid containerId,
