@@ -45,15 +45,14 @@ public sealed record EmbeddingPrompts(string Query, string Document)
             : texts.Select(t => Apply(t, inputType)).ToList();
 
     /// <summary>
-    /// The prompts for the configured model: each side's override from settings when set (an empty
-    /// override means none), otherwise the model's published prompts, otherwise none. Models the
-    /// registry doesn't know get none, so symmetric models and hosted APIs are unchanged.
+    /// The prompts for the configured model: its published prompts, or the custom prefixes when
+    /// <see cref="EmbeddingSettings.UseModelPrefixes"/> is off. Models the registry doesn't know get
+    /// none, so symmetric models and hosted APIs are unchanged.
     /// </summary>
-    public static EmbeddingPrompts Resolve(EmbeddingSettings settings)
-    {
-        EmbeddingPrompts known = ForModel(settings.Model);
-        return new EmbeddingPrompts(settings.QueryPrefix ?? known.Query, settings.DocumentPrefix ?? known.Document);
-    }
+    public static EmbeddingPrompts Resolve(EmbeddingSettings settings) =>
+        settings.UseModelPrefixes
+            ? ForModel(settings.Model)
+            : new EmbeddingPrompts(settings.QueryPrefix ?? "", settings.DocumentPrefix ?? "");
 
     /// <summary>The model's published prompts, matched on its normalised name; none when unknown.</summary>
     public static EmbeddingPrompts ForModel(string? model) =>

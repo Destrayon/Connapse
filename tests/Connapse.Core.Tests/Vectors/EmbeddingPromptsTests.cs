@@ -49,27 +49,31 @@ public class EmbeddingPromptsTests
     }
 
     [Fact]
-    public void Resolve_Overrides_ReplaceEachSideIndependently()
+    public void Resolve_ModelPrefixes_IgnoreCustomOnes()
     {
-        EmbeddingSettings settings = new() { Model = "nomic-embed-text", QueryPrefix = "q: " };
-
-        EmbeddingPrompts.Resolve(settings).Should().Be(new EmbeddingPrompts("q: ", "search_document: "));
-    }
-
-    [Fact]
-    public void Resolve_EmptyOverrides_TurnPromptsOff()
-    {
+        // Saved settings turn a null prefix into "", so custom prefixes must not count unless asked for.
         EmbeddingSettings settings = new() { Model = "nomic-embed-text", QueryPrefix = "", DocumentPrefix = "" };
 
-        EmbeddingPrompts.Resolve(settings).IsNone.Should().BeTrue();
+        EmbeddingPrompts.Resolve(settings).Should().Be(new EmbeddingPrompts("search_query: ", "search_document: "));
     }
 
     [Fact]
-    public void Resolve_OverridesOnUnknownModel_Apply()
+    public void Resolve_CustomPrefixes_ApplyAsGiven()
     {
-        EmbeddingSettings settings = new() { Model = "custom-model", QueryPrefix = "query: ", DocumentPrefix = "passage: " };
+        EmbeddingSettings settings = new()
+        {
+            Model = "custom-model", UseModelPrefixes = false, QueryPrefix = "query: ", DocumentPrefix = null,
+        };
 
-        EmbeddingPrompts.Resolve(settings).Should().Be(new EmbeddingPrompts("query: ", "passage: "));
+        EmbeddingPrompts.Resolve(settings).Should().Be(new EmbeddingPrompts("query: ", ""));
+    }
+
+    [Fact]
+    public void Resolve_CustomPrefixesEmpty_TurnPromptsOff()
+    {
+        EmbeddingSettings settings = new() { Model = "nomic-embed-text", UseModelPrefixes = false };
+
+        EmbeddingPrompts.Resolve(settings).IsNone.Should().BeTrue();
     }
 
     [Theory]
@@ -85,7 +89,7 @@ public class EmbeddingPromptsTests
     public void Identity_WithoutPrompts_IsTheBareModelName()
     {
         EmbeddingIdentity.For(new EmbeddingSettings { Model = "text-embedding-3-small" }).Should().Be("text-embedding-3-small");
-        EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text", QueryPrefix = "", DocumentPrefix = "" })
+        EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text", UseModelPrefixes = false })
             .Should().Be("nomic-embed-text");
     }
 
@@ -94,7 +98,10 @@ public class EmbeddingPromptsTests
     {
         string first = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
         string again = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
-        string other = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text", QueryPrefix = "q: " });
+        string other = EmbeddingIdentity.For(new EmbeddingSettings
+        {
+            Model = "nomic-embed-text", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "search_document: ",
+        });
 
         first.Should().MatchRegex("^nomic-embed-text-prompts-[0-9a-f]{8}$");
         again.Should().Be(first);

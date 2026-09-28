@@ -662,6 +662,11 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Embedding__Provider` | Embedding provider (`Ollama`, `OpenAI`, `AzureOpenAI`) | `Ollama` |
 | `Knowledge__Embedding__ApiKey` | API key for OpenAI/AzureOpenAI | (optional) |
 | `Knowledge__Embedding__AzureDeploymentName` | Azure OpenAI deployment name | (optional) |
+| `Knowledge__Embedding__UseModelPrefixes` | Put the model's published query/document instruction before each query and stored chunk (for example nomic-embed-text's `search_query: ` / `search_document: `); models without one are unaffected | `true` |
+| `Knowledge__Embedding__QueryPrefix` | Query prefix used when `UseModelPrefixes` is `false`; empty for none | (empty) |
+| `Knowledge__Embedding__DocumentPrefix` | Document prefix used when `UseModelPrefixes` is `false`; empty for none | (empty) |
+
+> **Upgrading to prefixed embeddings**: vectors stored before prefixes applied keep working — a container is searched without prefixes while most of its vectors predate them. Run a reindex (Settings → Embedding) to re-embed with prefixes.
 
 > **Note**: Search is now scoped to containers. There is no global search endpoint; all search requests require a container ID.
 

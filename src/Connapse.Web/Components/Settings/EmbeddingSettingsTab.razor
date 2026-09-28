@@ -93,6 +93,34 @@
             <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
         </div>
 
+        <div class="col-12">
+            <label class="form-label">Query and document prefixes</label>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="emb-model-prompts"
+                       checked="@localSettings.UseModelPrefixes" @onchange="OnModelPromptsChanged" />
+                <label class="form-check-label" for="emb-model-prompts">Use the model's published prefixes</label>
+            </div>
+            @if (localSettings.UseModelPrefixes)
+            {
+                <small class="form-text text-muted">@ModelPromptsSummary</small>
+            }
+            else
+            {
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">
+                        <InputText @bind-Value="localSettings.QueryPrefix" class="form-control" placeholder="Query prefix (empty: none)" />
+                    </div>
+                    <div class="col-md-6">
+                        <InputText @bind-Value="localSettings.DocumentPrefix" class="form-control" placeholder="Document prefix (empty: none)" />
+                    </div>
+                </div>
+            }
+            <small class="form-text text-muted d-block">
+                Some models are trained to see an instruction before each search query and each stored chunk.
+                Changing the prefixes changes the vectors: reindex afterwards. Existing vectors stay searchable until then.
+            </small>
+        </div>
+
         <div class="col-12 mt-4">
             <button type="submit" class="btn btn-primary me-2">
                 <span class="bi-save me-1"></span> Save Changes
@@ -220,6 +248,30 @@
     private bool IsOllama => localSettings.Provider is null or "Ollama";
     private bool IsOpenAi => localSettings.Provider == "OpenAI";
     private bool IsAzureOpenAi => localSettings.Provider == "AzureOpenAI";
+
+    private string ModelPromptsSummary
+    {
+        get
+        {
+            EmbeddingPrompts prompts = EmbeddingPrompts.ForModel(localSettings.Model);
+            return prompts.IsNone
+                ? "This model has no published prefixes, so text is embedded as it is."
+                : $"Queries start with \"{prompts.Query}\"; stored text starts with \"{prompts.Document}\".";
+        }
+    }
+
+    private void OnModelPromptsChanged(ChangeEventArgs e)
+    {
+        localSettings.UseModelPrefixes = e.Value is true;
+        if (!localSettings.UseModelPrefixes
+            && string.IsNullOrEmpty(localSettings.QueryPrefix) && string.IsNullOrEmpty(localSettings.DocumentPrefix))
+        {
+            // Start from the model's own prefixes, so unticking alone changes nothing.
+            EmbeddingPrompts prompts = EmbeddingPrompts.ForModel(localSettings.Model);
+            localSettings.QueryPrefix = prompts.Query;
+            localSettings.DocumentPrefix = prompts.Document;
+        }
+    }
 
     protected override void OnParametersSet()
     {
