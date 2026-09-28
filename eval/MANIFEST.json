@@ -25,7 +25,9 @@
       "generated-negatives"
     ],
     "dev": [
+      "dev-msmarco",
       "dev-hotpotqa",
+      "dev-fever",
       "dev-quora",
       "dev-fiqa",
       "dev-nfcorpus",
@@ -738,6 +740,56 @@
           "name": "qrels.parquet",
           "url": "build:eval/tools/build_dev_suite.py",
           "sha256": "c71a16554463138783262b1e2f7a7808d948638e5e7889d295030f54c38fb7ce"
+        }
+      ]
+    },
+    "dev-fever": {
+      "adapter": "beir-parquet",
+      "version": "493f9624bb29-s552",
+      "tags": [
+        "domain:general",
+        "topic:fact-check"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "d89d2c7d55b439ed24b2e225b3214298320841014baaaba8c82ea78b8b58c664"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "1cf75f5c01d8fdf3d8f0845fe86008209361e08144f98a73c909589bf229b3af"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "2f4feb9a708f0ccac538ccc08a666e3208c64475ae21bfc62aced3f2de78885e"
+        }
+      ]
+    },
+    "dev-msmarco": {
+      "adapter": "beir-parquet",
+      "version": "49b09e5f3736-s552",
+      "tags": [
+        "domain:general",
+        "topic:web"
+      ],
+      "files": [
+        {
+          "name": "corpus.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "19037e55c2d29b9dd0c78a84fc1b0d1b775b6dcb0d65ae2bdee53da8d69ba937"
+        },
+        {
+          "name": "queries.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "6b6e35713b86790d61652d998c67a926dd3082d860d5ab906ffcf82998255aa7"
+        },
+        {
+          "name": "qrels.parquet",
+          "url": "build:eval/tools/build_dev_suite.py",
+          "sha256": "91a93b018ba7dc7374707316390daaeb6311abcf886800096aab54e32241a0cd"
         }
       ]
     }
