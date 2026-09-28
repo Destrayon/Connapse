@@ -6,6 +6,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Systems;
 
 [Trait("Category", "Integration")]
+[Collection(EvalHostCollection.Name)]
 public class ConnapseSearchSystemTests
 {
     [Fact]
@@ -45,7 +46,7 @@ public class ConnapseSearchSystemTests
     private static EvalDocument Doc(string id, string text) =>
         new(id, DocumentKind.Text, null, text, null, new Dictionary<string, string>());
 
-    private static string FindRepoRoot()
+    internal static string FindRepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Connapse.slnx")))

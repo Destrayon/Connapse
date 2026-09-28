@@ -1,6 +1,7 @@
 namespace Connapse.Eval.Model;
 
-public enum DocumentKind { Text, Image }
+/// <summary>Text is uploaded as a .txt file; File uploads the bytes at FilePath under its own extension.</summary>
+public enum DocumentKind { Text, Image, File }
 
 public enum Split { Dev, Test }
 
@@ -10,7 +11,8 @@ public sealed record EvalDocument(
     string? Title,
     string? Text,
     string? ImagePath,
-    IReadOnlyDictionary<string, string> Metadata);
+    IReadOnlyDictionary<string, string> Metadata,
+    string? FilePath = null);
 
 public sealed record EvalQuery(string Id, string Text, Split Split, IReadOnlyList<string> Tags);
 
