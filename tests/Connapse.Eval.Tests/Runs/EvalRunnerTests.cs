@@ -44,6 +44,19 @@ public class EvalRunnerTests : IDisposable
         new(new RepoPaths(_repo), TextWriter.Null, new HttpClient(new FileHandler(_extraFiles)), (_, _) => Task.FromResult<ISystemUnderTest>(system));
 
     [Fact]
+    public async Task RunAsync_ExtractionDataset_RefusesAndPointsToExtract()
+    {
+        RepoPaths paths = new(_repo);
+        new EvalManifest(
+            new Dictionary<string, IReadOnlyList<string>> { ["x"] = ["enc"] },
+            new Dictionary<string, DatasetEntry> { ["enc"] = new("generated-encodings", "gen-1", [], []) }).Save(paths.ManifestPath);
+
+        Func<Task> act = () => Runner(new FakeSystem(failPerDataset: 0)).RunAsync(new RunRequest("x", "fake", "default", [], null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentException>().WithMessage("*'extract' command*");
+    }
+
+    [Fact]
     public async Task RunAsync_Suite_WritesEveryDatasetAndScoresIt()
     {
         FakeSystem system = new(failPerDataset: 0);

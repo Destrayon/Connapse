@@ -29,6 +29,13 @@ public sealed class EvalRunner(
 
         EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
         IReadOnlyList<string> names = manifest.ResolveSuite(request.Suite, request.OnlyDatasets);
+        // Extraction datasets have no queries or relevance judgments; ranking them would index files,
+        // score nothing, and count expected failures against the dataset.
+        string[] extraction = names.Where(n => DatasetAdapters.Get(manifest.Datasets[n].Adapter) is IExtractionAdapter).ToArray();
+        if (extraction.Length > 0)
+            throw new ArgumentException(
+                $"{string.Join(", ", extraction)} {(extraction.Length == 1 ? "is an extraction dataset" : "are extraction datasets")}; "
+                + "score it with the 'extract' command, not 'run'.");
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
 
         // Verify every file before starting containers, so a checksum problem fails in seconds.
