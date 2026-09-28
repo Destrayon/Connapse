@@ -284,8 +284,8 @@ for row in rng.sample([r for rows in bench.values() for r in rows if r["type"] i
     variant = dict(row)
     variant["id"] = row["id"] + "_variant"
     variant["case_sensitive"] = not row.get("case_sensitive", True)
-    variant["first_n"] = rng.choice([None, 50, 400])
-    variant["last_n"] = rng.choice([None, 30, 400])
+    variant["first_n"] = rng.choice([None, 50, 400, -20, -5000])
+    variant["last_n"] = rng.choice([None, 30, 400, -15, -5000])
     check_rows.append(variant)
 for extra in [
     {"pdf": "x.pdf", "page": 1, "id": "blank_ok", "type": "baseline", "max_length": 5},
@@ -302,6 +302,16 @@ for row in check_rows:
     for content in generators[row["type"]](row):
         passed, explanation = test.run(content)
         out["checks"].append({"row": row, "content": content, "passed": passed, "explanation": explanation})
+
+# Lone surrogates cannot be written to UTF-8 JSON, so these cases carry code points instead of strings.
+# A high surrogate directly followed by a low one is left out: Python keeps them as two code points,
+# but in a .NET string they always form one character, so Connapse text can never contain that case.
+surrogate_strings = ["\ud800", "\udfff", "a\ud800b", "a\udc00b", "\udc00\ud800", "x\ud83d", "\ud83dx", "\U0001F600"]
+out["surrogates"] = [
+    {"a": [ord(c) for c in a], "b": [ord(c) for c in b], "ratio": fuzz.ratio(a, b), "partial_ratio": fuzz.partial_ratio(a, b),
+     "lower": [ord(c) for c in a.lower()], "len": len(a)}
+    for a in surrogate_strings for b in surrogate_strings
+]
 
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "expected.json"), "w", encoding="utf-8") as f:
     json.dump(out, f, ensure_ascii=False, indent=1)
