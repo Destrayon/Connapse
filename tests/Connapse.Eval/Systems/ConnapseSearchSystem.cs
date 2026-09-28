@@ -4,6 +4,10 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Model;
+using Hangfire;
+using Hangfire.Common;
+using Hangfire.Storage;
+using Hangfire.Storage.Monitoring;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -98,26 +102,40 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         for (int start = 0; start < dataset.Corpus.Count; start += UploadBatchSize)
         {
             List<EvalDocument> batch = dataset.Corpus.Skip(start).Take(UploadBatchSize).ToList();
-            List<Stream> streams = batch.Select(OpenContent).ToList();
+            List<(EvalDocument Doc, int Index, Stream Stream)> opened = [];
             try
             {
-                List<UploadRequest> requests = batch.Select((d, i) => new UploadRequest(
-                    containerId, UploadName(d, start + i), streams[i], Path: "/",
-                    ContentType: d.Kind == DocumentKind.Text ? "text/plain" : null,
-                    Strategy: _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
-                BulkUploadResult result = await upload.BulkUploadAsync(new BulkUploadRequest(containerId, requests), ct);
+                // A corpus file that cannot be opened is that document's upload error, not the run's.
                 for (int i = 0; i < batch.Count; i++)
+                {
+                    try
+                    {
+                        opened.Add((batch[i], start + i, OpenContent(batch[i])));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                    {
+                        uploadErrors[batch[i].Id] = $"could not open the file: {ex.Message}";
+                    }
+                }
+                List<UploadRequest> requests = opened.Select(o => new UploadRequest(
+                    containerId, UploadName(o.Doc, o.Index), o.Stream, Path: "/",
+                    ContentType: o.Doc.Kind == DocumentKind.Text ? "text/plain" : null,
+                    Strategy: _config.ChunkingStrategy, IngestedVia: "Eval")).ToList();
+                BulkUploadResult result = requests.Count == 0
+                    ? new BulkUploadResult(0, 0, Results: [])
+                    : await upload.BulkUploadAsync(new BulkUploadRequest(containerId, requests), ct);
+                for (int i = 0; i < opened.Count; i++)
                 {
                     UploadResult item = result.Results[i];
                     if (item.Success && item.DocumentId is not null)
-                        docMap[item.DocumentId] = batch[i].Id;
+                        docMap[item.DocumentId] = opened[i].Doc.Id;
                     else
-                        uploadErrors[batch[i].Id] = item.Error ?? "upload rejected";
+                        uploadErrors[opened[i].Doc.Id] = item.Error ?? "upload rejected";
                 }
             }
             finally
             {
-                foreach (Stream stream in streams)
+                foreach ((_, _, Stream stream) in opened)
                     await stream.DisposeAsync();
             }
             _log.WriteLine($"[{dataset.Name}] uploaded {Math.Min(start + UploadBatchSize, dataset.Corpus.Count)}/{dataset.Corpus.Count}");
@@ -219,6 +237,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             }
 
             DateTime now = DateTime.UtcNow;
+            // A job that throws marks its document Failed and Hangfire retries it later (30 s, 2 min,
+            // 10 min), so a Failed ingestion state is final only once no retry is waiting.
+            HashSet<string>? retrying = null;
             foreach ((string connapseId, Document d) in latest)
             {
                 string datasetId = docMap[connapseId];
@@ -227,6 +248,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                 string? status = d.Metadata.GetValueOrDefault("Status");
                 if (status is "Ready" or "Failed" && d.IngestionState != IngestionState.Pending)
                 {
+                    if (d.IngestionState == IngestionState.Failed && (retrying ??= PendingIngestionJobs()).Contains(connapseId))
+                        continue;
                     settled[datasetId] = Outcome(datasetId, d, false, now - started);
                     continue;
                 }
@@ -259,6 +282,26 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             }
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
         }
+    }
+
+    /// <summary>Documents with an ingestion job still scheduled (a retry), enqueued or processing in Hangfire.</summary>
+    private HashSet<string> PendingIngestionJobs()
+    {
+        IMonitoringApi monitor = _host.Services.GetRequiredService<JobStorage>().GetMonitoringApi();
+        HashSet<string> documents = new(StringComparer.Ordinal);
+        void Add(Job? job)
+        {
+            if (job?.Method.Name == "IngestAsync" && job.Args.Count > 0 && job.Args[0] is string documentId)
+                documents.Add(documentId);
+        }
+        foreach ((_, ScheduledJobDto dto) in monitor.ScheduledJobs(0, int.MaxValue))
+            Add(dto.Job);
+        foreach ((_, ProcessingJobDto dto) in monitor.ProcessingJobs(0, int.MaxValue))
+            Add(dto.Job);
+        foreach (QueueWithTopEnqueuedJobsDto queue in monitor.Queues())
+            foreach ((_, EnqueuedJobDto dto) in monitor.EnqueuedJobs(queue.Name, 0, int.MaxValue))
+                Add(dto.Job);
+        return documents;
     }
 
     private static DocumentOutcome Outcome(string datasetId, Document d, bool stalled, TimeSpan elapsed) =>

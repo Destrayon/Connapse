@@ -27,7 +27,8 @@ public class RawFileIngestionTests
             ["Knowledge:Embedding:Dimensions"] = "64",
         });
         EvalDataset dataset = new("it-raw", "1", [],
-            [File("docx", docx), File("pdf", pdf), File("scan", scan), File("empty", empty)], [], new Qrels());
+            [File("docx", docx), File("pdf", pdf), File("scan", scan), File("empty", empty),
+                File("missing", Path.Combine(work, "does-not-exist.pdf"))], [], new Qrels());
 
         await using ConnapseSearchSystem system = await ConnapseSearchSystem.StartAsync(
             config, Path.Combine(root, "src", "Connapse.Web"), new EmbeddingDiskCache(Path.Combine(work, "cache")),
@@ -56,7 +57,8 @@ public class RawFileIngestionTests
         scanProbe.Chunks.Should().BeEmpty();
 
         outcomes["empty"].UploadError.Should().Contain("Zero-byte");
-        report.FailedDocumentIds.Should().BeEquivalentTo(["scan", "empty"]);
+        outcomes["missing"].UploadError.Should().StartWith("could not open the file");
+        report.FailedDocumentIds.Should().BeEquivalentTo(["scan", "empty", "missing"]);
     }
 
     private static EvalDocument File(string id, string path) =>
