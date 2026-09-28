@@ -26,6 +26,16 @@ public class VectorColumnManagerTests
     }
 
     [Fact]
+    public void GetIndexName_IdsDifferingOnlyPastTheCut_GetDifferentNames()
+    {
+        string model = "hf.co/some-organisation/a-rather-long-embedding-model-name-v1.5-GGUF:F16";
+
+        VectorColumnManager.GetIndexName(model)
+            .Should().NotBe(VectorColumnManager.GetIndexName(model + "-recipe-1a2b3c4d"))
+            .And.HaveLength(63);
+    }
+
+    [Fact]
     public void GetIndexName_SpecialCharacters_SanitizesToUnderscores()
     {
         var result = VectorColumnManager.GetIndexName("model/v2@beta.1");

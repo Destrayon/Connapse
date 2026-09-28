@@ -30,6 +30,21 @@ public record EmbeddingSettings
     public string? BaseUrl { get; set; }
 
     /// <summary>
+    /// True puts the model's published instruction before each search query and stored chunk
+    /// (nomic-embed-text's "search_query: " / "search_document: ", for example); models without one
+    /// are unaffected. False uses <see cref="QueryPrefix"/> and <see cref="DocumentPrefix"/> instead.
+    /// A switch rather than null-means-default, because saved settings turn null into "".
+    /// Changing prefixes changes the vectors, so documents are re-embedded on the next reindex.
+    /// </summary>
+    public bool UseModelPrefixes { get; set; } = true;
+
+    /// <summary>Text put before every search query when <see cref="UseModelPrefixes"/> is false; empty for none.</summary>
+    public string? QueryPrefix { get; set; }
+
+    /// <summary>Text put before every stored chunk when <see cref="UseModelPrefixes"/> is false; empty for none.</summary>
+    public string? DocumentPrefix { get; set; }
+
+    /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
     /// Prefer the provider-specific key properties below.
     /// </summary>

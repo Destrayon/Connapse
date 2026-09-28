@@ -194,7 +194,9 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Store embedding settings used
             metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
-            metadata[MetadataKeyEmbeddingModel] = embedSettings.Model;
+            // The vector-space id (model plus its prompts), so changing prompts marks documents for reindex.
+            string embeddingIdentity = EmbeddingIdentity.For(embedSettings);
+            metadata[MetadataKeyEmbeddingModel] = embeddingIdentity;
             metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
 
             // Check if document already exists (created eagerly by UploadService)
@@ -332,7 +334,7 @@ public class IngestionPipeline : IKnowledgeIngester
             else
             {
                 var chunkContents = chunks.Select(c => c.Content).ToArray();
-                string modelId = embedSettings.Model;
+                string modelId = embeddingIdentity;
                 int dimensions = embedSettings.Dimensions;
 
                 // Check content-hash cache before calling the embedding API
@@ -355,7 +357,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 if (missIndices.Count > 0)
                 {
                     var missContents = missIndices.Select(i => chunkContents[i]).ToArray();
-                    var freshEmbeddings = await _embeddingProvider.EmbedBatchAsync(missContents, ct);
+                    var freshEmbeddings = await _embeddingProvider.EmbedBatchAsync(missContents, EmbeddingInputType.Document, ct);
                     for (int k = 0; k < missIndices.Count; k++)
                         result[missIndices[k]] = freshEmbeddings[k];
 
@@ -426,7 +428,7 @@ public class IngestionPipeline : IKnowledgeIngester
                 {
                     ["documentId"] = documentEntity.Id.ToString(),
                     ["ownerId"] = owner.Id.ToString(),
-                    ["modelId"] = embedSettings.Model,
+                    ["modelId"] = embeddingIdentity,
                     ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
                     ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),
                     ["dimensions"] = embedSettings.Dimensions.ToString(),
@@ -669,7 +671,7 @@ public class IngestionPipeline : IKnowledgeIngester
         // Embed
         yield return new IngestionProgress(IngestionPhase.Embedding, 0, "Generating embeddings");
         var chunkContents = chunks.Select(c => c.Content).ToArray();
-        await _embeddingProvider.EmbedBatchAsync(chunkContents, ct);
+        await _embeddingProvider.EmbedBatchAsync(chunkContents, EmbeddingInputType.Document, ct);
         yield return new IngestionProgress(IngestionPhase.Embedding, 100, "Embeddings generated");
 
         // Store

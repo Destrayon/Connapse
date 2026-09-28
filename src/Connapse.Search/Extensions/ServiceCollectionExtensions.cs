@@ -22,6 +22,8 @@ public static class ServiceCollectionExtensions
     {
         // Register individual search services
         services.AddScoped<VectorSearchService>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<VectorModelCountCache>();
         services.AddScoped<KeywordSearchService>();
 
         // The default is no filtering, so registering the enforcement path changes nothing.

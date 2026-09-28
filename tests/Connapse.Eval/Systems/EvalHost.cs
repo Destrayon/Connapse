@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 
@@ -85,7 +86,8 @@ public sealed class EvalHost : IAsyncDisposable
                     ServiceDescriptor original = services.Last(d => d.ServiceType == typeof(IEmbeddingProvider));
                     services.RemoveAll<IEmbeddingProvider>();
                     services.AddScoped<IEmbeddingProvider>(sp => new CachingEmbeddingProvider(
-                        embeddingOverride ?? (IEmbeddingProvider)original.ImplementationFactory!(sp), cache));
+                        embeddingOverride ?? (IEmbeddingProvider)original.ImplementationFactory!(sp), cache,
+                        sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue));
                 });
             });
 

@@ -1,3 +1,4 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 
 namespace Connapse.Eval.Systems;
@@ -9,9 +10,9 @@ public sealed class HashingEmbeddingProvider : IEmbeddingProvider
 
     public string ModelId => "hashing-test";
 
-    public Task<float[]> EmbedAsync(string text, CancellationToken ct = default) => Task.FromResult(Embed(text));
+    public Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default) => Task.FromResult(Embed(text));
 
-    public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IEnumerable<string> texts, CancellationToken ct = default) =>
+    public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<float[]>>(texts.Select(Embed).ToList());
 
     private float[] Embed(string text)

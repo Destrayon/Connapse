@@ -287,9 +287,9 @@ public class HybridSearchService : IKnowledgeSearch
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
-            float[] queryVector = await vectorSearch.EmbedQueryAsync(query, ct);
-            var results = await vectorSearch.SearchAsync(query, queryVector, poolOptions, scopes, ct);
-            return (queryVector, results);
+            QueryEmbedding queryEmbedding = await vectorSearch.EmbedQueryAsync(query, poolOptions, ct);
+            var results = await vectorSearch.SearchAsync(query, queryEmbedding, poolOptions, scopes, ct);
+            return (queryEmbedding, results);
         }, ct);
 
         var keywordTask = Task.Run(async () =>
@@ -302,7 +302,7 @@ public class HybridSearchService : IKnowledgeSearch
 
         await Task.WhenAll(vectorTask, keywordTask);
 
-        var (queryVector, vectorResults) = await vectorTask;
+        var (queryEmbedding, vectorResults) = await vectorTask;
         var keywordResults = await keywordTask;
 
         _logger.LogDebug(
@@ -311,7 +311,7 @@ public class HybridSearchService : IKnowledgeSearch
             keywordResults.Count);
 
         var (vectorPool, keywordPool) = await ScoreAcrossPoolAsync(
-            query, queryVector, poolOptions, vectorResults, keywordResults, ct);
+            query, queryEmbedding, poolOptions, vectorResults, keywordResults, ct);
 
         List<SearchHit> fused;
         if (string.Equals(settings.FusionMethod, "DBSF", StringComparison.OrdinalIgnoreCase))
@@ -337,7 +337,7 @@ public class HybridSearchService : IKnowledgeSearch
     /// </summary>
     private async Task<(List<SearchHit> Vector, List<SearchHit> Keyword)> ScoreAcrossPoolAsync(
         string query,
-        float[] queryVector,
+        QueryEmbedding queryEmbedding,
         SearchOptions options,
         List<SearchHit> vectorResults,
         List<SearchHit> keywordResults,
@@ -358,7 +358,7 @@ public class HybridSearchService : IKnowledgeSearch
                 if (needVector.Count == 0) return (IReadOnlyDictionary<string, float>)new Dictionary<string, float>();
                 await using var scope = _scopeFactory.CreateAsyncScope();
                 return await scope.ServiceProvider.GetRequiredService<VectorSearchService>()
-                    .ScoreChunksAsync(queryVector, needVector, options, ct);
+                    .ScoreChunksAsync(queryEmbedding, needVector, ct);
             }, ct);
 
             var keywordScoresTask = Task.Run(async () =>
