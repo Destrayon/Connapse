@@ -12,24 +12,25 @@ using NSubstitute;
 namespace Connapse.Core.Tests.Search;
 
 /// <summary>
-/// A query is only comparable with vectors made by the same recipe (model plus prompts). Hybrid
-/// search scores keyword-only candidates with the vector store, and that scoring has to use the
-/// space the vector search used, or it fuses similarities from two different spaces.
+/// A query is only comparable with vectors made by the same recipe (model plus text preparation).
+/// While a container holds vectors under several recipes of one model, each space is searched with
+/// a query prepared its own way; hybrid pool scoring must use the same spaces.
 /// </summary>
 [Trait("Category", "Unit")]
 public class VectorSearchModelTests
 {
     private const string ContainerId = "6f1c2a44-0000-0000-0000-000000000001";
+    private static readonly string Nomic = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
 
     private readonly IVectorStore _store = Substitute.For<IVectorStore>();
     private readonly IEmbeddingProvider _provider = Substitute.For<IEmbeddingProvider>();
     private readonly VectorModelDiscovery _discovery = Substitute.For<VectorModelDiscovery>(
         Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance);
 
-    private VectorSearchService CreateService(string model = "current-model")
+    private VectorSearchService CreateService(EmbeddingSettings settings)
     {
         var embedding = Substitute.For<IOptionsMonitor<EmbeddingSettings>>();
-        embedding.CurrentValue.Returns(new EmbeddingSettings { Model = model });
+        embedding.CurrentValue.Returns(settings);
         _provider.EmbedAsync(Arg.Any<string>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
             .Returns([1f, 0f]);
         return new VectorSearchService(
@@ -37,89 +38,110 @@ public class VectorSearchModelTests
             NullLogger<VectorSearchService>.Instance);
     }
 
-    private void StoredVectors(params (string ModelId, long Count)[] models) =>
+    private VectorSearchService CreateService(string model = "nomic-embed-text") => CreateService(new EmbeddingSettings { Model = model });
+
+    private void StoredVectors(params string[] modelIds) =>
         _discovery.GetModelsAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
-            .Returns(models.Select(m => new EmbeddingModelInfo(m.ModelId, 768, m.Count)).ToList());
+            .Returns(modelIds.Select(m => new EmbeddingModelInfo(m, 768, 10)).ToList());
+
+    private static SearchOptions InContainer() => new(ContainerId: ContainerId);
 
     [Fact]
-    public async Task ScoreChunksAsync_ScoresInTheQuerysSpace()
+    public async Task EmbedQueryAsync_ModelWithoutTextPreparation_OneSpaceAndNoVectorCount()
     {
-        await CreateService().ScoreChunksAsync(new QueryEmbedding([1f, 0f], "legacy-model"), ["c1"]);
+        QueryEmbedding embedding = await CreateService("text-embedding-3-small").EmbedQueryAsync("q", InContainer());
 
-        await _store.Received(1).ScoreChunksAsync(
-            Arg.Any<float[]>(), Arg.Any<IReadOnlyCollection<string>>(), "legacy-model", Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SearchAsync_SearchesTheQuerysSpace()
-    {
-        await CreateService().SearchAsync(
-            "q", new QueryEmbedding([1f, 0f], "legacy-model"), new SearchOptions(), SearchScopes.Unrestricted);
-
-        await _store.Received(1).SearchAsync(
-            Arg.Any<float[]>(),
-            Arg.Any<int>(),
-            Arg.Is<Dictionary<string, string>?>(f => f != null && f["modelId"] == "legacy-model"),
-            Arg.Any<SearchScopes>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task EmbedQueryAsync_ModelWithoutPrompts_UsesTheBareModelAndNeverCountsVectors()
-    {
-        QueryEmbedding embedding = await CreateService("text-embedding-3-small").EmbedQueryAsync("q", new SearchOptions());
-
-        embedding.ModelId.Should().Be("text-embedding-3-small");
+        embedding.Spaces.Select(s => s.ModelId).Should().Equal("text-embedding-3-small");
         await _provider.Received(1).EmbedAsync("q", EmbeddingInputType.Query, Arg.Any<CancellationToken>());
         await _discovery.DidNotReceiveWithAnyArgs().GetModelsAsync(default, default);
     }
 
     [Fact]
-    public async Task EmbedQueryAsync_ModelIdFilter_EmbedsForThatSpace()
+    public async Task EmbedQueryAsync_ContainerMidReindex_SearchesBothSpacesEachWithItsOwnQuery()
     {
-        var options = new SearchOptions(Filters: new Dictionary<string, string> { ["modelId"] = "legacy-model" });
+        StoredVectors("nomic-embed-text", Nomic);
+
+        QueryEmbedding embedding = await CreateService().EmbedQueryAsync("Q", InContainer());
+
+        embedding.Spaces.Select(s => s.ModelId).Should().Equal(Nomic, "nomic-embed-text");
+        await _provider.Received(1).EmbedAsync("Q", EmbeddingInputType.Query, Arg.Any<CancellationToken>());
+        await _provider.Received(1).EmbedAsync("Q", EmbeddingInputType.Unspecified, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_ContainerFullyReindexed_SearchesOnlyTheCurrentSpace()
+    {
+        StoredVectors(Nomic);
+
+        QueryEmbedding embedding = await CreateService().EmbedQueryAsync("q", InContainer());
+
+        embedding.Spaces.Select(s => s.ModelId).Should().Equal(Nomic);
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_CustomPrefixes_StillSearchVectorsMadeWithTheModelsOwnPrefixes()
+    {
+        EmbeddingSettings custom = new()
+        {
+            Model = "nomic-embed-text", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "d: ",
+        };
+        StoredVectors(Nomic);
+
+        QueryEmbedding embedding = await CreateService(custom).EmbedQueryAsync("Q", InContainer());
+
+        embedding.Spaces.Select(s => s.ModelId).Should().Equal(EmbeddingIdentity.For(custom), Nomic);
+        await _provider.Received(1).EmbedAsync("search_query: q", EmbeddingInputType.Unspecified, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_ModelIdFilterForTheBareModel_EmbedsTheQueryAsGiven()
+    {
+        var options = new SearchOptions(Filters: new Dictionary<string, string> { ["modelId"] = "nomic-embed-text" });
+
+        QueryEmbedding embedding = await CreateService().EmbedQueryAsync("Q", options);
+
+        embedding.Spaces.Select(s => s.ModelId).Should().Equal("nomic-embed-text");
+        await _provider.Received(1).EmbedAsync("Q", EmbeddingInputType.Unspecified, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_ModelIdFilterThatCantBeReproduced_SearchesNothing()
+    {
+        var options = new SearchOptions(Filters: new Dictionary<string, string> { ["modelId"] = "nomic-embed-text-recipe-00000000" });
 
         QueryEmbedding embedding = await CreateService().EmbedQueryAsync("q", options);
 
-        embedding.ModelId.Should().Be("legacy-model");
-        await _provider.Received(1).EmbedAsync("q", EmbeddingInputType.Unspecified, Arg.Any<CancellationToken>());
+        embedding.Spaces.Should().BeEmpty();
+        await _provider.DidNotReceiveWithAnyArgs().EmbedAsync(default!, default, default);
     }
 
     [Fact]
-    public async Task EmbedQueryAsync_PromptedModelOverMostlyUnpromptedVectors_QueriesThemWithoutAPrompt()
+    public async Task SearchAsync_TwoSpaces_FiltersEachOnItsOwnIdAndMergesByScore()
     {
-        string prompted = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
-        StoredVectors(("nomic-embed-text", 900), (prompted, 100));
+        _store.SearchAsync(Arg.Any<float[]>(), Arg.Any<int>(),
+                Arg.Is<Dictionary<string, string>?>(f => f!["modelId"] == "a"), Arg.Any<SearchScopes>(), Arg.Any<CancellationToken>())
+            .Returns([new VectorSearchResult("c1", 0.5f, new Dictionary<string, string>())]);
+        _store.SearchAsync(Arg.Any<float[]>(), Arg.Any<int>(),
+                Arg.Is<Dictionary<string, string>?>(f => f!["modelId"] == "b"), Arg.Any<SearchScopes>(), Arg.Any<CancellationToken>())
+            .Returns([new VectorSearchResult("c2", 0.9f, new Dictionary<string, string>())]);
+        var query = new QueryEmbedding([new QuerySpace([1f], "a"), new QuerySpace([1f], "b")]);
 
-        QueryEmbedding embedding = await CreateService("nomic-embed-text")
-            .EmbedQueryAsync("q", new SearchOptions(ContainerId: ContainerId));
+        List<SearchHit> hits = await CreateService().SearchAsync("q", query, new SearchOptions(TopK: 5), SearchScopes.Unrestricted);
 
-        embedding.ModelId.Should().Be("nomic-embed-text");
-        await _provider.Received(1).EmbedAsync("q", EmbeddingInputType.Unspecified, Arg.Any<CancellationToken>());
+        hits.Select(h => h.ChunkId).Should().Equal("c2", "c1");
     }
 
     [Fact]
-    public async Task EmbedQueryAsync_PromptedModelOverReindexedVectors_UsesTheQueryPrompt()
+    public async Task ScoreChunksAsync_ScoresEachChunkInItsOwnSpace()
     {
-        string prompted = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
-        StoredVectors(("nomic-embed-text", 100), (prompted, 900));
+        _store.ScoreChunksAsync(Arg.Any<float[]>(), Arg.Any<IReadOnlyCollection<string>>(), "a", Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, float> { ["c1"] = 0.4f });
+        _store.ScoreChunksAsync(Arg.Any<float[]>(), Arg.Any<IReadOnlyCollection<string>>(), "b", Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, float> { ["c2"] = 0.7f });
+        var query = new QueryEmbedding([new QuerySpace([1f], "a"), new QuerySpace([1f], "b")]);
 
-        QueryEmbedding embedding = await CreateService("nomic-embed-text")
-            .EmbedQueryAsync("q", new SearchOptions(ContainerId: ContainerId));
+        IReadOnlyDictionary<string, float> scores = await CreateService().ScoreChunksAsync(query, ["c1", "c2"]);
 
-        embedding.ModelId.Should().Be(prompted);
-        await _provider.Received(1).EmbedAsync("q", EmbeddingInputType.Query, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task EmbedQueryAsync_PromptedModelOverEmptyContainer_UsesTheQueryPrompt()
-    {
-        StoredVectors();
-
-        QueryEmbedding embedding = await CreateService("nomic-embed-text")
-            .EmbedQueryAsync("q", new SearchOptions(ContainerId: ContainerId));
-
-        embedding.ModelId.Should().Be(EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" }));
-        await _provider.Received(1).EmbedAsync("q", EmbeddingInputType.Query, Arg.Any<CancellationToken>());
+        scores.Should().BeEquivalentTo(new Dictionary<string, float> { ["c1"] = 0.4f, ["c2"] = 0.7f });
     }
 }

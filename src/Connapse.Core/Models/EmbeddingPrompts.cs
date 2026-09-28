@@ -196,6 +196,23 @@ public static class EmbeddingIdentity
     public static string For(EmbeddingSettings settings) =>
         For(settings.Model, EmbeddingPrompts.Resolve(settings), EmbeddingText.IsUncased(settings.Model));
 
+    /// <summary>
+    /// Every vector space the configured model can still embed a query for, current first: the
+    /// current recipe, and the model's published recipe when custom prefixes replaced it. (The bare
+    /// model id, for vectors stored before any text preparation, is the third: its queries are sent
+    /// exactly as given.) Vectors made with an older custom recipe are not reproducible: its prefixes
+    /// are not stored anywhere, so they wait for a reindex.
+    /// </summary>
+    public static IReadOnlyList<EmbeddingSettings> ReproducibleRecipes(EmbeddingSettings settings)
+    {
+        List<EmbeddingSettings> recipes = [settings];
+        HashSet<string> seen = [For(settings)];
+        EmbeddingSettings published = settings with { UseModelPrefixes = true };
+        if (seen.Add(For(published)))
+            recipes.Add(published);
+        return recipes;
+    }
+
     public static string For(string model, EmbeddingPrompts prompts, bool uncased = false)
     {
         if (prompts.IsNone && !uncased)

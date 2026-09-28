@@ -7,7 +7,17 @@ namespace Connapse.Search.Vector;
 /// A query embedded for one vector space: it is only comparable with vectors stored under
 /// <paramref name="ModelId"/>, so searching and scoring both filter on it.
 /// </summary>
-public sealed record QueryEmbedding(float[] Vector, string ModelId);
+public sealed record QuerySpace(float[] Vector, string ModelId);
+
+/// <summary>
+/// A query embedded once for each vector space it searches, current first. During a migration a
+/// container holds vectors under more than one recipe of the same model; each gets a query prepared
+/// its own way, so no query is ever compared with vectors made differently.
+/// </summary>
+public sealed record QueryEmbedding(IReadOnlyList<QuerySpace> Spaces)
+{
+    public QueryEmbedding(float[] vector, string modelId) : this([new QuerySpace(vector, modelId)]) { }
+}
 
 /// <summary>
 /// How many vectors each model id holds, per container, remembered briefly. Only consulted while

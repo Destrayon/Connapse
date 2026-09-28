@@ -89,7 +89,14 @@ public class VectorColumnManager(
         sanitized = sanitized.Trim('_');
 
         var name = $"idx_cv_emb_{sanitized}";
-        return name.Length > 63 ? name[..63] : name;
+        if (name.Length <= 63)
+            return name;
+
+        // Truncating alone lets two ids that differ only past the cut (a model and its "-recipe-"
+        // variant) share one index name, so a truncated name ends with a hash of the whole id.
+        string hash = Convert.ToHexStringLower(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(modelId)))[..8];
+        return $"{name[..54]}_{hash}";
     }
 
     private async Task CreatePartialIndexAsync(

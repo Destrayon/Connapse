@@ -121,7 +121,8 @@
             }
             <small class="form-text text-muted d-block">
                 Some models are trained to see an instruction before each search query and each stored chunk.
-                Changing the prefixes changes the vectors: reindex afterwards. Existing vectors stay searchable until then.
+                Changing the prefixes changes the vectors: reindex afterwards. Until then, vectors made before prefixes
+                existed or with the model's own prefixes stay searchable; vectors made with earlier custom prefixes do not.
             </small>
         </div>
 
@@ -331,12 +332,13 @@
     {
         try
         {
-            var hasLegacy = await ModelDiscovery.HasLegacyVectorsAsync(localSettings.Model);
+            string current = EmbeddingIdentity.For(localSettings);
+            var hasLegacy = await ModelDiscovery.HasLegacyVectorsAsync(current);
             if (hasLegacy)
             {
                 var models = await ModelDiscovery.GetModelsAsync();
                 legacyVectorCount = models
-                    .Where(m => !string.Equals(m.ModelId, localSettings.Model, StringComparison.OrdinalIgnoreCase))
+                    .Where(m => !string.Equals(m.ModelId, current, StringComparison.OrdinalIgnoreCase))
                     .Sum(m => m.VectorCount);
                 showLegacyBanner = legacyVectorCount > 0;
             }
