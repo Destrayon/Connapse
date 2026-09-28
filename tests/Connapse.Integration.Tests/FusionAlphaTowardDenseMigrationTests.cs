@@ -9,19 +9,19 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// The #521 data migration on a database that already saved Search settings: a stored 0.5 (the old
-/// default) moves to 0.3, and any other stored weight is left alone. Owns its PostgreSQL container
+/// The #552 data migration on a database that already saved Search settings: a stored 0.3 (the old
+/// default) moves to 0.75, and any other stored weight is left alone. Owns its PostgreSQL container
 /// for the same reason as <see cref="ChunkOwnerMigrationTests"/>: it must stop before the migration.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
-public class FusionAlphaMigrationTests : IAsyncLifetime
+public class FusionAlphaTowardDenseMigrationTests : IAsyncLifetime
 {
-    private const string Before = "20260923155352_AddGitHubAppProviderCredential";
+    private const string Before = "20260928162620_ClearImplicitTsRankDefault";
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
-        .WithDatabase("connapse_alpha_migration")
+        .WithDatabase("connapse_alpha_dense_migration")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
         .Build();
@@ -36,9 +36,9 @@ public class FusionAlphaMigrationTests : IAsyncLifetime
             .Options);
 
     [Theory]
-    [InlineData("0.5", 0.3)]
+    [InlineData("0.3", 0.75)]
     [InlineData("0.7", 0.7)]
-    [InlineData("0.3", 0.3)]
+    [InlineData("0.5", 0.5)]
     public async Task Migration_SavedSearchSettings_ShiftsOnlyTheOldDefault(string stored, double expected)
     {
         await using (var context = CreateContext())
@@ -50,8 +50,7 @@ public class FusionAlphaMigrationTests : IAsyncLifetime
             await context.Database.ExecuteSqlRawAsync(
                 "INSERT INTO settings (category, values) VALUES ('embedding', jsonb_build_object('fusionAlpha', 0.5))");
 
-            // Up to this migration only: #552's later one moves a stored 0.3 again.
-            await context.GetService<IMigrator>().MigrateAsync("20260925180941_ShiftDefaultFusionAlpha");
+            await context.GetService<IMigrator>().MigrateAsync();
         }
 
         await using (var context = CreateContext())

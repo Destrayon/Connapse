@@ -558,11 +558,11 @@ public class HybridSearchFusionTests
     }
 
     [Fact]
-    public void SearchSettings_Defaults_LeanTowardKeywordWithAPoolOfThirty()
+    public void SearchSettings_Defaults_LeanTowardVectorWithAPoolOfThirty()
     {
         var settings = new SearchSettings();
 
-        settings.FusionAlpha.Should().Be(0.3f);
+        settings.FusionAlpha.Should().Be(0.75f);
         settings.HybridCandidatePool.Should().Be(30);
     }
 
