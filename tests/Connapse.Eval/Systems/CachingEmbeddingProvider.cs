@@ -5,10 +5,10 @@ namespace Connapse.Eval.Systems;
 
 /// <summary>
 /// Caches embeddings on disk keyed by (provider type, model, dimensions, text), so reruns re-embed only changed chunks.
-/// The text in the key is the text as the model sees it, with <paramref name="prompts"/> applied, so a prefixed and an
+/// The text in the key is the text as the model sees it, prepared for <paramref name="settings"/>, so a prefixed and an
 /// unprefixed embedding of the same chunk never share an entry.
 /// </summary>
-public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, EmbeddingDiskCache cache, EmbeddingPrompts prompts) : IEmbeddingProvider
+public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, EmbeddingDiskCache cache, EmbeddingSettings settings) : IEmbeddingProvider
 {
     private string Namespace => $"{inner.GetType().Name}-{inner.ModelId}-{inner.Dimensions}";
 
@@ -18,7 +18,7 @@ public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, Embedding
 
     public async Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default)
     {
-        string key = prompts.Apply(text, inputType);
+        string key = EmbeddingText.Prepare(settings, [text], inputType)[0];
         float[]? cached = cache.TryGet(Namespace, key);
         if (cached is not null)
             return cached;
@@ -32,9 +32,10 @@ public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, Embedding
         List<string> list = texts.ToList();
         float[][] result = new float[list.Count][];
         List<int> missing = [];
+        IReadOnlyList<string> keys = EmbeddingText.Prepare(settings, list, inputType);
         for (int i = 0; i < list.Count; i++)
         {
-            float[]? cached = cache.TryGet(Namespace, prompts.Apply(list[i], inputType));
+            float[]? cached = cache.TryGet(Namespace, keys[i]);
             if (cached is null)
                 missing.Add(i);
             else
@@ -47,7 +48,7 @@ public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, Embedding
             for (int j = 0; j < missing.Count; j++)
             {
                 result[missing[j]] = fresh[j];
-                cache.Put(Namespace, prompts.Apply(list[missing[j]], inputType), fresh[j]);
+                cache.Put(Namespace, keys[missing[j]], fresh[j]);
             }
         }
         return result;

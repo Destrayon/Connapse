@@ -53,8 +53,9 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         EmbeddingInputType inputType,
         CancellationToken ct = default)
     {
-        // The model's instruction for this side, if it has one (nomic's "search_query: ").
-        var textList = EmbeddingPrompts.Resolve(_settings).Apply(texts, inputType).ToList();
+        // The model's instruction for this side, if it has one (nomic's "search_query: "), and the
+        // lowercasing an uncased model's tokenizer expects.
+        var textList = EmbeddingText.Prepare(_settings, texts, inputType).ToList();
 
         if (textList.Count == 0)
             return Array.Empty<float[]>();

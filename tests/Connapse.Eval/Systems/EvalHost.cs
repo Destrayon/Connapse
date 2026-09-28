@@ -87,7 +87,7 @@ public sealed class EvalHost : IAsyncDisposable
                     services.RemoveAll<IEmbeddingProvider>();
                     services.AddScoped<IEmbeddingProvider>(sp => new CachingEmbeddingProvider(
                         embeddingOverride ?? (IEmbeddingProvider)original.ImplementationFactory!(sp), cache,
-                        EmbeddingPrompts.Resolve(sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue)));
+                        sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue));
                 });
             });
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -134,21 +135,73 @@ public sealed record EmbeddingPrompts(string Query, string Document)
 }
 
 /// <summary>
+/// Turns text into what the model is sent: its prompt for the side the text is on, then, for models
+/// whose vocabulary is uncased, the lowercasing and accent stripping their tokenizer is meant to do.
+/// Ollama's BERT tokenizer skips that step, so capitalised words become the wrong tokens (#561).
+/// </summary>
+public static class EmbeddingText
+{
+    /// <summary>
+    /// The text each side of an embedding call is sent as. <see cref="EmbeddingInputType.Unspecified"/>
+    /// sends it exactly as given: that is how vectors stored before this preparation were made.
+    /// </summary>
+    public static IReadOnlyList<string> Prepare(
+        EmbeddingSettings settings, IEnumerable<string> texts, EmbeddingInputType inputType)
+    {
+        if (inputType == EmbeddingInputType.Unspecified)
+            return texts as IReadOnlyList<string> ?? texts.ToList();
+        IReadOnlyList<string> prompted = EmbeddingPrompts.Resolve(settings).Apply(texts, inputType);
+        return IsUncased(settings.Model) ? prompted.Select(Uncase).ToList() : prompted;
+    }
+
+    /// <summary>True when the model's tokenizer is uncased (<c>do_lower_case</c> in its tokenizer_config.json).</summary>
+    public static bool IsUncased(string? model) => Uncased.Contains(EmbeddingPrompts.NormalizeModelName(model));
+
+    /// <summary>What BERT's uncased BasicTokenizer does before WordPiece: lowercase, then drop accents.</summary>
+    public static string Uncase(string text)
+    {
+        string decomposed = text.ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        StringBuilder result = new(decomposed.Length);
+        foreach (char c in decomposed)
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                result.Append(c);
+        return result.ToString();
+    }
+
+    // Checked against each model's tokenizer_config.json (do_lower_case: true, BertTokenizer).
+    // Cased models, left alone: nomic v2-moe, multilingual-e5, arctic v2, Qwen3, bge-m3, granite.
+    private static readonly HashSet<string> Uncased = new(StringComparer.Ordinal)
+    {
+        "nomic-embed-text", "nomic-embed-text-v1", "nomic-embed-text-v1.5",
+        "e5-small-v2", "e5-base-v2", "e5-large-v2",
+        "bge-small-en-v1.5", "bge-base-en-v1.5", "bge-large-en-v1.5", "bge-large",
+        "mxbai-embed-large", "mxbai-embed-large-v1",
+        "snowflake-arctic-embed", "snowflake-arctic-embed-xs", "snowflake-arctic-embed-s", "snowflake-arctic-embed-m",
+        "snowflake-arctic-embed-m-long", "snowflake-arctic-embed-l", "snowflake-arctic-embed-m-v1.5",
+        "all-minilm", "all-minilm-l6-v2", "all-minilm-l12-v2",
+        "gte-small-en-v1.5", "gte-base-en-v1.5", "gte-large-en-v1.5",
+    };
+}
+
+/// <summary>
 /// The id stored with every vector (<c>chunk_vectors.model_id</c>): which vector space it lives in.
-/// Prompts change the space, so they are part of it. With no prompts the id is the bare model name,
-/// exactly as before prompts existed, so those deployments keep their vectors, cache and indexes.
-/// The suffix uses only letters, digits and hyphens: <c>VectorColumnManager</c> builds each model's
-/// partial index predicate from a sanitised id, and any other character would be dropped from it.
+/// How text is prepared (prompts, lowercasing) changes the space, so it is part of it. When text is
+/// sent as it is, the id is the bare model name, exactly as before, so those deployments keep their
+/// vectors, cache and indexes. The suffix uses only letters, digits and hyphens: <c>VectorColumnManager</c>
+/// builds each model's partial index predicate from a sanitised id, and any other character would be
+/// dropped from it.
 /// </summary>
 public static class EmbeddingIdentity
 {
-    public static string For(EmbeddingSettings settings) => For(settings.Model, EmbeddingPrompts.Resolve(settings));
+    public static string For(EmbeddingSettings settings) =>
+        For(settings.Model, EmbeddingPrompts.Resolve(settings), EmbeddingText.IsUncased(settings.Model));
 
-    public static string For(string model, EmbeddingPrompts prompts)
+    public static string For(string model, EmbeddingPrompts prompts, bool uncased = false)
     {
-        if (prompts.IsNone)
+        if (prompts.IsNone && !uncased)
             return model;
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(prompts.Query + "\0" + prompts.Document));
-        return $"{model}-prompts-{Convert.ToHexStringLower(hash)[..8]}";
+        string recipe = prompts.Query + "\0" + prompts.Document + (uncased ? "\0uncased" : "");
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(recipe));
+        return $"{model}-recipe-{Convert.ToHexStringLower(hash)[..8]}";
     }
 }

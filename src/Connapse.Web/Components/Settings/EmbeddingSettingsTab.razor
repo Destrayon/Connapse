@@ -115,6 +115,10 @@
                     </div>
                 </div>
             }
+            @if (EmbeddingText.IsUncased(localSettings.Model))
+            {
+                <small class="form-text text-muted d-block">This model's vocabulary is lowercase, so text is lowercased before embedding.</small>
+            }
             <small class="form-text text-muted d-block">
                 Some models are trained to see an instruction before each search query and each stored chunk.
                 Changing the prefixes changes the vectors: reindex afterwards. Existing vectors stay searchable until then.

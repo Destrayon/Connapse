@@ -20,7 +20,7 @@ public class CachingEmbeddingProviderTests : IDisposable
     public async Task EmbedAsync_SameTextTwice_CallsInnerOnce()
     {
         CountingProvider inner = new();
-        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None);
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" });
 
         float[] first = await provider.EmbedAsync("hello", EmbeddingInputType.Document);
         float[] second = await provider.EmbedAsync("hello", EmbeddingInputType.Document);
@@ -33,7 +33,7 @@ public class CachingEmbeddingProviderTests : IDisposable
     public async Task EmbedBatchAsync_MixedCachedAndNew_EmbedsOnlyNewAndKeepsOrder()
     {
         CountingProvider inner = new();
-        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None);
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" });
         await provider.EmbedAsync("bb", EmbeddingInputType.Document);
 
         IReadOnlyList<float[]> vectors = await provider.EmbedBatchAsync(["a", "bb", "ccc"], EmbeddingInputType.Document);
@@ -45,10 +45,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     [Fact]
     public async Task EmbedAsync_NewCacheInstanceSameDirectory_ReadsFromDisk()
     {
-        await new CachingEmbeddingProvider(new CountingProvider(), new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("persist", EmbeddingInputType.Document);
+        await new CachingEmbeddingProvider(new CountingProvider(), new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" }).EmbedAsync("persist", EmbeddingInputType.Document);
         CountingProvider inner = new();
 
-        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("persist", EmbeddingInputType.Document);
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" }).EmbedAsync("persist", EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(0);
     }
@@ -56,10 +56,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     [Fact]
     public async Task EmbedAsync_SameModelDifferentDimensions_DoesNotShareEntries()
     {
-        await new CachingEmbeddingProvider(new CountingProvider(dimensions: 2), new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("dims", EmbeddingInputType.Document);
+        await new CachingEmbeddingProvider(new CountingProvider(dimensions: 2), new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" }).EmbedAsync("dims", EmbeddingInputType.Document);
         CountingProvider inner = new(dimensions: 3);
 
-        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), EmbeddingPrompts.None).EmbedAsync("dims", EmbeddingInputType.Document);
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting" }).EmbedAsync("dims", EmbeddingInputType.Document);
 
         inner.Calls.Should().Be(1);
     }
@@ -68,7 +68,10 @@ public class CachingEmbeddingProviderTests : IDisposable
     public async Task EmbedAsync_SameTextPromptedAndUnprompted_DoesNotShareEntries()
     {
         CountingProvider inner = new();
-        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingPrompts("q: ", "d: "));
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings
+        {
+            Model = "counting", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "d: ",
+        });
 
         await provider.EmbedAsync("text", EmbeddingInputType.Document);
         await provider.EmbedAsync("text", EmbeddingInputType.Query);

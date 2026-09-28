@@ -86,11 +86,57 @@ public class EmbeddingPromptsTests
     }
 
     [Fact]
-    public void Identity_WithoutPrompts_IsTheBareModelName()
+    public void Identity_TextSentAsIs_IsTheBareModelName()
     {
         EmbeddingIdentity.For(new EmbeddingSettings { Model = "text-embedding-3-small" }).Should().Be("text-embedding-3-small");
+        EmbeddingIdentity.For(new EmbeddingSettings { Model = "qwen3-embedding:0.6b", UseModelPrefixes = false })
+            .Should().Be("qwen3-embedding:0.6b");
+    }
+
+    [Fact]
+    public void Identity_UncasedModelWithoutPrefixes_StillNamesItsRecipe()
+    {
         EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text", UseModelPrefixes = false })
-            .Should().Be("nomic-embed-text");
+            .Should().StartWith("nomic-embed-text-recipe-");
+    }
+
+    [Theory]
+    [InlineData("nomic-embed-text:latest", true)]
+    [InlineData("hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF:F16", true)]
+    [InlineData("all-minilm:l6-v2", true)]
+    [InlineData("mxbai-embed-large", true)]
+    [InlineData("nomic-embed-text-v2-moe", false)]
+    [InlineData("qwen3-embedding:0.6b", false)]
+    [InlineData("bge-m3", false)]
+    [InlineData("text-embedding-3-small", false)]
+    public void IsUncased_FollowsTheTokenizerConfig(string model, bool uncased)
+    {
+        EmbeddingText.IsUncased(model).Should().Be(uncased);
+    }
+
+    [Fact]
+    public void Prepare_UncasedModel_LowercasesAndStripsAccentsAfterThePrompt()
+    {
+        EmbeddingSettings settings = new() { Model = "nomic-embed-text" };
+
+        EmbeddingText.Prepare(settings, ["Café in Paris"], EmbeddingInputType.Query)
+            .Should().Equal("search_query: cafe in paris");
+    }
+
+    [Fact]
+    public void Prepare_CasedModel_KeepsCase()
+    {
+        EmbeddingSettings settings = new() { Model = "qwen3-embedding:0.6b" };
+
+        EmbeddingText.Prepare(settings, ["Café"], EmbeddingInputType.Document).Should().Equal("Café");
+    }
+
+    [Fact]
+    public void Prepare_Unspecified_SendsTextAsGiven()
+    {
+        EmbeddingSettings settings = new() { Model = "nomic-embed-text" };
+
+        EmbeddingText.Prepare(settings, ["Café"], EmbeddingInputType.Unspecified).Should().Equal("Café");
     }
 
     [Fact]
@@ -103,7 +149,7 @@ public class EmbeddingPromptsTests
             Model = "nomic-embed-text", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "search_document: ",
         });
 
-        first.Should().MatchRegex("^nomic-embed-text-prompts-[0-9a-f]{8}$");
+        first.Should().MatchRegex("^nomic-embed-text-recipe-[0-9a-f]{8}$");
         again.Should().Be(first);
         other.Should().NotBe(first);
     }
