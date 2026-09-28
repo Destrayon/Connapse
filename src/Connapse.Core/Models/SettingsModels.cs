@@ -45,6 +45,17 @@ public record EmbeddingSettings
     public string? DocumentPrefix { get; set; }
 
     /// <summary>
+    /// Most embedding requests ingestion may have in flight at once. Kept below what the provider
+    /// can serve so searches never queue behind a large sync. Raise it for a hosted provider.
+    /// </summary>
+    [Range(1, 256)]
+    public int MaxConcurrentIngestionRequests { get; set; } = 2;
+
+    /// <summary>Most query embedding requests in flight at once.</summary>
+    [Range(1, 256)]
+    public int MaxConcurrentQueryRequests { get; set; } = 8;
+
+    /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
     /// Prefer the provider-specific key properties below.
     /// </summary>

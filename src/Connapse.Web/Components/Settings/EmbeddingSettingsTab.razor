@@ -89,6 +89,18 @@
         </div>
 
         <div class="col-md-6">
+            <label class="form-label">Max Concurrent Ingestion Requests</label>
+            <InputNumber @bind-Value="localSettings.MaxConcurrentIngestionRequests" class="form-control" min="1" />
+            <small class="form-text text-muted">Embedding requests ingestion may run at once. Keep it low for a local model so searches stay fast during large syncs; raise it for a hosted provider.</small>
+        </div>
+
+        <div class="col-md-6">
+            <label class="form-label">Max Concurrent Query Requests</label>
+            <InputNumber @bind-Value="localSettings.MaxConcurrentQueryRequests" class="form-control" min="1" />
+            <small class="form-text text-muted">Search query embeddings that may run at once</small>
+        </div>
+
+        <div class="col-md-6">
             <label class="form-label">Timeout (seconds)</label>
             <InputNumber @bind-Value="localSettings.TimeoutSeconds" class="form-control" />
         </div>

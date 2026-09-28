@@ -14,6 +14,7 @@ using Connapse.Storage.Folders;
 using Connapse.Storage.Settings;
 using Connapse.Storage.Llm;
 using Connapse.Storage.Vectors;
+using Connapse.Storage.Http;
 using Amazon.Runtime;
 using Amazon.S3;
 using Microsoft.EntityFrameworkCore;
@@ -109,21 +110,25 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IKnowledgeFileSystem>(sp => sp.GetRequiredService<LocalKnowledgeFileSystem>());
 
         // Embedding providers — resolved at runtime based on EmbeddingSettings.Provider
-        services.AddHttpClient<OllamaEmbeddingProvider>();
+        services.AddHttpClient<OllamaEmbeddingProvider>().AddProviderResilience("ollama-embeddings");
 
         // Roles Anywhere CreateSession calls; named so tests can substitute the transport.
         services.AddHttpClient(CloudScope.ConnapseAwsCredentials.RolesAnywhereHttpClientName);
         services.AddScoped<OpenAiEmbeddingProvider>();
         services.AddScoped<AzureOpenAiEmbeddingProvider>();
+        // Every provider is wrapped in the process-wide throttle, which keeps ingestion from
+        // taking the capacity searches need (see EmbeddingThrottle).
+        services.AddSingleton<EmbeddingThrottle>();
         services.AddScoped<IEmbeddingProvider>(sp =>
         {
             var settings = sp.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue;
-            return settings.Provider switch
+            IEmbeddingProvider provider = settings.Provider switch
             {
                 "OpenAI" => sp.GetRequiredService<OpenAiEmbeddingProvider>(),
                 "AzureOpenAI" => sp.GetRequiredService<AzureOpenAiEmbeddingProvider>(),
                 _ => sp.GetRequiredService<OllamaEmbeddingProvider>()
             };
+            return new ThrottledEmbeddingProvider(provider, sp.GetRequiredService<EmbeddingThrottle>());
         });
 
         // LLM providers — resolved at runtime based on LlmSettings.Provider.
