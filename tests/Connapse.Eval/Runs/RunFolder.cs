@@ -3,6 +3,7 @@ using System.Text.Json;
 using Connapse.Eval.Checks;
 using Connapse.Eval.Metrics;
 using Connapse.Eval.Model;
+using Connapse.Eval.Systems;
 
 namespace Connapse.Eval.Runs;
 
@@ -63,6 +64,13 @@ public sealed class RunFolder
             for (int i = 0; i < ordered.Count; i++)
                 trec.Write($"{result.QueryId} Q0 {ordered[i].DocId} {i + 1} {ordered[i].Score.ToString("R", CultureInfo.InvariantCulture)} eval\n");
         }
+    }
+
+    public void WriteCandidates(string dataset, IReadOnlyList<(string QueryId, CandidateCapture Candidates)> captured)
+    {
+        using StreamWriter writer = new(File("candidates", dataset + ".jsonl"));
+        foreach ((string queryId, CandidateCapture candidates) in captured)
+            writer.Write(JsonSerializer.Serialize(new { queryId, candidates.Vector, candidates.Keyword }, EvalJson.Line) + "\n");
     }
 
     /// <summary>Written after the manifest entry, so resume redoes any dataset that did not finish.</summary>

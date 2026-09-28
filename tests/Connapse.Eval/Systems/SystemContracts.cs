@@ -10,7 +10,19 @@ public sealed record Trace(
     int? InputTokens = null,
     int? OutputTokens = null);
 
-public sealed record SearchOutcome(IReadOnlyList<RankedDoc> Ranked, Trace Trace, string? Error);
+public sealed record SearchOutcome(IReadOnlyList<RankedDoc> Ranked, Trace Trace, string? Error)
+{
+    /// <summary>Each side's pooled candidates, when the config asks for them (fusion is replayed offline from these).</summary>
+    public CandidateCapture? Candidates { get; init; }
+}
+
+/// <summary>
+/// One query's hybrid candidates: each side's own top chunks in rank order, every one scored on both
+/// sides (null where a side cannot score it). Enough to replay any fusion over pools up to this size.
+/// </summary>
+public sealed record CandidateCapture(IReadOnlyList<Candidate> Vector, IReadOnlyList<Candidate> Keyword);
+
+public sealed record Candidate(string ChunkId, string DocId, float? VectorScore, float? KeywordScore);
 
 public sealed record IndexReport(int Documents, int Failed, IReadOnlyList<string> FailedDocumentIds)
 {

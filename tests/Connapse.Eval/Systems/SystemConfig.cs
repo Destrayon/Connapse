@@ -26,6 +26,12 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
     /// <summary>Chunking strategy passed on each upload; null leaves the product's upload default.</summary>
     public string? ChunkingStrategy { get; init; }
 
+    /// <summary>
+    /// When set, each query also records each side's top this-many chunks with both scores, in
+    /// candidates/&lt;dataset&gt;.jsonl, so fusion settings can be replayed without re-running.
+    /// </summary>
+    public int? CaptureCandidates { get; init; }
+
     public string Hash
     {
         get
@@ -34,6 +40,8 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
             // Only when set, so configs without a strategy keep the hashes their runs already carry.
             if (ChunkingStrategy is not null)
                 canonical.Append("chunkingStrategy=").Append(ChunkingStrategy).Append('\n');
+            if (CaptureCandidates is not null)
+                canonical.Append("captureCandidates=").Append(CaptureCandidates).Append('\n');
             foreach ((string key, string value) in Settings.OrderBy(p => p.Key, StringComparer.Ordinal))
                 canonical.Append(key).Append('=').Append(value).Append('\n');
             return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))[..16];
@@ -51,6 +59,7 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
             file.Settings ?? new Dictionary<string, string>())
         {
             ChunkingStrategy = file.ChunkingStrategy,
+            CaptureCandidates = file.CaptureCandidates,
         };
     }
 
@@ -68,5 +77,6 @@ public sealed record SystemConfig(string Name, SearchMode SearchMode, IReadOnlyD
         return settings;
     }
 
-    private sealed record ConfigFile(string SearchMode, Dictionary<string, string>? Settings, string? ChunkingStrategy = null);
+    private sealed record ConfigFile(
+        string SearchMode, Dictionary<string, string>? Settings, string? ChunkingStrategy = null, int? CaptureCandidates = null);
 }
