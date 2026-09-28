@@ -74,6 +74,19 @@ public sealed class DatasetCache(string cacheRoot, HttpClient http, string? lock
             if (!File.Exists(lockPath))
                 throw new InvalidOperationException($"{dataset} has no lock file at {lockPath}. Run 'datasets pin --suite <suite>' first.");
             files = ReadLock(lockPath);
+            // The adapter builds its corpus from the dataset's own (checksummed) manifest files, not from
+            // the lock, so the two must list exactly the same paths: otherwise a corpus file could be
+            // loaded without ever being verified.
+            if (DatasetAdapters.Get(entry.Adapter) is IFileListAdapter lister)
+            {
+                HashSet<string> expected = lister.ListFiles(directory).ToHashSet(StringComparer.Ordinal);
+                HashSet<string> locked = files.Select(f => f.RelativePath).ToHashSet(StringComparer.Ordinal);
+                if (!expected.SetEquals(locked))
+                    throw new InvalidDataException(
+                        $"{lockPath} does not match {dataset}'s file list: {expected.Except(locked).Count()} missing, "
+                        + $"{locked.Except(expected).Count()} extra (for example "
+                        + $"'{expected.Except(locked).Concat(locked.Except(expected)).First()}'). Run 'datasets pin' again.");
+            }
         }
 
         string[] actual = new string[files.Count];
@@ -83,7 +96,7 @@ public sealed class DatasetCache(string cacheRoot, HttpClient http, string? lock
             await gate.WaitAsync(ct);
             try
             {
-                string path = Path.Combine(directory, file.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+                string path = ContainedPath(directory, file.RelativePath);
                 if (!File.Exists(path))
                 {
                     Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -108,6 +121,24 @@ public sealed class DatasetCache(string cacheRoot, HttpClient http, string? lock
                 .Select(f => f.Line));
         }
         return await Sha256Async(lockPath, ct);
+    }
+
+    /// <summary>
+    /// The file's path under <paramref name="directory"/>. A relative path that is rooted, has empty,
+    /// "." or ".." segments, or otherwise resolves outside the directory is refused before anything is
+    /// created or downloaded.
+    /// </summary>
+    public static string ContainedPath(string directory, string relativePath)
+    {
+        string[] segments = relativePath.Split('/');
+        if (Path.IsPathRooted(relativePath) || relativePath.Contains('\\')
+            || segments.Any(s => s.Length == 0 || s is "." or ".." || s.Contains(':')))
+            throw new InvalidDataException($"Refusing file-list path '{relativePath}': it must be a plain relative path.");
+        string root = Path.GetFullPath(directory);
+        string full = Path.GetFullPath(Path.Combine(root, Path.Combine(segments)));
+        if (!full.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Refusing file-list path '{relativePath}': it resolves outside {root}.");
+        return full;
     }
 
     /// <summary>Lines of "sha256  relative/path", the format sha256sum writes.</summary>

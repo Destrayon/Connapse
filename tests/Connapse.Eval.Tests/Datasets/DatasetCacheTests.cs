@@ -51,10 +51,22 @@ public class DatasetCacheTests : IDisposable
         return new DatasetCache(_root, new HttpClient(_handler), locks);
     }
 
+    // The olmOCR adapter lists its PDFs from its category JSONL files, which the lock must match.
+    private void WriteOlmOcrJsonl(DatasetCache cache, params string[] pdfs)
+    {
+        string directory = cache.DirectoryFor("ds", FileListEntry());
+        Directory.CreateDirectory(directory);
+        foreach (string category in OlmOcrBenchAdapter.Categories)
+            File.WriteAllText(Path.Combine(directory, category + ".jsonl"), "");
+        File.WriteAllLines(Path.Combine(directory, "table_tests.jsonl"),
+            pdfs.Select((pdf, i) => $$"""{"pdf": "{{pdf}}", "page": 1, "id": "t{{i}}", "type": "table", "cell": "x"}"""));
+    }
+
     [Fact]
     public async Task EnsureAsync_FileList_DownloadsEveryLockedFileIntoItsSubfolder()
     {
         DatasetCache cache = CacheWithLocks(out string locks);
+        WriteOlmOcrJsonl(cache, "tables/a b.pdf", "multi_column/c.pdf");
         Directory.CreateDirectory(Path.Combine(locks, "ds"));
         File.WriteAllLines(Path.Combine(locks, "ds", DatasetCache.LockFileName),
             [$"{PayloadHash}  tables/a b.pdf", $"{PayloadHash}  multi_column/c.pdf"]);
@@ -71,12 +83,45 @@ public class DatasetCacheTests : IDisposable
     public async Task EnsureAsync_FileListWrongHash_Throws()
     {
         DatasetCache cache = CacheWithLocks(out string locks);
+        WriteOlmOcrJsonl(cache, "tables/a.pdf");
         Directory.CreateDirectory(Path.Combine(locks, "ds"));
         File.WriteAllLines(Path.Combine(locks, "ds", DatasetCache.LockFileName), [$"{new string('0', 64)}  tables/a.pdf"]);
 
         Func<Task> act = () => cache.EnsureAsync("ds", FileListEntry(), allowUnpinned: false, CancellationToken.None);
 
         await act.Should().ThrowAsync<ChecksumMismatchException>().WithMessage("*a.pdf*");
+    }
+
+    [Theory]
+    [InlineData("../escape.pdf")]
+    [InlineData("tables/../../escape.pdf")]
+    [InlineData("/abs/escape.pdf")]
+    [InlineData("C:/abs/escape.pdf")]
+    [InlineData("tables\\..\\..\\escape.pdf")]
+    [InlineData("tables//a.pdf")]
+    public void ContainedPath_TraversalOrRootedPath_Throws(string relative)
+    {
+        Action act = () => DatasetCache.ContainedPath(_root, relative);
+
+        act.Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
+    public void ContainedPath_PlainRelativePath_ResolvesUnderTheDirectory() =>
+        DatasetCache.ContainedPath(_root, "tables/a b.pdf").Should().Be(Path.Combine(Path.GetFullPath(_root), "tables", "a b.pdf"));
+
+    [Fact]
+    public async Task EnsureAsync_LockMissingACorpusFile_Throws()
+    {
+        DatasetCache cache = CacheWithLocks(out string locks);
+        WriteOlmOcrJsonl(cache, "tables/a.pdf", "tables/unlocked.pdf");
+        Directory.CreateDirectory(Path.Combine(locks, "ds"));
+        File.WriteAllLines(Path.Combine(locks, "ds", DatasetCache.LockFileName), [$"{PayloadHash}  tables/a.pdf"]);
+
+        Func<Task> act = () => cache.EnsureAsync("ds", FileListEntry(), allowUnpinned: false, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*1 missing*");
+        _handler.Calls.Should().Be(0);
     }
 
     [Fact]
