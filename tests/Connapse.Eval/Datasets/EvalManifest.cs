@@ -1,15 +1,23 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Connapse.Eval.Model;
 
 namespace Connapse.Eval.Datasets;
 
 public sealed record DatasetFile(string Name, string Url, string? Sha256);
 
+/// <summary>
+/// Many files downloaded from one base URL, too many to list in the manifest: the relative paths
+/// and their SHA-256s live in a committed lock file, eval/datasets/{dataset}/files.sha256.
+/// </summary>
+public sealed record DatasetFileList(string BaseUrl);
+
 public sealed record DatasetEntry(
     string Adapter,
     string Version,
     IReadOnlyList<string> Tags,
-    IReadOnlyList<DatasetFile> Files);
+    IReadOnlyList<DatasetFile> Files,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DatasetFileList? FileList = null);
 
 public sealed record EvalManifest(
     IReadOnlyDictionary<string, IReadOnlyList<string>> Suites,

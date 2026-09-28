@@ -5,6 +5,7 @@ public sealed record RepoPaths(string RepoRoot)
     public string EvalRoot => Path.Combine(RepoRoot, "eval");
     public string ManifestPath => Path.Combine(EvalRoot, "MANIFEST.json");
     public string CacheRoot => Path.Combine(EvalRoot, ".cache");
+    public string DatasetsRoot => Path.Combine(EvalRoot, "datasets");
     public string RunsRoot => Path.Combine(EvalRoot, "runs");
     public string WebContentRoot => Path.Combine(RepoRoot, "src", "Connapse.Web");
 
