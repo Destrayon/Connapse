@@ -196,11 +196,13 @@ public record SearchSettings
     public int HybridCandidatePool { get; set; } = 30;
 
     /// <summary>
-    /// Keyword ranking function: TsRank | Bm25 (default: TsRank).
+    /// Keyword ranking function: Bm25 | TsRank (default: Bm25).
     /// Bm25 is Lucene's BM25 computed in plain SQL from per-container statistics, so it runs on any
-    /// PostgreSQL, including managed services without search extensions.
+    /// PostgreSQL, including managed services without search extensions. It falls back to TsRank
+    /// for searches not scoped to one container, stop-word-only queries, and containers whose
+    /// chunks predate it until the background backfill reaches them.
     /// </summary>
-    public string KeywordRanker { get; set; } = "TsRank";
+    public string KeywordRanker { get; set; } = "Bm25";
 
     /// <summary>
     /// BM25 term-frequency saturation (default: 1.2, Lucene's default).

@@ -16,6 +16,17 @@
         </div>
 
         <div class="col-md-6">
+            <label class="form-label" for="keywordRanker">Keyword Ranking</label>
+            <InputSelect @bind-Value="localSettings.KeywordRanker" class="form-select" id="keywordRanker">
+                <option value="Bm25">BM25</option>
+                <option value="TsRank">PostgreSQL ts_rank</option>
+            </InputSelect>
+            <small class="form-text text-muted">
+                How keyword matches are ordered, in keyword and hybrid search. BM25 weighs rare words above common ones.
+            </small>
+        </div>
+
+        <div class="col-md-6">
             <label class="form-label">Results per Query (TopK)</label>
             <InputNumber @bind-Value="localSettings.TopK" class="form-control" />
         </div>

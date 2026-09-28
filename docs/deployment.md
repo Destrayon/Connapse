@@ -625,6 +625,9 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Search__TopK` | Default result count | `10` |
 | `Knowledge__Search__FusionMethod` | Fusion method: ConvexCombination or DBSF | `ConvexCombination` |
 | `Knowledge__Search__FusionAlpha` | Semantic weight (0.0-1.0) | `0.5` |
+| `Knowledge__Search__KeywordRanker` | Keyword ranking: Bm25 or TsRank | `Bm25` |
+| `Knowledge__Search__Bm25K1` | BM25 term-frequency saturation | `1.2` |
+| `Knowledge__Search__Bm25B` | BM25 length normalisation (0.0-1.0) | `0.75` |
 | `Knowledge__Search__AutoCut` | Auto-trim after largest score gap | `false` |
 | `Knowledge__Search__MinimumScore` | Minimum similarity score floor | `0` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
