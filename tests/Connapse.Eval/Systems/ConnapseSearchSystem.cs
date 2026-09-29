@@ -183,10 +183,12 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             CandidateCapture? candidates = null;
             if (_config.CaptureCandidates is int pool)
             {
-                // A capture that fails leaves the query's measured ranking alone; replay skips it.
+                // A capture that fails or times out leaves the query's measured ranking alone; replay skips it.
+                using CancellationTokenSource captureTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                captureTimeout.CancelAfter(QueryTimeout);
                 try
                 {
-                    candidates = await CaptureAsync(scope.ServiceProvider, query.Text, containerId, docMap, pool, ct);
+                    candidates = await CaptureAsync(scope.ServiceProvider, query.Text, containerId, docMap, pool, captureTimeout.Token);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                 {

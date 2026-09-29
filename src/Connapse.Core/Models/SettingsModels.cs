@@ -191,7 +191,7 @@ public record SearchSettings
     public string Reranker { get; set; } = "None";
 
     /// <summary>
-    /// Semantic weight for Convex Combination fusion (0.0-1.0, default: 0.3).
+    /// Semantic weight for Convex Combination fusion (0.0-1.0, default: 0.75).
     /// Higher values favor vector/semantic results, lower values favor keyword results.
     /// At extremes (0 or 1), hits from the zero-weighted source score 0 and may be
     /// filtered by MinimumScore. Clamped to [0,1] at fusion time.
