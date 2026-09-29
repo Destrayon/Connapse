@@ -144,7 +144,7 @@ Three knobs bound the demand, each overridable per deployment:
 
 - **`Database:MaxPoolSize`** (default 40) — caps the app's `NpgsqlDataSource` pool.
 - **`Hangfire:MaxPoolSize`** (default 30) — caps the background runner's storage pool.
-- **`Hangfire:WorkerCount`** (default `min(ProcessorCount * 2, 16)`) — caps concurrent jobs, so fewer lock-holding connections are alive at once.
+- **`Hangfire:IngestionWorkerCount`** (default 4) and **`Hangfire:SummaryWorkerCount`** (default 1) — cap concurrent jobs per pool, so fewer lock-holding connections are alive at once.
 
 The defaults sum to a per-process budget (40 + 30 = 70 connections) that leaves headroom for admin tooling under a ~100 ceiling. A deployment whose Postgres allows more connections, or that runs multiple app instances against one server, should raise or lower these to fit its own `max_connections`.
 

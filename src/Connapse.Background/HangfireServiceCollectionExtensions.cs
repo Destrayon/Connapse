@@ -67,25 +67,28 @@ public static class HangfireServiceCollectionExtensions
         bool disableServer = configuration.GetValue<bool>("Hangfire:DisableServer", defaultValue: false);
         if (!disableServer)
         {
+            // Two pools, so neither kind of work can take the other's workers: a burst of slow LLM
+            // summaries cannot stall ingestion, and a large sync cannot starve summaries. Each
+            // running job holds a database connection, so both stay small; more ingestion workers
+            // than the embedding throttle's ingestion lane only overlaps download and parsing with
+            // embedding, and does not load the provider further.
+            //
+            // The default queue — short recurring sweeps — rides with ingestion rather than with a
+            // single summary worker that may be busy for minutes on one LLM call.
+            int ingestionWorkers = PositiveSetting(configuration, "Hangfire:IngestionWorkerCount", 4);
+            int summaryWorkers = PositiveSetting(configuration, "Hangfire:SummaryWorkerCount", 1);
+
             services.AddHangfireServer(opt =>
             {
-                // Right-size the worker pool. Hangfire's default (ProcessorCount * 2) is tuned for
-                // CPU-bound jobs; this workload is LLM/IO-bound and serialized through a concurrency
-                // gate, so on a many-core box most of those workers would just park while holding a
-                // DB connection (DisableConcurrentExecution keeps each running job's distributed-lock
-                // connection open for its whole lifetime). Cap the default and allow an override.
-                int workerCount = configuration.GetValue<int?>("Hangfire:WorkerCount")
-                    ?? Math.Min(Environment.ProcessorCount * 2, 16);
-                if (workerCount <= 0)
-                    throw new InvalidOperationException("Hangfire:WorkerCount must be a positive integer.");
-                opt.WorkerCount = workerCount;
-                opt.Queues = new[]
-                {
-                    Jobs.JobQueues.Ingestion,
-                    Jobs.JobQueues.Summarization,
-                    Jobs.JobQueues.Default
-                };
-                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}";
+                opt.WorkerCount = ingestionWorkers;
+                opt.Queues = [Jobs.JobQueues.Ingestion, Jobs.JobQueues.Default];
+                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}:ingestion";
+            });
+            services.AddHangfireServer(opt =>
+            {
+                opt.WorkerCount = summaryWorkers;
+                opt.Queues = [Jobs.JobQueues.Summarization];
+                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}:summarization";
             });
         }
 
@@ -100,5 +103,13 @@ public static class HangfireServiceCollectionExtensions
         services.AddSingleton<IIngestionQueue, Storage.HangfireIngestionQueue>();
 
         return services;
+    }
+
+    private static int PositiveSetting(IConfiguration configuration, string key, int defaultValue)
+    {
+        int value = configuration.GetValue<int?>(key) ?? defaultValue;
+        if (value <= 0)
+            throw new InvalidOperationException($"{key} must be a positive integer.");
+        return value;
     }
 }

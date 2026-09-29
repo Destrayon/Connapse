@@ -4,6 +4,7 @@ using Connapse.Search.Hybrid;
 using Connapse.Search.Keyword;
 using Connapse.Search.Reranking;
 using Connapse.Search.Vector;
+using Connapse.Storage.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -34,7 +35,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISearchReranker, CrossEncoderReranker>();
 
         // Named HttpClient for cross-encoder providers (TEI, Cohere, Jina)
-        services.AddHttpClient("CrossEncoder");
+        services.AddHttpClient("CrossEncoder").AddProviderResilience("cross-encoder");
 
         // Register hybrid search as the main IKnowledgeSearch implementation
         services.AddScoped<IKnowledgeSearch, HybridSearchService>();
