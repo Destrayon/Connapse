@@ -38,6 +38,24 @@ public sealed class VectorIndexProbe(RepoPaths paths, TextWriter log, HttpClient
         LIMIT @topK
         """;
 
+    // Candidate shape (#571): nearest neighbours from chunk_vectors alone, where a vector index can
+    // serve the ORDER BY … LIMIT, then the joins and document filters over an over-fetched list.
+    private const string NeighboursFirstSql = """
+        WITH nn AS MATERIALIZED (
+            SELECT cv.chunk_id, cv.document_id, cv.embedding::vector({0}) <=> @queryVector AS distance
+            FROM chunk_vectors cv
+            WHERE cv.owner_id = @containerId AND cv.model_id = @modelId
+            ORDER BY cv.embedding::vector({0}) <=> @queryVector
+            LIMIT @topK * 4)
+        SELECT nn.chunk_id, nn.document_id
+        FROM nn
+        INNER JOIN chunks c ON nn.chunk_id = c.id
+        INNER JOIN documents d ON nn.document_id = d.id
+        WHERE NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)
+        ORDER BY nn.distance
+        LIMIT @topK
+        """;
+
     public async Task<int> RunAsync(string suite, IReadOnlyList<string> only, int? limitQueries, CancellationToken ct)
     {
         EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
@@ -150,14 +168,39 @@ public sealed class VectorIndexProbe(RepoPaths paths, TextWriter log, HttpClient
             await ExecAsync(connection, "SET LOCAL enable_indexscan = off; SET LOCAL enable_bitmapscan = off;", ct);
         else if (variant.StartsWith("probes:", StringComparison.Ordinal))
             await ExecAsync(connection, $"SET LOCAL ivfflat.probes = {int.Parse(variant[7..])};", ct);
+        else if (variant.StartsWith("hnsw:", StringComparison.Ordinal) || variant.StartsWith("nn:", StringComparison.Ordinal))
+            await ExecAsync(connection,
+                $"SET LOCAL hnsw.iterative_scan = relaxed_order; SET LOCAL hnsw.ef_search = {int.Parse(variant[(variant.IndexOf(':') + 1)..])};", ct);
 
-        await using NpgsqlCommand cmd = Command(connection, string.Format(SearchSql, space.Vector.Length), space, containerId);
+        string sql = variant.StartsWith("nn:", StringComparison.Ordinal) ? NeighboursFirstSql : SearchSql;
+        await using NpgsqlCommand cmd = Command(connection, string.Format(sql, space.Vector.Length), space, containerId);
         List<(string, string)> hits = [];
         await using (DbDataReader reader = await cmd.ExecuteReaderAsync(ct))
             while (await reader.ReadAsync(ct))
                 hits.Add((reader.GetGuid(0).ToString(), reader.GetGuid(1).ToString()));
         await tx.RollbackAsync(ct);
         return hits;
+    }
+
+    /// <summary>Chunk IDs the production query returns for a raw query vector (the scale probe's entry point).</summary>
+    internal static async Task<List<string>> SearchAsync(
+        NpgsqlConnection connection, float[] query, Guid containerId, string modelId, string variant, CancellationToken ct) =>
+        (await SearchAsync(connection, new QuerySpace(query, modelId), containerId, variant, ct)).Select(h => h.Chunk).ToList();
+
+    internal static Task<string> ExplainAsync(
+        NpgsqlConnection connection, float[] query, Guid containerId, string modelId, CancellationToken ct) =>
+        ExplainAsync(connection, new QuerySpace(query, modelId), containerId, ct);
+
+    internal static async Task<string> ExplainNeighboursFirstAsync(
+        NpgsqlConnection connection, float[] query, Guid containerId, string modelId, CancellationToken ct)
+    {
+        await using NpgsqlCommand cmd = Command(connection, "EXPLAIN " + string.Format(NeighboursFirstSql, query.Length),
+            new QuerySpace(query, modelId), containerId);
+        List<string> lines = [];
+        await using DbDataReader reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            lines.Add(reader.GetString(0));
+        return string.Join(" | ", lines.Where(l => l.Contains("Scan", StringComparison.Ordinal)).Select(l => l.Trim()));
     }
 
     private static async Task<string> ExplainAsync(NpgsqlConnection connection, QuerySpace space, Guid containerId, CancellationToken ct)
@@ -172,7 +215,7 @@ public sealed class VectorIndexProbe(RepoPaths paths, TextWriter log, HttpClient
 
     private static NpgsqlCommand Command(NpgsqlConnection connection, string sql, QuerySpace space, Guid containerId)
     {
-        NpgsqlCommand cmd = new(sql, connection);
+        NpgsqlCommand cmd = new(sql, connection) { CommandTimeout = 0 };
         cmd.Parameters.AddWithValue("containerId", containerId);
         cmd.Parameters.AddWithValue("modelId", space.ModelId);
         cmd.Parameters.AddWithValue("queryVector", new Vector(space.Vector));
