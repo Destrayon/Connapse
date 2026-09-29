@@ -180,9 +180,19 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                 ranked = HitCollapser.Collapse(result.Hits, docMap, k);
             }
             TimeSpan elapsed = stopwatch.Elapsed;
-            CandidateCapture? candidates = _config.CaptureCandidates is int pool
-                ? await CaptureAsync(scope.ServiceProvider, query.Text, containerId, docMap, pool, timeout.Token)
-                : null;
+            CandidateCapture? candidates = null;
+            if (_config.CaptureCandidates is int pool)
+            {
+                // A capture that fails leaves the query's measured ranking alone; replay skips it.
+                try
+                {
+                    candidates = await CaptureAsync(scope.ServiceProvider, query.Text, containerId, docMap, pool, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    candidates = null;
+                }
+            }
             return new SearchOutcome(ranked, new Trace(elapsed, NoStages), null) { Candidates = candidates };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
