@@ -50,6 +50,7 @@ public sealed class CliArgs
             ["report"] = [],
             ["pool"] = ["out"],
             ["datasets"] = ["suite", "datasets"],
+            ["vector-index"] = ["suite", "datasets", "limit-queries"],
         };
 
     /// <summary>Throws when an option is not accepted by the command. Unknown commands are left to the caller.</summary>

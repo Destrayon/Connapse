@@ -12,6 +12,7 @@ host ports, so run it on a trusted machine.
     dotnet run --project tests/Connapse.Eval -- run --suite v1 --config hybrid
     dotnet run --project tests/Connapse.Eval -- run --suite v1 --config keyword
     dotnet run --project tests/Connapse.Eval -- compare eval/runs/<keyword-run> eval/runs/<hybrid-run>
+    dotnet run --project tests/Connapse.Eval -- vector-index --suite dev   # production vector index vs exact search
 
 ## Extraction runs
 
