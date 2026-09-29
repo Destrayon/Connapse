@@ -123,15 +123,30 @@ def doc_text(row):
 
 
 def nano_exclusions(nano):
-    """IDs and normalised texts of a NanoBEIR test set's queries."""
+    """IDs and normalised texts of a NanoBEIR test set's queries, at the revision eval/MANIFEST.json
+    pins. Fetched (and sha256-checked) when the harness hasn't downloaded it yet, so a fresh clone
+    can build the dev suite; a mismatch stops the build rather than excluding the wrong queries."""
     ids, texts = set(), set()
     if nano is None:
         return ids, texts
-    root = os.path.join(CACHE, "datasets", nano)
-    for rev in os.listdir(root):
-        table = pq.read_table(os.path.join(root, rev, "queries.parquet")).to_pydict()
-        ids.update(table["_id"])
-        texts.update(" ".join(t.lower().split()) for t in table["text"])
+    manifest = json.load(open(os.path.join(ROOT, "eval", "MANIFEST.json"), encoding="utf8"))
+    entry = manifest["datasets"][nano]
+    spec = next(f for f in entry["files"] if f["name"] == "queries.parquet")
+    path = os.path.join(CACHE, "datasets", nano, entry["version"], "queries.parquet")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        print(f"  downloading {nano} test queries (to exclude them)", flush=True)
+        r = requests.get(spec["url"], timeout=120)
+        r.raise_for_status()
+        with open(path + ".part", "wb") as f:
+            f.write(r.content)
+        os.replace(path + ".part", path)
+    actual = hashlib.sha256(open(path, "rb").read()).hexdigest()
+    if actual != spec["sha256"]:
+        raise SystemExit(f"{path}: sha256 {actual} does not match eval/MANIFEST.json ({spec['sha256']})")
+    table = pq.read_table(path).to_pydict()
+    ids.update(table["_id"])
+    texts.update(" ".join(t.lower().split()) for t in table["text"])
     return ids, texts
 
 

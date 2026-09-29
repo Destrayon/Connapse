@@ -130,16 +130,24 @@ def ranked_docs(q, fuse):
 
 
 def evaluate(data, fuse):
-    """fuse(q, top_k) -> fused chunks; top_k None means the first search, 100 the eval's retry."""
+    """fuse(q, top_k) -> fused chunks; top_k None means the first search, 100 the eval's retry.
+    Per dataset: (mean nDCG@10, per-query values, their query IDs)."""
     per = {}
     for name, (queries, rel) in data.items():
-        vals = [v for q in queries if (v := ndcg10(ranked_docs(q, fuse), rel.get(q["queryId"], {}))) is not None]
-        per[name] = (sum(vals) / len(vals), vals)
+        scored = [(q["queryId"], v) for q in queries
+                  if (v := ndcg10(ranked_docs(q, fuse), rel.get(q["queryId"], {}))) is not None]
+        vals = [v for _, v in scored]
+        per[name] = (sum(vals) / len(vals), vals, [qid for qid, _ in scored])
     return per
 
 
+def capture_width(data):
+    """How many chunks per side the run captured (the widest list seen)."""
+    return max(len(q[side]) for queries, _ in data.values() for q in queries for side in ("vector", "keyword"))
+
+
 def summary(per):
-    means = [m for m, _ in per.values()]
+    means = [m for m, *_ in per.values()]
     return sum(means) / len(means), min(means)
 
 
@@ -165,11 +173,13 @@ def check(run, data, tolerance=0.005):
     actual = {d["name"]: d for d in report["datasets"] if not d.get("invalid")}
     worst = 0.0
     print(f"replaying alpha {alpha}, pool {pool}")
-    for name, (mean, vals) in per.items():
-        run_mean = actual[name]["means"]["nDCG@10"]
-        missing = actual[name]["testQueries"] - actual[name]["noAnswerQueries"] - len(vals)
+    for name, (mean, vals, qids) in per.items():
+        # the run's mean over the same queries the replay scored: a failed capture drops a query from both
+        recorded = actual[name]["perQuery"]
+        run_mean = sum(recorded[q]["nDCG@10"] for q in qids) / len(qids)
+        missing = len(recorded) - len(qids)
         worst = max(worst, abs(mean - run_mean))
-        print(f"{name:14} replay {mean:.4f}  run {run_mean:.4f}" + (f"  ({missing} queries not captured)" if missing else ""))
+        print(f"{name:14} replay {mean:.4f}  run {run_mean:.4f}" + (f"  ({missing} queries not captured, left out of both)" if missing else ""))
     print(f"{'portfolio':14} replay {summary(per)[0]:.4f}")
     if worst > tolerance:
         raise SystemExit(f"replay differs from the run by {worst:.4f} nDCG@10 (tolerance {tolerance})")
@@ -177,7 +187,11 @@ def check(run, data, tolerance=0.005):
 
 def sweep(data):
     rows = []
-    for pool in (30, 50, 100):
+    width = capture_width(data)
+    pools = [p for p in (30, 50, 100) if p <= width]
+    if len(pools) < 3:
+        print(f"capture holds {width} chunks per side: sweeping pools {pools} only")
+    for pool in pools:
         for alpha in (0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0):
             rows.append((f"minmax p{pool} a{alpha}", evaluate(data, convex(pool, alpha))))
             rows.append((f"tmm    p{pool} a{alpha}", evaluate(data, convex(pool, alpha, "tmm"))))
