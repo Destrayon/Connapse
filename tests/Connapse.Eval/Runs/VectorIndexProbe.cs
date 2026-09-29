@@ -82,7 +82,7 @@ public sealed class VectorIndexProbe(RepoPaths paths, TextWriter log, HttpClient
 
         // Production builds its indexes at startup and on an embedding-settings change; do that now.
         await using (AsyncServiceScope scope = system.Services.CreateAsyncScope())
-            await scope.ServiceProvider.GetRequiredService<VectorColumnManager>().EnsureIndexesAsync(ct);
+            await scope.ServiceProvider.GetRequiredService<VectorColumnManager>().EnsureIndexesAsync(ct, waitForOthers: true);
 
         await using AsyncServiceScope services = system.Services.CreateAsyncScope();
         // From configuration: the one EF hands back has its password stripped.

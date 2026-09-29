@@ -48,7 +48,7 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
                 dir, passages, containers, modelId, ct);
 
         await using (AsyncServiceScope scope = system.Services.CreateAsyncScope())
-            await scope.ServiceProvider.GetRequiredService<VectorColumnManager>().EnsureIndexesAsync(ct);
+            await scope.ServiceProvider.GetRequiredService<VectorColumnManager>().EnsureIndexesAsync(ct, waitForOthers: true);
 
         NpgsqlDataSourceBuilder builder = new(system.Services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection"));
         builder.UseVector();
@@ -76,8 +76,6 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
 
         // The product path (#571): the indexes VectorColumnManager built after loading, searched
         // through PgVectorStore, at several hnsw.ef_search values.
-        await MeasureAsync("neighbours-first, vector order (raw SQL)", "nn:400");
-        await MeasureAsync("neighbours-first, halfvec order (raw SQL)", "nnh:400");
         foreach (int ef in new[] { 200, 400, 800 })
             await MeasureProductAsync(ef);
         return 0;

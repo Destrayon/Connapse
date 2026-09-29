@@ -231,12 +231,13 @@ public record SearchSettings
     public int VectorIndexMinVectors { get; set; } = 20_000;
 
     /// <summary>
-    /// How many candidates an HNSW search keeps (pgvector's hnsw.ef_search, default: 400). Higher
-    /// finds more of the true nearest neighbours at some latency; measured on 100k–1M containers
-    /// with the default index settings: 200 → recall@30 ~0.93, 400 → ~0.96, 800 → ~0.98 (#571).
+    /// How many candidates an HNSW search keeps (pgvector's hnsw.ef_search, default: 800). Higher
+    /// finds more of the true nearest neighbours at some latency; measured on 100k–300k containers
+    /// of real 768-dim embeddings: 200 → recall@30 0.94–0.97, 400 → 0.97–0.99, 800 → 0.99–1.00
+    /// at p95 ≤ 73 ms (#571).
     /// </summary>
     [Range(1, 1000)]
-    public int VectorIndexEfSearch { get; set; } = 400;
+    public int VectorIndexEfSearch { get; set; } = 800;
 
     /// <summary>
     /// Keyword ranking function: Bm25 | TsRank (default: Bm25).

@@ -41,14 +41,22 @@ public class VectorColumnManager(
     /// leftovers of interrupted builds, and drops the legacy shared indexes. Builds run one at a time
     /// with <c>CONCURRENTLY</c>, so writes continue while a large index builds. Idempotent.
     /// </summary>
-    public async Task EnsureIndexesAsync(CancellationToken ct = default)
+    /// <param name="waitForOthers">
+    /// Wait while another process maintains the indexes, then check again, instead of skipping.
+    /// The background service skips; callers that need the indexes before going on (evals) wait.
+    /// </param>
+    public async Task EnsureIndexesAsync(CancellationToken ct = default, bool waitForOthers = false)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         DbConnection connection = context.Database.GetDbConnection();
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync(ct);
 
-        if (!await ScalarAsync<bool>(connection, $"SELECT pg_try_advisory_lock({AdvisoryLockKey})", ct))
+        if (waitForOthers)
+        {
+            await ExecuteAsync(connection, $"SELECT pg_advisory_lock({AdvisoryLockKey})", ct);
+        }
+        else if (!await ScalarAsync<bool>(connection, $"SELECT pg_try_advisory_lock({AdvisoryLockKey})", ct))
         {
             logger.LogDebug("Another process is maintaining vector indexes; skipping");
             return;
