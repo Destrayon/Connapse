@@ -29,7 +29,7 @@ internal static class EvalEntryPoint
                 "datasets" => await Commands.DatasetsAsync(cli, paths, http, cts.Token),
                 "compare" => Commands.Compare(cli),
                 "vector-index" => cli.Option("scale") is string scale
-                    ? await new VectorIndexScaleProbe(paths, Console.Out).RunAsync(scale, cli.PositiveInt("limit-queries") ?? 50, cli.Flag("strategy"), cts.Token)
+                    ? await new VectorIndexScaleProbe(paths, Console.Out).RunAsync(scale, cli.PositiveInt("limit-queries") ?? 50, cli.Flag("strategy"), cli.Flag("insert-bench"), cts.Token)
                     : await new VectorIndexProbe(paths, Console.Out, http)
                         .RunAsync(cli.Required("suite"), cli.List("datasets"), cli.PositiveInt("limit-queries"), cts.Token),
                 "report" => Commands.Report(cli),
@@ -199,7 +199,7 @@ internal static class Commands
               extract  --suite <name> [--config extract] [--datasets a,b] [--resume <runDir>] [--real-embedder]
               compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
               vector-index --suite <name> [--datasets a,b] [--limit-queries N]   (production index vs exact search)
-              vector-index --scale <dir> [--limit-queries N] [--strategy]       (same, on a prebuilt scale set)
+              vector-index --scale <dir> [--limit-queries N] [--strategy] [--insert-bench]
               report   <runDir>
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]

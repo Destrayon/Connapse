@@ -29,7 +29,7 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
     private const int Dims = 768;
     private const int Batch = 5_000;
 
-    public async Task<int> RunAsync(string scaleDir, int queriesPerContainer, bool strategy, CancellationToken ct)
+    public async Task<int> RunAsync(string scaleDir, int queriesPerContainer, bool strategy, bool insertBench, CancellationToken ct)
     {
         string dir = Path.IsPathRooted(scaleDir) ? scaleDir : Path.Combine(paths.RepoRoot, scaleDir);
         IList<ScalePassage> passages = (await ParquetSerializer.DeserializeAsync<ScalePassage>(Path.Combine(dir, "passages.parquet"), cancellationToken: ct)).Data;
@@ -60,6 +60,25 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
         Dictionary<int, int> sizes = passages.GroupBy(p => p.Container).ToDictionary(g => g.Key, g => g.Count());
         List<int> measured = sizes.OrderByDescending(s => s.Value).GroupBy(s => s.Value).SelectMany(g => g.Take(3)).Select(s => s.Key).ToList();
         log.WriteLine($"loaded {passages.Count} vectors in {containerCount} containers; measuring {measured.Count} containers × {queries.Length} queries");
+
+        if (insertBench)
+        {
+            // Ingestion cost with and without a container index (#571): the same 5,000 vectors
+            // inserted the way the pipeline stores them, in document-sized batches.
+            float[][] extra = ReadVectors(Path.Combine(dir, "vectors.f32")).Take(5_000).ToArray();
+            int indexed = sizes.MaxBy(s => s.Value).Key;
+            int plain = sizes.Where(s => s.Value < 20_000).MaxBy(s => s.Value).Key;
+            await using AsyncServiceScope benchScope = system.Services.CreateAsyncScope();
+            IDbContextFactory<KnowledgeDbContext> factory = benchScope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+            foreach ((int c, string label) in new[] { (plain, "no index"), (indexed, "HNSW index"), (plain, "no index (again)") })
+            {
+                Stopwatch timer = Stopwatch.StartNew();
+                await InsertAsync(factory, containers[c], modelId, extra, ct);
+                log.WriteLine($"insert: container {c} ({sizes[c]} vectors, {label}): {extra.Length} vectors in {timer.Elapsed.TotalSeconds:F1}s = "
+                    + $"{timer.Elapsed.TotalMilliseconds / extra.Length:F2} ms/vector");
+            }
+            return 0;
+        }
 
         // Ground truth once per (container, query): exact top-30 with index scans off.
         Dictionary<(int, int), HashSet<string>> truth = [];
@@ -127,6 +146,34 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
                 log.WriteLine($"container {c}: {sizes[c]} vectors  recall@{TopK} {recall.Average():F4} (min {recall.Min():F2})  "
                     + $"hits {hits.Average():F1} (min {hits.Min():F0})  p50 {Percentile(latency, 50):F0} ms p95 {Percentile(latency, 95):F0} ms  plan: {plan}");
             }
+        }
+    }
+
+    /// <summary>Inserts vectors into a container in batches of 20 documents, as ingestion stores them.</summary>
+    private static async Task InsertAsync(
+        IDbContextFactory<KnowledgeDbContext> factory, Guid owner, string modelId, float[][] vectors, CancellationToken ct)
+    {
+        DateTime now = DateTime.UtcNow;
+        for (int start = 0; start < vectors.Length; start += 20)
+        {
+            await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
+            for (int i = start; i < Math.Min(start + 20, vectors.Length); i++)
+            {
+                Guid doc = Guid.NewGuid(), chunk = Guid.NewGuid();
+                context.Documents.Add(new DocumentEntity
+                {
+                    Id = doc, ContainerId = owner, FileName = $"bench-{doc:N}.txt", ContentType = "text/plain",
+                    Path = $"/bench/{doc:N}.txt", ContentHash = doc.ToString("N"), SizeBytes = 1, ChunkCount = 1,
+                    IngestionStatus = DocumentStatus.Ready, StatusChangedAt = now, CreatedAt = now,
+                });
+                context.Chunks.Add(new ChunkEntity { Id = chunk, DocumentId = doc, OwnerId = owner, Content = "", TokenCount = 1 });
+                context.ChunkVectors.Add(new ChunkVectorEntity
+                {
+                    ChunkId = chunk, DocumentId = doc, OwnerId = owner, Embedding = new Vector(vectors[i]),
+                    ModelId = modelId, Dimensions = Dims,
+                });
+            }
+            await context.SaveChangesAsync(ct);
         }
     }
 
