@@ -29,9 +29,6 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
     private const int Dims = 768;
     private const int Batch = 5_000;
 
-    /// <summary>Containers at least this large get their own HNSW index in the strategy pass.</summary>
-    private const int HnswThreshold = 20_000;
-
     public async Task<int> RunAsync(string scaleDir, int queriesPerContainer, bool strategy, CancellationToken ct)
     {
         string dir = Path.IsPathRooted(scaleDir) ? scaleDir : Path.Combine(paths.RepoRoot, scaleDir);
@@ -77,25 +74,38 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
             return 0;
         }
 
-        // Candidate strategy: a (owner_id, model_id) index for container-first exact search, and a
-        // per-container HNSW index for large containers, searched with iterative scans.
-        Stopwatch build = Stopwatch.StartNew();
-        await connection.ExecuteAsync("CREATE INDEX ix_cv_owner_model ON chunk_vectors (owner_id, model_id);", ct);
-        log.WriteLine($"(owner_id, model_id) index built in {build.Elapsed.TotalSeconds:F0}s");
-        // Serial build: a parallel build keeps its graph in shared memory, which Docker caps at 64 MB.
-        await connection.ExecuteAsync("SET maintenance_work_mem = '4GB'; SET max_parallel_maintenance_workers = 0;", ct);
-        foreach ((int c, int size) in sizes.Where(s => s.Value >= HnswThreshold).OrderBy(s => s.Value))
-        {
-            build.Restart();
-            await connection.ExecuteAsync(
-                $"CREATE INDEX ix_cv_hnsw_{c} ON chunk_vectors USING hnsw ((embedding::vector({Dims})) vector_cosine_ops) "
-                + $"WHERE owner_id = '{containers[c]}' AND model_id = '{modelId.Replace("'", "''")}';", ct);
-            log.WriteLine($"HNSW for container {c} ({size} vectors) built in {build.Elapsed.TotalSeconds:F0}s");
-        }
-        await connection.ExecuteAsync("ANALYZE chunk_vectors;", ct);
-        foreach (int ef in new[] { 100, 200, 400, 800 })
-            await MeasureAsync($"neighbours-first ef{ef}", $"nn:{ef}");
+        // The product path (#571): the indexes VectorColumnManager built after loading, searched
+        // through PgVectorStore, at several hnsw.ef_search values.
+        await MeasureAsync("neighbours-first, vector order (raw SQL)", "nn:400");
+        await MeasureAsync("neighbours-first, halfvec order (raw SQL)", "nnh:400");
+        foreach (int ef in new[] { 200, 400, 800 })
+            await MeasureProductAsync(ef);
         return 0;
+
+        async Task MeasureProductAsync(int ef)
+        {
+            log.WriteLine($"== product ef_search {ef}");
+            await using AsyncServiceScope scope = system.Services.CreateAsyncScope();
+            PgVectorStore store = new(scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>(),
+                new FixedOptions<SearchSettings>(new SearchSettings { VectorIndexEfSearch = ef }),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<PgVectorStore>.Instance);
+            foreach (int c in measured)
+            {
+                List<double> recall = [], hits = [], latency = [];
+                for (int q = 0; q < queries.Length; q++)
+                {
+                    Dictionary<string, string> filters = new() { ["containerId"] = containers[c].ToString(), ["modelId"] = modelId };
+                    Stopwatch timer = Stopwatch.StartNew();
+                    IReadOnlyList<VectorSearchResult> found = await store.SearchAsync(queries[q], TopK, filters, SearchScopes.Unrestricted, ct);
+                    latency.Add(timer.Elapsed.TotalMilliseconds);
+                    HashSet<string> expected = truth[(c, q)];
+                    recall.Add(expected.Count == 0 ? 1 : found.Count(h => expected.Contains(h.Id)) / (double)expected.Count);
+                    hits.Add(found.Count);
+                }
+                log.WriteLine($"container {c}: {sizes[c]} vectors  recall@{TopK} {recall.Average():F4} (min {recall.Min():F2})  "
+                    + $"hits {hits.Average():F1} (min {hits.Min():F0})  p50 {Percentile(latency, 50):F0} ms p95 {Percentile(latency, 95):F0} ms");
+            }
+        }
 
         async Task MeasureAsync(string label, string variant)
         {
@@ -202,4 +212,13 @@ internal static class NpgsqlConnectionExtensions
         cmd.CommandTimeout = 0;
         await cmd.ExecuteNonQueryAsync(ct);
     }
+}
+
+internal sealed class FixedOptions<T>(T value) : IOptionsMonitor<T>
+{
+    public T CurrentValue => value;
+
+    public T Get(string? name) => value;
+
+    public IDisposable? OnChange(Action<T, string?> listener) => null;
 }

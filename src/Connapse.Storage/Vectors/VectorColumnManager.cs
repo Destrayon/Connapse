@@ -81,6 +81,7 @@ public class VectorColumnManager(
         }
         finally
         {
+            VectorIndexCatalog.Invalidate();
             await ScalarAsync<bool>(connection, $"SELECT pg_advisory_unlock({AdvisoryLockKey})", CancellationToken.None);
         }
     }
@@ -180,4 +181,33 @@ public class VectorColumnManager(
     }
 
     private sealed record VectorGroup(Guid OwnerId, string ModelId, int Dimensions, long Count);
+}
+
+/// <summary>
+/// Which per-container vector indexes exist and are ready, refreshed at most once a minute: search
+/// asks on every query, and a new index only needs to be noticed eventually.
+/// </summary>
+internal static class VectorIndexCatalog
+{
+    private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(1);
+    private static (DateTime At, HashSet<string> Names) _ready = (DateTime.MinValue, []);
+
+    public static async Task<bool> IsIndexedAsync(KnowledgeDbContext context, Guid ownerId, string modelId, CancellationToken ct)
+    {
+        (DateTime at, HashSet<string> names) = _ready;
+        if (DateTime.UtcNow - at > Lifetime)
+        {
+            List<string> valid = await context.Database.SqlQueryRaw<string>(
+                    "SELECT c.relname AS \"Value\" FROM pg_index i "
+                    + "JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_class t ON t.oid = i.indrelid "
+                    + $"WHERE t.relname = 'chunk_vectors' AND c.relname LIKE '{VectorColumnManager.IndexPrefix}%' AND i.indisvalid")
+                .ToListAsync(ct);
+            names = valid.ToHashSet(StringComparer.Ordinal);
+            _ready = (DateTime.UtcNow, names);
+        }
+        return names.Contains(VectorColumnManager.GetIndexName(ownerId, modelId));
+    }
+
+    /// <summary>Forget the cached list, so the next search sees indexes built or dropped just now.</summary>
+    public static void Invalidate() => _ready = (DateTime.MinValue, []);
 }

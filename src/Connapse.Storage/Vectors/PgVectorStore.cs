@@ -209,7 +209,8 @@ public class PgVectorStore : IVectorStore
         // Filters on chunk_vectors alone: the neighbours-first query applies them where the
         // per-container index can serve the ORDER BY; the rest (on documents) apply afterwards.
         var vectorClauses = new List<string>();
-        bool hasContainer = false, hasModel = false;
+        Guid? containerFilter = null;
+        string? modelFilter = null;
         var vectorParam = new NpgsqlParameter("@queryVector", new Vector(queryVector));
         var topKParam = new NpgsqlParameter("@topK", NpgsqlDbType.Integer) { Value = topK };
         var parameters = new List<NpgsqlParameter> { vectorParam, topKParam };
@@ -227,7 +228,7 @@ public class PgVectorStore : IVectorStore
                 Guid.TryParse(containerIdStr, out var containerId))
             {
                 vectorClauses.Add("cv.owner_id = @containerId");
-                hasContainer = true;
+                containerFilter = containerId;
                 parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = containerId });
             }
 
@@ -242,7 +243,7 @@ public class PgVectorStore : IVectorStore
                 !string.IsNullOrWhiteSpace(modelId))
             {
                 vectorClauses.Add("cv.model_id = @modelId");
-                hasModel = true;
+                modelFilter = modelId;
                 parameters.Add(new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId });
             }
         }
@@ -316,7 +317,7 @@ public class PgVectorStore : IVectorStore
             LIMIT @topK";
 
         List<VectorSearchRow> results;
-        if (hasContainer && hasModel && dims <= VectorIndexMaxDimensions)
+        if (containerFilter is Guid owner && modelFilter is not null && dims <= VectorIndexMaxDimensions)
         {
             // Neighbours first (#571): the nearest vectors of one container and model, where that
             // container's HNSW index (if it is large enough to have one) serves the ORDER BY, then
@@ -324,12 +325,19 @@ public class PgVectorStore : IVectorStore
             SearchSettings settings = _searchSettings.CurrentValue;
             int inner = Math.Max(topK * 4, 100);
             parameters.Add(new NpgsqlParameter("@inner", NpgsqlDbType.Integer) { Value = inner });
+
+            // The index is over half-precision vectors, so only that expression lets it serve the
+            // ORDER BY; without an index, converting every vector costs more than it saves (at 10k
+            // vectors, 80 ms vs 31 ms), so small containers order by the full-precision distance.
+            string distance = await VectorIndexCatalog.IsIndexedAsync(_context, owner, modelFilter, ct)
+                ? $"cv.embedding::halfvec({dims}) <=> @queryVector::halfvec({dims})"
+                : $"cv.embedding::vector({dims}) <=> @queryVector";
             var neighboursSql = $@"
                 WITH nn AS MATERIALIZED (
                     SELECT cv.chunk_id
                     FROM chunk_vectors cv
                     WHERE {string.Join(" AND ", vectorClauses)}
-                    ORDER BY cv.embedding::halfvec({dims}) <=> @queryVector::halfvec({dims})
+                    ORDER BY {distance}
                     LIMIT @inner)
                 SELECT {select}
                 FROM nn

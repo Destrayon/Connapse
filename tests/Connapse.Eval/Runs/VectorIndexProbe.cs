@@ -168,11 +168,13 @@ public sealed class VectorIndexProbe(RepoPaths paths, TextWriter log, HttpClient
             await ExecAsync(connection, "SET LOCAL enable_indexscan = off; SET LOCAL enable_bitmapscan = off;", ct);
         else if (variant.StartsWith("probes:", StringComparison.Ordinal))
             await ExecAsync(connection, $"SET LOCAL ivfflat.probes = {int.Parse(variant[7..])};", ct);
-        else if (variant.StartsWith("hnsw:", StringComparison.Ordinal) || variant.StartsWith("nn:", StringComparison.Ordinal))
+        else if (variant.StartsWith("hnsw:", StringComparison.Ordinal) || variant.StartsWith("nn", StringComparison.Ordinal))
             await ExecAsync(connection,
                 $"SET LOCAL hnsw.iterative_scan = relaxed_order; SET LOCAL hnsw.ef_search = {int.Parse(variant[(variant.IndexOf(':') + 1)..])};", ct);
 
-        string sql = variant.StartsWith("nn:", StringComparison.Ordinal) ? NeighboursFirstSql : SearchSql;
+        string sql = variant.StartsWith("nnh:", StringComparison.Ordinal)
+            ? NeighboursFirstSql.Replace("ORDER BY cv.embedding::vector({0}) <=> @queryVector", "ORDER BY cv.embedding::halfvec({0}) <=> @queryVector::halfvec({0})")
+            : variant.StartsWith("nn:", StringComparison.Ordinal) ? NeighboursFirstSql : SearchSql;
         await using NpgsqlCommand cmd = Command(connection, string.Format(sql, space.Vector.Length), space, containerId);
         List<(string, string)> hits = [];
         await using (DbDataReader reader = await cmd.ExecuteReaderAsync(ct))
