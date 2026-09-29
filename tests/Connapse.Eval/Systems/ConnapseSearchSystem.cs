@@ -46,6 +46,10 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     /// <summary>The in-process host's services, for reading back what ingestion produced.</summary>
     public IServiceProvider Services => _host.Services;
 
+    /// <summary>The container an indexed dataset went into, and its Connapse-to-dataset document IDs.</summary>
+    public (Guid ContainerId, IReadOnlyDictionary<string, string> DocMap) ContainerOf(string dataset) =>
+        (_datasets[dataset].ContainerId, _datasets[dataset].DocMap);
+
     public static async Task<ConnapseSearchSystem> StartAsync(
         SystemConfig config, string webContentRoot, EmbeddingDiskCache cache, TextWriter log,
         IEmbeddingProvider? embeddingOverride, CancellationToken ct)
