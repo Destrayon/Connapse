@@ -46,7 +46,11 @@ public record Source(
 
     // When the remote last refused this source's reads (a public repository gone private).
     // While set, the source's documents are kept out of search. Null when readable.
-    DateTime? AccessRevokedAt = null);
+    DateTime? AccessRevokedAt = null,
+
+    // Documents queued for or undergoing ingestion. Beside FailedDocumentCount so the page can
+    // tell "still working" from "done" without reading every row.
+    int ProcessingDocumentCount = 0);
 
 /// <summary>
 /// The remote refused to let this source read it any more — a public repository made private,

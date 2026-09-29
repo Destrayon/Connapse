@@ -425,7 +425,19 @@ public class ReindexService : IReindexService
         }
     }
 
-    public async Task<int> RequeueAsync(IReadOnlyCollection<Guid> documentIds, CancellationToken ct = default)
+    public async Task<int> RetryFailedAsync(Guid ownerId, CancellationToken ct = default)
+    {
+        var failed = await _context.Documents
+            .AsNoTracking()
+            .Where(d => d.OwnerId == ownerId && (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent))
+            .Select(d => d.Id)
+            .ToListAsync(ct);
+
+        return await RequeueAsync(failed, resetAttempts: true, ct);
+    }
+
+    public async Task<int> RequeueAsync(
+        IReadOnlyCollection<Guid> documentIds, bool resetAttempts = false, CancellationToken ct = default)
     {
         if (documentIds.Count == 0) return 0;
 
@@ -439,7 +451,7 @@ public class ReindexService : IReindexService
         foreach (var doc in docs)
         {
             var result = await EnqueueDocumentAsync(
-                doc, batchId, new ReindexOptions(), ReindexReason.Forced, ct, resetAttempts: false);
+                doc, batchId, new ReindexOptions(), ReindexReason.Forced, ct, resetAttempts);
             if (result.Action == ReindexAction.Enqueued) enqueued++;
         }
 

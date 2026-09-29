@@ -225,7 +225,7 @@ public sealed class IngestionJobs : IIngestionJobs
 
         if (lost.Count == 0) return;
 
-        int requeued = await _reindex.RequeueAsync(lost, ct);
+        int requeued = await _reindex.RequeueAsync(lost, resetAttempts: false, ct);
         _logger.LogWarning(
             "RequeueStuckDocuments: {Lost} document(s) had lost their ingestion job; re-enqueued {Requeued}",
             lost.Count, requeued);

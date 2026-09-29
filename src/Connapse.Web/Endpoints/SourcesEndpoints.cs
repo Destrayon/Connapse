@@ -301,6 +301,26 @@ public static class SourcesEndpoints
         .WithDescription("Run one sync cycle for a source immediately, rather than waiting for the next scheduled poll.")
         .RequireAuthorization("RequireAdmin");
 
+        group.MapPost("/{sourceId:guid}/retry-failed", async (
+            Guid sourceId,
+            [FromServices] ISourceStore sourceStore,
+            [FromServices] IReindexService reindexService,
+            [FromServices] IAuditLogger auditLogger,
+            CancellationToken ct) =>
+        {
+            var source = await sourceStore.GetAsync(sourceId, ct);
+            if (source is null)
+                return Results.NotFound(new { error = $"Source {sourceId} not found" });
+
+            int enqueued = await reindexService.RetryFailedAsync(source.Id, ct);
+            await auditLogger.LogAsync("source.retry_failed", "source", source.Id.ToString(), new { source.Name, enqueued }, ct);
+
+            return Results.Ok(new { enqueuedCount = enqueued });
+        })
+        .WithName("RetryFailedSourceDocuments")
+        .WithDescription("Re-enqueue every document of a source whose ingestion failed, with a fresh attempt budget, rather than waiting for the retry cooldown or a change to the file.")
+        .RequireAuthorization("RequireAdmin");
+
         return app;
     }
 

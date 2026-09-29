@@ -38,6 +38,10 @@ public record SourceResponse(
     /// to protect.
     /// </summary>
     string? LastSyncError,
+    /// <summary>Documents whose ingestion failed. A count, like <see cref="WithheldDeletions"/>.</summary>
+    int FailedDocumentCount = 0,
+    /// <summary>Documents waiting for or undergoing ingestion.</summary>
+    int ProcessingDocumentCount = 0,
     /// <summary>
     /// Always "source". Present so a client consuming both this and the container routes can
     /// tell them apart on a single field, matching the MCP contract.
@@ -58,5 +62,7 @@ public record SourceResponse(
         CreatedAt: source.CreatedAt,
         UpdatedAt: source.UpdatedAt,
         WithheldDeletions: source.WithheldDeletions,
-        LastSyncError: includeDiagnostics ? source.LastSyncError : null);
+        LastSyncError: includeDiagnostics ? source.LastSyncError : null,
+        FailedDocumentCount: source.FailedDocumentCount,
+        ProcessingDocumentCount: source.ProcessingDocumentCount);
 }

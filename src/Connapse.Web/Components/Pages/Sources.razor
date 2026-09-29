@@ -18,6 +18,7 @@
 @inject Connapse.Storage.Connectors.GitHub.GitHubRepositoryLookup GitHubRepositories
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
 @inject IJSRuntime JS
+@inject IServiceScopeFactory ScopeFactory
 @inject NavigationManager Navigation
 
 @*
@@ -156,8 +157,14 @@
                                        even when indexing later fails, and the count alone would read
                                        as success. *@
                                     <span class="badge text-bg-danger ms-1"
-                                          title="These files were found and queued, but could not be indexed. They are retried on the next sync.">
+                                          title="These files were found and queued, but could not be indexed. A temporary failure is retried after 24 hours; a file that cannot be read is retried when it changes. Retry failed tries them all now.">
                                         @source.FailedDocumentCount failed
+                                    </span>
+                                }
+                                @if (source.ProcessingDocumentCount > 0)
+                                {
+                                    <span class="badge text-bg-info ms-1" title="Waiting for or undergoing ingestion">
+                                        @source.ProcessingDocumentCount processing
                                     </span>
                                 }
                             </td>
@@ -180,6 +187,13 @@
                                         }
                                         <span class="ms-1">Sync</span>
                                     </button>
+                                    @if (source.FailedDocumentCount > 0)
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning me-1" @onclick="() => RetryFailed(source)">
+                                            <span class="bi-arrow-clockwise"></span>
+                                            <span class="ms-1">Retry failed</span>
+                                        </button>
+                                    }
                                     <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => ToggleEnabled(source)">
                                         @(source.Enabled ? "Disable" : "Enable")
                                     </button>
@@ -954,6 +968,27 @@
         finally
         {
             syncing = null;
+        }
+    }
+
+    private async Task RetryFailed(Source source)
+    {
+        message = null;
+        try
+        {
+            // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must
+            // not share across its handlers.
+            await using var scope = ScopeFactory.CreateAsyncScope();
+            int enqueued = await scope.ServiceProvider.GetRequiredService<IReindexService>()
+                .RetryFailedAsync(source.Id, CancellationToken.None);
+
+            await AuditLogger.LogAsync("source.retry_failed", "source", source.Id.ToString(), new { source.Name, enqueued });
+            Succeed($"'{source.Name}': {enqueued} failed document(s) queued again.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Fail(ex.Message);
         }
     }
 
