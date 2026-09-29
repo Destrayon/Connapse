@@ -143,6 +143,19 @@ public class DatasetCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task EnsureAsync_MissingLocallyBuiltFile_ThrowsNamingTheBuilderWithoutDownloading()
+    {
+        DatasetEntry entry = new("beir-parquet", "rev1", ["domain:test"],
+            [new DatasetFile("corpus.parquet", "build:eval/tools/build_dev_suite.py", PayloadHash)]);
+
+        Func<Task> act = () => _cache.EnsureAsync("dev-x", entry, allowUnpinned: false, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*python eval/tools/build_dev_suite.py dev-x*");
+        _handler.Calls.Should().Be(0);
+    }
+
+    [Fact]
     public async Task EnsureAsync_UnpinnedWithoutPinMode_Throws()
     {
         Func<Task> act = () => _cache.EnsureAsync("ds", Entry(null), allowUnpinned: false, CancellationToken.None);

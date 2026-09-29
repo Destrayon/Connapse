@@ -195,12 +195,13 @@ public record SearchSettings
     /// Higher values favor vector/semantic results, lower values favor keyword results.
     /// At extremes (0 or 1), hits from the zero-weighted source score 0 and may be
     /// filtered by MinimumScore. Clamped to [0,1] at fusion time.
-    /// The default suits nomic-embed-text, which the 2026-09-24 retrieval evaluation found
-    /// weaker than keyword search on its own; a stronger embedding model (qwen3-embedding)
-    /// wants the opposite lean, about 0.7.
+    /// The default was chosen on the 8-domain BEIR dev suite with nomic-embed-text (#552): macro
+    /// nDCG@10 peaks at 0.75 on a plateau from 0.65 to 0.8, and leave-one-domain-out picks 0.75 in
+    /// 7 of 8 folds. The earlier 0.3 was tuned while Ollama's nomic vectors were degraded by
+    /// missing lowercasing (#561), which made dense search look weaker than keyword search.
     /// </summary>
     [Range(0f, 1f)]
-    public float FusionAlpha { get; set; } = 0.3f;
+    public float FusionAlpha { get; set; } = 0.75f;
 
     /// <summary>
     /// Hybrid search: candidates each side (vector, keyword) retrieves before fusion (default: 30).

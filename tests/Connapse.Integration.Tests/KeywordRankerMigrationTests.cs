@@ -46,7 +46,7 @@ public class KeywordRankerMigrationTests : IAsyncLifetime
         {
             await context.GetService<IMigrator>().MigrateAsync(Before);
             await context.Database.ExecuteSqlRawAsync(
-                "INSERT INTO settings (category, values) VALUES ('search', jsonb_build_object('keywordRanker', {0}::text, 'fusionAlpha', 0.3))",
+                "INSERT INTO settings (category, values) VALUES ('search', jsonb_build_object('keywordRanker', {0}::text, 'fusionAlpha', 0.4))",
                 stored);
 
             await context.GetService<IMigrator>().MigrateAsync();
@@ -62,7 +62,7 @@ public class KeywordRankerMigrationTests : IAsyncLifetime
                 .SingleAsync();
 
             ranker.Should().Be(expected);
-            alpha.Should().BeApproximately(0.3, 1e-9, "the rest of the saved settings are kept");
+            alpha.Should().BeApproximately(0.4, 1e-9, "the rest of the saved settings are kept");
         }
     }
 }

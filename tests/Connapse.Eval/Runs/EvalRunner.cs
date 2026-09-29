@@ -74,15 +74,20 @@ public sealed class EvalRunner(
                     ? LimitPerSplit(dataset.Queries, limit)
                     : dataset.Queries;
                 List<QueryResult> results = [];
+                List<(string QueryId, CandidateCapture Candidates)> captured = [];
                 foreach (EvalQuery query in queries)
                 {
                     SearchOutcome outcome = await system.SearchAsync(name, query, K, ct);
                     results.Add(new QueryResult(name, query.Id, query.Text, query.Split, outcome.Ranked, outcome.Trace, outcome.Error));
+                    if (outcome.Candidates is not null)
+                        captured.Add((query.Id, outcome.Candidates));
                     if (results.Count % 50 == 0)
                         log.WriteLine($"[{name}] searched {results.Count}/{queries.Count}");
                 }
 
                 run.WriteDataset(name, dataset.Qrels, Titles(dataset, results), results);
+                if (captured.Count > 0)
+                    run.WriteCandidates(name, captured);
                 RunDatasetInfo info = new(name, entry.Version, hashes[name], entry.Tags,
                     dataset.Corpus.Count, index.Failed, invalid, queries.Count);
                 runManifest = runManifest with { Datasets = [.. runManifest.Datasets.Where(d => d.Name != name), info] };

@@ -31,7 +31,13 @@ public sealed class DatasetCache(string cacheRoot, HttpClient http, string? lock
         {
             string path = Path.Combine(directory, file.Name);
             if (!File.Exists(path))
+            {
+                // Built locally rather than downloaded (the dev suite): nothing to fetch.
+                if (file.Url.StartsWith("build:", StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"{dataset}/{file.Name} is built locally: run 'python {file.Url["build:".Length..]} {dataset}' first.");
                 await DownloadAsync(file.Url, path, ct);
+            }
 
             string actual = await Sha256Async(path, ct);
             if (file.Sha256 is null)

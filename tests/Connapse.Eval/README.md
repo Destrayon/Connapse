@@ -41,7 +41,11 @@ fails-loudly check for files Connapse cannot read; and a no-silent-failure check
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.
 - Configs: `eval/systems/connapse/*.json` (`searchMode` plus Connapse configuration keys).
 - Runs land in `eval/runs/` (gitignored) with `report.html`; downloads and the embedding cache in `eval/.cache/`.
-- Headline numbers use the test split. Tune only on dev splits (RAGBench validation).
+- Headline numbers use the test split. Tune only on dev splits (RAGBench validation) or the `dev` suite.
+- The `dev` suite is eight BEIR domains (100 dev queries each, disjoint from the NanoBEIR test queries) for tuning
+  search settings. Its files are built locally, not downloaded: start the TEI container shown in
+  `eval/tools/build_dev_suite.py`, then `python eval/tools/build_dev_suite.py` (about an hour, mostly MS MARCO),
+  and run with `--suite dev`. Its reports score these dev queries as the test split; the suite shares no dataset with `v1`.
 - A difference is significant when its Holm-corrected permutation p < 0.05; each report prints the minimum
   detectable effect, so "no difference" and "too few queries to tell" read differently.
 - `--limit-queries N` is for quick smoke runs: it keeps up to N test and up to N dev queries per dataset, each

@@ -4,6 +4,8 @@ using System.Text;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Model;
+using Connapse.Search.Keyword;
+using Connapse.Search.Vector;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.Storage;
@@ -177,7 +179,21 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
                 result = await search.SearchAsync(query.Text, Options(containerId, 10 * k), timeout.Token);
                 ranked = HitCollapser.Collapse(result.Hits, docMap, k);
             }
-            return new SearchOutcome(ranked, new Trace(stopwatch.Elapsed, NoStages), null);
+            TimeSpan elapsed = stopwatch.Elapsed;
+            CandidateCapture? candidates = null;
+            if (_config.CaptureCandidates is int pool)
+            {
+                // A capture that fails leaves the query's measured ranking alone; replay skips it.
+                try
+                {
+                    candidates = await CaptureAsync(scope.ServiceProvider, query.Text, containerId, docMap, pool, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    candidates = null;
+                }
+            }
+            return new SearchOutcome(ranked, new Trace(elapsed, NoStages), null) { Candidates = candidates };
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -191,6 +207,42 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
     }
 
     public ValueTask DisposeAsync() => _host.DisposeAsync();
+
+    /// <summary>
+    /// The pools hybrid search fuses, taken the way <c>HybridSearchService</c> takes them: each side's
+    /// own top chunks, then each side's score for the other side's candidates.
+    /// </summary>
+    private static async Task<CandidateCapture> CaptureAsync(
+        IServiceProvider services, string query, Guid containerId, Dictionary<string, string> docMap, int pool,
+        CancellationToken ct)
+    {
+        VectorSearchService vector = services.GetRequiredService<VectorSearchService>();
+        KeywordSearchService keyword = services.GetRequiredService<KeywordSearchService>();
+        SearchOptions options = new(TopK: pool, ContainerId: containerId.ToString(), Mode: SearchMode.Hybrid);
+
+        QueryEmbedding embedding = await vector.EmbedQueryAsync(query, options, ct);
+        List<SearchHit> vectorHits = await vector.SearchAsync(query, embedding, options, SearchScopes.Unrestricted, ct);
+        List<SearchHit> keywordHits = await keyword.SearchAsync(query, options, SearchScopes.Unrestricted, ct);
+
+        Dictionary<string, float> vectorScores = vectorHits.ToDictionary(h => h.ChunkId, h => h.Score);
+        Dictionary<string, float> keywordScores = keywordHits.ToDictionary(h => h.ChunkId, h => h.Score);
+        List<string> needVector = keywordHits.Select(h => h.ChunkId).Where(id => !vectorScores.ContainsKey(id)).ToList();
+        List<string> needKeyword = vectorHits.Select(h => h.ChunkId).Where(id => !keywordScores.ContainsKey(id)).ToList();
+        if (needVector.Count > 0)
+            foreach (var (id, score) in await vector.ScoreChunksAsync(embedding, needVector, ct))
+                vectorScores[id] = score;
+        if (needKeyword.Count > 0)
+            foreach (var (id, score) in await keyword.ScoreChunksAsync(query, needKeyword, ct))
+                keywordScores[id] = score;
+
+        Candidate Describe(SearchHit hit) => new(
+            hit.ChunkId,
+            docMap.GetValueOrDefault(hit.DocumentId, ""),
+            vectorScores.TryGetValue(hit.ChunkId, out float v) ? v : null,
+            keywordScores.TryGetValue(hit.ChunkId, out float k) ? k : null);
+
+        return new CandidateCapture(vectorHits.Select(Describe).ToList(), keywordHits.Select(Describe).ToList());
+    }
 
     private SearchOptions Options(Guid containerId, int topK) =>
         new(TopK: topK, ContainerId: containerId.ToString(), Mode: _config.SearchMode);
