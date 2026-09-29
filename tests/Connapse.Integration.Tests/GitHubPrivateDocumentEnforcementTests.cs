@@ -39,7 +39,7 @@ public class GitHubPrivateDocumentEnforcementTests(SharedWebAppFixture fixture)
             var document = new DocumentEntity
             {
                 Id = Guid.NewGuid(), ContainerId = container.Id, FileName = name, Path = "/" + name,
-                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), Status = "Ready",
+                ResourceUri = uri, ContentHash = Guid.NewGuid().ToString("N"), IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow, Metadata = [],
             };
             db.Documents.Add(document);

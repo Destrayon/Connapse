@@ -152,7 +152,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         // Status is authoritative: the ingestion job can mark a document Indexed after the pipeline
         // recorded it as Failed.
         List<string> failed = outcomes
-            .Where(o => o.UploadError is not null || o.Stalled || o.Status == "Failed" || o.IngestionState == IngestionState.Failed)
+            .Where(o => o.UploadError is not null || o.Stalled || o.Status == "Failed" || o.IngestionStatus?.IsFailed() == true)
             .Select(o => o.DatasetDocId)
             .ToList();
 
@@ -289,23 +289,18 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             }
 
             DateTime now = DateTime.UtcNow;
-            // A job that throws marks its document Failed and Hangfire retries it later (30 s, 2 min,
-            // 10 min), so a Failed ingestion state is final only once no retry is waiting.
-            HashSet<string>? retrying = null;
+            // Ready and failed are final: a document waiting on a retry is Queued, not Failed.
             foreach ((string connapseId, Document d) in latest)
             {
                 string datasetId = docMap[connapseId];
                 if (settled.ContainsKey(datasetId))
                     continue;
-                string? status = d.Metadata.GetValueOrDefault("Status");
-                if (status is "Ready" or "Failed" && d.IngestionState != IngestionState.Pending)
+                if (d.Status == DocumentStatus.Ready || d.Status.IsFailed())
                 {
-                    if (d.IngestionState == IngestionState.Failed && (retrying ??= PendingIngestionJobs()).Contains(connapseId))
-                        continue;
                     settled[datasetId] = Outcome(datasetId, d, false, now - started);
                     continue;
                 }
-                if (status == "Processing")
+                if (d.Status == DocumentStatus.Processing)
                     processingSince.TryAdd(connapseId, now);
                 if (wait == IngestionWait.RecordStalls && processingSince.TryGetValue(connapseId, out DateTime since)
                     && now - since > DocumentTimeout)
@@ -336,27 +331,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
         }
     }
 
-    /// <summary>Documents with an ingestion job still scheduled (a retry), enqueued or processing in Hangfire.</summary>
-    private HashSet<string> PendingIngestionJobs()
-    {
-        IMonitoringApi monitor = _host.Services.GetRequiredService<JobStorage>().GetMonitoringApi();
-        HashSet<string> documents = new(StringComparer.Ordinal);
-        void Add(Job? job)
-        {
-            if (job?.Method.Name == "IngestAsync" && job.Args.Count > 0 && job.Args[0] is string documentId)
-                documents.Add(documentId);
-        }
-        foreach ((_, ScheduledJobDto dto) in monitor.ScheduledJobs(0, int.MaxValue))
-            Add(dto.Job);
-        foreach ((_, ProcessingJobDto dto) in monitor.ProcessingJobs(0, int.MaxValue))
-            Add(dto.Job);
-        foreach (QueueWithTopEnqueuedJobsDto queue in monitor.Queues())
-            foreach ((_, EnqueuedJobDto dto) in monitor.EnqueuedJobs(queue.Name, 0, int.MaxValue))
-                Add(dto.Job);
-        return documents;
-    }
-
     private static DocumentOutcome Outcome(string datasetId, Document d, bool stalled, TimeSpan elapsed) =>
         new(datasetId, d.Id, null, d.Metadata.GetValueOrDefault("Status"), d.Metadata.GetValueOrDefault("ErrorMessage"),
-            d.IngestionState, stalled, elapsed);
+            d.Status, stalled, elapsed);
 }

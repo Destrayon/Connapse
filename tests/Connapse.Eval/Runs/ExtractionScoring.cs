@@ -67,7 +67,7 @@ public static class ExtractionScoring
 
             datasets.Add(new ExtractionDatasetScore(info.Name, true, documents.Count,
                 documents.Count(d => d.UploadError is not null),
-                documents.Count(d => d.Status == "Failed" || d.IngestionState == "Failed"),
+                documents.Count(d => d.Status == "Failed" || ExtractionEvaluator.IsFailedState(d.IngestionState)),
                 documents.Count(d => d.Stalled),
                 datasetSilent, datasetMustFail, datasetFailedLoudly, categories));
 

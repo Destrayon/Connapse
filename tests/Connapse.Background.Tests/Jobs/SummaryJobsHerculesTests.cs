@@ -33,7 +33,7 @@ public class SummaryJobsHerculesTests
             Summary: null,
             SummaryGeneratedAt: null,
             SummaryContentHash: null,
-            IngestionState: IngestionState.SummaryIndexed)).ToList();
+            Status: DocumentStatus.Ready, SummaryStatus: SummaryStatus.Done)).ToList();
 
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);
@@ -103,7 +103,7 @@ public class SummaryJobsHerculesTests
             Summary: "Cached summary text",
             SummaryGeneratedAt: DateTime.UtcNow.AddDays(-1),
             SummaryContentHash: contentHash,
-            IngestionState: IngestionState.SummaryIndexed);
+            Status: DocumentStatus.Ready, SummaryStatus: SummaryStatus.Done);
 
         var (jobs, mocks) = BuildJobs(out var collected);
         collected.SetupContainer(containerId, summaryDocSetHash: null);

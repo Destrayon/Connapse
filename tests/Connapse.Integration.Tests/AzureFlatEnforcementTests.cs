@@ -53,7 +53,7 @@ public class AzureFlatEnforcementTests(SharedWebAppFixture fixture)
                 Path = "/" + name,
                 ResourceUri = uri,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             };

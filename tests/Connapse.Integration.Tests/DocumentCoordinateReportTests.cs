@@ -80,7 +80,7 @@ public class DocumentCoordinateReportTests(SharedWebAppFixture fixture)
                     Path = $"/d{i}.md",
                     ResourceUri = uri,
                     ContentHash = Guid.NewGuid().ToString("N"),
-                    Status = "Ready",
+                    IngestionStatus = DocumentStatus.Ready,
                     CreatedAt = DateTime.UtcNow,
                     Metadata = [],
                 });
@@ -117,7 +117,7 @@ public class DocumentCoordinateReportTests(SharedWebAppFixture fixture)
                 Path = "/d.md",
                 ResourceUri = "s3://acme/located.md",
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             });
@@ -155,7 +155,7 @@ public class DocumentCoordinateReportTests(SharedWebAppFixture fixture)
                 Path = "/d.md",
                 ResourceUri = null,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             });

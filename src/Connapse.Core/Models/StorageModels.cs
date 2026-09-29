@@ -81,7 +81,8 @@ public record Document(
     string? Summary = null,
     DateTime? SummaryGeneratedAt = null,
     string? SummaryContentHash = null,
-    IngestionState IngestionState = IngestionState.Pending)
+    DocumentStatus Status = DocumentStatus.Queued,
+    SummaryStatus SummaryStatus = SummaryStatus.NotNeeded)
 {
     /// <summary>
     /// Which owner the row actually has. Needed because <see cref="ContainerId"/> carries
@@ -93,6 +94,9 @@ public record Document(
     /// </para>
     /// </summary>
     public OwnerRef? Owner { get; init; }
+
+    /// <summary>Ingestion attempts made on the current version of the file.</summary>
+    public int AttemptCount { get; init; }
 }
 
 public record StoreResult(string DocumentId, int Generation);

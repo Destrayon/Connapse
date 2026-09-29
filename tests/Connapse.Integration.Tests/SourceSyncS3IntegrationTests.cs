@@ -156,7 +156,7 @@ public class SourceSyncS3IntegrationTests(SharedWebAppFixture fixture) : IAsyncL
         {
             int updated = await seed.Database.ExecuteSqlRawAsync(
                 """
-                UPDATE documents SET status = 'Ready', metadata = {2}::jsonb
+                UPDATE documents SET ingestion_status = 'Ready', metadata = {2}::jsonb
                 WHERE source_id = {0} AND path = {1}
                 """,
                 source.Id, file.Path,

@@ -1,4 +1,5 @@
 ﻿using Connapse.Storage.Data.Entities;
+using Connapse.Core;
 using Microsoft.EntityFrameworkCore;
 
 namespace Connapse.Storage.Data;
@@ -165,10 +166,31 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("generation")
                 .HasDefaultValue(1);
 
-            entity.Property(e => e.Status)
-                .HasColumnName("status")
+            entity.Property(e => e.IngestionStatus)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasColumnName("ingestion_status")
                 .IsRequired()
-                .HasDefaultValue("Pending");
+                .HasDefaultValue(DocumentStatus.Queued);
+
+            entity.Property(e => e.SummaryStatus)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasColumnName("summary_status")
+                .IsRequired()
+                .HasDefaultValue(SummaryStatus.NotNeeded);
+
+            entity.Property(e => e.AttemptCount)
+                .HasColumnName("attempt_count")
+                .HasDefaultValue(0);
+
+            entity.Property(e => e.StatusChangedAt)
+                .HasColumnName("status_changed_at")
+                .HasDefaultValueSql("now()");
+
+            entity.Property(e => e.JobId)
+                .HasColumnName("job_id")
+                .HasMaxLength(64);
 
             entity.Property(e => e.ErrorMessage)
                 .HasColumnName("error_message");
@@ -195,15 +217,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("summary_content_hash")
                 .HasMaxLength(64);
 
-            entity.Property(e => e.IngestionState)
-                .HasConversion<string>()
-                .HasMaxLength(32)
-                .HasColumnName("ingestion_state")
-                .IsRequired()
-                .HasDefaultValue(Core.IngestionState.Pending);
-
-            entity.HasIndex(e => e.IngestionState)
-                .HasDatabaseName("ix_documents_ingestion_state");
+            entity.HasIndex(e => e.IngestionStatus)
+                .HasDatabaseName("ix_documents_ingestion_status");
 
             // Exactly one owner. Postgres treats "(a IS NULL) <> (b IS NULL)" as XOR.
             entity.ToTable(t => t.HasCheckConstraint(

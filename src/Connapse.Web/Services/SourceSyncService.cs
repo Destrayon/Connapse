@@ -552,37 +552,16 @@ public class SourceSyncService(
             // the content hash is computed after the download and parse, so it dedupes
             // nothing that costs money. Skipping here is what keeps a five-minute poll from
             // re-embedding every file a source holds.
-            if (existing is { Status: "Pending" or "Queued" or "Processing" })
+            if (existing is not null && existing.IngestionStatus.IsInFlight())
                 inFlight++;
 
-            if (existing is not null && !HasRemoteChanged(existing, file))
+            if (existing is not null && !IsDue(existing, file, DateTime.UtcNow))
             {
                 skipped++;
                 continue;
             }
 
             due.Add(file);
-
-            if (existing is { Status: "Failed" })
-            {
-                // Counted here rather than in the pipeline, because the pipeline may never run
-                // — a connector that cannot reach its remote throws before it. That is exactly
-                // the failure this bound exists to stop repeating, so the attempt has to be
-                // recorded at the moment it is made.
-                // Reset by a changed file, not merely incremented: the budget is per version.
-                // Carrying a spent one across an edit would let the fall-through above hand the
-                // new version a single attempt and then refuse it for ever.
-                int attempt = SignatureChanged(existing, file) ? 1 : FailedAttempts(existing) + 1;
-
-                var carried = new Dictionary<string, string>(existing.Metadata ?? [])
-                {
-                    [IngestionPipeline.SyncFailedAttemptsKey] =
-                        attempt.ToString(CultureInfo.InvariantCulture),
-                };
-
-                var tracked = await context.Documents.FirstOrDefaultAsync(d => d.Id == existing.Id, ct);
-                if (tracked is not null) tracked.Metadata = carried;
-            }
 
             if (existing is null)
             {
@@ -594,7 +573,7 @@ public class SourceSyncService(
                 // enqueued it all again: the same files downloaded and embedded repeatedly,
                 // and a Hangfire queue growing faster than it drained.
                 //
-                // Status "Pending" is what the next cycle reads: HasRemoteChanged skips it.
+                // Created Queued, which is what the next cycle reads: IsDue skips it.
                 claims[file.Path] = Guid.NewGuid();
                 context.Documents.Add(new DocumentEntity
                 {
@@ -606,7 +585,6 @@ public class SourceSyncService(
                     ResourceUri = file.ResourceUri,
                     ContentHash = string.Empty,
                     SizeBytes = file.SizeBytes,
-                    Status = "Pending",
                     CreatedAt = DateTime.UtcNow,
 
                     // Deliberately no remote signature yet. It is what "already indexed at this
@@ -620,7 +598,7 @@ public class SourceSyncService(
         }
 
         // One round trip, and before any enqueue: a claim that did not persist must not have a
-        // job pointing at it, and a retry that was not counted would not be bounded.
+        // job pointing at it.
         if (claims.Count > 0 || due.Count > 0 || located > 0)
             await context.SaveChangesAsync(ct);
 
@@ -632,9 +610,7 @@ public class SourceSyncService(
             string fileName = Path.GetFileName(file.Path);
 
             await queue.EnqueueAsync(new IngestionJob(
-                JobId: Guid.NewGuid().ToString(),
                 DocumentId: documentId,
-                Path: file.Path,
                 Options: new IngestionOptions(
                     DocumentId: documentId,
                     FileName: fileName,
@@ -674,53 +650,35 @@ public class SourceSyncService(
     }
 
     /// <summary>
-    /// Decides whether an already-indexed document needs re-ingesting, by comparing the
-    /// remote's size and modification time against the signature recorded last time.
+    /// How long a document that failed for a transient reason waits before the sync engine gives
+    /// it a fresh attempt budget. Its own retries have already run out by then — minutes apart,
+    /// within the hour — so what is left is an outage longer than that: an embedding provider
+    /// down for the afternoon. Once a day recovers those documents without the queue filling with
+    /// work that cannot yet succeed.
     /// </summary>
+    internal static readonly TimeSpan RetryCooldown = TimeSpan.FromHours(24);
+
     /// <summary>
-    /// How many times a failing document is re-enqueued before the sync engine leaves it alone.
-    /// Hangfire retries each of those attempts three times itself, so this is not the whole
-    /// budget — it is the number of fresh starts.
+    /// Decides whether an already-indexed document needs (re-)ingesting.
     /// </summary>
-    private const int MaxFailedSyncAttempts = 3;
-
-    private static int FailedAttempts(DocumentEntity existing) =>
-        existing.Metadata is not null
-        && existing.Metadata.TryGetValue(IngestionPipeline.SyncFailedAttemptsKey, out string? raw)
-        && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int attempts)
-            ? attempts
-            : 0;
-
-    private static bool HasRemoteChanged(DocumentEntity existing, ConnectorFile file)
+    internal static bool IsDue(DocumentEntity existing, ConnectorFile file, DateTime utcNow)
     {
         // Already queued or mid-ingestion. Enqueueing again would race the in-flight job for
         // the same document id, and the next cycle will catch it anyway once it settles.
-        if (existing.Status is "Pending" or "Queued" or "Processing")
+        if (existing.IngestionStatus.IsInFlight())
             return false;
 
-        // A failed document is retried, regardless of the signature (#400). The signature is
-        // written as ingestion metadata before the failure, so it matches — which meant the
-        // comparison below skipped the document and it stayed Failed with zero chunks for ever,
-        // or until the remote file happened to change.
-        //
-        // That made any transient downstream fault permanent: an embedding service that was
-        // briefly unreachable poisoned every document caught in the window, and no amount of
-        // re-syncing recovered them.
-        //
-        // Bounded, though (#404). "Retry regardless" assumed the failure was transient, and a
-        // failure that is not — credentials that are wrong, a server that is gone — then
-        // re-enqueued every file in the source on every cycle. Those jobs each carry Hangfire's
-        // own three retries, so the ingestion queue fills with work that cannot succeed and
-        // documents that would have ingested fine sit behind it. A source cannot be allowed to
-        // deny service to the rest of the instance by failing.
-        //
-        // Note the fall-through once the attempts are spent, rather than a flat refusal: an
-        // exhausted document is still re-ingested when the file itself changes. Someone who
-        // fixes the file upstream should not have to wait out a budget, or clear one by hand.
-        if (existing.Status is "Failed" && FailedAttempts(existing) < MaxFailedSyncAttempts)
+        // A changed file is always due, whatever happened to the previous version — including a
+        // permanent failure: someone who fixes the file upstream should not have to retry by hand.
+        if (SignatureChanged(existing, file))
             return true;
 
-        return SignatureChanged(existing, file);
+        // A transient failure is retried once its cooldown has passed (#400: an embedding
+        // service briefly unreachable must not poison every document caught in the window).
+        // Not sooner (#404): a source whose credentials are wrong would otherwise re-enqueue
+        // every file every cycle and deny service to the rest of the instance.
+        return existing.IngestionStatus == DocumentStatus.FailedRetryable
+            && utcNow - existing.StatusChangedAt >= RetryCooldown;
     }
 
     /// <summary>

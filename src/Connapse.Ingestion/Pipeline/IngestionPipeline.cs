@@ -3,10 +3,12 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Documents;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 using Microsoft.Extensions.Options;
+using Npgsql;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -35,6 +37,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly ISourceStore _sourceStore;
     private readonly IConnectionStore _connectionStore;
     private readonly IConnectorFactory _connectorFactory;
+    private readonly IDocumentLifecycle _lifecycle;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -50,13 +53,6 @@ public class IngestionPipeline : IKnowledgeIngester
     /// preserved across a reindex so its change detection keeps a baseline to compare against.
     /// </summary>
     private static readonly string[] RemoteSignatureKeys = ["RemoteLastModified", "RemoteSize"];
-
-    /// <summary>
-    /// How many times the sync engine has re-enqueued this document after a failure. Carried
-    /// across a failed attempt and cleared on a successful one, so a source that cannot be read
-    /// at all stops being retried while a transient fault still recovers.
-    /// </summary>
-    public const string SyncFailedAttemptsKey = "SyncFailedAttempts";
 
     /// <summary>
     /// Initializes a new instance of <see cref="IngestionPipeline"/> with the required services and configuration providers.
@@ -89,6 +85,7 @@ public class IngestionPipeline : IKnowledgeIngester
         ISourceStore sourceStore,
         IConnectionStore connectionStore,
         IConnectorFactory connectorFactory,
+        IDocumentLifecycle lifecycle,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -106,25 +103,25 @@ public class IngestionPipeline : IKnowledgeIngester
         _sourceStore = sourceStore;
         _connectionStore = connectionStore;
         _connectorFactory = connectorFactory;
+        _lifecycle = lifecycle;
         _logger = logger;
     }
 
     /// <summary>
-    /// Ingests a document stream by parsing, chunking, embedding, and storing chunks and vectors, then returns the ingestion outcome.
+    /// Parses, chunks and embeds a document, then swaps its chunks and marks it Ready in one
+    /// transaction.
     /// </summary>
-    /// <param name="content">The document data stream. If the stream is not seekable it will be copied to a temporary in-memory stream.</param>
-    /// <param name="options">Ingestion options controlling document id, container, path/filename, chunking strategy, generation, metadata, and related settings.</param>
-    /// <param name="ct">Cancellation token to cancel the ingestion operation.</param>
-    /// <returns>
-    /// An <see cref="IngestionResult"/> containing the document id, number of chunks stored, total duration, and any warnings.
-    /// A ChunkCount of 0 indicates the job was skipped (stale generation, document deleted/re-uploaded) or ingestion failed/no chunks were produced.
-    /// <summary>
-    /// Runs the full ingestion pipeline for a document: parse the input stream, generate chunks, produce embeddings, and persist chunks and vectors to storage.
-    /// </summary>
-    /// <param name="content">The input stream containing the document to ingest; must be readable and will be made seekable if not.</param>
-    /// <param name="options">Options that control ingestion behavior (document id, container id, file name, chunking strategy, metadata, generation, etc.).</param>
-    /// <param name="ct">Cancellation token to observe while performing ingestion.</param>
-    /// <returns>An <see cref="IngestionResult"/> containing the ingested document id, number of chunks stored, total duration, and any warnings produced during processing.</returns>
+    /// <remarks>
+    /// All the expensive and fallible work happens before anything is written, so the document's
+    /// previous chunks stay searchable until the new ones commit, and a failure leaves them
+    /// untouched.
+    /// <para>
+    /// Failures propagate. <see cref="PermanentIngestionException"/> marks one that retrying cannot
+    /// fix; anything else is treated as transient by the job that called this. A ChunkCount of 0
+    /// means the work was superseded — a newer version of the document, or its deletion — and
+    /// nothing was written.
+    /// </para>
+    /// </remarks>
     public async Task<IngestionResult> IngestAsync(
         Stream content,
         IngestionOptions options,
@@ -135,18 +132,15 @@ public class IngestionPipeline : IKnowledgeIngester
         Stream? workingStream = null;
         bool createdMemoryStream = false;
 
-        // Hoisted so the catch block can persist "Failed" status to DB.
         var documentId = !string.IsNullOrEmpty(options.DocumentId) && Guid.TryParse(options.DocumentId, out var providedId)
             ? providedId
             : Guid.NewGuid();
-        DocumentEntity? documentEntity = null;
 
-        // Resolve ownership before the try block. Everything below writes through this, so a
-        // source-owned document cannot be recorded against container_id — which would violate
-        // the ck_documents_single_owner CHECK — and no chunk or vector can be written with a
-        // zero owner, which no owner-scoped query would ever match. Deliberately outside the
-        // catch: an ownerless call is a programming error, and failing fast beats recording a
-        // half-written document with a Failed status.
+        // Resolve ownership first. Everything below writes through this, so a source-owned
+        // document cannot be recorded against container_id — which would violate the
+        // ck_documents_single_owner CHECK — and no chunk or vector can be written with a zero
+        // owner, which no owner-scoped query would ever match. An ownerless call is a
+        // programming error.
         var owner = options.Owner
             ?? (!string.IsNullOrEmpty(options.ContainerId) && Guid.TryParse(options.ContainerId, out var cId)
                 ? OwnerRef.ForContainer(cId)
@@ -158,7 +152,6 @@ public class IngestionPipeline : IKnowledgeIngester
             // Handle non-seekable streams (e.g., from MinIO)
             if (!content.CanSeek)
             {
-                // Copy to MemoryStream for seekable operations
                 var ms = new MemoryStream();
                 await content.CopyToAsync(ms, ct);
                 ms.Position = 0;
@@ -171,291 +164,134 @@ public class IngestionPipeline : IKnowledgeIngester
             }
 
             var contentHash = await ComputeContentHashAsync(workingStream, ct);
-
-            // Save file to storage (only if not already saved)
-            // Note: When called from IngestionWorker, file is already saved
             var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
 
-            // Build metadata including indexing settings for reindex detection
-            var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
-            var chunkSettings = _chunkingSettings.CurrentValue;
-            var embedSettings = _embeddingSettings.CurrentValue;
+            // Parsing and chunking first: they need nothing from the database, and a file that
+            // cannot be read is known to be a permanent failure before any row is touched.
+            workingStream.Position = 0;
+            var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
+            warnings.AddRange(parsedDocument.Warnings);
 
-            // Store chunking settings used.
-            // IMPORTANT: record the resolved strategy name (what ChunkDocumentAsync will actually
-            // dispatch to via the auto-router), NOT the raw user-configured option. Otherwise a
-            // .md file ingested with options.Strategy=Recursive would store "Recursive" while
-            // DocumentAware actually ran — breaking reindex-detection and misleading consumers.
-            metadata[MetadataKeyChunkingStrategy] = IngestionPipelineStrategyResolver.Resolve(
-                fallbackStrategy: options.Strategy.ToString(),
-                fileName: options.FileName);
-            metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
-            metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
-
-            // Store embedding settings used
-            metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
-            // The vector-space id (model plus its prompts), so changing prompts marks documents for reindex.
-            string embeddingIdentity = EmbeddingIdentity.For(embedSettings);
-            metadata[MetadataKeyEmbeddingModel] = embeddingIdentity;
-            metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
-
-            // Check if document already exists (created eagerly by UploadService)
-            documentEntity = await _context.Documents.FindAsync([documentId], ct);
-            bool isReindex = documentEntity is not null;
-
-            // Generation check: skip stale jobs early (before any expensive work)
-            int jobGeneration = options.Generation;
-            if (isReindex && !await IsCurrentGenerationAsync(documentId, jobGeneration, ct))
+            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
+            if (chunks.Count == 0)
             {
-                _logger.LogInformation(
-                    "Skipping stale job for document {DocumentId}: job generation {JobGen} != current generation",
-                    documentId, jobGeneration);
-                return new IngestionResult(
-                    DocumentId: documentId.ToString(),
-                    ChunkCount: 0,
-                    Duration: stopwatch.Elapsed,
-                    Warnings: ["Stale job skipped — document was re-uploaded"]);
+                throw new PermanentIngestionException(warnings.Count > 0
+                    ? $"No extractable content ({string.Join("; ", warnings)})"
+                    : "No extractable content");
             }
 
-            if (documentEntity != null)
+            var existing = await _context.Documents
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == documentId, ct);
+
+            if (existing is not null)
             {
                 // Ownership is immutable. Writing both columns from the incoming options would
                 // let a reindex move a document between a source and a container while still
                 // satisfying ck_documents_single_owner — exactly one column stays set, so the
                 // database cannot catch it — silently carrying content across an authorization
-                // boundary. The catch below rethrows this rather than recording a Failed
-                // document, because a refused reindex is not a failed one.
-                var existingOwner = documentEntity.SourceId is Guid existingSourceId
+                // boundary.
+                var existingOwner = existing.SourceId is Guid existingSourceId
                     ? OwnerRef.ForSource(existingSourceId)
-                    : OwnerRef.ForContainer(documentEntity.ContainerId!.Value);
+                    : OwnerRef.ForContainer(existing.ContainerId!.Value);
 
                 if (existingOwner != owner)
                     throw new DocumentOwnershipChangedException(documentId, existingOwner, owner);
-
-                // Update existing document for reindex
-                documentEntity.ContainerId = owner.ContainerId;
-                documentEntity.SourceId = owner.SourceId;
-                documentEntity.FileName = options.FileName ?? "unknown";
-                documentEntity.ContentType = options.ContentType;
-                documentEntity.Path = virtualPath;
-                documentEntity.ContentHash = contentHash;
-                documentEntity.SizeBytes = workingStream.Length;
-                documentEntity.Status = "Processing";
-
-                // Carry forward the sync layer's record of what the remote looked like when
-                // this document was last ingested. Only SourceSyncService sets these, so any
-                // other caller — a reindex, in particular — would otherwise replace the
-                // metadata wholesale and erase the baseline. The next sync would then find no
-                // signature, treat every file as changed, and re-download and re-embed the
-                // entire source.
-                foreach (string key in RemoteSignatureKeys)
-                {
-                    if (!metadata.ContainsKey(key) &&
-                        documentEntity.Metadata?.TryGetValue(key, out var carried) == true)
-                    {
-                        metadata[key] = carried;
-                    }
-                }
-
-                // Carried for the same reason, and one more: it is the only thing bounding the
-                // sync engine's retry of a failed document. Replacing the metadata here would
-                // reset the count on every attempt, and a source that can never be read — wrong
-                // credentials, a server that is gone — would be re-enqueued for ever, crowding
-                // out every other document's ingestion.
-                if (!metadata.ContainsKey(SyncFailedAttemptsKey) &&
-                    documentEntity.Metadata?.TryGetValue(SyncFailedAttemptsKey, out var attempts) == true)
-                {
-                    metadata[SyncFailedAttemptsKey] = attempts;
-                }
-
-                documentEntity.Metadata = metadata;
             }
-            else
+
+            // A job claimed the document before calling here, so it is already Processing. A
+            // direct caller has not, and takes it the same way a job would: as a new generation,
+            // so that anything already working on the document can no longer complete it.
+            int generation = options.Generation;
+            if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
             {
+                int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
+                if (claimed is null || !await _lifecycle.TryClaimAsync(documentId, claimed.Value, ct))
+                    return Superseded(documentId, stopwatch, "Document changed before ingestion started");
+                generation = claimed.Value;
+            }
+            else if (existing is not null && generation != 0 && existing.Generation != generation)
+            {
+                return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
+            }
+
+            var metadata = BuildMetadata(options, existing);
+
+            var embedSettings = _embeddingSettings.CurrentValue;
+            IReadOnlyList<float[]> embeddings = await EmbedChunksAsync(chunks, embedSettings, ct);
+
+            // The swap. Old chunks go and new ones arrive in the same transaction as the move to
+            // Ready, guarded on the generation: if the document was re-uploaded or reindexed while
+            // this was embedding, the guard fails, the transaction rolls back, and the newer job's
+            // work is the one that lands.
+            await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+
+            DocumentEntity documentEntity;
+            if (existing is null)
+            {
+                // Only direct callers reach here; every job's document row exists before the job
+                // is enqueued. Nothing else can be working on a row that does not exist yet, so
+                // it is created already Ready.
                 documentEntity = new DocumentEntity
                 {
                     Id = documentId,
-                    ContainerId = owner.ContainerId,
-                    SourceId = owner.SourceId,
-                    FileName = options.FileName ?? "unknown",
-                    ContentType = options.ContentType,
-                    Path = virtualPath,
-                    ContentHash = contentHash,
-                    SizeBytes = workingStream.Length,
-                    Status = "Processing",
                     CreatedAt = DateTime.UtcNow,
-                    Metadata = metadata
+                    IngestionStatus = DocumentStatus.Ready,
+                    StatusChangedAt = DateTime.UtcNow,
+                    LastIndexedAt = DateTime.UtcNow,
                 };
-
                 _context.Documents.Add(documentEntity);
-            }
-
-            await _context.SaveChangesAsync(ct);
-
-            // For reindex: purge stale chunks and their vectors (cascade) before adding new ones.
-            // Without this, every re-index doubles the chunk count, polluting search results.
-            if (isReindex)
-            {
-                await _context.Chunks
-                    .Where(c => c.DocumentId == documentEntity.Id)
-                    .ExecuteDeleteAsync(ct);
-            }
-
-            // Parse document
-            workingStream.Position = 0;
-            var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
-            warnings.AddRange(parsedDocument.Warnings);
-
-            // Chunk document
-            var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
-
-            if (chunks.Count == 0)
-            {
-                warnings.Add("No chunks generated from document");
-                documentEntity.Status = "Failed";
-                documentEntity.ErrorMessage = "No extractable content";
-                await _context.SaveChangesAsync(ct);
-
-                return new IngestionResult(
-                    DocumentId: documentId.ToString(),
-                    ChunkCount: 0,
-                    Duration: stopwatch.Elapsed,
-                    Warnings: warnings);
-            }
-
-            // Embed chunks — skip if the chunker already produced precomputed embeddings
-            // (SemanticChunker mean-pools sentence embeddings, avoiding a second API call).
-            IReadOnlyList<float[]> embeddings;
-            if (chunks.All(c => c.PrecomputedEmbedding != null))
-            {
-                embeddings = chunks.Select(c => c.PrecomputedEmbedding!).ToList();
-                _logger.LogDebug("Using precomputed embeddings from chunker for {Count} chunks", chunks.Count);
             }
             else
             {
-                var chunkContents = chunks.Select(c => c.Content).ToArray();
-                string modelId = embeddingIdentity;
-                int dimensions = embedSettings.Dimensions;
+                documentEntity = await _context.Documents.FirstOrDefaultAsync(d => d.Id == documentId, ct)
+                    ?? throw new PermanentIngestionException("Document was deleted during ingestion");
 
-                // Check content-hash cache before calling the embedding API
-                var cached = await _embeddingCache.GetCachedEmbeddingsAsync(
-                    chunkContents, modelId, dimensions, ct);
-
-                // Only embed chunks that don't have a cached vector
-                var missIndices = cached
-                    .Select((v, i) => (v, i))
-                    .Where(x => x.v == null)
-                    .Select(x => x.i)
-                    .ToList();
-
-                float[]?[] result = new float[]?[chunkContents.Length];
-
-                // Copy cache hits
-                for (int i = 0; i < cached.Count; i++)
-                    if (cached[i] != null) result[i] = cached[i];
-
-                if (missIndices.Count > 0)
-                {
-                    var missContents = missIndices.Select(i => chunkContents[i]).ToArray();
-                    var freshEmbeddings = await _embeddingProvider.EmbedBatchAsync(missContents, EmbeddingInputType.Document, ct);
-                    for (int k = 0; k < missIndices.Count; k++)
-                        result[missIndices[k]] = freshEmbeddings[k];
-
-                    _logger.LogDebug(
-                        "Embedding cache: {Hits} hits, {Misses} misses for {Total} chunks",
-                        cached.Count - missIndices.Count, missIndices.Count, chunkContents.Length);
-                }
-                else
-                {
-                    _logger.LogDebug("Embedding cache: all {Count} chunks were cache hits", chunkContents.Length);
-                }
-
-                embeddings = result.Select(v => v!).ToList();
+                await _context.Chunks
+                    .Where(c => c.DocumentId == documentId)
+                    .ExecuteDeleteAsync(ct);
             }
 
-            // Second generation check: the document may have been re-uploaded during the
-            // expensive embedding call. If so, skip chunk insertion — the newer job will handle it.
-            if (!await IsCurrentGenerationAsync(documentEntity.Id, jobGeneration, ct))
-            {
-                _logger.LogInformation(
-                    "Document {DocumentId} was re-uploaded during ingestion (generation changed) — skipping chunk insertion",
-                    documentEntity.Id);
-                return new IngestionResult(
-                    DocumentId: documentEntity.Id.ToString(),
-                    ChunkCount: 0,
-                    Duration: stopwatch.Elapsed,
-                    Warnings: ["Document was re-uploaded during ingestion"]);
-            }
-
-            // Also verify the row still exists (handles deletion during ingestion)
-            var docStillExists = await _context.Documents
-                .AnyAsync(d => d.Id == documentEntity.Id, ct);
-            if (!docStillExists)
-            {
-                _logger.LogWarning(
-                    "Document {DocumentId} was deleted during ingestion — skipping chunk insertion",
-                    documentEntity.Id);
-                return new IngestionResult(
-                    DocumentId: documentEntity.Id.ToString(),
-                    ChunkCount: 0,
-                    Duration: stopwatch.Elapsed,
-                    Warnings: ["Document was deleted during ingestion"]);
-            }
-
-            // Stage all chunk entities and vector items, then flush in two SaveChangesAsync calls
-            // (one inside UpsertBatchAsync for chunks+vectors, one for the document status update).
-            var vectorItems = new List<(string Id, float[] Vector, Dictionary<string, string> Metadata)>(chunks.Count);
-
-            for (int i = 0; i < chunks.Count; i++)
-            {
-                var chunkInfo = chunks[i];
-                var chunkId = Guid.NewGuid();
-
-                _context.Chunks.Add(new ChunkEntity
-                {
-                    Id = chunkId,
-                    DocumentId = documentEntity.Id,
-                    OwnerId = owner.Id,
-                    Content = chunkInfo.Content,
-                    ChunkIndex = chunkInfo.ChunkIndex,
-                    TokenCount = chunkInfo.TokenCount,
-                    StartOffset = chunkInfo.StartOffset,
-                    EndOffset = chunkInfo.EndOffset,
-                    Metadata = chunkInfo.Metadata
-                });
-
-                vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
-                {
-                    ["documentId"] = documentEntity.Id.ToString(),
-                    ["ownerId"] = owner.Id.ToString(),
-                    ["modelId"] = embeddingIdentity,
-                    ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
-                    ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),
-                    ["dimensions"] = embedSettings.Dimensions.ToString(),
-                }));
-            }
-
-            // Single round-trip: saves all staged chunk entities + all vector rows.
-            await _vectorStore.UpsertBatchAsync(vectorItems, ct);
-
-            // Update document status
+            documentEntity.ContainerId = owner.ContainerId;
+            documentEntity.SourceId = owner.SourceId;
+            documentEntity.FileName = options.FileName ?? "unknown";
+            documentEntity.ContentType = options.ContentType;
+            documentEntity.Path = virtualPath;
+            documentEntity.ContentHash = contentHash;
+            documentEntity.SizeBytes = workingStream.Length;
             documentEntity.ChunkCount = chunks.Count;
-            // Cleared on success: the count exists to bound retries of a document that keeps
-            // failing, and this one just stopped failing.
-            documentEntity.Metadata?.Remove(SyncFailedAttemptsKey);
+            documentEntity.Metadata = metadata;
 
-            documentEntity.Status = "Ready";
-            documentEntity.ErrorMessage = null;
-            documentEntity.LastIndexedAt = DateTime.UtcNow;
+            var vectorItems = StageChunks(documentId, owner, chunks, embeddings, embedSettings);
 
-            await _context.SaveChangesAsync(ct);
+            // Saves the document fields, the staged chunks and the vectors in one round trip.
+            try
+            {
+                await _vectorStore.UpsertBatchAsync(vectorItems, ct);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: var state }
+                                                && state.StartsWith("22", StringComparison.Ordinal))
+            {
+                // Class 22 is PostgreSQL rejecting the data itself — text holding NUL characters,
+                // say, from a UTF-16 file read as UTF-8. The same file is rejected on every retry.
+                throw new PermanentIngestionException(
+                    $"The extracted text could not be stored: {ex.InnerException.Message}", ex);
+            }
 
-            // Per-doc summary and container rollup are scheduled separately as Hangfire jobs
-            // (IngestionJobs.PerDocSummaryAsync → SummaryJobs.RollupContainerAsync) so they
-            // don't block the ingestion path. See Connapse.Background for the wiring.
+            if (existing is not null &&
+                (await DocumentLifecycle.CompleteAsync(_context, documentId, generation, ct)).Count == 0)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                _logger.LogInformation(
+                    "Document {DocumentId} changed during ingestion (generation {Generation} superseded); discarding this result",
+                    documentId, generation);
+                return Superseded(documentId, stopwatch, "Document was re-uploaded during ingestion");
+            }
+
+            await transaction.CommitAsync(CancellationToken.None);
+            await _lifecycle.NotifyAsync(documentId, CancellationToken.None);
 
             stopwatch.Stop();
-
             _logger.LogInformation(
                 "Successfully ingested document {DocumentId}: {ChunkCount} chunks in {Duration}ms",
                 documentId,
@@ -468,40 +304,6 @@ public class IngestionPipeline : IKnowledgeIngester
                 Duration: stopwatch.Elapsed,
                 Warnings: warnings);
         }
-        catch (DocumentOwnershipChangedException)
-        {
-            // Let this escape. Recording a "Failed" document here would tell the caller the
-            // work went wrong rather than that it was refused, and would leave the document
-            // real owner looking broken.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during document ingestion");
-            warnings.Add($"Ingestion failed: {ex.Message}");
-
-            // Persist "Failed" so the 5-minute rescan doesn't keep re-enqueuing a document
-            // that's stuck at "Processing" — which would cause status to flicker endlessly.
-            if (documentEntity is not null)
-            {
-                try
-                {
-                    documentEntity.Status = "Failed";
-                    documentEntity.ErrorMessage = ex.Message;
-                    await _context.SaveChangesAsync(CancellationToken.None);
-                }
-                catch (Exception dbEx)
-                {
-                    _logger.LogWarning(dbEx, "Failed to persist Failed status for document {DocumentId}", documentId);
-                }
-            }
-
-            return new IngestionResult(
-                DocumentId: documentId.ToString(),
-                ChunkCount: 0,
-                Duration: stopwatch.Elapsed,
-                Warnings: warnings);
-        }
         finally
         {
             // Dispose working stream if we created a MemoryStream
@@ -510,6 +312,133 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    private static IngestionResult Superseded(Guid documentId, Stopwatch stopwatch, string reason) =>
+        new(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: [reason]);
+
+    private Dictionary<string, string> BuildMetadata(IngestionOptions options, DocumentEntity? existing)
+    {
+        var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
+        var chunkSettings = _chunkingSettings.CurrentValue;
+        var embedSettings = _embeddingSettings.CurrentValue;
+
+        // IMPORTANT: record the resolved strategy name (what ChunkDocumentAsync will actually
+        // dispatch to via the auto-router), NOT the raw user-configured option. Otherwise a
+        // .md file ingested with options.Strategy=Recursive would store "Recursive" while
+        // DocumentAware actually ran — breaking reindex-detection and misleading consumers.
+        metadata[MetadataKeyChunkingStrategy] = IngestionPipelineStrategyResolver.Resolve(
+            fallbackStrategy: options.Strategy.ToString(),
+            fileName: options.FileName);
+        metadata[MetadataKeyChunkingMaxSize] = chunkSettings.MaxChunkSize.ToString();
+        metadata[MetadataKeyChunkingOverlap] = chunkSettings.Overlap.ToString();
+        metadata[MetadataKeyEmbeddingProvider] = embedSettings.Provider;
+        // The vector-space id (model plus its prompts), so changing prompts marks documents for reindex.
+        metadata[MetadataKeyEmbeddingModel] = EmbeddingIdentity.For(embedSettings);
+        metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
+
+        // Carry forward the sync layer's record of what the remote looked like when this
+        // document was last ingested. Only SourceSyncService sets these, so any other caller —
+        // a reindex, in particular — would otherwise replace the metadata wholesale and erase
+        // the baseline. The next sync would then find no signature, treat every file as
+        // changed, and re-download and re-embed the entire source.
+        foreach (string key in RemoteSignatureKeys)
+        {
+            if (!metadata.ContainsKey(key) &&
+                existing?.Metadata?.TryGetValue(key, out var carried) == true)
+            {
+                metadata[key] = carried;
+            }
+        }
+
+        return metadata;
+    }
+
+    private async Task<IReadOnlyList<float[]>> EmbedChunksAsync(
+        IReadOnlyList<ChunkInfo> chunks, EmbeddingSettings embedSettings, CancellationToken ct)
+    {
+        // Skip if the chunker already produced precomputed embeddings (SemanticChunker
+        // mean-pools sentence embeddings, avoiding a second API call).
+        if (chunks.All(c => c.PrecomputedEmbedding != null))
+        {
+            _logger.LogDebug("Using precomputed embeddings from chunker for {Count} chunks", chunks.Count);
+            return chunks.Select(c => c.PrecomputedEmbedding!).ToList();
+        }
+
+        var chunkContents = chunks.Select(c => c.Content).ToArray();
+
+        // Check content-hash cache before calling the embedding API
+        var cached = await _embeddingCache.GetCachedEmbeddingsAsync(
+            chunkContents, EmbeddingIdentity.For(embedSettings), embedSettings.Dimensions, ct);
+
+        var missIndices = cached
+            .Select((v, i) => (v, i))
+            .Where(x => x.v == null)
+            .Select(x => x.i)
+            .ToList();
+
+        float[]?[] result = new float[]?[chunkContents.Length];
+        for (int i = 0; i < cached.Count; i++)
+            if (cached[i] != null) result[i] = cached[i];
+
+        if (missIndices.Count > 0)
+        {
+            var missContents = missIndices.Select(i => chunkContents[i]).ToArray();
+            var freshEmbeddings = await _embeddingProvider.EmbedBatchAsync(missContents, EmbeddingInputType.Document, ct);
+            for (int k = 0; k < missIndices.Count; k++)
+                result[missIndices[k]] = freshEmbeddings[k];
+
+            _logger.LogDebug(
+                "Embedding cache: {Hits} hits, {Misses} misses for {Total} chunks",
+                cached.Count - missIndices.Count, missIndices.Count, chunkContents.Length);
+        }
+        else
+        {
+            _logger.LogDebug("Embedding cache: all {Count} chunks were cache hits", chunkContents.Length);
+        }
+
+        return result.Select(v => v!).ToList();
+    }
+
+    private List<(string Id, float[] Vector, Dictionary<string, string> Metadata)> StageChunks(
+        Guid documentId,
+        OwnerRef owner,
+        IReadOnlyList<ChunkInfo> chunks,
+        IReadOnlyList<float[]> embeddings,
+        EmbeddingSettings embedSettings)
+    {
+        var vectorItems = new List<(string Id, float[] Vector, Dictionary<string, string> Metadata)>(chunks.Count);
+
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var chunkInfo = chunks[i];
+            var chunkId = Guid.NewGuid();
+
+            _context.Chunks.Add(new ChunkEntity
+            {
+                Id = chunkId,
+                DocumentId = documentId,
+                OwnerId = owner.Id,
+                Content = chunkInfo.Content,
+                ChunkIndex = chunkInfo.ChunkIndex,
+                TokenCount = chunkInfo.TokenCount,
+                StartOffset = chunkInfo.StartOffset,
+                EndOffset = chunkInfo.EndOffset,
+                Metadata = chunkInfo.Metadata
+            });
+
+            vectorItems.Add((chunkId.ToString(), embeddings[i], new Dictionary<string, string>(chunkInfo.Metadata)
+            {
+                ["documentId"] = documentId.ToString(),
+                ["ownerId"] = owner.Id.ToString(),
+                ["modelId"] = EmbeddingIdentity.For(embedSettings),
+                ["ChunkIndex"] = chunkInfo.ChunkIndex.ToString(),
+                ["contentHash"] = EmbeddingCache.ComputeHash(chunkInfo.Content),
+                ["dimensions"] = embedSettings.Dimensions.ToString(),
+            }));
+        }
+
+        return vectorItems;
     }
 
     /// <summary>
@@ -584,7 +513,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnector connector = _managedStorage.CreateConnector(container.Id);
         string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
 
-        await using Stream stream = await connector.ReadFileAsync(jobPath, ct);
+        await using Stream stream = await ReadSourceFileAsync(connector, jobPath, ct);
         return await IngestAsync(stream, options, ct);
     }
 
@@ -612,7 +541,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnector connector = await CreateSourceConnectorAsync(source, documentId, ct);
         try
         {
-            await using Stream stream = await connector.ReadFileAsync(path, ct);
+            await using Stream stream = await ReadSourceFileAsync(connector, path, ct);
             return await IngestAsync(stream, options, ct);
         }
         finally
@@ -651,33 +580,20 @@ public class IngestionPipeline : IKnowledgeIngester
         return _connectorFactory.Create(source, connection, secret);
     }
 
-    public async IAsyncEnumerable<IngestionProgress> IngestWithProgressAsync(
-        Stream content,
-        IngestionOptions options,
-        [EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>
+    /// Reads the file a job points at. A file that is gone will not come back on a retry, so its
+    /// absence is permanent; every other read failure — a refused connection, a timeout — is not.
+    /// </summary>
+    private static async Task<Stream> ReadSourceFileAsync(IConnector connector, string path, CancellationToken ct)
     {
-        yield return new IngestionProgress(IngestionPhase.Parsing, 0, "Starting ingestion");
-
-        // Parse
-        content.Position = 0;
-        var parsedDocument = await ParseDocumentAsync(content, options.FileName ?? "", ct);
-        yield return new IngestionProgress(IngestionPhase.Parsing, 100, "Document parsed");
-
-        // Chunk
-        yield return new IngestionProgress(IngestionPhase.Chunking, 0, "Chunking document");
-        var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
-        yield return new IngestionProgress(IngestionPhase.Chunking, 100, $"{chunks.Count} chunks created");
-
-        // Embed
-        yield return new IngestionProgress(IngestionPhase.Embedding, 0, "Generating embeddings");
-        var chunkContents = chunks.Select(c => c.Content).ToArray();
-        await _embeddingProvider.EmbedBatchAsync(chunkContents, EmbeddingInputType.Document, ct);
-        yield return new IngestionProgress(IngestionPhase.Embedding, 100, "Embeddings generated");
-
-        // Store
-        yield return new IngestionProgress(IngestionPhase.Storing, 0, "Storing in database");
-        await IngestAsync(content, options, ct);
-        yield return new IngestionProgress(IngestionPhase.Complete, 100, "Ingestion complete");
+        try
+        {
+            return await connector.ReadFileAsync(path, ct);
+        }
+        catch (FileNotFoundException ex)
+        {
+            throw new PermanentIngestionException($"File not found: {path}", ex);
+        }
     }
 
     private async Task<ParsedDocument> ParseDocumentAsync(
@@ -690,15 +606,18 @@ public class IngestionPipeline : IKnowledgeIngester
         var parser = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
 
         if (parser == null)
-        {
-            _logger.LogWarning("No parser found for extension: {Extension}", extension);
-            return new ParsedDocument(
-                Content: string.Empty,
-                Metadata: new Dictionary<string, string>(),
-                Warnings: [$"Unsupported file type: {extension}"]);
-        }
+            throw new PermanentIngestionException($"Unsupported file type: {extension}");
 
-        return await parser.ParseAsync(content, fileName, ct);
+        try
+        {
+            return await parser.ParseAsync(content, fileName, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The file is already in memory, so nothing here is waiting on a network: a parser
+            // that throws has met content it cannot read, and will meet it again on every retry.
+            throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {ex.Message}", ex);
+        }
     }
 
     private async Task<IReadOnlyList<ChunkInfo>> ChunkDocumentAsync(
@@ -722,19 +641,6 @@ public class IngestionPipeline : IKnowledgeIngester
         }
 
         return await strategy.ChunkAsync(parsedDocument, settings, ct);
-    }
-
-    private async Task<bool> IsCurrentGenerationAsync(Guid documentId, int jobGeneration, CancellationToken ct)
-    {
-        if (jobGeneration == 0)
-            return true;
-
-        int currentGen = await _context.Documents
-            .Where(d => d.Id == documentId)
-            .Select(d => d.Generation)
-            .FirstOrDefaultAsync(ct);
-
-        return currentGen == jobGeneration;
     }
 
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)

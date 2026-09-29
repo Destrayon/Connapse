@@ -177,9 +177,7 @@ record Document(string Id, string ContainerId, string FileName, string? ContentT
 record IngestionOptions(string? DocumentId, string? FileName, string? ContentType,
     string? ContainerId, string? Path, ChunkingStrategy Strategy, Dictionary<string, string>? Metadata);
 record IngestionResult(string DocumentId, int ChunkCount, TimeSpan Duration, ...);
-record IngestionProgress(IngestionPhase Phase, double PercentComplete, string? Message);
-record IngestionJob(string JobId, string DocumentId, string ContainerId, string FileName,
-    string StoragePath, string Path, IngestionOptions Options);
+record IngestionJob(string DocumentId, IngestionOptions Options, string? BatchId, bool ResetAttempts);
 
 // Search
 record SearchOptions(int TopK = 10, float MinScore = 0.0f, string? ContainerId = null,

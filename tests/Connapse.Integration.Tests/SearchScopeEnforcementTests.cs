@@ -63,7 +63,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
                 Path = "/" + name,
                 ResourceUri = uri,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             };
@@ -160,7 +160,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
             Path = "/upload.md",
             ResourceUri = null,
             ContentHash = Guid.NewGuid().ToString("N"),
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = [],
         };
@@ -209,7 +209,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
             Path = "/no-scope-upload.md",
             ResourceUri = null,
             ContentHash = Guid.NewGuid().ToString("N"),
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = [],
         };
@@ -232,7 +232,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
             Path = "/no-scope-theirs.md",
             ResourceUri = "s3://acme/other/theirs.md",
             ContentHash = Guid.NewGuid().ToString("N"),
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = [],
         };
@@ -283,7 +283,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
                 Path = "/" + name,
                 ResourceUri = uri,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             };
@@ -333,7 +333,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
                 Path = "/" + name,
                 ResourceUri = uri,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             };
@@ -381,7 +381,7 @@ public class SearchScopeEnforcementTests(SharedWebAppFixture fixture)
                 Path = "/" + name,
                 ResourceUri = uri,
                 ContentHash = Guid.NewGuid().ToString("N"),
-                Status = "Ready",
+                IngestionStatus = DocumentStatus.Ready,
                 CreatedAt = DateTime.UtcNow,
                 Metadata = [],
             };

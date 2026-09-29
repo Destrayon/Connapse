@@ -377,7 +377,7 @@
             });
 
             reEmbedStarted = true;
-            queueDepth = IngestionQueue.QueueDepth;
+            queueDepth = await IngestionQueue.GetQueueDepthAsync();
         }
         catch { /* Best-effort */ }
         finally
@@ -419,7 +419,7 @@
 
             showLegacyBanner = false;
             reEmbedStarted = true;
-            queueDepth = IngestionQueue.QueueDepth;
+            queueDepth = await IngestionQueue.GetQueueDepthAsync();
         }
         catch { /* Best-effort */ }
         finally

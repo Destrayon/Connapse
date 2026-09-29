@@ -23,31 +23,13 @@ internal class RecordingIngestionQueue : IIngestionQueue
 {
     public List<IngestionJob> Jobs { get; } = [];
 
-    public virtual Task EnqueueAsync(IngestionJob job, CancellationToken ct = default)
+    public virtual Task<string?> EnqueueAsync(IngestionJob job, CancellationToken ct = default)
     {
         Jobs.Add(job);
-        return Task.CompletedTask;
+        return Task.FromResult<string?>(Guid.NewGuid().ToString());
     }
-
-    public Task<IngestionJob?> DequeueAsync(CancellationToken ct = default) =>
-        Task.FromResult<IngestionJob?>(null);
-
-    public Task<IngestionJobStatus?> GetStatusAsync(string jobId) =>
-        Task.FromResult<IngestionJobStatus?>(null);
 
     public Task<bool> CancelJobForDocumentAsync(string documentId) => Task.FromResult(false);
 
-    public int QueueDepth => Jobs.Count;
-
-    public void UpdateJobStatus(
-        string jobId, IngestionJobState state, IngestionPhase? currentPhase = null,
-        double percentComplete = 0, string? errorMessage = null)
-    { }
-
-    public IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses() =>
-        new Dictionary<string, IngestionJobStatus>();
-
-    public void RegisterJobCancellation(string jobId, CancellationTokenSource cts) { }
-
-    public void UnregisterJobCancellation(string jobId) { }
+    public Task<int> GetQueueDepthAsync(CancellationToken ct = default) => Task.FromResult(Jobs.Count);
 }

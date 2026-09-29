@@ -82,14 +82,14 @@ public sealed class GitHubIssuesSyncIntegrationTests(SharedWebAppFixture fixture
 
         result.Error.Should().BeNull();
         result.UsedDeltaPath.Should().BeTrue();
-        queue.Jobs.Select(j => j.Path).Should().BeEquivalentTo("/issues/1.md", "/pulls/2.md");
+        queue.Jobs.Select(j => j.Options.Path).Should().BeEquivalentTo("/issues/1.md", "/pulls/2.md");
 
         // The connector's metadata reaches the job, next to the sync's own keys.
-        var pull = queue.Jobs.Single(j => j.Path == "/pulls/2.md").Options.Metadata!;
+        var pull = queue.Jobs.Single(j => j.Options.Path == "/pulls/2.md").Options.Metadata!;
         pull["github:closes"].Should().Be("1");
         pull["github:state"].Should().Be("merged");
         pull["Source"].Should().Be("SourceSync");
-        queue.Jobs.Single(j => j.Path == "/issues/1.md").Options.Metadata!["github:labels"].Should().Be("bug");
+        queue.Jobs.Single(j => j.Options.Path == "/issues/1.md").Options.Metadata!["github:labels"].Should().Be("bug");
         queue.Jobs.Should().OnlyContain(j => j.Options.Strategy == ChunkingStrategy.Record,
             "records are chunked as records even though their paths end in .md");
 

@@ -35,6 +35,8 @@ public class UploadServiceTests
         _folderStore.ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
             .Returns(ci => new StoreResult(Guid.NewGuid().ToString(), 1));
+        _ingestionQueue.EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Guid.NewGuid().ToString());
 
         _sut = new UploadService(
             _containerStore, _managedStorage, _folderStore,

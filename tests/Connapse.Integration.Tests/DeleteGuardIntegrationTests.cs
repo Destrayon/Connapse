@@ -45,13 +45,13 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
         {
             string path = $"/doc-{i}.md";
 
-            // status = 'Ready': these rows represent already-indexed documents, not ones
-            // mid-ingestion. Left at the column's 'Pending' default, HasRemoteChanged's
+            // ingestion_status = 'Ready': these rows represent already-indexed documents, not ones
+            // mid-ingestion. Left at the column's 'Queued' default, IsDue's
             // in-flight check would treat every one of them as already queued and skip it
             // regardless of remote signature, which would make a reconcile's upsert count
             // always zero here.
             await context.Database.ExecuteSqlRawAsync(
-                "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, status, created_at) "
+                "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, ingestion_status, created_at) "
                 + "VALUES ({0}, NULL, {1}, {2}, {3}, '', 1, 'Ready', now())",
                 Guid.NewGuid(), sourceId, $"doc-{i}.md", path);
         }

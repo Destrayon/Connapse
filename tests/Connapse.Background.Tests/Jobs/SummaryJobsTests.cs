@@ -117,7 +117,7 @@ public class SummaryJobsTests
                     Summary: docSummary,
                     SummaryGeneratedAt: DateTime.UtcNow,
                     SummaryContentHash: contentHash,
-                    IngestionState: IngestionState.SummaryIndexed)
+                    Status: DocumentStatus.Ready, SummaryStatus: SummaryStatus.Done)
             }));
 
         var jobs = new SummaryJobs(

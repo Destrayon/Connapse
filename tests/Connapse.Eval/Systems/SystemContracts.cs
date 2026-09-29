@@ -33,7 +33,8 @@ public sealed record IndexReport(int Documents, int Failed, IReadOnlyList<string
 /// <summary>
 /// Where one document ended up. <paramref name="UploadError"/> is set when the upload was rejected, in
 /// which case there is no Connapse document. <paramref name="Status"/> and <paramref name="ErrorMessage"/>
-/// are the pipeline's; <paramref name="IngestionState"/> is what the UI badge shows.
+/// are what REST reports; <paramref name="IngestionStatus"/> is the document's lifecycle status, which also tells a
+/// retryable failure from a permanent one.
 /// </summary>
 public sealed record DocumentOutcome(
     string DatasetDocId,
@@ -41,7 +42,7 @@ public sealed record DocumentOutcome(
     string? UploadError,
     string? Status,
     string? ErrorMessage,
-    IngestionState? IngestionState,
+    DocumentStatus? IngestionStatus,
     bool Stalled,
     TimeSpan Elapsed);
 

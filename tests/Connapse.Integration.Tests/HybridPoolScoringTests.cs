@@ -1,3 +1,4 @@
+using Connapse.Core;
 using System.Net.Http.Json;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Keyword;
@@ -261,7 +262,7 @@ public class HybridPoolScoringTests(SharedWebAppFixture fixture)
             SizeBytes = 1,
             ChunkCount = 0,
             Generation = 1,
-            Status = "Ready",
+            IngestionStatus = DocumentStatus.Ready,
             CreatedAt = DateTime.UtcNow,
             Metadata = new Dictionary<string, string>(),
         });

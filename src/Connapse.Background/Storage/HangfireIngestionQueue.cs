@@ -1,147 +1,71 @@
-using System.Collections.Concurrent;
 using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
 using Hangfire;
-using Hangfire.States;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Background.Storage;
 
 /// <summary>
-/// Hangfire-backed IIngestionQueue. Replaces the in-memory Channel-based IngestionQueue.
-/// Preserves the existing IIngestionQueue interface so the ~12 call sites (endpoints,
-/// MCP tools, UploadService, ConnectorWatcherService, ReindexService) need no changes.
-///
-/// Job-status tracking + document-to-job mapping remain in-process (lost on restart,
-/// same as before) — Hangfire's own job state is the persisted source of truth.
+/// Hangfire-backed <see cref="IIngestionQueue"/>. Keeps no state of its own: the document row
+/// carries the status and the id of the job that will process it.
 /// </summary>
-public sealed class HangfireIngestionQueue : IIngestionQueue
+/// <remarks>
+/// Singleton, because the sync engine — itself a singleton — holds one; the scoped lifecycle and
+/// database context are resolved per call.
+/// </remarks>
+public sealed class HangfireIngestionQueue(IBackgroundJobClient bgClient, IServiceScopeFactory scopeFactory)
+    : IIngestionQueue
 {
-    private readonly IBackgroundJobClient _bgClient;
-    private readonly ConcurrentDictionary<string, IngestionJobStatus> _jobStatuses = new();
-    private readonly ConcurrentDictionary<string, string> _documentToJobId = new();
-    private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellationTokens = new();
-    private readonly ConcurrentDictionary<string, string> _jobIdToHangfireParentId = new();
-
-    public HangfireIngestionQueue(IBackgroundJobClient bgClient)
+    public async Task<string?> EnqueueAsync(IngestionJob job, CancellationToken cancellationToken = default)
     {
-        _bgClient = bgClient;
+        if (!Guid.TryParse(job.DocumentId, out Guid documentId))
+            throw new ArgumentException($"Document id '{job.DocumentId}' is not a GUID.", nameof(job));
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var lifecycle = scope.ServiceProvider.GetRequiredService<IDocumentLifecycle>();
+
+        // Queued first, then the job. The other order lets a fast worker find the document not
+        // yet Queued, fail its claim and exit, leaving the document waiting on a job that is gone.
+        int? generation = await lifecycle.EnqueuedAsync(documentId, job.ResetAttempts, cancellationToken);
+        if (generation is null) return null;
+
+        // The generation rides on the job so the worker can tell it is still the latest. If the
+        // enqueue itself throws, the document stays Queued with no job recorded, which is what the
+        // stuck-job sweep looks for.
+        IngestionOptions options = job.Options with { Generation = generation.Value };
+        string jobId = bgClient.Enqueue<IIngestionJobs>(j => j.IngestAsync(job.DocumentId, options, default));
+
+        await lifecycle.RecordJobAsync(documentId, generation.Value, jobId, cancellationToken);
+        return jobId;
     }
 
-    /// <summary>
-    /// Hangfire doesn't expose a synchronous queue-depth count without going through
-    /// JobStorage.Current.GetMonitoringApi(). Operators should consult the Hangfire
-    /// dashboard at /hangfire for real-time queue depth.
-    /// </summary>
-    public int QueueDepth => 0;
-
-    public Task EnqueueAsync(IngestionJob job, CancellationToken cancellationToken = default)
+    public async Task<bool> CancelJobForDocumentAsync(string documentId)
     {
-        _jobStatuses[job.JobId] = new IngestionJobStatus(
-            JobId: job.JobId,
-            DocumentId: job.DocumentId,
-            ContainerId: job.Options.ContainerId,
-            State: IngestionJobState.Queued,
-            CurrentPhase: null,
-            PercentComplete: 0,
-            ErrorMessage: null,
-            StartedAt: null,
-            CompletedAt: null);
+        if (!Guid.TryParse(documentId, out Guid id)) return false;
 
-        _documentToJobId[job.DocumentId] = job.JobId;
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
 
-        // Enqueue ingestion. Per-doc summary scheduling now happens inside IngestAsync's
-        // tail, gated on the container's resolved SummarySettings — document-clustering
-        // and summaries-disabled both skip the per-doc job entirely (no dashboard noise,
-        // no wasted dequeue cycle). Summary-clustering enqueues PerDocSummaryAsync at the
-        // end of IngestAsync as a sibling Hangfire job.
-        string parentId = _bgClient.Enqueue<IIngestionJobs>(
-            j => j.IngestAsync(job.DocumentId, job.Options, default));
+        string? jobId = await context.Documents
+            .Where(d => d.Id == id)
+            .Select(d => d.JobId)
+            .FirstOrDefaultAsync();
 
-        _jobIdToHangfireParentId[job.JobId] = parentId;
-        return Task.CompletedTask;
+        return jobId is not null && bgClient.Delete(jobId);
     }
 
-    /// <summary>
-    /// Hangfire's server processes jobs internally; no consumer-side dequeue is needed.
-    /// This method exists on IIngestionQueue for backward compatibility with the prior
-    /// Channel-based queue. Returns null to signal "use Hangfire."
-    /// </summary>
-    public Task<IngestionJob?> DequeueAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IngestionJob?>(null);
-
-    public Task<IngestionJobStatus?> GetStatusAsync(string jobId)
+    public async Task<int> GetQueueDepthAsync(CancellationToken cancellationToken = default)
     {
-        _jobStatuses.TryGetValue(jobId, out var status);
-        return Task.FromResult(status);
-    }
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var context = await factory.CreateDbContextAsync(cancellationToken);
 
-    public void UpdateJobStatus(
-        string jobId,
-        IngestionJobState state,
-        IngestionPhase? currentPhase = null,
-        double percentComplete = 0,
-        string? errorMessage = null)
-    {
-        if (_jobStatuses.TryGetValue(jobId, out var currentStatus))
-        {
-            _jobStatuses[jobId] = currentStatus with
-            {
-                State = state,
-                CurrentPhase = currentPhase,
-                PercentComplete = percentComplete,
-                ErrorMessage = errorMessage,
-                CompletedAt = state is IngestionJobState.Completed or IngestionJobState.Failed
-                    ? DateTime.UtcNow
-                    : currentStatus.CompletedAt
-            };
-        }
-    }
-
-    public IReadOnlyDictionary<string, IngestionJobStatus> GetAllStatuses() => _jobStatuses;
-
-    public void RegisterJobCancellation(string jobId, CancellationTokenSource cts)
-    {
-        _jobCancellationTokens[jobId] = cts;
-    }
-
-    public void UnregisterJobCancellation(string jobId)
-    {
-        if (_jobCancellationTokens.TryRemove(jobId, out var cts))
-            cts.Dispose();
-    }
-
-    public Task<bool> CancelJobForDocumentAsync(string documentId)
-    {
-        if (!_documentToJobId.TryRemove(documentId, out var jobId))
-            return Task.FromResult(false);
-
-        bool deleted = false;
-        if (_jobIdToHangfireParentId.TryRemove(jobId, out var hangfireParentId))
-        {
-            _bgClient.ChangeState(
-                hangfireParentId,
-                new DeletedState(),
-                expectedState: null);
-            deleted = true;
-        }
-
-        if (_jobCancellationTokens.TryRemove(jobId, out var cts))
-        {
-            cts.Cancel();
-            cts.Dispose();
-        }
-
-        if (_jobStatuses.TryGetValue(jobId, out var status))
-        {
-            _jobStatuses[jobId] = status with
-            {
-                State = IngestionJobState.Failed,
-                ErrorMessage = "Cancelled by user",
-                CompletedAt = DateTime.UtcNow
-            };
-        }
-
-        return Task.FromResult(deleted);
+        return await context.Documents.CountAsync(
+            d => d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing,
+            cancellationToken);
     }
 }

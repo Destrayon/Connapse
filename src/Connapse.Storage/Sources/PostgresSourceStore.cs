@@ -83,7 +83,7 @@ public class PostgresSourceStore(
             {
                 Source = s,
                 DocumentCount = s.Documents.Count,
-                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+                FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
             })
             .FirstOrDefaultAsync(ct);
 
@@ -103,7 +103,7 @@ public class PostgresSourceStore(
             {
                 Source = s,
                 DocumentCount = s.Documents.Count,
-                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+                FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
             })
             .FirstOrDefaultAsync(ct);
 
@@ -123,7 +123,7 @@ public class PostgresSourceStore(
             {
                 Source = s,
                 DocumentCount = s.Documents.Count,
-                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+                FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
             })
             .ToListAsync(ct);
 
@@ -142,7 +142,7 @@ public class PostgresSourceStore(
             {
                 Source = s,
                 DocumentCount = s.Documents.Count,
-                FailedDocumentCount = s.Documents.Count(d => d.Status == "Failed"),
+                FailedDocumentCount = s.Documents.Count(d => (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent)),
             })
             .ToListAsync(ct);
 
@@ -189,7 +189,7 @@ public class PostgresSourceStore(
 
         int documentCount = await context.Documents.CountAsync(d => d.SourceId == id, ct);
         int failedDocumentCount = await context.Documents
-            .CountAsync(d => d.SourceId == id && d.Status == "Failed", ct);
+            .CountAsync(d => d.SourceId == id && (d.IngestionStatus == DocumentStatus.FailedRetryable || d.IngestionStatus == DocumentStatus.FailedPermanent), ct);
 
         return MapToModel(entity, documentCount, failedDocumentCount);
     }

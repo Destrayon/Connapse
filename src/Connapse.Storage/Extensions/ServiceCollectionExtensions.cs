@@ -156,6 +156,7 @@ public static class ServiceCollectionExtensions
 
         // Document store
         services.AddScoped<IDocumentStore, PostgresDocumentStore>();
+        services.AddScoped<IDocumentLifecycle, DocumentLifecycle>();
         services.AddScoped<DocumentCoordinateReport>();
 
         // Vector store
