@@ -100,6 +100,7 @@ builder.Services.AddHostedService<CloudEnforcementLatch>();
 
 // Folds BM25 keyword-statistics deltas written by the chunks triggers (#548).
 builder.Services.AddHostedService<Bm25StatsFoldService>();
+builder.Services.AddHostedService<VectorIndexMaintenanceService>();
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<ReindexStateService>();
@@ -274,10 +275,6 @@ using (var scope = app.Services.CreateScope())
             app.Logger.LogWarning(ex, "MinIO is not reachable — bucket check skipped. File uploads will fail until MinIO is available.");
         }
     }
-
-    // Ensure partial IVFFlat indexes exist for each embedding model in chunk_vectors
-    var vectorColumnManager = scope.ServiceProvider.GetRequiredService<VectorColumnManager>();
-    await vectorColumnManager.EnsureIndexesAsync();
 
 }
 

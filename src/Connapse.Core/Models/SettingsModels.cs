@@ -223,6 +223,22 @@ public record SearchSettings
     public int HybridCandidatePool { get; set; } = 30;
 
     /// <summary>
+    /// A container's vectors for one model get their own approximate (HNSW) index once there are
+    /// at least this many (default: 20,000). Below it, search is exact and already fast; above it,
+    /// exact search takes seconds (#571). Indexes are built in the background.
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int VectorIndexMinVectors { get; set; } = 20_000;
+
+    /// <summary>
+    /// How many candidates an HNSW search keeps (pgvector's hnsw.ef_search, default: 400). Higher
+    /// finds more of the true nearest neighbours at some latency; measured on 100k–1M containers
+    /// with the default index settings: 200 → recall@30 ~0.93, 400 → ~0.96, 800 → ~0.98 (#571).
+    /// </summary>
+    [Range(1, 1000)]
+    public int VectorIndexEfSearch { get; set; } = 400;
+
+    /// <summary>
     /// Keyword ranking function: Bm25 | TsRank (default: Bm25).
     /// Bm25 is Lucene's BM25 computed in plain SQL from per-container statistics, so it runs on any
     /// PostgreSQL, including managed services without search extensions. It falls back to TsRank

@@ -6,60 +6,33 @@ namespace Connapse.Core.Tests.Vectors;
 [Trait("Category", "Unit")]
 public class VectorColumnManagerTests
 {
-    [Theory]
-    [InlineData("nomic-embed-text", "idx_cv_emb_nomic_embed_text")]
-    [InlineData("text-embedding-3-small", "idx_cv_emb_text_embedding_3_small")]
-    [InlineData("text-embedding-ada-002", "idx_cv_emb_text_embedding_ada_002")]
-    [InlineData("mxbai-embed-large", "idx_cv_emb_mxbai_embed_large")]
-    public void GetIndexName_CommonModels_ReturnsExpectedName(string modelId, string expected)
+    private static readonly Guid Container = Guid.Parse("6f1c2a44-0000-0000-0000-000000000001");
+
+    [Fact]
+    public void GetIndexName_IsFixedLengthAndValidForAnyModelId()
     {
-        VectorColumnManager.GetIndexName(modelId).Should().Be(expected);
+        string name = VectorColumnManager.GetIndexName(Container, "hf.co/org/Some Model:Q8_0-recipe-1a2b3c4d");
+
+        name.Should().MatchRegex("^ix_cv_hnsw_[0-9a-f]{32}_[0-9a-f]{8}$").And.HaveLength(52);
     }
 
     [Fact]
-    public void GetIndexName_LongModelId_TruncatesTo63Characters()
+    public void GetIndexName_DiffersByContainerAndModel()
     {
-        var longModelId = new string('a', 100);
-        var result = VectorColumnManager.GetIndexName(longModelId);
-        result.Length.Should().BeLessThanOrEqualTo(63);
-        result.Should().StartWith("idx_cv_emb_");
+        string name = VectorColumnManager.GetIndexName(Container, "nomic-embed-text");
+
+        VectorColumnManager.GetIndexName(Guid.NewGuid(), "nomic-embed-text").Should().NotBe(name);
+        VectorColumnManager.GetIndexName(Container, "nomic-embed-text-recipe-1a2b3c4d").Should().NotBe(name);
+        VectorColumnManager.GetIndexName(Container, "nomic-embed-text").Should().Be(name);
     }
 
     [Fact]
-    public void GetIndexName_IdsDifferingOnlyPastTheCut_GetDifferentNames()
+    public void Predicate_QuotesTheModelIdInsteadOfDroppingCharacters()
     {
-        string model = "hf.co/some-organisation/a-rather-long-embedding-model-name-v1.5-GGUF:F16";
-
-        VectorColumnManager.GetIndexName(model)
-            .Should().NotBe(VectorColumnManager.GetIndexName(model + "-recipe-1a2b3c4d"))
-            .And.HaveLength(63);
-    }
-
-    [Fact]
-    public void GetIndexName_SpecialCharacters_SanitizesToUnderscores()
-    {
-        var result = VectorColumnManager.GetIndexName("model/v2@beta.1");
-        result.Should().Be("idx_cv_emb_model_v2_beta_1");
-    }
-
-    [Fact]
-    public void GetIndexName_CollapsesConsecutiveUnderscores()
-    {
-        var result = VectorColumnManager.GetIndexName("model---name");
-        result.Should().Be("idx_cv_emb_model_name");
-    }
-
-    [Fact]
-    public void GetIndexName_TrimsLeadingTrailingUnderscores()
-    {
-        var result = VectorColumnManager.GetIndexName("-leading-trailing-");
-        result.Should().Be("idx_cv_emb_leading_trailing");
-    }
-
-    [Fact]
-    public void GetIndexName_UppercaseModelId_NormalizesToLowercase()
-    {
-        var result = VectorColumnManager.GetIndexName("Text-Embedding-3-Small");
-        result.Should().Be("idx_cv_emb_text_embedding_3_small");
+        // The old sanitiser dropped ':' and '/', so an index for "nomic-embed-text:latest" matched no rows.
+        VectorColumnManager.Predicate(Container, "nomic-embed-text:latest")
+            .Should().Be($"owner_id = '{Container}'::uuid AND model_id = 'nomic-embed-text:latest'");
+        VectorColumnManager.Predicate(Container, "it's")
+            .Should().EndWith("model_id = 'it''s'");
     }
 }
