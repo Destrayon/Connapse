@@ -71,7 +71,7 @@ public class VectorColumnManager(
             foreach ((string name, _) in existing.Where(e => e.Key.StartsWith(LegacyPrefix, StringComparison.Ordinal)))
                 await DropIndexAsync(connection, name, "legacy shared index", ct);
 
-            Dictionary<string, VectorGroup> byName = groups.ToDictionary(g => GetIndexName(g.OwnerId, g.ModelId));
+            Dictionary<string, VectorGroup> byName = groups.ToDictionary(g => GetIndexName(g.OwnerId, g.ModelId, g.Dimensions));
             foreach ((string name, bool valid) in existing.Where(e => e.Key.StartsWith(IndexPrefix, StringComparison.Ordinal)))
             {
                 if (!valid)
@@ -94,13 +94,21 @@ public class VectorColumnManager(
         }
     }
 
-    /// <summary><c>ix_cv_hnsw_{container}_{hash of model id}</c> — fixed length, safe for any model id.</summary>
-    internal static string GetIndexName(Guid ownerId, string modelId) =>
-        $"{IndexPrefix}{ownerId:N}_{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(modelId)))[..8]}";
+    /// <summary>
+    /// <c>ix_cv_hnsw_{container}_{hash of model id and dimensions}</c> — fixed length, safe for any
+    /// model id. Dimensions are part of it because the same model id can be configured with another
+    /// size, and each size needs its own index expression.
+    /// </summary>
+    internal static string GetIndexName(Guid ownerId, string modelId, int dimensions) =>
+        $"{IndexPrefix}{ownerId:N}_{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{modelId}\0{dimensions}")))[..8]}";
 
-    /// <summary>The partial-index predicate; the model id is a quoted literal, never interpolated raw.</summary>
-    internal static string Predicate(Guid ownerId, string modelId) =>
-        $"owner_id = '{ownerId}'::uuid AND model_id = '{modelId.Replace("'", "''")}'";
+    /// <summary>
+    /// The partial-index predicate; the model id is a quoted literal, never interpolated raw. The
+    /// dimension condition keeps vectors of another size out of the index, whose expression casts
+    /// to one size — without it, inserting such a vector would fail.
+    /// </summary>
+    internal static string Predicate(Guid ownerId, string modelId, int dimensions) =>
+        $"owner_id = '{ownerId}'::uuid AND model_id = '{modelId.Replace("'", "''")}' AND vector_dims(embedding) = {dimensions}";
 
     private async Task CreateIndexAsync(DbConnection connection, string name, VectorGroup group, CancellationToken ct)
     {
@@ -110,7 +118,7 @@ public class VectorColumnManager(
         string sql =
             $"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON chunk_vectors "
             + $"USING hnsw ((embedding::halfvec({group.Dimensions})) halfvec_cosine_ops) "
-            + $"WITH (m = 16, ef_construction = 200) WHERE {Predicate(group.OwnerId, group.ModelId)}";
+            + $"WITH (m = 16, ef_construction = 200) WHERE {Predicate(group.OwnerId, group.ModelId, group.Dimensions)}";
         try
         {
             await ExecuteAsync(connection, "SET max_parallel_maintenance_workers = 0; SET maintenance_work_mem = '1GB';", ct);
@@ -200,7 +208,7 @@ internal static class VectorIndexCatalog
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(1);
     private static (DateTime At, HashSet<string> Names) _ready = (DateTime.MinValue, []);
 
-    public static async Task<bool> IsIndexedAsync(KnowledgeDbContext context, Guid ownerId, string modelId, CancellationToken ct)
+    public static async Task<bool> IsIndexedAsync(KnowledgeDbContext context, Guid ownerId, string modelId, int dimensions, CancellationToken ct)
     {
         (DateTime at, HashSet<string> names) = _ready;
         if (DateTime.UtcNow - at > Lifetime)
@@ -213,7 +221,7 @@ internal static class VectorIndexCatalog
             names = valid.ToHashSet(StringComparer.Ordinal);
             _ready = (DateTime.UtcNow, names);
         }
-        return names.Contains(VectorColumnManager.GetIndexName(ownerId, modelId));
+        return names.Contains(VectorColumnManager.GetIndexName(ownerId, modelId, dimensions));
     }
 
     /// <summary>Forget the cached list, so the next search sees indexes built or dropped just now.</summary>

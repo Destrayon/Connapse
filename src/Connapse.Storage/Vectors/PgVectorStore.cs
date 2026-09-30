@@ -293,6 +293,10 @@ public class PgVectorStore : IVectorStore
         }
 
         var dims = queryVector.Length;
+
+        // Only vectors of the query's size are comparable; the per-container index covers one size
+        // and its predicate says so, so this condition also lets the planner match it.
+        vectorClauses.Add($"vector_dims(cv.embedding) = {dims}");
         var select = $@"
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
@@ -329,7 +333,7 @@ public class PgVectorStore : IVectorStore
             // The index is over half-precision vectors, so only that expression lets it serve the
             // ORDER BY; without an index, converting every vector costs more than it saves (at 10k
             // vectors, 80 ms vs 31 ms), so small containers order by the full-precision distance.
-            string distance = await VectorIndexCatalog.IsIndexedAsync(_context, owner, modelFilter, ct)
+            string distance = await VectorIndexCatalog.IsIndexedAsync(_context, owner, modelFilter, dims, ct)
                 ? $"cv.embedding::halfvec({dims}) <=> @queryVector::halfvec({dims})"
                 : $"cv.embedding::vector({dims}) <=> @queryVector";
             var neighboursSql = $@"
