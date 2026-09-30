@@ -4,6 +4,7 @@ using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 using Pgvector;
@@ -17,13 +18,16 @@ namespace Connapse.Storage.Vectors;
 public class PgVectorStore : IVectorStore
 {
     private readonly KnowledgeDbContext _context;
+    private readonly IOptionsMonitor<SearchSettings> _searchSettings;
     private readonly ILogger<PgVectorStore> _logger;
 
     public PgVectorStore(
         KnowledgeDbContext context,
+        IOptionsMonitor<SearchSettings> searchSettings,
         ILogger<PgVectorStore> logger)
     {
         _context = context;
+        _searchSettings = searchSettings;
         _logger = logger;
     }
 
@@ -201,7 +205,12 @@ public class PgVectorStore : IVectorStore
         // Build WHERE clause and named parameters for filters
         // A source whose remote revoked access (a public repository gone private) is left out,
         // whatever else the caller asked for.
-        var whereClauses = new List<string> { "1=1", "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
+        var whereClauses = new List<string> { "NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)" };
+        // Filters on chunk_vectors alone: the neighbours-first query applies them where the
+        // per-container index can serve the ORDER BY; the rest (on documents) apply afterwards.
+        var vectorClauses = new List<string>();
+        Guid? containerFilter = null;
+        string? modelFilter = null;
         var vectorParam = new NpgsqlParameter("@queryVector", new Vector(queryVector));
         var topKParam = new NpgsqlParameter("@topK", NpgsqlDbType.Integer) { Value = topK };
         var parameters = new List<NpgsqlParameter> { vectorParam, topKParam };
@@ -211,14 +220,15 @@ public class PgVectorStore : IVectorStore
             if (filters.TryGetValue("documentId", out var documentIdStr) &&
                 Guid.TryParse(documentIdStr, out var documentId))
             {
-                whereClauses.Add("cv.document_id = @documentId");
+                vectorClauses.Add("cv.document_id = @documentId");
                 parameters.Add(new NpgsqlParameter("@documentId", NpgsqlDbType.Uuid) { Value = documentId });
             }
 
             if (filters.TryGetValue("containerId", out var containerIdStr) &&
                 Guid.TryParse(containerIdStr, out var containerId))
             {
-                whereClauses.Add("cv.owner_id = @containerId");
+                vectorClauses.Add("cv.owner_id = @containerId");
+                containerFilter = containerId;
                 parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = containerId });
             }
 
@@ -232,7 +242,8 @@ public class PgVectorStore : IVectorStore
             if (filters.TryGetValue("modelId", out var modelId) &&
                 !string.IsNullOrWhiteSpace(modelId))
             {
-                whereClauses.Add("cv.model_id = @modelId");
+                vectorClauses.Add("cv.model_id = @modelId");
+                modelFilter = modelId;
                 parameters.Add(new NpgsqlParameter("@modelId", NpgsqlDbType.Text) { Value = modelId });
             }
         }
@@ -281,14 +292,12 @@ public class PgVectorStore : IVectorStore
             }
         }
 
-        var whereClause = string.Join(" AND ", whereClauses);
-
-        // Dimension cast: the embedding column is unconstrained (vector without dimensions).
-        // The cast ensures pgvector can use partial IVFFlat indexes per model_id and that
-        // the distance operator works correctly with the query vector's dimension.
         var dims = queryVector.Length;
-        var sql = $@"
-            SELECT
+
+        // Only vectors of the query's size are comparable; the per-container index covers one size
+        // and its predicate says so, so this condition also lets the planner match it.
+        vectorClauses.Add($"vector_dims(cv.embedding) = {dims}");
+        var select = $@"
                 cv.chunk_id as ""ChunkId"",
                 cv.document_id as ""DocumentId"",
                 cv.owner_id as ""ContainerId"",
@@ -297,17 +306,71 @@ public class PgVectorStore : IVectorStore
                 c.chunk_index as ""ChunkIndex"",
                 d.file_name as ""FileName"",
                 d.content_type as ""ContentType"",
-                d.path as ""Path""
+                d.path as ""Path""";
+
+        // Exact search: every filter applied before the LIMIT. Always complete, and fast for small
+        // containers, but it reads every candidate row, so it takes seconds on large ones (#571).
+        // The dimension cast is needed because the embedding column is unconstrained.
+        var exactSql = $@"
+            SELECT {select}
             FROM chunk_vectors cv
             INNER JOIN chunks c ON cv.chunk_id = c.id
             INNER JOIN documents d ON cv.document_id = d.id
-            WHERE {whereClause}
+            WHERE {string.Join(" AND ", vectorClauses.Concat(whereClauses))}
             ORDER BY ""Distance"" ASC
             LIMIT @topK";
 
-        var results = await _context.Database
-            .SqlQueryRaw<VectorSearchRow>(sql, parameters.ToArray())
-            .ToListAsync(ct);
+        List<VectorSearchRow> results;
+        if (containerFilter is Guid owner && modelFilter is not null && dims <= VectorIndexMaxDimensions)
+        {
+            // Neighbours first (#571): the nearest vectors of one container and model, where that
+            // container's HNSW index (if it is large enough to have one) serves the ORDER BY, then
+            // the joins and document filters over an over-fetched list, re-sorted by exact distance.
+            SearchSettings settings = _searchSettings.CurrentValue;
+            int inner = Math.Max(topK * 4, 100);
+            parameters.Add(new NpgsqlParameter("@inner", NpgsqlDbType.Integer) { Value = inner });
+
+            // The index is over half-precision vectors, so only that expression lets it serve the
+            // ORDER BY; without an index, converting every vector costs more than it saves (at 10k
+            // vectors, 80 ms vs 31 ms), so small containers order by the full-precision distance.
+            string distance = await VectorIndexCatalog.IsIndexedAsync(_context, owner, modelFilter, dims, ct)
+                ? $"cv.embedding::halfvec({dims}) <=> @queryVector::halfvec({dims})"
+                : $"cv.embedding::vector({dims}) <=> @queryVector";
+            var neighboursSql = $@"
+                WITH nn AS MATERIALIZED (
+                    SELECT cv.chunk_id
+                    FROM chunk_vectors cv
+                    WHERE {string.Join(" AND ", vectorClauses)}
+                    ORDER BY {distance}
+                    LIMIT @inner)
+                SELECT {select}
+                FROM nn
+                INNER JOIN chunk_vectors cv ON cv.chunk_id = nn.chunk_id
+                INNER JOIN chunks c ON cv.chunk_id = c.id
+                INNER JOIN documents d ON cv.document_id = d.id
+                WHERE {string.Join(" AND ", whereClauses)}
+                ORDER BY ""Distance"" ASC
+                LIMIT @topK";
+
+            results = await WithIndexSearchSettingsAsync(
+                Math.Max(settings.VectorIndexEfSearch, inner),
+                () => _context.Database.SqlQueryRaw<VectorSearchRow>(neighboursSql, parameters.ToArray()).ToListAsync(ct),
+                ct);
+
+            // Document filters (permissions, path, revoked sources) can leave fewer than topK of the
+            // over-fetched neighbours; the exact query applies them before the LIMIT, so it finds
+            // the rest. A container with fewer than topK vectors ends up here too, cheaply.
+            if (results.Count < topK)
+                results = await _context.Database
+                    .SqlQueryRaw<VectorSearchRow>(exactSql, CloneParameters(parameters))
+                    .ToListAsync(ct);
+        }
+        else
+        {
+            results = await _context.Database
+                .SqlQueryRaw<VectorSearchRow>(exactSql, parameters.ToArray())
+                .ToListAsync(ct);
+        }
 
         // Convert distance to similarity score (1 - distance)
         // Cosine distance ranges from 0 (identical) to 2 (opposite)
@@ -333,6 +396,31 @@ public class PgVectorStore : IVectorStore
 
         return searchResults;
     }
+
+    /// <summary>pgvector indexes halfvec up to 4,000 dimensions; beyond that, search stays exact.</summary>
+    private const int VectorIndexMaxDimensions = 4_000;
+
+    /// <summary>
+    /// Runs a query with pgvector's HNSW search settings for this statement only: <paramref name="efSearch"/>
+    /// candidates, and iterative scans so an index scan keeps going until the LIMIT is met. Inside a
+    /// caller's transaction the defaults stand, because SET LOCAL would outlive this query.
+    /// </summary>
+    private async Task<T> WithIndexSearchSettingsAsync<T>(int efSearch, Func<Task<T>> query, CancellationToken ct)
+    {
+        if (_context.Database.CurrentTransaction is not null)
+            return await query();
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        await _context.Database.ExecuteSqlRawAsync(
+            $"SET LOCAL hnsw.ef_search = {Math.Clamp(efSearch, 1, 1000)}; SET LOCAL hnsw.iterative_scan = relaxed_order;", ct);
+        T result = await query();
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
+    /// <summary>An NpgsqlParameter belongs to one command; a second query needs its own copies.</summary>
+    private static object[] CloneParameters(List<NpgsqlParameter> parameters) =>
+        parameters.Select(p => (object)p.Clone()).ToArray();
 
     public async Task<IReadOnlyDictionary<string, float>> ScoreChunksAsync(
         float[] queryVector,
@@ -440,13 +528,15 @@ public class PgVectorStore : IVectorStore
         Guid containerId,
         CancellationToken ct = default)
     {
-        // Step 1: pick the dominant model_id in the container. ChunkVectorEntity carries
-        // OwnerId and ModelId directly — no JOIN needed.
-        var modelCounts = await _context.ChunkVectors
-            .Where(cv => cv.OwnerId == containerId)
-            .GroupBy(cv => cv.ModelId)
-            .Select(g => new { ModelId = g.Key, Count = g.Count() })
-            .OrderByDescending(x => x.Count)
+        // Step 1: pick the dominant (model_id, dimensions) group in the container. The same model id
+        // can hold vectors of two sizes after its dimensions were reconfigured, and those can
+        // neither be averaged together nor compared, so the size is part of the group.
+        var modelCounts = await _context.Database
+            .SqlQueryRaw<ModelDimensionCount>(
+                "SELECT model_id AS \"ModelId\", vector_dims(embedding) AS \"Dimensions\", COUNT(*)::int AS \"Count\" " +
+                "FROM chunk_vectors WHERE owner_id = {0} " +
+                "GROUP BY model_id, vector_dims(embedding) ORDER BY COUNT(*) DESC",
+                containerId)
             .ToListAsync(ct);
 
         if (modelCounts.Count == 0)
@@ -455,6 +545,7 @@ public class PgVectorStore : IVectorStore
         }
 
         string dominantModelId = modelCounts[0].ModelId;
+        int dominantDimensions = modelCounts[0].Dimensions;
 
         if (modelCounts.Count > 1)
         {
@@ -467,11 +558,12 @@ public class PgVectorStore : IVectorStore
                 .Select(cv => cv.DocumentId)
                 .Distinct()
                 .CountAsync(ct);
-            int includedDocs = await _context.ChunkVectors
-                .Where(cv => cv.OwnerId == containerId && cv.ModelId == dominantModelId)
-                .Select(cv => cv.DocumentId)
-                .Distinct()
-                .CountAsync(ct);
+            int includedDocs = await _context.Database
+                .SqlQueryRaw<int>(
+                    "SELECT COUNT(DISTINCT document_id)::int AS \"Value\" FROM chunk_vectors " +
+                    "WHERE owner_id = {0} AND model_id = {1} AND vector_dims(embedding) = {2}",
+                    containerId, dominantModelId, dominantDimensions)
+                .SingleAsync(ct);
             int excludedDocuments = totalDocs - includedDocs;
 
             _logger.LogWarning(
@@ -498,12 +590,14 @@ public class PgVectorStore : IVectorStore
                 FROM chunk_vectors
                 WHERE owner_id = @cid
                   AND model_id = @model_id
+                  AND vector_dims(embedding) = @dims
                 GROUP BY document_id
                 """;
 
             var p = cmd.Parameters;
             p.Add(new NpgsqlParameter("cid", containerId));
             p.Add(new NpgsqlParameter("model_id", dominantModelId));
+            p.Add(new NpgsqlParameter("dims", dominantDimensions));
 
             var results = new List<(Guid DocumentId, float[] Embedding)>();
             await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -537,4 +631,6 @@ public class PgVectorStore : IVectorStore
         for (int i = 0; i < v.Length; i++) result[i] = (float)(v[i] / norm);
         return result;
     }
+
+    private sealed record ModelDimensionCount(string ModelId, int Dimensions, int Count);
 }

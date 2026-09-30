@@ -161,6 +161,12 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest
             .ToList();
 
         _datasets[dataset.Name] = (containerId, docMap);
+
+        // Production builds per-container vector indexes in the background a few minutes after a
+        // container grows; build them now so searches see what a settled deployment would (#571).
+        await using (AsyncServiceScope indexScope = _host.Services.CreateAsyncScope())
+            await indexScope.ServiceProvider.GetRequiredService<Connapse.Storage.Vectors.VectorColumnManager>().EnsureIndexesAsync(ct, waitForOthers: true);
+
         return new IndexReport(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
     }
 

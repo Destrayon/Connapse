@@ -630,8 +630,12 @@ export Knowledge__Embedding__BaseUrl="http://ollama:11434"
 | `Knowledge__Search__Bm25B` | BM25 length normalisation (0.0-1.0) | `0.75` |
 | `Knowledge__Search__AutoCut` | Auto-trim after largest score gap | `false` |
 | `Knowledge__Search__MinimumScore` | Minimum similarity score floor | `0` |
+| `Knowledge__Search__VectorIndexMinVectors` | A container gets its own approximate (HNSW) vector index once it holds this many vectors for one model; smaller containers are searched exactly | `20000` |
+| `Knowledge__Search__VectorIndexEfSearch` | Candidates an HNSW search keeps; higher is more accurate and slower (800 measured recall@30 ≥ 0.99 at < 75 ms p95 on 100k–1M containers) | `800` |
 | `Knowledge__Upload__MaxFileSizeBytes` | Max upload size | `104857600` (100MB) |
 | `Knowledge__Upload__ConcurrentIngestions` | Parallel ingestion workers | `4` |
+
+> **Vector indexes**: per-container indexes are built in the background (checked every 10 minutes) and never block ingestion or search — a container is searched exactly until its index is ready. Builds run on one worker, because parallel builds need more shared memory than Docker gives a container by default; a 1M-vector container takes over an hour on modest hardware.
 
 #### Auth Settings (v0.2.0+)
 
