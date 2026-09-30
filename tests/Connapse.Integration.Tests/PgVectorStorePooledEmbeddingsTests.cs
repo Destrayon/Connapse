@@ -89,6 +89,36 @@ public class PgVectorStorePooledEmbeddingsTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task GetPooledDocumentEmbeddingsAsync_OneModelTwoSizes_PoolsOnlyTheDominantSize()
+    {
+        // The same model id at two sizes (its dimensions were reconfigured): vectors of different
+        // sizes can't be averaged together, so only the dominant size is pooled.
+        Guid containerId = await CreateContainerAsync("pool-sizes");
+        Guid docA1 = await SeedDocumentAsync(containerId, "/a1.txt");
+        Guid docA2 = await SeedDocumentAsync(containerId, "/a2.txt");
+        Guid docB = await SeedDocumentAsync(containerId, "/b.txt");
+
+        await SeedChunkVectorAsync(docA1, containerId, "model-A", new float[] { 1f, 0f, 0f });
+        await SeedChunkVectorAsync(docA2, containerId, "model-A", new float[] { 0f, 1f, 0f });
+        await SeedChunkVectorAsync(docB, containerId, "model-A", new float[] { 1f, 0f });
+        await SeedChunkVectorAsync(docB, containerId, "model-A", new float[] { 0f, 1f, 0f });
+
+        try
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var vectorStore = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+            var result = await vectorStore.GetPooledDocumentEmbeddingsAsync(containerId, CancellationToken.None);
+
+            result.Select(r => r.DocumentId).Should().BeEquivalentTo(new[] { docA1, docA2, docB });
+            result.Should().OnlyContain(r => r.Embedding.Length == 3);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}");
+        }
+    }
+
+    [Fact]
     public async Task GetPooledDocumentEmbeddingsAsync_NoVectors_ReturnsEmpty()
     {
         Guid containerId = await CreateContainerAsync("pool-empty");

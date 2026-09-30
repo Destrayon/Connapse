@@ -528,13 +528,15 @@ public class PgVectorStore : IVectorStore
         Guid containerId,
         CancellationToken ct = default)
     {
-        // Step 1: pick the dominant model_id in the container. ChunkVectorEntity carries
-        // OwnerId and ModelId directly — no JOIN needed.
-        var modelCounts = await _context.ChunkVectors
-            .Where(cv => cv.OwnerId == containerId)
-            .GroupBy(cv => cv.ModelId)
-            .Select(g => new { ModelId = g.Key, Count = g.Count() })
-            .OrderByDescending(x => x.Count)
+        // Step 1: pick the dominant (model_id, dimensions) group in the container. The same model id
+        // can hold vectors of two sizes after its dimensions were reconfigured, and those can
+        // neither be averaged together nor compared, so the size is part of the group.
+        var modelCounts = await _context.Database
+            .SqlQueryRaw<ModelDimensionCount>(
+                "SELECT model_id AS \"ModelId\", vector_dims(embedding) AS \"Dimensions\", COUNT(*)::int AS \"Count\" " +
+                "FROM chunk_vectors WHERE owner_id = {0} " +
+                "GROUP BY model_id, vector_dims(embedding) ORDER BY COUNT(*) DESC",
+                containerId)
             .ToListAsync(ct);
 
         if (modelCounts.Count == 0)
@@ -543,6 +545,7 @@ public class PgVectorStore : IVectorStore
         }
 
         string dominantModelId = modelCounts[0].ModelId;
+        int dominantDimensions = modelCounts[0].Dimensions;
 
         if (modelCounts.Count > 1)
         {
@@ -555,11 +558,12 @@ public class PgVectorStore : IVectorStore
                 .Select(cv => cv.DocumentId)
                 .Distinct()
                 .CountAsync(ct);
-            int includedDocs = await _context.ChunkVectors
-                .Where(cv => cv.OwnerId == containerId && cv.ModelId == dominantModelId)
-                .Select(cv => cv.DocumentId)
-                .Distinct()
-                .CountAsync(ct);
+            int includedDocs = await _context.Database
+                .SqlQueryRaw<int>(
+                    "SELECT COUNT(DISTINCT document_id)::int AS \"Value\" FROM chunk_vectors " +
+                    "WHERE owner_id = {0} AND model_id = {1} AND vector_dims(embedding) = {2}",
+                    containerId, dominantModelId, dominantDimensions)
+                .SingleAsync(ct);
             int excludedDocuments = totalDocs - includedDocs;
 
             _logger.LogWarning(
@@ -586,12 +590,14 @@ public class PgVectorStore : IVectorStore
                 FROM chunk_vectors
                 WHERE owner_id = @cid
                   AND model_id = @model_id
+                  AND vector_dims(embedding) = @dims
                 GROUP BY document_id
                 """;
 
             var p = cmd.Parameters;
             p.Add(new NpgsqlParameter("cid", containerId));
             p.Add(new NpgsqlParameter("model_id", dominantModelId));
+            p.Add(new NpgsqlParameter("dims", dominantDimensions));
 
             var results = new List<(Guid DocumentId, float[] Embedding)>();
             await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -625,4 +631,6 @@ public class PgVectorStore : IVectorStore
         for (int i = 0; i < v.Length; i++) result[i] = (float)(v[i] / norm);
         return result;
     }
+
+    private sealed record ModelDimensionCount(string ModelId, int Dimensions, int Count);
 }
