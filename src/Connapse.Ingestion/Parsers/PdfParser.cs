@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Ingestion.Validation;
 using Microsoft.Extensions.Options;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
@@ -21,6 +22,8 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
     };
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
+
+    private static readonly UploadSettings DefaultLimits = new();
 
     public async Task<ParsedDocument> ParseAsync(
         Stream stream,
@@ -75,6 +78,13 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
 
                         if (!string.IsNullOrWhiteSpace(pageText))
                         {
+                            // A document-wide ratio hides one junk page among many good ones, so each
+                            // page is judged on its own too. It is still indexed: the warning says why
+                            // that page matches nothing.
+                            var pageQuality = TextQuality.Measure(pageText);
+                            if (TextQuality.DescribeGarbled(".pdf", pageQuality, limits?.CurrentValue ?? DefaultLimits) is not null)
+                                warnings.Add($"Page {i} text is mostly unreadable glyphs");
+
                             // Add page marker for better context preservation
                             textBuilder.AppendLine($"--- Page {i} ---");
                             textBuilder.AppendLine(pageText);

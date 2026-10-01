@@ -65,6 +65,40 @@ public class TextQualityTests
     }
 
     [Fact]
+    public void DescribeGarbled_MathematicalAlphabet_IsFine()
+    {
+        // Each 𝑥 is one letter outside the BMP: two UTF-16 units, neither of them a letter.
+        var report = TextQuality.Measure(Repeat("\U0001D465\U0001D466\U0001D467 ", 900));
+
+        TextQuality.DescribeGarbled(".pdf", report, Defaults).Should().BeNull();
+    }
+
+    [Fact]
+    public void DescribeGarbled_SlideOfEmoji_IsFine()
+    {
+        var report = TextQuality.Measure(Repeat("\U0001F680 \U0001F4C8 ✅ ", 900));
+
+        TextQuality.DescribeGarbled(".pptx", report, Defaults).Should().BeNull();
+    }
+
+    [Fact]
+    public void DescribeGarbled_NulMappedGlyphs_FailsAsGarbled()
+    {
+        // Measured raw: cleaning for storage would remove the NULs and leave the text looking clean.
+        var report = TextQuality.Measure(Repeat("\0\0\0a", 1200));
+
+        TextQuality.DescribeGarbled(".pdf", report, Defaults).Should().EndWith("[garbled_text]");
+    }
+
+    [Fact]
+    public void DescribeGarbled_BrokenSurrogates_CountAsUnreadable()
+    {
+        var report = TextQuality.Measure(Repeat("\uD835 ", 600));
+
+        report.SuspiciousRatio.Should().Be(1);
+    }
+
+    [Fact]
     public void TruncateWarnings_LongList_IsCappedWithACount()
     {
         var warnings = Enumerable.Range(1, 500).Select(i => $"Page {i} contains no extractable text (may be scanned image)").ToList();
