@@ -23,12 +23,6 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
 
-    /// <summary>
-    /// 2: the official PdfPig package replaced a third-party build of an older release (#597);
-    /// encrypted PDFs that need no password now open.
-    /// </summary>
-    public int Version => 2;
-
     private static readonly UploadSettings DefaultLimits = new();
 
     public async Task<ParsedDocument> ParseAsync(
