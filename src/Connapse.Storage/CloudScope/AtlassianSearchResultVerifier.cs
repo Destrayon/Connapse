@@ -89,13 +89,14 @@ public sealed class AtlassianSearchResultVerifier(
 
         // Chunks and attachments of one page share its check, so each page takes one slot, not one per hit.
         var pages = pending.Select(p => (p.CloudId, p.ContentId)).Distinct().ToList();
+        var sites = checker.NewSiteLookup(); // one connection lookup per site for this search
         var allowed = new ConcurrentDictionary<(string CloudId, string ContentId), bool>();
         await Task.WhenAll(pages.Select(async page =>
         {
             try
             {
                 await gate.WaitAsync(budget.Token);
-                try { allowed[page] = await checker.CanReadAsync(page.CloudId, page.ContentId, accountId, budget.Token); }
+                try { allowed[page] = await checker.CanReadAsync(page.CloudId, page.ContentId, accountId, sites, budget.Token); }
                 finally { gate.Release(); }
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)

@@ -218,6 +218,25 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_ManyUncachedChecksOnOneSite_LookUpTheConnectionOnce()
+    {
+        var checkerConnections = AtlassianConnectionStore();
+        var verifier = new AtlassianSearchResultVerifier(_documents, _links, _connections,
+            NewChecker(_api, _cache, checkerConnections), _cache,
+            Options.Create(new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
+        SearchHit[] hits = [.. Enumerable.Range(1, 8).Select(i =>
+        {
+            Allow(i.ToString(), true);
+            return Hit("p" + i, AtlassianUri.ForPage(CloudId, i.ToString()));
+        })];
+
+        (await verifier.VerifyAsync(hits, _user, 10)).Should().HaveCount(8);
+
+        await checkerConnections.Received(1).ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await checkerConnections.Received(1).GetSecretAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task CandidateMultiplier_AtlassianConnectionExists_IsConfigured()
     {
         var verifier = NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 4 });

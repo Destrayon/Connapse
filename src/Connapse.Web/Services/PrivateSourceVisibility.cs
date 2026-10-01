@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Storage.CloudScope;
 using Microsoft.AspNetCore.Authorization;
@@ -40,6 +41,11 @@ public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuth
 
     internal static bool IsVisible(Source source, IReadOnlySet<string> grantedPrefixes)
     {
+        // A Confluence space's name can itself be sensitive, and no per-user answer is cheap enough
+        // to ask per listing, so these are shown to administrators only (who return before here).
+        if (IsConfluenceSpace(source.ScopeJson))
+            return false;
+
         if (!GitHubSearchScopeResolver.IsPrivate(source.ScopeJson))
         {
             // A public GitHub source whose repository a sync found it can no longer read (most
@@ -51,5 +57,21 @@ public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuth
         // A private source whose repository id cannot be read is hidden: there is nothing to check.
         return GitHubSearchScopeResolver.RepoIdOf(source.ScopeJson) is { } repoId
             && grantedPrefixes.Contains(GitHubSearchScopeResolver.DocumentPrefix(repoId));
+    }
+
+    private static bool IsConfluenceSpace(string? scopeJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(scopeJson ?? "{}");
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("kind", out var kind)
+                && kind.ValueKind == JsonValueKind.String
+                && string.Equals(kind.GetString(), "confluence-space", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

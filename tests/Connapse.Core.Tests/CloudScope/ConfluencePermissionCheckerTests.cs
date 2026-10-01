@@ -34,17 +34,20 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
         _cache.Dispose();
     }
 
-    internal static IConnectionStore AtlassianConnectionStore(string cloudId = CloudId)
+    internal static IConnectionStore AtlassianConnectionStore(params string[] cloudIds)
     {
-        var id = Guid.NewGuid();
+        if (cloudIds.Length == 0) cloudIds = [CloudId];
         var store = Substitute.For<IConnectionStore>();
-        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(
-        [
-            new Connection(id, "site", ConnectionProvider.Atlassian,
-                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-1"}""",
-                null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true),
-        ]);
-        store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
+        var connections = new List<Connection>();
+        foreach (string cloudId in cloudIds)
+        {
+            var id = Guid.NewGuid();
+            connections.Add(new Connection(id, "site-" + cloudId, ConnectionProvider.Atlassian,
+                $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{cloudId}}","clientId":"client-{{cloudId}}"}""",
+                null, DateTime.UtcNow, DateTime.UtcNow, HasSecret: true));
+            store.GetSecretAsync(id, Arg.Any<CancellationToken>()).Returns("secret");
+        }
+        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(connections);
         return store;
     }
 
@@ -173,6 +176,34 @@ public sealed class ConfluencePermissionCheckerTests : IDisposable
 
         (await CheckAsync()).Should().BeFalse();
         Checks.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Check_AllowCachedForOneAccount_DoesNotAllowAnother()
+    {
+        _api.Map(CheckPath, request =>
+        {
+            string body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return FakeAtlassianApi.Json(new { hasPermission = body.Contains($"\"{Account}\"") });
+        });
+
+        (await CheckAsync(Account)).Should().BeTrue();
+        (await CheckAsync("557058:other")).Should().BeFalse();
+
+        Checks.Should().Be(2, "each account is asked about separately");
+    }
+
+    [Fact]
+    public async Task Check_AllowCachedForOneSite_DoesNotAllowAnother()
+    {
+        const string OtherCloud = "99999999-2222-3333-4444-555555555555";
+        _api.MapJson(CheckPath, new { hasPermission = true });
+        _api.MapJson($"/ex/confluence/{OtherCloud}/wiki/rest/api/content/42/permission/check", new { hasPermission = false });
+        var checker = NewChecker(_api, _cache, AtlassianConnectionStore(CloudId, OtherCloud));
+
+        (await checker.CanReadAsync(CloudId, "42", Account, default)).Should().BeTrue();
+        (await checker.CanReadAsync(OtherCloud, "42", Account, default)).Should().BeFalse(
+            "the same content id on another site is different content");
     }
 
     [Fact]
