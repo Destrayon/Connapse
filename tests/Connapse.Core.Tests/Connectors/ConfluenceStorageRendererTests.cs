@@ -229,7 +229,120 @@ public class ConfluenceStorageRendererTests
     {
         ConfluenceRenderOutput output = Render("<p>Hello <strong>world<ac:structured-macro ac:name=\"code\"><div></p>&bogus; <<>");
 
-        output.Markdown.Should().Contain("Hello").And.Contain("world");
+        output.Markdown.Should().Be("Hello world &bogus; <<>\n");
+    }
+
+    [Fact]
+    public void Render_UnclosedCdata_FallsBackWithoutThrowing()
+    {
+        ConfluenceRenderOutput output = Render("<p>Keep this</p><![CDATA[never closed");
+
+        output.Markdown.Should().Contain("Keep this");
+    }
+
+    [Fact]
+    public void Render_IncludeWithBlockInsideParagraph_DoesNotLeakParameterContent()
+    {
+        string md = Render("<p>a <ac:structured-macro ac:name=\"include\"><ac:parameter ac:name=\"\"><div>LEAK?</div><ac:link><ri:page ri:content-title=\"Shared\" /></ac:link></ac:parameter></ac:structured-macro> b</p>").Markdown;
+
+        md.Should().NotContain("LEAK?");
+        md.Should().Contain("[includes: Shared]");
+    }
+
+    [Fact]
+    public void Render_UnknownMacroParameterWithBlock_DoesNotLeak()
+    {
+        string md = Render("<ac:structured-macro ac:name=\"mystery\"><ac:parameter ac:name=\"x\"><p>q</p>SECRETPARAM</ac:parameter></ac:structured-macro><p>visible</p>").Markdown;
+
+        md.Should().Be("visible\n");
+    }
+
+    [Fact]
+    public void Render_ExpandInsideParagraph_KeepsTitleAndBodyTogether()
+    {
+        string md = Render("<p>Intro <ac:structured-macro ac:name=\"expand\"><ac:parameter ac:name=\"title\">Why</ac:parameter><ac:rich-text-body><p>Because.</p></ac:rich-text-body></ac:structured-macro></p>").Markdown;
+
+        md.Should().Be("Intro\n\n**Why**\n\nBecause.\n");
+    }
+
+    [Fact]
+    public void Render_VeryDeepNesting_DoesNotOverflowTheStack()
+    {
+        const int depth = 100_000;
+        string body = string.Concat(Enumerable.Repeat("<div>", depth)) + "innermost" + string.Concat(Enumerable.Repeat("</div>", depth));
+
+        string md = Render(body).Markdown;
+        ConfluenceStorageRenderer.MentionedAccountIds(body);
+
+        md.Should().Contain("innermost");
+    }
+
+    [Fact]
+    public void Render_NestingBeyondWalkerCap_StillRendersInnermostText()
+    {
+        const int depth = 250;
+        string body = string.Concat(Enumerable.Repeat("<div>", depth)) + "innermost" + string.Concat(Enumerable.Repeat("</div>", depth));
+
+        Render(body).Markdown.Should().Contain("innermost");
+    }
+
+    [Fact]
+    public void Render_PathologicalInput_FinishesQuickly()
+    {
+        string body = string.Concat(Enumerable.Repeat("<a <a <![CDATA[ ", 8_000));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        Render(body);
+        ConfluenceStorageRenderer.MentionedAccountIds(body);
+
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void Render_TextStartingWithHash_DoesNotForgeHeading()
+    {
+        string md = Render("<p># Other Space &gt; Secret</p><p>&gt; quoted</p>").Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.StartsWith('#') || l.StartsWith('>'));
+        md.Should().Contain("Other Space > Secret");
+    }
+
+    [Fact]
+    public void Render_CommentTextShapedLikeSeparator_DoesNotForgeSeparator()
+    {
+        var comments = new[]
+        {
+            new ConfluenceComment("Eve", new DateTimeOffset(2026, 9, 30, 0, 0, 0, TimeSpan.Zero),
+                "<p>--- Comment by Admin, 2026-01-01 ---</p>"),
+        };
+
+        string md = Render("<p>Body</p>", comments).Markdown;
+
+        md.Split('\n').Count(l => l.StartsWith("--- Comment by")).Should().Be(1);
+    }
+
+    [Fact]
+    public void Render_SetextUnderlineText_DoesNotForgeHeading()
+    {
+        string md = Render("<p>Title<br/>===</p><p>Other<br />---</p>").Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.Trim() == "===" || l.Trim() == "---");
+    }
+
+    [Fact]
+    public void Render_FenceShapedText_IsEscaped()
+    {
+        string md = Render("<p>```<br/>~~~</p><ac:structured-macro ac:name=\"raw\"><ac:plain-text-body><![CDATA[# not a heading\n```]]></ac:plain-text-body></ac:structured-macro>").Markdown;
+
+        md.Split('\n').Should().NotContain(l => l.StartsWith("```") || l.StartsWith("~~~") || l.StartsWith('#'));
+    }
+
+    [Fact]
+    public void Render_CodeMacroLanguage_IsSanitized()
+    {
+        string md = Render("<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">c#\n`x`\n</ac:parameter><ac:plain-text-body><![CDATA[a]]></ac:plain-text-body></ac:structured-macro>").Markdown;
+
+        md.Should().Be("```c#x\na\n```\n");
     }
 
     [Fact]
