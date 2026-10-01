@@ -19,6 +19,7 @@ public class AtlassianProviderCardTests : IDisposable
     private readonly BunitContext ctx = new();
     private readonly StubAtlassianHandler stub = new();
     private readonly IConnectionStore store = Substitute.For<IConnectionStore>();
+    private readonly IProviderCredentialStore credentials = Substitute.For<IProviderCredentialStore>();
 
     public AtlassianProviderCardTests()
     {
@@ -35,6 +36,7 @@ public class AtlassianProviderCardTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([]));
 
         ctx.Services.AddSingleton(store);
+        ctx.Services.AddSingleton(credentials);
         ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit));
     }
 
@@ -56,8 +58,7 @@ public class AtlassianProviderCardTests : IDisposable
 
         cut.FindAll("section.provider-step h2").Select(h => h.TextContent)
             .Should().Equal("Linking app", "Add a site", "Saved sites");
-        cut.Markup.Should().Contain("Set up in a later step")
-            .And.Contain("https://admin.atlassian.com")
+        cut.Markup.Should().Contain("https://admin.atlassian.com")
             .And.Contain("Easy setup")
             .And.Contain("Manual values")
             .And.Contain("Confluence Administrator");
@@ -66,6 +67,50 @@ public class AtlassianProviderCardTests : IDisposable
         AtlassianProviderCard.ScopeList.Should().Be(
             "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
             + "read:folder:confluence read:content-details:confluence read:content.permission:confluence");
+    }
+
+    [Fact]
+    public void LinkingApp_NotSetUp_ShowsTheConsoleLinkCallbackUrlAndScope()
+    {
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        var step = cut.Find("#atlassian-app");
+        step.TextContent.Should().Contain("Not set up")
+            .And.Contain("User identity API").And.Contain("read:me")
+            .And.Contain("Distribution").And.Contain("Sharing")
+            .And.Contain("Manual values");
+        step.InnerHtml.Should().Contain("https://developer.atlassian.com/console/myapps/");
+        cut.Find("#atlassian-callback-url").TextContent.Should().Be("http://localhost/api/v1/auth/cloud/atlassian/callback");
+        cut.FindAll("#atlassian-copy-callback").Should().ContainSingle();
+    }
+
+    [Fact]
+    public void LinkingApp_Save_StoresTheAppAndNeverRendersTheSecret()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(null, new AtlassianLinkAppRegistration("link-client"));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("#atlassian-app-saved").Should().ContainSingle());
+        credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
+        cut.Find("#atlassian-app").TextContent.Should().Contain("Saved, waiting for a first sign-in");
+        cut.Markup.Should().NotContain(Secret);
+    }
+
+    [Fact]
+    public void LinkingApp_Verified_IsReady()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(new AtlassianLinkAppRegistration("link-client", DateTime.UtcNow));
+
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app").ClassList.Should().Contain("provider-step--satisfied");
+        cut.Find("#atlassian-app").TextContent.Should().Contain("Ready");
     }
 
     [Fact]

@@ -6,12 +6,14 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @inject AtlassianSiteService Sites
 @inject IConnectionStore Connections
+@inject IProviderCredentialStore Credentials
+@inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @inject ILogger<AtlassianProviderCard> Logger
 
 @*
-    The Atlassian provider's setup: the app people link their accounts through (a later step), the
+    The Atlassian provider's setup: the app people link their accounts through, the
     service account Connapse reads Confluence with, and the sites saved so far. A site is saved only
     after every probe passes, so a saved site is one Connapse can actually use. The client secret is
     sent to the connection store and cleared from the form; it is never rendered back.
@@ -19,8 +21,50 @@
 
 <ProviderStepCard Id="atlassian-app" Title="Linking app"
                   Description="The Atlassian app people sign in through so search can respect what they may read."
-                  Status="RequirementStatus.NotConfigured" StatusLabel="Not set up"
-                  Summary="@SetUpLater" />
+                  Status="AppStatus" StatusLabel="@AppStatusLabel"
+                  @bind-Expanded="showAppSetup" EditLabel="Replace the app"
+                  EasyTitle="Easy setup: create the app in the Atlassian developer console" EasyOpen="true">
+    <EasyContent>
+        <ol class="small">
+            <li>
+                Open the <a href="@DeveloperConsole" target="_blank" rel="noopener">Atlassian developer console<span class="visually-hidden"> (opens in a new tab)</span></a>
+                and create an <strong>OAuth 2.0 integration</strong>.
+            </li>
+            <li>Under <strong>Permissions</strong>, add <strong>User identity API</strong> and give it the <code>read:me</code> scope.</li>
+            <li>
+                Under <strong>Authorization</strong>, set the callback URL to
+                <code id="atlassian-callback-url">@CallbackUrl</code>
+                <button type="button" id="atlassian-copy-callback" class="btn btn-sm btn-link p-0 ms-1" aria-label="Copy the callback URL" @onclick="CopyCallbackUrl">
+                    <span class="bi-clipboard" aria-hidden="true"></span>
+                </button>
+            </li>
+            <li>Under <strong>Distribution</strong>, turn <strong>Sharing</strong> on. Without it, only the app's owner can sign in.</li>
+            <li>Under <strong>Settings</strong>, copy the client ID and secret, then paste them under Manual values.</li>
+        </ol>
+        <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@appCopyMessage</span>
+    </EasyContent>
+    <ManualContent>
+        <div class="border rounded p-3 mb-3">
+            <ProviderField Spec="AppClientIdSpec" Small="true" Value="@appClientId" ValueChanged="@((string? v) => appClientId = v)" Disabled="@appBusy" />
+            <ProviderField Spec="AppClientSecretSpec" Small="true" Value="@appClientSecret" ValueChanged="@((string? v) => appClientSecret = v)" />
+            <button type="button" id="atlassian-app-save" class="btn btn-sm btn-outline-primary" disabled="@appBusy" @onclick="SaveAppAsync">
+                Save
+            </button>
+            @if (appError is not null)
+            {
+                <div class="text-danger small mt-2" role="alert" id="atlassian-app-error">
+                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@appError
+                </div>
+            }
+            @if (appSaved)
+            {
+                <div class="text-success small mt-2" role="status" id="atlassian-app-saved">
+                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Saved. The step shows as ready once someone links their account with it.
+                </div>
+            }
+        </div>
+    </ManualContent>
+</ProviderStepCard>
 
 <ProviderStepCard Id="atlassian-site" Title="Add a site"
                   Description="A Confluence Cloud site, read as a service account that is a Confluence administrator."
@@ -179,7 +223,77 @@
         "atlassian-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
         "Shown once when the credential is created. Stored encrypted and never shown again.", "Manual values", Guide, "Open Atlassian admin");
 
-    private static readonly RenderFragment SetUpLater = b => b.AddContent(0, "Set up in a later step.");
+    private const string DeveloperConsole = "https://developer.atlassian.com/console/myapps/";
+
+    private static readonly ProviderFieldSpec AppClientIdSpec = new(
+        "atlassian-app-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
+        "Shown under Settings on the app in the Atlassian developer console.", "Manual values", DeveloperConsole, "Open the developer console");
+
+    private static readonly ProviderFieldSpec AppClientSecretSpec = new(
+        "atlassian-app-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
+        "Shown under Settings on the app. Stored encrypted and never shown again.", "Manual values", DeveloperConsole, "Open the developer console");
+
+    private AtlassianLinkAppRegistration? linkApp;
+    private bool showAppSetup;
+    private bool appBusy;
+    private bool appSaved;
+    private string? appClientId;
+    private string? appClientSecret;
+    private string? appError;
+    private string? appCopyMessage;
+
+    private string CallbackUrl => Navigation.BaseUri + Connapse.Web.Endpoints.CloudIdentityEndpoints.AtlassianCallbackPath;
+
+    // Configured only once someone has linked through the app: a saved client ID and secret prove
+    // nothing until Atlassian accepts them in a real sign-in.
+    private RequirementStatus AppStatus => linkApp?.VerifiedAt is not null ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+
+    private string AppStatusLabel => linkApp switch
+    {
+        null => "Not set up",
+        { VerifiedAt: null } => "Saved, waiting for a first sign-in",
+        _ => "Ready",
+    };
+
+    private async Task SaveAppAsync()
+    {
+        appError = null;
+        appSaved = false;
+        if (string.IsNullOrWhiteSpace(appClientId) || string.IsNullOrWhiteSpace(appClientSecret))
+        {
+            appError = "Enter the client ID and client secret.";
+            return;
+        }
+
+        appBusy = true;
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
+
+            await Credentials.SaveAtlassianLinkAppAsync(appClientId.Trim(), appClientSecret.Trim(), userId);
+            // Never rendered back, and no reason to keep it in the circuit's memory.
+            appClientSecret = null;
+            appClientId = null;
+            appSaved = true;
+            linkApp = await Credentials.GetAtlassianLinkAppAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not save the Atlassian linking app");
+            appError = "The app could not be saved. Try again.";
+        }
+        finally
+        {
+            appBusy = false;
+        }
+    }
+
+    private async Task CopyCallbackUrl()
+    {
+        copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", CallbackUrl);
+        appCopyMessage = copySucceeded ? "Copied." : "Couldn't copy. Select the text and copy it yourself.";
+    }
 
     private List<Connection> sites = [];
     private readonly Dictionary<Guid, ConnectionTestResult> retests = [];
@@ -203,7 +317,11 @@
 
     private RequirementStatus SiteStatus => sites.Count > 0 ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
 
-    protected override async Task OnInitializedAsync() => await LoadSitesAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        linkApp = await Credentials.GetAtlassianLinkAppAsync();
+        await LoadSitesAsync();
+    }
 
     private async Task LoadSitesAsync()
     {
