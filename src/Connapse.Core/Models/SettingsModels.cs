@@ -441,6 +441,34 @@ public record UploadSettings
     /// Number of parallel ingestion workers (default: 4).
     /// </summary>
     public int ParallelWorkers { get; set; } = 4;
+
+    /// <summary>
+    /// Longest a single file may spend in its parser before it fails with <c>parse_timeout</c>
+    /// (default: 300 seconds). A parser stuck on a malformed file otherwise holds its document in
+    /// Processing for good.
+    /// </summary>
+    public int ParseTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>Largest file that is parsed at all (default: 256 MiB).</summary>
+    public long MaxFileBytes { get; set; } = 256L * 1024 * 1024;
+
+    /// <summary>Most pages a PDF may have (default: 5,000).</summary>
+    public int MaxPdfPages { get; set; } = 5000;
+
+    /// <summary>
+    /// Most bytes a DOCX or PPTX may expand to (default: 512 MiB). Both formats are ZIP packages,
+    /// so a small file can inflate to gigabytes.
+    /// </summary>
+    public long MaxDecompressedBytes { get; set; } = 512L * 1024 * 1024;
+
+    /// <summary>
+    /// Highest overall compression ratio a DOCX or PPTX may have once it expands past 10 MiB
+    /// (default: 100). Ordinary Office files sit far below it; zip bombs sit far above.
+    /// </summary>
+    public int MaxCompressionRatio { get; set; } = 100;
+
+    /// <summary>Most characters a parser may extract from one file (default: 20 million).</summary>
+    public int MaxExtractedCharacters { get; set; } = 20_000_000;
 }
 
 /// <summary>

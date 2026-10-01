@@ -114,7 +114,15 @@ public class IngestionPipelineTests
             _connectionStore,
             _connectorFactory,
             Substitute.For<IDocumentLifecycle>(),
+            UploadDefaults(),
             _logger);
+
+    private static IOptionsMonitor<UploadSettings> UploadDefaults()
+    {
+        var monitor = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        monitor.CurrentValue.Returns(new UploadSettings());
+        return monitor;
+    }
 
     private static KnowledgeDbContext CreateInMemoryContext()
     {

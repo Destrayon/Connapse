@@ -39,6 +39,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IConnectionStore _connectionStore;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
+    private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -87,6 +88,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnectionStore connectionStore,
         IConnectorFactory connectorFactory,
         IDocumentLifecycle lifecycle,
+        IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -105,6 +107,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _connectionStore = connectionStore;
         _connectorFactory = connectorFactory;
         _lifecycle = lifecycle;
+        _uploadSettings = uploadSettings;
         _logger = logger;
     }
 
@@ -622,11 +625,49 @@ public class IngestionPipeline : IKnowledgeIngester
             throw new PermanentIngestionException(
                 $"Could not parse {Path.GetFileName(fileName)}: {mismatch}");
 
+        UploadSettings limits = _uploadSettings.CurrentValue;
+        string? tooLarge = ParseLimits.CheckInput(content, extension, limits);
+        if (tooLarge is not null)
+            throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {tooLarge}");
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, limits.ParseTimeoutSeconds));
+        ParsedDocument parsed = await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct);
+
+        if (parsed.Content.Length > limits.MaxExtractedCharacters)
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: it yielded {parsed.Content.Length:N0} characters, " +
+                $"over the {limits.MaxExtractedCharacters:N0} limit [output_too_large]");
+
+        return parsed;
+    }
+
+    /// <summary>
+    /// Runs the parser on the thread pool and stops waiting for it at the deadline.
+    /// <para>
+    /// The parsers are synchronous underneath and do not all observe the token: PdfPig stuck in a
+    /// malformed content stream never checks it. The abandoned parse keeps its thread until it
+    /// returns, but the document fails with <c>parse_timeout</c> instead of sitting in Processing
+    /// for good. Cancellation by the caller still surfaces as cancellation.
+    /// </para>
+    /// </summary>
+    internal static async Task<ParsedDocument> ParseWithDeadlineAsync(
+        IDocumentParser parser, Stream content, string fileName, TimeSpan timeout, CancellationToken ct)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+
         try
         {
-            return await parser.ParseAsync(content, fileName, ct);
+            return await Task.Run(() => parser.ParseAsync(content, fileName, deadline.Token), deadline.Token)
+                .WaitAsync(timeout, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && (ex is TimeoutException || (ex is OperationCanceledException && deadline.IsCancellationRequested)))
+        {
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not PermanentIngestionException)
         {
             // The file is already in memory, so nothing here is waiting on a network: a parser
             // that throws has met content it cannot read, and will meet it again on every retry.
