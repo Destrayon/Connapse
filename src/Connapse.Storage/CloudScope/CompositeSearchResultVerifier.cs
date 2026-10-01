@@ -17,12 +17,16 @@ public sealed class CompositeSearchResultVerifier(IEnumerable<IPerSchemeResultVe
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
+        // Read once, before any inner verifier refreshes its own state: the cap must match the
+        // multiplier the search was sized with, not one learned partway through this call.
+        int multiplier = CandidateMultiplier;
+
         IReadOnlyList<SearchHit> survivors = rankedCandidates;
         foreach (var verifier in _inner)
             survivors = await verifier.VerifyAsync(survivors, userId, survivors.Count, ct);
 
         // An enforcing verifier caps at topK (the contract's "enforcing" branch); when every inner
         // one is pass-through, hand back the untouched pool so AutoCut sees what it saw before.
-        return CandidateMultiplier > 1 ? [.. survivors.Take(topK)] : survivors;
+        return multiplier > 1 ? [.. survivors.Take(topK)] : survivors;
     }
 }

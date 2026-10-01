@@ -793,6 +793,47 @@ public class ProviderSetupReaderTests
         setups.Single(p => p.Key == "aws").InUse.Should().BeTrue();
     }
 
+    // ── Atlassian ─────────────────────────────────────────────────────
+
+    private static async Task<ProviderSetup> AtlassianAsync(AtlassianLinkAppRegistration? linkApp)
+    {
+        var credentials = Substitute.For<IProviderCredentialStore>();
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>()).Returns(linkApp);
+        var reader = Build(Authenticated(AwsCredentialKind.StoredKey), Buckets("one"),
+            credentials: credentials, connections: ConnectionsWith(ConnectionProvider.Atlassian));
+        return (await reader.ReadAsync()).Single(p => p.Key == "atlassian");
+    }
+
+    [Fact]
+    public async Task Atlassian_SiteButNoLinkingApp_IsNotFullySetUp()
+    {
+        // Without the app nobody can link an account, so every Confluence hit is hidden from
+        // everyone; a saved site alone must not read as Ready.
+        var atlassian = await AtlassianAsync(linkApp: null);
+
+        atlassian.Requirements.Single(r => r.Name == "Linking app").Status.Should().Be(RequirementStatus.NotConfigured);
+        atlassian.Overall.Should().NotBe(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppSavedButNeverUsed_Warns()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1"));
+
+        var app = atlassian.Requirements.Single(r => r.Name == "Linking app");
+        app.Status.Should().Be(RequirementStatus.Warning);
+        atlassian.Overall.Should().NotBe(RequirementStatus.Satisfied);
+    }
+
+    [Fact]
+    public async Task Atlassian_LinkingAppVerified_AndSite_IsReady()
+    {
+        var atlassian = await AtlassianAsync(new AtlassianLinkAppRegistration("client-1", Created));
+
+        atlassian.Requirements.Single(r => r.Name == "Linking app").Status.Should().Be(RequirementStatus.Satisfied);
+        atlassian.Overall.Should().Be(RequirementStatus.Satisfied);
+    }
+
     [Fact]
     public async Task Azure_WithSignInConfiguredButNoConnection_IsInUse()
     {

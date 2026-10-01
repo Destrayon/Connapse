@@ -127,12 +127,21 @@ public sealed class AtlassianApiClient(
 
             Uri? target = location is null ? null : new Uri(url, location);
             if (hops >= MaxDownloadRedirects || target is null || !IsAtlassianHost(target))
-                throw new InvalidOperationException("Refusing to follow a download redirect outside Atlassian.");
+                throw new AtlassianRedirectRefusedException();
 
             url = target;
             if (string.Equals(target.Host, ApiHost, StringComparison.OrdinalIgnoreCase))
             {
-                Uri pinned = Resolve(target.AbsoluteUri);
+                Uri pinned;
+                try
+                {
+                    pinned = Resolve(target.AbsoluteUri);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Another site's API: as refused as a host outside Atlassian.
+                    throw new AtlassianRedirectRefusedException();
+                }
                 response = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, pinned), ct, DownloadClient);
             }
             else

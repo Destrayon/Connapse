@@ -13,7 +13,7 @@ public sealed class ConfluenceSpaceSelection
 {
     public const int DefaultMaxAttachmentMb = 25;
     private const int MaxSourceName = 128;
-    private const int MaxAttachmentMbLimit = 500;
+    private const int MaxAttachmentMbLimit = Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling;
 
     /// <summary>The spaces the site offers, as last listed.</summary>
     public IReadOnlyList<ConfluenceSpaceInfo> Available { get; set; } = [];

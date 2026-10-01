@@ -75,7 +75,7 @@ public class NewSourceConfluenceTests : IDisposable
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));
-        ctx.Services.AddSingleton(new PrivateSourceVisibility(Substitute.For<ISearchScopeResolver>(), authorization));
+        ctx.Services.AddSingleton(new PrivateSourceVisibility(Substitute.For<ISearchScopeResolver>(), authorization, connections));
         ctx.Services.AddSingleton(Substitute.For<SourceScopePreflight>(Substitute.For<IOptionsMonitor<SourceSecuritySettings>>()));
         ctx.Services.AddSingleton(new SourceSyncService(
             Substitute.For<IServiceScopeFactory>(), Substitute.For<IConnectorFactory>(),

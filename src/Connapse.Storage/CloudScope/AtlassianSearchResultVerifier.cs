@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -19,30 +18,32 @@ public sealed class AtlassianSearchResultVerifier(
     IAtlassianIdentityLinkReader links,
     IConnectionStore connections,
     ConfluencePermissionChecker checker,
-    IMemoryCache cache,
+    AtlassianConnectionPresence presence,
     IOptions<AtlassianVerifierSettings> settings,
     ILogger<AtlassianSearchResultVerifier> logger) : IPerSchemeResultVerifier
 {
-    private const string AnyConnectionKey = "atl:any-connection";
-    private static readonly TimeSpan AnyConnectionTtl = TimeSpan.FromSeconds(30);
-
     /// <summary>
-    /// Over-fetch only when some Atlassian connection exists, since only then can hits be dropped.
-    /// Read on every search, so it answers from a briefly cached flag that <see cref="VerifyAsync"/>
-    /// refreshes; until the first refresh it over-fetches, which costs a little and drops nothing.
+    /// Over-fetch only when some Atlassian connection is known to exist, since only then can hits
+    /// be dropped. Answers from the process-wide last known flag, so it never flips back to
+    /// "unknown" between searches; before the first answer it is 1, which can only reduce
+    /// backfill, never admit a hit.
     /// </summary>
     public int CandidateMultiplier =>
-        cache.TryGetValue(AnyConnectionKey, out bool any) && !any
-            ? 1
-            : Math.Max(1, settings.Value.CandidateMultiplier);
+        presence.Known == true ? Math.Max(1, settings.Value.CandidateMultiplier) : 1;
 
     public async Task<IReadOnlyList<SearchHit>> VerifyAsync(
         IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default)
     {
-        await RefreshAnyConnectionAsync(ct);
+        await RefreshIfDueAsync(ct);
 
         if (rankedCandidates.Count == 0)
             return rankedCandidates;
+
+        // Every hit's address is read and every atlassian:// hit checked, whatever the presence
+        // flag says. The flag is per process and up to a refresh old, while the scope resolver
+        // reads connections live, so a site added on another instance would otherwise be searched
+        // here unchecked. It only sizes CandidateMultiplier. Deployments with no Confluence hits
+        // pay one batched lookup: the link and connection lookups below run only for atlassian://.
 
         IReadOnlyDictionary<string, string?> uris =
             await documents.GetResourceUrisAsync(rankedCandidates.Select(h => h.DocumentId).ToList(), ct);
@@ -128,21 +129,32 @@ public sealed class AtlassianSearchResultVerifier(
         }
     }
 
-    private async Task RefreshAnyConnectionAsync(CancellationToken ct)
+    /// <summary>
+    /// Re-reads the connection list at most once per <see cref="AtlassianConnectionPresence.RefreshInterval"/>
+    /// across the process, not once per search.
+    /// </summary>
+    private async Task RefreshIfDueAsync(CancellationToken ct)
     {
-        if (cache.TryGetValue(AnyConnectionKey, out bool _))
+        if (!presence.RefreshDue || !presence.TryBeginRefresh(out long ticket))
             return;
 
         try
         {
             bool any = (await connections.ListAsync(take: int.MaxValue, ct: ct))
                 .Any(c => c.Provider == ConnectionProvider.Atlassian);
-            cache.Set(AnyConnectionKey, any, AnyConnectionTtl);
+            presence.CompleteRefresh(ticket, any);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Left unknown, which over-fetches; it only sizes retrieval, never admits a hit.
+            // The last known answer stands; it only sizes retrieval and skips lookups for
+            // deployments known to have no site, never admits a Confluence hit.
+            presence.AbandonRefresh();
             logger.LogWarning(ex, "Could not tell whether any Atlassian connection exists");
+        }
+        catch (OperationCanceledException)
+        {
+            presence.AbandonRefresh();
+            throw;
         }
     }
 }

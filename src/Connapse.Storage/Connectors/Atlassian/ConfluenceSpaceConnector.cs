@@ -27,7 +27,14 @@ public sealed record ConfluenceSpaceConfig(
     string SpaceKey,
     string StatePath,
     bool IncludeAttachments = true,
-    int MaxAttachmentMb = 25);
+    int MaxAttachmentMb = 25)
+{
+    /// <summary>
+    /// The largest attachment cap a source may ask for. Connapse has no global upload maximum to
+    /// borrow, and each attachment is buffered and parsed in memory, so the cap is bounded here.
+    /// </summary>
+    public const int MaxAttachmentMbCeiling = 100;
+}
 
 /// <summary>
 /// Syncs a Confluence space's current pages and blog posts. Every cycle lists the whole space
@@ -225,7 +232,7 @@ public sealed partial class ConfluenceSpaceConnector(
         {
             throw new FileNotFoundException($"Confluence attachment {attachment.Id} no longer exists.", ex);
         }
-        catch (InvalidOperationException ex)
+        catch (AtlassianRedirectRefusedException ex)
         {
             throw new PermanentIngestionException(
                 $"Confluence attachment {attachment.Id} could not be downloaded: {ex.Message}", ex);

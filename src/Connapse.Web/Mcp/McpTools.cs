@@ -646,7 +646,7 @@ public class McpTools
         }
 
         if (document is null || document.ContainerId != resolvedId.Value.ToString()
-            || !await CanReadDocumentAsync(services, document.Id, ct))
+            || !await CanReadDocumentAsync(services, document, ct))
             return $"Error: Document '{fileId}' not found in this container.";
 
         document.Metadata.TryGetValue("Status", out var status);
@@ -949,13 +949,13 @@ public class McpTools
     /// Whether the calling user may read this document directly; see <see cref="DocumentReadGuard"/>.
     /// Without the guard nothing can be checked, so the read is refused.
     /// </summary>
-    private static async Task<bool> CanReadDocumentAsync(IServiceProvider services, string documentId, CancellationToken ct)
+    private static async Task<bool> CanReadDocumentAsync(IServiceProvider services, Document document, CancellationToken ct)
     {
         if (services.GetService<DocumentReadGuard>() is not { } guard)
             return false;
 
         var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
-        return await guard.CanReadAsync(SearchPrincipal.Resolve(caller), documentId, ct);
+        return await guard.CanReadAsync(SearchPrincipal.Resolve(caller), document, ct);
     }
 
     /// <summary>Which sources the calling user may see listed; see <see cref="PrivateSourceVisibility"/>.</summary>
@@ -963,7 +963,7 @@ public class McpTools
     {
         // Without the service nothing can be checked, so every private source stays hidden.
         if (services.GetService<PrivateSourceVisibility>() is not { } visibility)
-            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>());
+            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>(), atlassianConnections: null);
 
         var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
         return await visibility.ForAsync(caller, ct);

@@ -298,6 +298,8 @@ public class ConnectorFactory(
         int maxAttachmentMb = Int(scope, "maxAttachmentMb") ?? 25;
         if (maxAttachmentMb <= 0)
             throw new InvalidOperationException($"Source '{source.Name}' has a maxAttachmentMb that is not a positive number.");
+        // Clamped rather than refused, so a source saved with a larger cap still syncs.
+        maxAttachmentMb = Math.Min(maxAttachmentMb, Atlassian.ConfluenceSpaceConfig.MaxAttachmentMbCeiling);
 
         if (atlassianTokens is null || atlassianSettings is null)
             throw new InvalidOperationException(

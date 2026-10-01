@@ -18,7 +18,8 @@ namespace Connapse.Storage.Connections;
 public class PostgresConnectionStore(
     IDbContextFactory<KnowledgeDbContext> factory,
     IDataProtectionProvider dataProtection,
-    ILogger<PostgresConnectionStore> logger) : IConnectionStore
+    ILogger<PostgresConnectionStore> logger,
+    CloudScope.AtlassianConnectionPresence? atlassianPresence = null) : IConnectionStore
 {
     private IDataProtector Protector => dataProtection.CreateProtector("Connection.v1");
 
@@ -52,6 +53,11 @@ public class PostgresConnectionStore(
         await context.SaveChangesAsync(ct);
 
         logger.LogInformation("Created connection {ConnectionId} ({Name})", entity.Id, Sanitize(entity.Name));
+
+        // Search skips Confluence verification while no Atlassian connection is known; this ends
+        // that at once rather than at the next refresh.
+        if (request.Provider == ConnectionProvider.Atlassian)
+            atlassianPresence?.MarkPresent();
 
         return MapToModel(entity, 0);
     }

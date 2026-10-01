@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Storage.CloudScope;
 using Microsoft.AspNetCore.Authorization;
 
@@ -12,7 +13,8 @@ namespace Connapse.Web.Services;
 /// sources) and to people the GitHub permission check lets read the repository — the same answer
 /// search gives for its documents. Every other source is visible as before.
 /// </summary>
-public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuthorizationService authorization)
+public sealed class PrivateSourceVisibility(
+    ISearchScopeResolver resolver, IAuthorizationService authorization, IConnectionStore connections)
 {
     /// <summary>A filter for <paramref name="caller"/>, resolved once and reused across a listing.</summary>
     public async Task<Func<Source, bool>> ForAsync(ClaimsPrincipal? caller, CancellationToken ct = default)
@@ -36,14 +38,41 @@ public sealed class PrivateSourceVisibility(ISearchScopeResolver resolver, IAuth
             granted = [];
         }
 
-        return source => IsVisible(source, granted);
+        HashSet<Guid>? atlassianConnections;
+        try
+        {
+            atlassianConnections = (await connections.ListAsync(take: int.MaxValue, ct: ct))
+                .Where(c => c.Provider == ConnectionProvider.Atlassian)
+                .Select(c => c.Id)
+                .ToHashSet();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Unknown: every connection-bound source stays hidden rather than risk listing one.
+            atlassianConnections = null;
+        }
+
+        return source => IsVisible(source, granted, atlassianConnections);
     }
 
-    internal static bool IsVisible(Source source, IReadOnlySet<string> grantedPrefixes)
+    /// <param name="atlassianConnections">
+    /// The ids of every Atlassian connection, or null when they could not be read — in which case
+    /// any source bound to a connection is hidden.
+    /// </param>
+    internal static bool IsVisible(
+        Source source, IReadOnlySet<string> grantedPrefixes, IReadOnlySet<Guid>? atlassianConnections)
     {
         // A Confluence space's name can itself be sensitive, and no per-user answer is cheap enough
         // to ask per listing, so these are shown to administrators only (who return before here).
         if (IsConfluenceSpace(source.ScopeJson))
+            return false;
+
+        // The same holds for every kind an Atlassian connection carries, Jira's included, so the
+        // connection decides rather than the kind.
+        if (source.Provider == ConnectionProvider.Atlassian)
+            return false;
+        if (source.ConnectionId is { } connectionId
+            && (atlassianConnections is null || atlassianConnections.Contains(connectionId)))
             return false;
 
         if (!GitHubSearchScopeResolver.IsPrivate(source.ScopeJson))

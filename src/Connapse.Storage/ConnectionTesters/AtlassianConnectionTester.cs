@@ -8,7 +8,15 @@ using Connapse.Storage.Connectors.Atlassian;
 namespace Connapse.Storage.ConnectionTesters;
 
 /// <summary>The site and service-account credential an administrator wants to save.</summary>
-public sealed record AtlassianSiteTestRequest(string SiteUrl, string ClientId, string ClientSecret);
+public sealed record AtlassianSiteTestRequest(string SiteUrl, string ClientId, string ClientSecret)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***");
+        return true;
+    }
+}
 
 /// <summary>
 /// Validates an Atlassian site's service account before it is saved. Each probe is one thing

@@ -15,3 +15,12 @@ public sealed class AtlassianRateLimitedException(TimeSpan? retryAfter)
 /// answered 401 even with a freshly issued token.
 /// </summary>
 public sealed class AtlassianAuthException(string message) : Exception(message);
+
+/// <summary>
+/// A download redirected somewhere Connapse will not follow: off Atlassian's hosts, over plain
+/// HTTP, or past the hop limit. Permanent, since the same redirect comes back on a retry. Its own
+/// type so callers can tell it from every other <see cref="InvalidOperationException"/>, which
+/// includes <see cref="ObjectDisposedException"/>.
+/// </summary>
+public sealed class AtlassianRedirectRefusedException()
+    : InvalidOperationException("Refusing to follow a download redirect outside Atlassian.");

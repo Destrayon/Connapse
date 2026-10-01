@@ -27,6 +27,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
 
     public AtlassianSearchResultVerifierTests()
     {
+        _presence = new AtlassianConnectionPresence(_clock);
         _documents.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(_ => (IReadOnlyDictionary<string, string?>)_uris);
         _links.GetLinkAsync(_user, Arg.Any<CancellationToken>()).Returns(new AtlassianIdentityRef(Account, "Ada"));
@@ -38,8 +39,11 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         _cache.Dispose();
     }
 
+    private readonly ManualClock _clock = new();
+    private readonly AtlassianConnectionPresence _presence;
+
     private AtlassianSearchResultVerifier NewVerifier(HttpMessageHandler? handler = null, AtlassianVerifierSettings? settings = null) =>
-        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections), _cache,
+        new(_documents, _links, _connections, NewChecker(handler ?? _api, _cache, _connections), _presence,
             Options.Create(settings ?? new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
 
     private SearchHit Hit(string id, string? uri)
@@ -164,7 +168,7 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     {
         var checkerConnections = AtlassianConnectionStore();
         var verifier = new AtlassianSearchResultVerifier(_documents, _links, _connections,
-            NewChecker(_api, _cache, checkerConnections), _cache,
+            NewChecker(_api, _cache, checkerConnections), _presence,
             Options.Create(new AtlassianVerifierSettings()), NullLogger<AtlassianSearchResultVerifier>.Instance);
         SearchHit[] hits = [.. Enumerable.Range(1, 8).Select(i =>
         {
@@ -188,6 +192,14 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
     }
 
     [Fact]
+    public void CandidateMultiplier_BeforeTheFirstRefresh_IsOne()
+    {
+        // Unknown can only reduce backfill, never admit a hit, so it must not over-fetch.
+        NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 3 })
+            .CandidateMultiplier.Should().Be(1);
+    }
+
+    [Fact]
     public async Task CandidateMultiplier_NoAtlassianConnection_IsOne()
     {
         _connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
@@ -195,6 +207,124 @@ public sealed class AtlassianSearchResultVerifierTests : IDisposable
         await verifier.VerifyAsync([], _user, 10);
 
         verifier.CandidateMultiplier.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task NoAtlassianConnection_TwoSearchesAcrossARefresh_SameResultsMultiplierOneAndNoLinkLookups()
+    {
+        _connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+        var composite = new CompositeSearchResultVerifier([NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 3 })]);
+        SearchHit[] hits = [Hit("a", null), Hit("b", "s3://bucket/x"), Hit("c", "github://1/x")];
+
+        int firstMultiplier = composite.CandidateMultiplier;
+        var first = await composite.VerifyAsync(hits, _user, 2);
+        _clock.Advance(AtlassianConnectionPresence.RefreshInterval + TimeSpan.FromSeconds(1));
+        int secondMultiplier = composite.CandidateMultiplier;
+        var second = await composite.VerifyAsync(hits, _user, 2);
+
+        firstMultiplier.Should().Be(1);
+        secondMultiplier.Should().Be(1);
+        Ids(first).Should().Equal("a", "b", "c");
+        Ids(second).Should().Equal(Ids(first));
+        await _connections.Received(2).ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _links.DidNotReceive().GetLinkAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>Records "no Atlassian connection" as the last answer, as a stale instance would hold.</summary>
+    private void PresenceSaysAbsent()
+    {
+        _presence.TryBeginRefresh(out long ticket).Should().BeTrue();
+        _presence.CompleteRefresh(ticket, anyAtlassianConnection: false);
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_AtlassianHit_StillDroppedForAnUnlinkedUser()
+    {
+        // The site exists in the store (another instance created it); this process has not refreshed.
+        PresenceSaysAbsent();
+        Allow("1", true);
+        SearchHit[] hits = [Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("x", null)];
+
+        Ids(await NewVerifier().VerifyAsync(hits, Guid.NewGuid(), 10)).Should().Equal("x");
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_AtlassianHit_StillDroppedForALinkedButDeniedUser()
+    {
+        PresenceSaysAbsent();
+        Allow("1", false);
+        SearchHit[] hits = [Hit("p1", AtlassianUri.ForPage(CloudId, "1")), Hit("x", null)];
+
+        Ids(await NewVerifier().VerifyAsync(hits, _user, 10)).Should().Equal("x");
+        _api.Calls.Keys.Should().Contain(PageRoot + "1/permission/check");
+    }
+
+    [Fact]
+    public async Task StalePresenceAbsent_DirectReadGuard_DeniesTheAtlassianDocument()
+    {
+        PresenceSaysAbsent();
+        Allow("1", false);
+        Hit("p1", AtlassianUri.ForPage(CloudId, "1"));
+        var guard = new Connapse.Web.Services.DocumentReadGuard(
+            new CompositeSearchResultVerifier([NewVerifier()]), _documents,
+            NullLogger<Connapse.Web.Services.DocumentReadGuard>.Instance);
+        var document = new Document("p1", "c", "page.md", "text/markdown", "/page.md", 1, DateTime.UtcNow, []);
+
+        (await guard.CanReadAsync(_user, document, default)).Should().BeFalse();
+        (await guard.CanReadAsync(Guid.NewGuid(), document, default)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ConnectionList_IsReadOncePerRefreshInterval_NotOncePerSearch()
+    {
+        var verifier = NewVerifier();
+        for (int i = 0; i < 5; i++)
+            await verifier.VerifyAsync([], _user, 10);
+
+        await _connections.Received(1).ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CandidateMultiplier_AtlassianConnection_IsOneUntilTheFirstRefreshThenConfigured()
+    {
+        var verifier = NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 4 });
+        verifier.CandidateMultiplier.Should().Be(1);
+
+        await verifier.VerifyAsync([], _user, 10);
+
+        verifier.CandidateMultiplier.Should().Be(4);
+    }
+
+    [Fact]
+    public async Task FailedRefresh_KeepsTheLastKnownAnswer()
+    {
+        var verifier = NewVerifier(settings: new AtlassianVerifierSettings { CandidateMultiplier = 4 });
+        await verifier.VerifyAsync([], _user, 10);
+        _connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<Connection>>(_ => throw new InvalidOperationException("db down"));
+        _clock.Advance(AtlassianConnectionPresence.RefreshInterval + TimeSpan.FromSeconds(1));
+
+        await verifier.VerifyAsync([], _user, 10);
+
+        verifier.CandidateMultiplier.Should().Be(4);
+    }
+
+    [Fact]
+    public void Presence_SiteAddedWhileARefreshWasReading_StaysPresent()
+    {
+        _presence.TryBeginRefresh(out long ticket).Should().BeTrue();
+        _presence.MarkPresent();
+        _presence.CompleteRefresh(ticket, anyAtlassianConnection: false); // listed before the site existed
+
+        _presence.Known.Should().BeTrue();
+    }
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private long _ticks;
+        public void Advance(TimeSpan by) => _ticks += by.Ticks;
+        public override long GetTimestamp() => _ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
     }
 
     /// <summary>Passes token requests through; holds every other request until it is cancelled.</summary>
