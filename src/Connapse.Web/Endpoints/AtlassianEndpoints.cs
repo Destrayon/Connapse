@@ -1,9 +1,5 @@
 using System.Security.Claims;
-using System.Text.Json;
-using Connapse.Core;
-using Connapse.Core.Interfaces;
-using Connapse.Storage.ConnectionTesters;
-using Connapse.Storage.Connectors.Atlassian;
+using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Connapse.Web.Endpoints;
@@ -23,18 +19,18 @@ public static class AtlassianEndpoints
         // this cannot be pointed at another host.
         group.MapPost("/resolve", async (
             [FromBody] ResolveAtlassianSiteRequest request,
-            [FromServices] IHttpClientFactory httpClients,
+            [FromServices] AtlassianSiteService sites,
             CancellationToken ct) =>
         {
-            string? siteUrl = AtlassianSiteResolver.NormalizeSiteUrl(request.SiteUrl);
-            if (siteUrl is null)
-                return Results.BadRequest(new { error = "The site address must look like https://your-site.atlassian.net." });
-
-            using var http = httpClients.CreateClient(AtlassianApiClient.HttpClientName);
-            string? cloudId = await AtlassianSiteResolver.ResolveCloudIdAsync(http, siteUrl, ct);
-            return cloudId is null
-                ? Results.NotFound(new { error = $"Couldn't find an Atlassian Cloud site at {siteUrl}." })
-                : Results.Ok(new { siteUrl, cloudId });
+            var resolved = await sites.ResolveAsync(request.SiteUrl, ct);
+            return resolved.Outcome switch
+            {
+                AtlassianResolveOutcome.InvalidAddress =>
+                    Results.BadRequest(new { error = "The site address must look like https://your-site.atlassian.net." }),
+                AtlassianResolveOutcome.NotFound =>
+                    Results.NotFound(new { error = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}." }),
+                _ => Results.Ok(new { siteUrl = resolved.SiteUrl, cloudId = resolved.CloudId }),
+            };
         }).RequireAuthorization("RequireAdmin");
 
         // POST /api/v1/atlassian/sites — tests the service account, and only when every probe
@@ -42,57 +38,28 @@ public static class AtlassianEndpoints
         group.MapPost("/", async (
             HttpContext http,
             [FromBody] CreateAtlassianSiteRequest request,
-            [FromServices] AtlassianConnectionTester tester,
-            [FromServices] IConnectionStore connections,
-            [FromServices] IAuditLogger audit,
+            [FromServices] AtlassianSiteService sites,
             CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(request.SiteUrl)
-                || string.IsNullOrWhiteSpace(request.ClientId)
-                || string.IsNullOrWhiteSpace(request.ClientSecret))
-                return Results.BadRequest(new { error = "siteUrl, clientId and clientSecret are required." });
+            Guid? userId = Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
+            var added = await sites.AddAsync(request.SiteUrl, request.ClientId, request.ClientSecret, userId, ct);
 
-            var result = await tester.TestConnectionAsync(
-                new AtlassianSiteTestRequest(request.SiteUrl, request.ClientId, request.ClientSecret), ct: ct);
-
-            if (!result.Success || result.Details is null
-                || !result.Details.TryGetValue("cloudId", out object? cloudIdValue)
-                || !result.Details.TryGetValue("siteUrl", out object? siteUrlValue))
+            return added.Outcome switch
             {
-                return Results.UnprocessableEntity(new
+                AtlassianAddOutcome.MissingFields =>
+                    Results.BadRequest(new { error = "siteUrl, clientId and clientSecret are required." }),
+                AtlassianAddOutcome.TestFailed => Results.UnprocessableEntity(new
                 {
                     success = false,
-                    step = result.Details?.GetValueOrDefault("step"),
-                    warning = result.Details?.ContainsKey("warning") ?? false,
-                    message = result.Message,
-                });
-            }
-
-            string siteUrl = (string)siteUrlValue;
-            string cloudId = (string)cloudIdValue;
-            string clientId = request.ClientId.Trim();
-            string name = new Uri(siteUrl).Host;
-
-            string configJson = JsonSerializer.Serialize(new { siteUrl, cloudId, clientId });
-            Guid? userId = Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
-
-            Connection connection;
-            try
-            {
-                connection = await connections.CreateAsync(
-                    new CreateConnectionRequest(name, ConnectionProvider.Atlassian, configJson, request.ClientSecret),
-                    userId, ct);
-            }
-            catch (InvalidOperationException)
-            {
-                return Results.Conflict(new { error = $"A connection named '{name}' already exists." });
-            }
-
-            await audit.LogAsync("connection.created", "connection", connection.Id.ToString(),
-                new { Provider = "Atlassian", SiteUrl = siteUrl, CloudId = cloudId, ClientId = clientId }, ct);
-
-            return Results.Created($"/api/v1/atlassian/sites/{connection.Id}",
-                new { id = connection.Id, name = connection.Name, siteUrl, cloudId, clientId });
+                    step = added.Test?.Details?.GetValueOrDefault("step"),
+                    warning = added.Test?.Details?.ContainsKey("warning") ?? false,
+                    message = added.Test?.Message,
+                }),
+                AtlassianAddOutcome.Conflict =>
+                    Results.Conflict(new { error = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists." }),
+                _ => Results.Created($"/api/v1/atlassian/sites/{added.Connection!.Id}",
+                    new { id = added.Connection.Id, name = added.Connection.Name, siteUrl = added.SiteUrl, cloudId = added.CloudId, clientId = added.ClientId }),
+            };
         }).RequireAuthorization("RequireAdmin");
 
         return app;

@@ -1,0 +1,345 @@
+@using System.Security.Claims
+@using System.Text.Json
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AtlassianSiteService Sites
+@inject IConnectionStore Connections
+@inject AuthenticationStateProvider AuthState
+@inject IJSRuntime JS
+@inject ILogger<AtlassianProviderCard> Logger
+
+@*
+    The Atlassian provider's setup: the app people link their accounts through (a later step), the
+    service account Connapse reads Confluence with, and the sites saved so far. A site is saved only
+    after every probe passes, so a saved site is one Connapse can actually use. The client secret is
+    sent to the connection store and cleared from the form; it is never rendered back.
+*@
+
+<ProviderStepCard Id="atlassian-app" Title="Linking app"
+                  Description="The Atlassian app people sign in through so search can respect what they may read."
+                  Status="RequirementStatus.NotConfigured" StatusLabel="Not set up"
+                  Summary="@SetUpLater" />
+
+<ProviderStepCard Id="atlassian-site" Title="Add a site"
+                  Description="A Confluence Cloud site, read as a service account that is a Confluence administrator."
+                  Status="SiteStatus" StatusLabel="@(SiteStatus == RequirementStatus.Satisfied ? "Ready" : "Not set up")"
+                  @bind-Expanded="showSiteSetup" EditLabel="Add another site"
+                  EasyTitle="Easy setup: create the service account in Atlassian admin" EasyOpen="true">
+    <EasyContent>
+        <p class="small text-muted">
+            Open <a href="https://admin.atlassian.com" target="_blank" rel="noopener">Atlassian admin<span class="visually-hidden"> (opens in a new tab)</span></a>
+            and follow these steps, then paste the values under Manual values.
+        </p>
+        <ol class="small">
+            <li>Create a service account for Connapse.</li>
+            <li>Give it access to Confluence on your site and the <strong>Confluence Administrator</strong> role. Connapse needs the role to ask what other people may read.</li>
+            <li>Create an OAuth 2.0 credential for the service account with these scopes, then copy its client ID and secret.</li>
+        </ol>
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <strong class="small">Scopes</strong>
+            <button type="button" id="atlassian-copy-all" class="btn btn-sm btn-outline-secondary" @onclick="CopyAllScopes">
+                <span class="bi-clipboard me-1" aria-hidden="true"></span> Copy all
+            </button>
+            <span class="small @(copySucceeded ? "text-success" : "text-danger")" role="status">@copyMessage</span>
+        </div>
+        <ul class="list-unstyled small mb-0">
+            @foreach (string scope in Scopes)
+            {
+                <li class="d-flex align-items-center gap-2 mb-1">
+                    <code>@scope</code>
+                    <button type="button" class="btn btn-sm btn-link p-0" aria-label="Copy @scope" @onclick="() => CopyScope(scope)">
+                        <span class="bi-clipboard" aria-hidden="true"></span>
+                    </button>
+                </li>
+            }
+        </ul>
+    </EasyContent>
+    <ManualContent>
+        <div class="border rounded p-3 mb-3">
+            <ProviderField Spec="SiteUrlSpec" Small="true" Value="@siteUrl" ValueChanged="OnSiteUrlChanged" Disabled="@busy" />
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <button type="button" id="atlassian-resolve" class="btn btn-sm btn-outline-secondary" disabled="@busy" @onclick="ResolveAsync">
+                    Resolve
+                </button>
+                @if (cloudId is not null)
+                {
+                    <span class="small">Cloud ID: <code id="atlassian-cloud-id">@cloudId</code></span>
+                }
+                @if (resolveError is not null)
+                {
+                    <span class="text-danger small" role="alert"><span class="bi-x-circle me-1" aria-hidden="true"></span>@resolveError</span>
+                }
+            </div>
+            <ProviderField Spec="ClientIdSpec" Small="true" Value="@clientId" ValueChanged="@((string? v) => clientId = v)" Disabled="@busy" />
+            <ProviderField Spec="ClientSecretSpec" Small="true" Value="@clientSecret" ValueChanged="@((string? v) => clientSecret = v)" />
+            <button type="button" id="atlassian-save" class="btn btn-sm btn-outline-primary" disabled="@busy" @onclick="SaveAsync">
+                @if (busy)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking with Atlassian…</span>
+                }
+                else
+                {
+                    <span>Check and save</span>
+                }
+            </button>
+            @if (saveError is not null)
+            {
+                <div class="@(saveWarning ? "text-warning-emphasis" : "text-danger") small mt-2" role="alert" id="atlassian-save-error">
+                    <span class="@(saveWarning ? "bi-exclamation-triangle" : "bi-x-circle") me-1" aria-hidden="true"></span>@saveError
+                    @if (saveStep is { Length: > 0 })
+                    {
+                        <span class="text-muted">(step: @saveStep)</span>
+                    }
+                </div>
+            }
+            @if (saved is not null)
+            {
+                <div class="text-success small mt-2" role="status">
+                    <span class="bi-check-circle me-1" aria-hidden="true"></span>Saved @saved.
+                </div>
+            }
+        </div>
+    </ManualContent>
+</ProviderStepCard>
+
+<ProviderStepCard Id="atlassian-sites" Title="Saved sites"
+                  Description="Each saved site is a connection. Test again re-runs every check with the stored secret."
+                  Status="SiteStatus" StatusLabel="@(sites.Count == 0 ? "No sites yet" : $"{sites.Count} saved")"
+                  @bind-Expanded="showSites" EditLabel="Show details"
+                  EasyTitle="If a test fails">
+    <Summary>
+        @if (sites.Count == 0)
+        {
+            <div>No Atlassian site is saved yet. Add one above.</div>
+        }
+        else
+        {
+            <ul class="list-unstyled mb-0" id="atlassian-site-list">
+                @foreach (var site in sites)
+                {
+                    <li class="d-flex align-items-start gap-2 mb-2" @key="site.Id">
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">@site.Name</div>
+                            @if (retests.TryGetValue(site.Id, out var result))
+                            {
+                                <div class="small @(result.Success ? "text-success" : "text-danger")" role="status">
+                                    <span class="@(result.Success ? "bi-check-circle" : "bi-x-circle") me-1" aria-hidden="true"></span>@result.Message
+                                </div>
+                            }
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@retesting.Contains(site.Id)"
+                                @onclick="() => RetestAsync(site.Id)">
+                            @(retesting.Contains(site.Id) ? "Testing…" : "Test again")
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
+    </Summary>
+    <ManualContent>
+        <dl class="provider-step-values small mb-0">
+            @foreach (var site in sites)
+            {
+                <dt>@site.Name</dt>
+                <dd>@SiteDetail(site)</dd>
+            }
+        </dl>
+    </ManualContent>
+    <EasyContent>
+        <p class="small mb-0">
+            A failed test names the step that failed. Fix it in
+            <a href="https://admin.atlassian.com" target="_blank" rel="noopener">Atlassian admin<span class="visually-hidden"> (opens in a new tab)</span></a>
+            (for example, give the service account the Confluence Administrator role), then test again. The secret is never shown here.
+        </p>
+    </EasyContent>
+</ProviderStepCard>
+
+@code {
+    /// <summary>The scopes the service account's credential needs, space separated as Atlassian shows them.</summary>
+    public const string ScopeList =
+        "read:space:confluence read:page:confluence read:comment:confluence read:attachment:confluence "
+        + "read:folder:confluence read:content-details:confluence read:content.permission:confluence";
+
+    private static readonly string[] Scopes = ScopeList.Split(' ');
+
+    private const string Guide = "https://admin.atlassian.com";
+
+    private static readonly ProviderFieldSpec SiteUrlSpec = new(
+        "atlassian-site-url", "Site URL", ProviderFieldKind.Text, Required: true,
+        "The address you open Confluence at.", "Manual values", Guide, "Open Atlassian admin",
+        Placeholder: "https://your-site.atlassian.net");
+
+    private static readonly ProviderFieldSpec ClientIdSpec = new(
+        "atlassian-client-id", "Client ID", ProviderFieldKind.Text, Required: true,
+        "Shown on the service account's OAuth 2.0 credential in Atlassian admin.", "Manual values", Guide, "Open Atlassian admin");
+
+    private static readonly ProviderFieldSpec ClientSecretSpec = new(
+        "atlassian-client-secret", "Client secret", ProviderFieldKind.Secret, Required: true,
+        "Shown once when the credential is created. Stored encrypted and never shown again.", "Manual values", Guide, "Open Atlassian admin");
+
+    private static readonly RenderFragment SetUpLater = b => b.AddContent(0, "Set up in a later step.");
+
+    private List<Connection> sites = [];
+    private readonly Dictionary<Guid, ConnectionTestResult> retests = [];
+    private readonly HashSet<Guid> retesting = [];
+
+    private bool showSiteSetup;
+    private bool showSites;
+    private bool busy;
+    private bool copySucceeded;
+    private string? copyMessage;
+
+    private string? siteUrl;
+    private string? cloudId;
+    private string? resolveError;
+    private string? clientId;
+    private string? clientSecret;
+    private string? saveError;
+    private string? saveStep;
+    private bool saveWarning;
+    private string? saved;
+
+    private RequirementStatus SiteStatus => sites.Count > 0 ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured;
+
+    protected override async Task OnInitializedAsync() => await LoadSitesAsync();
+
+    private async Task LoadSitesAsync()
+    {
+        var found = new List<Connection>();
+        const int pageSize = 200;
+        for (int skip = 0; ; skip += pageSize)
+        {
+            var page = await Connections.ListAsync(skip, pageSize);
+            found.AddRange(page.Where(c => c.Provider == ConnectionProvider.Atlassian));
+            if (page.Count < pageSize) break;
+        }
+
+        sites = found;
+    }
+
+    private void OnSiteUrlChanged(string? value)
+    {
+        siteUrl = value;
+        cloudId = null;
+        resolveError = null;
+    }
+
+    private async Task ResolveAsync()
+    {
+        cloudId = null;
+        resolveError = null;
+        busy = true;
+        try
+        {
+            var resolved = await Sites.ResolveAsync(siteUrl);
+            switch (resolved.Outcome)
+            {
+                case AtlassianResolveOutcome.Resolved:
+                    cloudId = resolved.CloudId;
+                    break;
+                case AtlassianResolveOutcome.InvalidAddress:
+                    resolveError = "The site address must look like https://your-site.atlassian.net.";
+                    break;
+                default:
+                    resolveError = $"Couldn't find an Atlassian Cloud site at {resolved.SiteUrl}.";
+                    break;
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        saveError = null;
+        saveStep = null;
+        saveWarning = false;
+        saved = null;
+        busy = true;
+        try
+        {
+            var state = await AuthState.GetAuthenticationStateAsync();
+            Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
+
+            var added = await Sites.AddAsync(siteUrl, clientId, clientSecret, userId);
+            switch (added.Outcome)
+            {
+                case AtlassianAddOutcome.Created:
+                    saved = added.Connection!.Name;
+                    // Never rendered back, and no reason to keep it in the circuit's memory.
+                    clientSecret = null;
+                    clientId = null;
+                    siteUrl = null;
+                    cloudId = null;
+                    await LoadSitesAsync();
+                    break;
+                case AtlassianAddOutcome.MissingFields:
+                    saveError = "Enter the site URL, client ID and client secret.";
+                    break;
+                case AtlassianAddOutcome.Conflict:
+                    saveError = $"A connection named '{new Uri(added.SiteUrl!).Host}' already exists.";
+                    break;
+                default:
+                    saveError = added.Test?.Message;
+                    saveStep = added.Test?.Details?.GetValueOrDefault("step") as string;
+                    saveWarning = added.Test?.Details?.ContainsKey("warning") ?? false;
+                    break;
+            }
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task RetestAsync(Guid id)
+    {
+        retesting.Add(id);
+        try
+        {
+            retests[id] = await Sites.RetestAsync(id)
+                ?? ConnectionTestResult.CreateFailure("The stored credential for this site can't be read. Remove the connection and add the site again.");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not re-test an Atlassian site");
+            retests[id] = ConnectionTestResult.CreateFailure("The test could not run. Try again.");
+        }
+        finally
+        {
+            retesting.Remove(id);
+        }
+    }
+
+    private static string SiteDetail(Connection site)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(site.ConfigJson ?? "{}");
+            string url = doc.RootElement.TryGetProperty("siteUrl", out var u) ? u.GetString() ?? "" : "";
+            string cloud = doc.RootElement.TryGetProperty("cloudId", out var c) ? c.GetString() ?? "" : "";
+            string client = doc.RootElement.TryGetProperty("clientId", out var i) ? i.GetString() ?? "" : "";
+            return $"{url} · cloud ID {cloud} · client ID {client}";
+        }
+        catch (JsonException)
+        {
+            return "";
+        }
+    }
+
+    private Task CopyAllScopes() => CopyAsync(ScopeList);
+
+    private Task CopyScope(string scope) => CopyAsync(scope);
+
+    // Through the shared helper: navigator.clipboard is undefined outside a secure context, and
+    // Connapse is routinely served over plain HTTP on a LAN.
+    private async Task CopyAsync(string text)
+    {
+        copySucceeded = await JS.InvokeAsync<bool>("connapse.copyToClipboard", text);
+        copyMessage = copySucceeded ? "Copied." : "Couldn't copy. Select the text and copy it yourself.";
+    }
+}
