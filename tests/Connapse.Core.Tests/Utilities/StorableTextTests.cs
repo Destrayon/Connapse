@@ -1,4 +1,5 @@
 using System.Text;
+using Connapse.Core;
 using Connapse.Core.Utilities;
 using FluentAssertions;
 
@@ -34,6 +35,15 @@ public class StorableTextTests
     [Fact]
     public void Clean_ValidPairsAroundAProblem_AreKept() =>
         StorableText.Clean("\U0001D465\0\U0001D466").Should().Be("\U0001D465\U0001D466");
+
+    [Fact]
+    public void Uncase_ChunkEndingInHalfASurrogatePair_DoesNotThrow()
+    {
+        // A chunker cut "𝑥" (U+1D465) in half; Normalize used to throw on what was left.
+        var act = () => EmbeddingText.Uncase("Let \uD835");
+
+        act.Should().NotThrow().Which.Should().Be("let �");
+    }
 
     [Fact]
     public void Clean_Result_EncodesToUtf8WithoutThrowing()

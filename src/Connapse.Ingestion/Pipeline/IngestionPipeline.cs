@@ -185,6 +185,11 @@ public class IngestionPipeline : IKnowledgeIngester
             warnings.AddRange(parsedDocument.Warnings);
 
             var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
+
+            // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
+            // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
+            // normalisation and the database write (#595).
+            chunks = chunks.Select(c => c with { Content = StorableText.Clean(c.Content) }).ToList();
             if (chunks.Count == 0)
             {
                 throw new PermanentIngestionException(warnings.Count > 0
