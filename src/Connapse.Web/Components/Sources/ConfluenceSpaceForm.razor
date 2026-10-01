@@ -1,0 +1,134 @@
+@using Connapse.Web.Services
+@inject AtlassianSiteService Sites
+
+@* The Confluence part of the New source dialog: the site's spaces to tick, and what to read from each. *@
+
+<div class="mb-3" id="confluence-spaces">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <label class="form-label mb-0">Spaces</label>
+        <div class="form-check mb-0">
+            <input id="confluence-personal" type="checkbox" class="form-check-input" checked="@Selection.IncludePersonal"
+                   disabled="@loading" @onchange="OnPersonalChanged" />
+            <label for="confluence-personal" class="form-check-label small">Include personal spaces</label>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span> Loading spaces...</div>
+    }
+    else if (loadError is not null)
+    {
+        <div class="alert alert-danger py-2 small mb-0" role="alert">@loadError</div>
+    }
+    else if (Selection.Available.Count == 0)
+    {
+        <div class="text-muted small">This site has no spaces the service account can see.</div>
+    }
+    else
+    {
+        <div class="border rounded p-2" style="max-height: 16rem; overflow-y: auto;">
+            @foreach (var space in Selection.Available)
+            {
+                bool exists = ExistingSpaceIds.Contains(space.Id);
+                <div class="form-check">
+                    <input id="space-@space.Id" type="checkbox" class="form-check-input confluence-space-option"
+                           checked="@Selection.Selected.Contains(space.Id)" disabled="@exists"
+                           @onchange="e => Toggle(space.Id, (bool)(e.Value ?? false))" />
+                    <label for="space-@space.Id" class="form-check-label">
+                        @space.Name <span class="text-muted small">(@space.Key)</span>
+                        @if (exists)
+                        {
+                            <span class="badge text-bg-secondary ms-1">already added</span>
+                        }
+                    </label>
+                </div>
+            }
+        </div>
+        <div class="form-text">One source is created per space, named after the site and the space.</div>
+    }
+</div>
+
+<fieldset>
+    <div class="form-check">
+        <input id="confluence-attachments" type="checkbox" class="form-check-input" @bind="Selection.IncludeAttachments" />
+        <label for="confluence-attachments" class="form-check-label">Include attachments</label>
+    </div>
+    <div class="ms-4 mb-0">
+        <label class="form-label small" for="confluence-max-attachment-mb">Max attachment size (MB)</label>
+        <input id="confluence-max-attachment-mb" type="number" class="form-control form-control-sm" min="1" style="max-width: 8rem;"
+               disabled="@(!Selection.IncludeAttachments)" @bind="Selection.MaxAttachmentMb" />
+    </div>
+</fieldset>
+
+@code {
+    [Parameter, EditorRequired] public Guid ConnectionId { get; set; }
+
+    [Parameter, EditorRequired] public ConfluenceSpaceSelection Selection { get; set; } = null!;
+
+    /// <summary>Space ids that already have a source on this connection; they cannot be chosen again.</summary>
+    [Parameter] public IReadOnlySet<string> ExistingSpaceIds { get; set; } = new HashSet<string>();
+
+    private bool loading;
+    private string? loadError;
+    private Guid loadedFor;
+    private bool loadedPersonal;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ConnectionId == Guid.Empty
+            || (loadedFor == ConnectionId && loadedPersonal == Selection.IncludePersonal))
+            return;
+
+        await LoadAsync();
+    }
+
+    private async Task OnPersonalChanged(ChangeEventArgs e)
+    {
+        Selection.IncludePersonal = (bool)(e.Value ?? false);
+        await LoadAsync();
+    }
+
+    private void Toggle(string id, bool on)
+    {
+        if (on) Selection.Selected.Add(id);
+        else Selection.Selected.Remove(id);
+    }
+
+    private async Task LoadAsync()
+    {
+        loadedFor = ConnectionId;
+        loadedPersonal = Selection.IncludePersonal;
+        loading = true;
+        loadError = null;
+        try
+        {
+            var listed = await Sites.ListSpacesAsync(ConnectionId, Selection.IncludePersonal);
+            switch (listed.Outcome)
+            {
+                case AtlassianSpacesOutcome.Listed:
+                    Selection.Available = listed.Spaces!;
+                    Selection.Selected.IntersectWith(listed.Spaces!.Select(s => s.Id));
+                    break;
+                case AtlassianSpacesOutcome.Unavailable:
+                    Selection.Available = [];
+                    loadError = listed.Error;
+                    break;
+                default:
+                    Selection.Available = [];
+                    loadError = "That connection is not an Atlassian site.";
+                    break;
+            }
+        }
+        catch (Exception)
+        {
+            // An exception escaping a Blazor lifecycle method tears down the circuit.
+            Selection.Available = [];
+            loadError = "Could not list this site's spaces.";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+}
