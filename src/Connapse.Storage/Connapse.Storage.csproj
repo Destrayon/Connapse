@@ -5,6 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.8.3" />
     <PackageReference Include="Anthropic" Version="12.8.0" />
     <PackageReference Include="AWSSDK.IdentityStore" Version="4.0.100.11" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.2" />
