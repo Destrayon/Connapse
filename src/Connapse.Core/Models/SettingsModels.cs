@@ -469,6 +469,27 @@ public record UploadSettings
 
     /// <summary>Most characters a parser may extract from one file (default: 20 million).</summary>
     public int MaxExtractedCharacters { get; set; } = 20_000_000;
+
+    /// <summary>
+    /// PDF, DOCX and PPTX text with at least this share of unreadable glyphs, replacement or
+    /// control characters fails as <c>garbled_text</c> (default: 0.5).
+    /// </summary>
+    public double GarbledSuspiciousRatio { get; set; } = 0.5;
+
+    /// <summary>
+    /// PDF, DOCX and PPTX text with less than this share of letters and digits fails as
+    /// <c>garbled_text</c> (default: 0.25).
+    /// </summary>
+    public double GarbledMinAlphanumericRatio { get; set; } = 0.25;
+
+    /// <summary>
+    /// Text with at least this share of unreadable characters is still indexed but carries a
+    /// warning (default: 0.1).
+    /// </summary>
+    public double WarnSuspiciousRatio { get; set; } = 0.1;
+
+    /// <summary>Text shorter than this, in non-whitespace characters, is too short to judge (default: 200).</summary>
+    public int MinCharactersForQualityCheck { get; set; } = 200;
 }
 
 /// <summary>

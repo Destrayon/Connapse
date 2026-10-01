@@ -164,6 +164,21 @@ public class IngestionPipelineTests
     }
 
     [Fact]
+    public async Task IngestAsync_GarbledPdfText_ThrowsPermanentWithoutChunking()
+    {
+        _parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument(string.Concat(Enumerable.Repeat(" ", 400)), [], []));
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(
+            new MemoryStream("%PDF-1.4\n"u8.ToArray()), TextOptions("scan.pdf"));
+
+        await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*[garbled_text]");
+        await _chunkingStrategy.DidNotReceiveWithAnyArgs().ChunkAsync(default!, default!, default);
+    }
+
+    [Fact]
     public async Task IngestAsync_NoChunks_ThrowsPermanentWithoutEmbedding()
     {
         _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())

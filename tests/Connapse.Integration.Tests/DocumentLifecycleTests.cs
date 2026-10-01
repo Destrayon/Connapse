@@ -175,6 +175,52 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         rebuilt.Should().Be(text);
     }
 
+    [Fact]
+    public async Task IngestAsync_ParserWarnings_AreStoredOnTheDocument()
+    {
+        // #595: a PDF indexed with a blank page used to say so only in the log.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+
+        await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
+            new MemoryStream(PdfWithABlankSecondPage()),
+            new IngestionOptions(
+                DocumentId: documentId.ToString(), FileName: "report.pdf", ContentType: "application/pdf",
+                ContainerId: containerId.ToString(), Path: "/report.pdf"));
+
+        var doc = await ReadAsync(sp, documentId);
+        doc.IngestionStatus.Should().Be(DocumentStatus.Ready);
+        doc.Metadata.Should().ContainKey(IngestionPipeline.MetadataKeyParserWarnings)
+            .WhoseValue.Should().Contain("Page 2 contains no extractable text");
+    }
+
+    private static byte[] PdfWithABlankSecondPage()
+    {
+        const string text = "BT /F1 12 Tf 72 720 Td (Quarterly revenue grew twelve percent on the strength of renewals.) Tj ET";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {text.Length} >>\nstream\n{text}\nendstream",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+        };
+        var body = new System.Text.StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(body.Length);
+            body.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+        int xref = body.Length;
+        body.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets) body.Append($"{offset:D10} 00000 n \n");
+        body.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return System.Text.Encoding.ASCII.GetBytes(body.ToString());
+    }
+
     /// <summary>Embeds normally, but re-enqueues the document first — a re-upload landing mid-embed.</summary>
     private sealed class ReEnqueuingEmbeddingProvider(IEmbeddingProvider inner, Func<Task> reEnqueue) : IEmbeddingProvider
     {
