@@ -490,6 +490,12 @@ public record UploadSettings
 
     /// <summary>Text shorter than this, in non-whitespace characters, is too short to judge (default: 200).</summary>
     public int MinCharactersForQualityCheck { get; set; } = 200;
+
+    /// <summary>
+    /// Most entries a DOCX or PPTX package may list (default: 10,000). Reading a ZIP's directory
+    /// allocates per entry, so millions of empty entries exhaust memory before any size check.
+    /// </summary>
+    public int MaxZipEntries { get; set; } = 10_000;
 }
 
 /// <summary>
