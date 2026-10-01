@@ -145,8 +145,8 @@ The cursor holds `{watermark, lastAttachmentSweepAt}` as JSON in `sources.sync_c
 Comments are appended under `## Comments`, each as `--- Comment by {Name}, {date} ---` followed by its body.
 
 **Chunking and breadcrumbs.**
-- Pages and blog posts use the existing DocumentAware chunker, which already prefixes each chunk's heading path. **One change:** the chunker prepends a document-level `breadcrumb` metadata value ahead of the heading path.
-- The breadcrumb is `Space name › ancestor titles › page title`, built from the listing's parent ids. Blog posts use `Space name › Blog › title`. Folder parents cost one cached `GET /folders/{id}` each.
+- Pages and blog posts use the existing DocumentAware chunker, unchanged. The renderer writes the breadcrumb as the page's top heading (`# Space > ancestor titles > page title`) and shifts the page's own headings one level down. The chunker's `PrependHeaderPath` (on by default) then puts the breadcrumb on every chunk.
+- The breadcrumb is built from the listing's parent ids. Blog posts use `Space name > Blog > title`. A `>` inside a title is replaced so it can't forge a level. Folder parents cost one cached `GET /folders/{id}` each.
 - Attachments use their existing parsers, with breadcrumb `…page breadcrumb › filename`.
 
 ## 4. Search-time permission checks
