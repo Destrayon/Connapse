@@ -21,11 +21,17 @@ public sealed class PypdfEncryptionAdapter : IExtractionAdapter
     /// support): <c>decrypt("")</c> fails for these and succeeds for every other file. The names do not
     /// decide it: r5-user-password.pdf and r6-user-password.pdf have an empty owner password, so any
     /// reader opens them without a prompt.
+    /// <para>
+    /// r4-aes-v2-no-key-length.pdf is not on the list although pypdf fails it. Its encryption
+    /// dictionary omits /Length; PdfPig 0.1.16 opens it with the empty password and extracts text
+    /// identical to unencrypted.pdf, which a wrong key could not produce, so the empty password is
+    /// valid and pypdf's failure is its own handling of the missing length (checked 2026-10-01, #597).
+    /// </para>
     /// </summary>
     public static readonly IReadOnlySet<string> PasswordRequired = new HashSet<string>(StringComparer.Ordinal)
     {
         "r2-user-password.pdf", "r3-user-password.pdf", "r4-user-password.pdf", "r4-aes-user-password.pdf",
-        "r4-aes-v2-no-key-length.pdf", "r6-both-passwords.pdf",
+        "r6-both-passwords.pdf",
     };
 
     public static bool NeedsPassword(string fileName) => PasswordRequired.Contains(fileName);

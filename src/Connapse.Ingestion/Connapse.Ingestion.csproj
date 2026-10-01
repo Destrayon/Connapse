@@ -12,8 +12,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.7" />
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
     <PackageReference Include="PragmaticSegmenterNet" Version="1.0.5" />
-    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
     <PackageReference Include="UTF.Unknown" Version="2.7.0" />
   </ItemGroup>
 
