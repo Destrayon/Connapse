@@ -3,7 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
-using AngleSharp.Html.Parser;
+using AngleSharp.Xml.Parser;
 
 namespace Connapse.Storage.Connectors.Atlassian;
 
@@ -31,30 +31,22 @@ public sealed record ConfluenceRenderOutput(string Markdown, IReadOnlyList<strin
 /// </summary>
 public static partial class ConfluenceStorageRenderer
 {
-    private static readonly HashSet<string> VoidElements = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "br", "hr", "img", "col", "input", "area", "base", "link", "meta", "source", "wbr",
-    };
-
     private static readonly HashSet<string> BlockElements = new(StringComparer.Ordinal)
     {
         "div", "section", "article", "header", "footer", "aside", "main", "nav", "figure", "figcaption",
         "dl", "dt", "dd", "details", "summary", "center",
     };
 
-    [GeneratedRegex(@"<!\[CDATA\[(.*?)\]\]>", RegexOptions.Singleline | RegexOptions.CultureInvariant)]
-    private static partial Regex CdataPattern();
+    private const int MaxDepth = 200;
+    private const int MaxParseDepth = 300;
 
-    [GeneratedRegex("""<([A-Za-z][\w:.-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*/>""", RegexOptions.CultureInvariant)]
-    private static partial Regex SelfClosingPattern();
-
-    [GeneratedRegex(@"[\s ]+", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[\s\u00A0]+", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex WhitespacePattern();
 
-    [GeneratedRegex(@"<[^>]*>", RegexOptions.CultureInvariant)]
-    private static partial Regex TagPattern();
+    [GeneratedRegex(@"&([A-Za-z][A-Za-z0-9]{1,31});", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
+    private static partial Regex NamedEntityPattern();
 
-    [GeneratedRegex(@"^[\s>]*(`{3,})", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[\s>]*(`{3,})", RegexOptions.CultureInvariant | RegexOptions.NonBacktracking)]
     private static partial Regex FenceOpenPattern();
 
     /// <summary>Renders the page, then its comments, to markdown.</summary>
@@ -97,7 +89,7 @@ public static partial class ConfluenceStorageRenderer
             IElement? body = Parse(storageBody);
             if (body is null)
                 return ids;
-            foreach (IElement user in body.QuerySelectorAll("*").Where(e => e.LocalName == "ri:user"))
+            foreach (IElement user in body.QuerySelectorAll("*").Where(e => e.NodeName == "ri:user"))
             {
                 string? id = user.GetAttribute("ri:account-id");
                 if (!string.IsNullOrWhiteSpace(id))
@@ -132,22 +124,103 @@ public static partial class ConfluenceStorageRenderer
     }
 
     /// <summary>
-    /// Storage format is an XHTML fragment with undeclared namespaces and HTML entities, so a strict
-    /// XML parser rejects it. The HTML parser accepts prefixed names, but does not honour
-    /// self-closing syntax on unknown elements and turns CDATA into comments; both are fixed up first.
+    /// Storage format is an XHTML fragment that uses <c>ac:</c> and <c>ri:</c> prefixes without declaring
+    /// them and contains HTML entities such as <c>&amp;nbsp;</c>, so it is wrapped in a root that declares
+    /// the namespaces and its named entities are translated to numeric references first.
     /// </summary>
     private static IElement? Parse(string storageBody)
     {
-        string html = CdataPattern().Replace(storageBody, m => WebUtility.HtmlEncode(m.Groups[1].Value));
-        html = SelfClosingPattern().Replace(html, m =>
-            VoidElements.Contains(m.Groups[1].Value)
-                ? m.Value
-                : $"<{m.Groups[1].Value}{m.Groups[2].Value}></{m.Groups[1].Value}>");
-        return new HtmlParser().ParseDocument("<!DOCTYPE html><html><body>" + html + "</body></html>").Body;
+        if (NestsTooDeeply(storageBody))
+            return null;
+
+        string xml = NamedEntityPattern().Replace(storageBody, TranslateEntity);
+        IDocument document = new XmlParser().ParseDocument(
+            "<root xmlns:ac=\"urn:confluence:ac\" xmlns:ri=\"urn:confluence:ri\">" + xml + "</root>");
+        return document.DocumentElement;
     }
 
-    private static string TextFallback(string storageBody) =>
-        WhitespacePattern().Replace(WebUtility.HtmlDecode(TagPattern().Replace(storageBody, " ")), " ").Trim();
+    /// <summary>
+    /// The XML parser recurses per nesting level and overflows the stack on pathological input, so
+    /// bodies nested past <see cref="MaxParseDepth"/> are rejected up front by a linear scan.
+    /// </summary>
+    private static bool NestsTooDeeply(string text)
+    {
+        int depth = 0;
+        int i = 0;
+        while (i < text.Length)
+        {
+            int lt = text.IndexOf('<', i);
+            if (lt < 0 || lt + 1 >= text.Length)
+                return false;
+
+            char next = text[lt + 1];
+            if (string.CompareOrdinal(text, lt, "<![CDATA[", 0, 9) == 0)
+            {
+                int end = text.IndexOf("]]>", lt + 9, StringComparison.Ordinal);
+                if (end < 0)
+                    return false;
+                i = end + 3;
+                continue;
+            }
+
+            int gt = text.IndexOf('>', lt + 1);
+            if (gt < 0)
+                return false;
+
+            if (next == '/')
+                depth = Math.Max(0, depth - 1);
+            else if (char.IsLetter(next) && text[gt - 1] != '/' && ++depth > MaxParseDepth)
+                return true;
+            i = gt + 1;
+        }
+
+        return false;
+    }
+
+    private static string TranslateEntity(Match match)
+    {
+        string name = match.Groups[1].Value;
+        if (name is "amp" or "lt" or "gt" or "quot" or "apos")
+            return match.Value;
+
+        string decoded = WebUtility.HtmlDecode(match.Value);
+        if (ReferenceEquals(decoded, match.Value) || decoded == match.Value)
+            return "&amp;" + name + ";";
+
+        var sb = new StringBuilder();
+        foreach (Rune rune in decoded.EnumerateRunes())
+            sb.Append("&#x").Append(rune.Value.ToString("X", CultureInfo.InvariantCulture)).Append(';');
+        return sb.ToString();
+    }
+
+    /// <summary>Strips tags with a single linear scan; used when the body cannot be parsed.</summary>
+    private static string TextFallback(string storageBody)
+    {
+        var sb = new StringBuilder(storageBody.Length);
+        bool inTag = false;
+        for (int i = 0; i < storageBody.Length; i++)
+        {
+            char c = storageBody[i];
+            if (inTag)
+            {
+                if (c == '>')
+                {
+                    inTag = false;
+                    sb.Append(' ');
+                }
+            }
+            else if (c == '<' && i + 1 < storageBody.Length && (char.IsLetter(storageBody[i + 1]) || storageBody[i + 1] is '/' or '!' or '?'))
+            {
+                inTag = true;
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return CleanSingleLine(WebUtility.HtmlDecode(sb.ToString()));
+    }
 
     private static string CleanSingleLine(string text) =>
         WhitespacePattern().Replace(text, " ").Trim();
@@ -218,16 +291,31 @@ public static partial class ConfluenceStorageRenderer
             return sb.ToString();
         }
 
+        private int _depth;
+
         private string Node(INode node)
         {
-            if (node.NodeType == NodeType.Text)
-                return WhitespacePattern().Replace(node.TextContent, " ");
-            return node is IElement element ? Element(element) : string.Empty;
+            if (node.NodeType is NodeType.Text or NodeType.CharacterData)
+                return EscapeStructure(WhitespacePattern().Replace(node.TextContent, " "));
+            if (node is not IElement element)
+                return string.Empty;
+            if (_depth >= MaxDepth)
+                return Block(CleanSingleLine(IterativeText(element)));
+
+            _depth++;
+            try
+            {
+                return Element(element);
+            }
+            finally
+            {
+                _depth--;
+            }
         }
 
         private string Element(IElement e)
         {
-            string name = e.LocalName;
+            string name = e.NodeName;
             switch (name)
             {
                 case "script" or "style" or "ac:parameter" or "ac:placeholder" or "ac:adf-fallback":
@@ -278,6 +366,52 @@ public static partial class ConfluenceStorageRenderer
                 return Block(Children(e));
             return Children(e);
         }
+
+        /// <summary>Text of a subtree gathered without recursion, for subtrees nested past the depth cap.</summary>
+        private static string IterativeText(INode root)
+        {
+            var sb = new StringBuilder();
+            var stack = new Stack<INode>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                INode node = stack.Pop();
+                if (node.NodeType is NodeType.Text or NodeType.CharacterData)
+                {
+                    sb.Append(node.TextContent).Append(' ');
+                    continue;
+                }
+
+                for (int i = node.ChildNodes.Length - 1; i >= 0; i--)
+                    stack.Push(node.ChildNodes[i]);
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Backslash-escapes markdown block structure at the start of emitted text, so page text cannot
+        /// forge a heading, quote, setext underline, code fence or comment separator.
+        /// </summary>
+        private static string EscapeStructure(string text)
+        {
+            int start = 0;
+            while (start < text.Length && text[start] == ' ')
+                start++;
+            if (start >= text.Length)
+                return text;
+
+            string rest = text[start..];
+            bool escape = rest[0] is '#' or '>'
+                || rest.StartsWith("```", StringComparison.Ordinal)
+                || rest.StartsWith("~~~", StringComparison.Ordinal)
+                || rest.StartsWith("---", StringComparison.Ordinal)
+                || rest.All(c => c is '=' or '-' or ' ');
+            return escape ? text[..start] + "\\" + rest : text;
+        }
+
+        private static string EscapeLines(string text) =>
+            string.Join("\n", text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(EscapeStructure));
 
         private static string Block(string content)
         {
@@ -338,10 +472,10 @@ public static partial class ConfluenceStorageRenderer
 
         private string List(IElement list)
         {
-            bool ordered = list.LocalName == "ol";
+            bool ordered = list.NodeName == "ol";
             var lines = new List<string>();
             int index = 1;
-            foreach (IElement item in list.Children.Where(c => c.LocalName == "li"))
+            foreach (IElement item in list.Children.Where(c => c.NodeName == "li"))
             {
                 string marker = ordered ? $"{index++}. " : "- ";
                 lines.Add(Item(marker, Children(item)));
@@ -361,10 +495,10 @@ public static partial class ConfluenceStorageRenderer
         private string TaskList(IElement list)
         {
             var lines = new List<string>();
-            foreach (IElement task in list.Children.Where(c => c.LocalName == "ac:task"))
+            foreach (IElement task in list.Children.Where(c => c.NodeName == "ac:task"))
             {
-                string status = task.Children.FirstOrDefault(c => c.LocalName == "ac:task-status")?.TextContent.Trim() ?? string.Empty;
-                IElement? body = task.Children.FirstOrDefault(c => c.LocalName == "ac:task-body");
+                string status = task.Children.FirstOrDefault(c => c.NodeName == "ac:task-status")?.TextContent.Trim() ?? string.Empty;
+                IElement? body = task.Children.FirstOrDefault(c => c.NodeName == "ac:task-body");
                 string marker = status.Equals("complete", StringComparison.OrdinalIgnoreCase) ? "- [x] " : "- [ ] ";
                 lines.Add(Item(marker, body is null ? string.Empty : Children(body)));
             }
@@ -377,7 +511,7 @@ public static partial class ConfluenceStorageRenderer
             List<List<string>> rows = table.QuerySelectorAll("tr")
                 .Where(tr => tr.ParentElement is not null && ReferenceEquals(Owner(tr), table))
                 .Select(tr => tr.Children
-                    .Where(c => c.LocalName is "td" or "th")
+                    .Where(c => c.NodeName is "td" or "th")
                     .Select(Cell)
                     .ToList())
                 .Where(r => r.Count > 0)
@@ -401,7 +535,7 @@ public static partial class ConfluenceStorageRenderer
         {
             for (IElement? p = tr.ParentElement; p is not null; p = p.ParentElement)
             {
-                if (p.LocalName == "table")
+                if (p.NodeName == "table")
                     return p;
             }
 
@@ -415,16 +549,16 @@ public static partial class ConfluenceStorageRenderer
         {
             string name = (macro.GetAttribute("ac:name") ?? string.Empty).Trim().ToLowerInvariant();
             string Param(string key) => macro.Children
-                .Where(c => c.LocalName == "ac:parameter" && c.GetAttribute("ac:name") == key)
+                .Where(c => c.NodeName == "ac:parameter" && c.GetAttribute("ac:name") == key)
                 .Select(c => c.TextContent.Trim())
                 .FirstOrDefault() ?? string.Empty;
-            IElement? rich = macro.Children.FirstOrDefault(c => c.LocalName == "ac:rich-text-body");
-            IElement? plain = macro.Children.FirstOrDefault(c => c.LocalName == "ac:plain-text-body");
+            IElement? rich = macro.Children.FirstOrDefault(c => c.NodeName == "ac:rich-text-body");
+            IElement? plain = macro.Children.FirstOrDefault(c => c.NodeName == "ac:plain-text-body");
 
             switch (name)
             {
                 case "code":
-                    return Block(Fence(plain?.TextContent ?? string.Empty, Param("language")));
+                    return Block(Fence(plain?.TextContent ?? string.Empty, SafeLanguage(Param("language"))));
                 case "info" or "note" or "warning" or "tip" or "panel":
                     return Block(Panel(name, Param("title"), rich));
                 case "expand":
@@ -443,8 +577,11 @@ public static partial class ConfluenceStorageRenderer
 
             if (rich is not null)
                 return Block(Children(rich));
-            return plain is not null ? Block(plain.TextContent) : string.Empty;
+            return plain is not null ? Block(EscapeLines(plain.TextContent)) : string.Empty;
         }
+
+        private static string SafeLanguage(string language) =>
+            new(language.Where(c => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9') or '+' or '#' or '.' or '_' or '-').ToArray());
 
         private string Panel(string kind, string title, IElement? body)
         {
@@ -464,18 +601,18 @@ public static partial class ConfluenceStorageRenderer
 
         private static string IncludedTitle(IElement macro)
         {
-            IElement? page = macro.QuerySelectorAll("*").FirstOrDefault(e => e.LocalName == "ri:page");
+            IElement? page = macro.QuerySelectorAll("*").FirstOrDefault(e => e.NodeName == "ri:page");
             string title = CleanSingleLine(page?.GetAttribute("ri:content-title") ?? string.Empty);
             return title.Length > 0 ? title : "another page";
         }
 
         private string Link(IElement link)
         {
-            IElement? target = link.Children.FirstOrDefault(c => c.LocalName.StartsWith("ri:", StringComparison.Ordinal));
-            IElement? body = link.Children.FirstOrDefault(c => c.LocalName is "ac:plain-text-link-body" or "ac:link-body");
+            IElement? target = link.Children.FirstOrDefault(c => c.NodeName.StartsWith("ri:", StringComparison.Ordinal));
+            IElement? body = link.Children.FirstOrDefault(c => c.NodeName is "ac:plain-text-link-body" or "ac:link-body");
             string text = body is null ? string.Empty : CleanSingleLine(Children(body));
 
-            switch (target?.LocalName)
+            switch (target?.NodeName)
             {
                 case "ri:user":
                     return state.UserName(target.GetAttribute("ri:account-id")?.Trim());
@@ -503,7 +640,7 @@ public static partial class ConfluenceStorageRenderer
 
         private static string Image(IElement image)
         {
-            IElement? attachment = image.Children.FirstOrDefault(c => c.LocalName == "ri:attachment");
+            IElement? attachment = image.Children.FirstOrDefault(c => c.NodeName == "ri:attachment");
             if (attachment is not null)
                 return Attachment(attachment);
             string alt = CleanSingleLine(image.GetAttribute("ac:alt") ?? string.Empty);
