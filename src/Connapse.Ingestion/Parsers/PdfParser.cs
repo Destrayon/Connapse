@@ -1,4 +1,6 @@
+using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Microsoft.Extensions.Options;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 
@@ -7,7 +9,11 @@ namespace Connapse.Ingestion.Parsers;
 /// <summary>
 /// Parser for PDF documents using PdfPig.
 /// </summary>
-public class PdfParser : IDocumentParser
+/// <param name="limits">
+/// Supplies the page cap. Optional so tests and tools can build a parser without settings; with
+/// none, any page count is parsed.
+/// </param>
+public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocumentParser
 {
     private static readonly HashSet<string> _supportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,6 +39,12 @@ public class PdfParser : IDocumentParser
 
                 metadata["FileType"] = "PDF";
                 metadata["PageCount"] = document.NumberOfPages.ToString();
+
+                // Checked before any page is read: the cost of a PDF is in its pages, and
+                // opening one only reads the cross-reference table.
+                if (limits?.CurrentValue.MaxPdfPages is int maxPages && document.NumberOfPages > maxPages)
+                    throw new PermanentIngestionException(
+                        $"it has {document.NumberOfPages:N0} pages, over the {maxPages:N0} page limit [too_many_pages]");
 
                 // Extract document-level metadata
                 if (document.Information != null)
@@ -91,7 +103,7 @@ public class PdfParser : IDocumentParser
 
             }, cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is OperationCanceledException or PermanentIngestionException)
         {
             throw;
         }

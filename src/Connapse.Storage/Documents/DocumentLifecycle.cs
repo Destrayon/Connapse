@@ -1,5 +1,6 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -117,7 +118,7 @@ public sealed class DocumentLifecycle(
             ct,
             new NpgsqlParameter("id", documentId),
             new NpgsqlParameter("gen", generation),
-            new NpgsqlParameter("error", error),
+            new NpgsqlParameter("error", StorableText.Clean(error)),
             new NpgsqlParameter("queued", Queued),
             new NpgsqlParameter("processing", Processing));
 
@@ -145,7 +146,7 @@ public sealed class DocumentLifecycle(
             ct,
             new NpgsqlParameter("id", documentId),
             new NpgsqlParameter("gen", generation),
-            new NpgsqlParameter("error", error),
+            new NpgsqlParameter("error", StorableText.Clean(error)),
             new NpgsqlParameter("failed", failedStatus.ToString()),
             new NpgsqlParameter("queued", Queued),
             new NpgsqlParameter("processing", Processing));

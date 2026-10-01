@@ -58,4 +58,24 @@ public class PragmaticSentenceSegmenterTests
         var result = _segmenter.Split("What now? Run! Then he stopped.");
         result.Should().HaveCount(3);
     }
+
+    // The fallback used when a library regex times out (#595). The timeout itself cannot be
+    // exercised here: the test host initialises Regex before any test code can set its default.
+    [Fact]
+    public void SplitOnTerminators_SplitsAfterTerminatorsAndBlankLines()
+    {
+        PragmaticSentenceSegmenter.SplitOnTerminators("First one. Second one? Third!\n\nA new paragraph")
+            .Should().Equal("First one.", "Second one?", "Third!", "A new paragraph");
+    }
+
+    [Fact]
+    public void SplitOnTerminators_KeepsDecimalsAndRunsOfDigitsTogether()
+    {
+        PragmaticSentenceSegmenter.SplitOnTerminators("Version 1.5 costs 3.20 now. 192050192220842205020502020222")
+            .Should().Equal("Version 1.5 costs 3.20 now.", "192050192220842205020502020222");
+    }
+
+    [Fact]
+    public void SplitOnTerminators_WhitespaceOnly_ReturnsEmpty() =>
+        PragmaticSentenceSegmenter.SplitOnTerminators(" \n\n ").Should().BeEmpty();
 }

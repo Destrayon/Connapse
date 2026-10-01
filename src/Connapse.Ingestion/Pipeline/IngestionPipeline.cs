@@ -39,6 +39,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IConnectionStore _connectionStore;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
+    private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
     private readonly ILogger<IngestionPipeline> _logger;
 
     // Metadata keys for tracking indexing settings
@@ -87,6 +88,7 @@ public class IngestionPipeline : IKnowledgeIngester
         IConnectionStore connectionStore,
         IConnectorFactory connectorFactory,
         IDocumentLifecycle lifecycle,
+        IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionPipeline> logger)
     {
         _context = context;
@@ -105,6 +107,7 @@ public class IngestionPipeline : IKnowledgeIngester
         _connectionStore = connectionStore;
         _connectorFactory = connectorFactory;
         _lifecycle = lifecycle;
+        _uploadSettings = uploadSettings;
         _logger = logger;
     }
 
@@ -151,16 +154,21 @@ public class IngestionPipeline : IKnowledgeIngester
         try
         {
             // Handle non-seekable streams (e.g., from MinIO)
+            long maxFileBytes = _uploadSettings.CurrentValue.MaxFileBytes;
             if (!content.CanSeek)
             {
+                // Bounded while copying: a connector stream of unknown length would otherwise be
+                // buffered whole, and hashed, before the size limit could refuse it.
                 var ms = new MemoryStream();
-                await content.CopyToAsync(ms, ct);
+                await CopyBoundedAsync(content, ms, maxFileBytes, options.FileName, ct);
                 ms.Position = 0;
                 workingStream = ms;
                 createdMemoryStream = true;
             }
             else
             {
+                if (content.Length > maxFileBytes)
+                    throw new PermanentIngestionException(FileTooLarge(options.FileName, content.Length, maxFileBytes));
                 workingStream = content;
             }
 
@@ -171,9 +179,23 @@ public class IngestionPipeline : IKnowledgeIngester
             // cannot be read is known to be a permanent failure before any row is touched.
             workingStream.Position = 0;
             var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
+
+            // Every chunk, and any failure message quoting a warning, ends up in a text column,
+            // so the parser's output is made storable once here rather than in each parser.
+            parsedDocument = parsedDocument with
+            {
+                Content = StorableText.Clean(parsedDocument.Content),
+                Warnings = parsedDocument.Warnings.Select(StorableText.Clean).ToList(),
+                Metadata = CleanMetadata(parsedDocument.Metadata),
+            };
             warnings.AddRange(parsedDocument.Warnings);
 
             var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
+
+            // Cleaned again per chunk: a chunker cutting at a token or character offset can split a
+            // surrogate pair, and the half left at either edge breaks both the embedder's Unicode
+            // normalisation and the database write (#595).
+            chunks = chunks.Select(c => c with { Content = StorableText.Clean(c.Content) }).ToList();
             if (chunks.Count == 0)
             {
                 throw new PermanentIngestionException(warnings.Count > 0
@@ -614,16 +636,115 @@ public class IngestionPipeline : IKnowledgeIngester
             throw new PermanentIngestionException(
                 $"Could not parse {Path.GetFileName(fileName)}: {mismatch}");
 
+        UploadSettings limits = _uploadSettings.CurrentValue;
+        string? tooLarge = ParseLimits.CheckInput(content, extension, limits);
+        if (tooLarge is not null)
+            throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {tooLarge}");
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, limits.ParseTimeoutSeconds));
+        ParsedDocument parsed = await ParseWithDeadlineAsync(parser, content, fileName, timeout, ct, _logger);
+
+        if (parsed.Content.Length > limits.MaxExtractedCharacters)
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: it yielded {parsed.Content.Length:N0} characters, " +
+                $"over the {limits.MaxExtractedCharacters:N0} limit [output_too_large]");
+
+        return parsed;
+    }
+
+    /// <summary>
+    /// Runs the parser on the thread pool and stops waiting for it at the deadline.
+    /// <para>
+    /// The parsers are synchronous underneath and do not all observe the token: PdfPig stuck in a
+    /// malformed content stream never checks it. The abandoned parse keeps its thread until it
+    /// returns, but the document fails with <c>parse_timeout</c> instead of sitting in Processing
+    /// for good. Cancellation by the caller still surfaces as cancellation.
+    /// </para>
+    /// </summary>
+    internal static async Task<ParsedDocument> ParseWithDeadlineAsync(
+        IDocumentParser parser, Stream content, string fileName, TimeSpan timeout, CancellationToken ct,
+        ILogger? logger = null)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(timeout);
+
+        Task<ParsedDocument> parse = Task.Run(() => parser.ParseAsync(content, fileName, deadline.Token), deadline.Token);
         try
         {
-            return await parser.ParseAsync(content, fileName, ct);
+            return await parse.WaitAsync(timeout, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested
+                                   && (ex is TimeoutException || (ex is OperationCanceledException && deadline.IsCancellationRequested)))
+        {
+            if (!parse.IsCompleted)
+                TrackAbandonedParse(parse, parser, fileName, timeout, logger);
+
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: parsing did not finish within {timeout.TotalSeconds:0} seconds [parse_timeout]", ex);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not PermanentIngestionException)
         {
             // The file is already in memory, so nothing here is waiting on a network: a parser
             // that throws has met content it cannot read, and will meet it again on every retry.
             throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {ex.Message}", ex);
         }
+    }
+
+    private static int s_abandonedParses;
+
+    /// <summary>Parses that outran their deadline and are still running on a thread-pool thread.</summary>
+    internal static int AbandonedParses => Volatile.Read(ref s_abandonedParses);
+
+    /// <summary>
+    /// .NET cannot stop a thread, so a parser that ignores its token runs on after the deadline.
+    /// Each one is counted and logged as an error, so an operator can see them pile up; the
+    /// caller then disposes the stream, which ends any parser still reading it. Real isolation
+    /// needs a separate process.
+    /// </summary>
+    private static void TrackAbandonedParse(
+        Task<ParsedDocument> parse, IDocumentParser parser, string fileName, TimeSpan timeout, ILogger? logger)
+    {
+        int running = Interlocked.Increment(ref s_abandonedParses);
+        logger?.LogError(
+            "ParseAbandoned {Parser} on {FileName} after {TimeoutSeconds} s; {Running} abandoned parse(s) still running",
+            parser.GetType().Name, LogSanitizer.Sanitize(Path.GetFileName(fileName)), timeout.TotalSeconds, running);
+
+        _ = parse.ContinueWith(t =>
+        {
+            _ = t.Exception; // observed, so a late failure is not reported as unobserved
+            Interlocked.Decrement(ref s_abandonedParses);
+        }, TaskScheduler.Default);
+    }
+
+    internal static async Task CopyBoundedAsync(
+        Stream source, Stream destination, long maxBytes, string? fileName, CancellationToken ct)
+    {
+        byte[] buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = await source.ReadAsync(buffer, ct)) > 0)
+        {
+            total += read;
+            if (total > maxBytes)
+                throw new PermanentIngestionException(FileTooLarge(fileName, total, maxBytes));
+            await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+        }
+    }
+
+    private static string FileTooLarge(string? fileName, long bytes, long maxBytes) =>
+        $"Could not parse {Path.GetFileName(fileName)}: the file is at least {bytes / (1024 * 1024)} MB, " +
+        $"over the {maxBytes / (1024 * 1024)} MB limit [file_too_large]";
+
+    /// <summary>
+    /// Parser metadata (a PDF's title, author) is copied into every chunk's JSONB metadata, which
+    /// rejects NUL just as text columns do.
+    /// </summary>
+    private static Dictionary<string, string> CleanMetadata(Dictionary<string, string> metadata)
+    {
+        var cleaned = new Dictionary<string, string>(metadata.Count);
+        foreach (var (key, value) in metadata)
+            cleaned[StorableText.Clean(key)] = StorableText.Clean(value);
+        return cleaned;
     }
 
     /// <summary>

@@ -114,7 +114,15 @@ public class IngestionPipelineTests
             _connectionStore,
             _connectorFactory,
             Substitute.For<IDocumentLifecycle>(),
+            UploadDefaults(),
             _logger);
+
+    private static IOptionsMonitor<UploadSettings> UploadDefaults()
+    {
+        var monitor = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        monitor.CurrentValue.Returns(new UploadSettings());
+        return monitor;
+    }
 
     private static KnowledgeDbContext CreateInMemoryContext()
     {
@@ -153,6 +161,25 @@ public class IngestionPipelineTests
         Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
 
         await act.Should().ThrowAsync<PermanentIngestionException>().WithMessage("*corrupt*");
+    }
+
+    [Fact]
+    public async Task IngestAsync_ParserMetadataWithNul_IsCleanedBeforeChunking()
+    {
+        // A PDF title is copied into every chunk's JSONB metadata, which rejects NUL.
+        _parser.ParseAsync(Arg.Any<Stream>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ParsedDocument("Readable body text.",
+                new Dictionary<string, string> { ["Title"] = "Annual\0 report \uD835" }, []));
+        _chunkingStrategy.ChunkAsync(Arg.Any<ParsedDocument>(), Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>())
+            .Returns(new List<ChunkInfo>());
+        using var dbContext = CreateInMemoryContext();
+
+        Func<Task> act = () => CreatePipeline(dbContext).IngestAsync(new MemoryStream("x"u8.ToArray()), TextOptions());
+
+        await act.Should().ThrowAsync<PermanentIngestionException>();
+        await _chunkingStrategy.Received().ChunkAsync(
+            Arg.Is<ParsedDocument>(d => d.Metadata["Title"] == "Annual report �"),
+            Arg.Any<ChunkingSettings>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

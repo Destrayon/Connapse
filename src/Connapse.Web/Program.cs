@@ -26,6 +26,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
+// First, before anything touches Regex: the default match timeout is read once, at type init.
+Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Serialize enums as strings in all Minimal API JSON responses and request bodies.
