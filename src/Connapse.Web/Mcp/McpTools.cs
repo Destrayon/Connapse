@@ -963,7 +963,7 @@ public class McpTools
     {
         // Without the service nothing can be checked, so every private source stays hidden.
         if (services.GetService<PrivateSourceVisibility>() is not { } visibility)
-            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>());
+            return source => PrivateSourceVisibility.IsVisible(source, new HashSet<string>(), atlassianConnections: null);
 
         var caller = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
         return await visibility.ForAsync(caller, ct);
