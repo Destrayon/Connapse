@@ -296,9 +296,13 @@ public static class ServiceCollectionExtensions
         // pay nothing extra.
         services.AddSingleton<IBlobTagReader, BlobTagReader>();
         services.AddScoped<IPerSchemeResultVerifier, AzureSearchResultVerifier>();
+        // Confluence hits: checked live against the site, one call per uncached (account, page).
+        services.AddSingleton<ConfluencePermissionChecker>();
+        services.AddScoped<IPerSchemeResultVerifier, AtlassianSearchResultVerifier>();
         services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
             sp.GetServices<IPerSchemeResultVerifier>()));
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
+        services.Configure<AtlassianVerifierSettings>(configuration.GetSection(AtlassianVerifierSettings.SectionName));
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
         services.AddSingleton<IAzureBlobDiscovery, CloudScope.AzureBlobDiscovery>();
@@ -323,12 +327,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CloudScope.AwsSearchScopeResolver>();
         services.AddScoped<CloudScope.AzureSearchScopeResolver>();
         services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
+        services.AddScoped<CloudScope.AtlassianSearchScopeResolver>();
         services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
         [
             new(sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(), "s3://", CloudScope.ScopeKind.Cloud),
             new(sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(), "azblob://", CloudScope.ScopeKind.Cloud),
             new(sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>(), CloudScope.GitHubSearchScopeResolver.Scheme, CloudScope.ScopeKind.GrantOnly),
+            new(sp.GetRequiredService<CloudScope.AtlassianSearchScopeResolver>(), CloudScope.AtlassianUri.Scheme, CloudScope.ScopeKind.GrantOnly),
         ]));
 
         // Reads the connections, so scoped alongside the store it uses.
