@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,6 +50,39 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
+
+    /// <summary>Which parser produced the document's chunks, and which version of it (#596).</summary>
+    public const string MetadataKeyParser = "IndexedWith:Parser";
+    public const string MetadataKeyParserVersion = "IndexedWith:ParserVersion";
+
+    /// <summary>
+    /// The parser version a document was indexed with. Documents indexed before versions were
+    /// recorded carry none; they were parsed by what is now version 1.
+    /// </summary>
+    public static int StoredParserVersion(IReadOnlyDictionary<string, string> metadata) =>
+        metadata.TryGetValue(MetadataKeyParserVersion, out var stored) && int.TryParse(stored, out int version)
+            ? version
+            : 1;
+
+    /// <summary>
+    /// The parser a document was indexed with. Documents indexed before names were recorded were
+    /// read by whichever parser owned their extension at the time; treating a missing name as a
+    /// match instead would hide a different parser taking that extension over.
+    /// </summary>
+    public static string? StoredParserName(IReadOnlyDictionary<string, string> metadata, string extension) =>
+        metadata.TryGetValue(MetadataKeyParser, out var stored) && !string.IsNullOrEmpty(stored)
+            ? stored
+            : LegacyParserByExtension.GetValueOrDefault(extension);
+
+    /// <summary>The parser that owned each extension when parser identities started being recorded (#596).</summary>
+    private static readonly Dictionary<string, string> LegacyParserByExtension = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".txt"] = "TextParser", [".md"] = "TextParser", [".markdown"] = "TextParser", [".csv"] = "TextParser",
+        [".log"] = "TextParser", [".json"] = "TextParser", [".xml"] = "TextParser", [".yaml"] = "TextParser",
+        [".yml"] = "TextParser",
+        [".pdf"] = "PdfParser",
+        [".docx"] = "OfficeParser", [".pptx"] = "OfficeParser",
+    };
 
     /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
     public const string MetadataKeyParserWarnings = "ParserWarnings";
@@ -268,6 +302,12 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // Parser warnings used to reach only the log, or a failure message. A document that
             // indexed with half its pages empty now says so where the API and UI can show it.
+            if (_parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is { } usedParser)
+            {
+                metadata[MetadataKeyParser] = usedParser.Name;
+                metadata[MetadataKeyParserVersion] = usedParser.Version.ToString(CultureInfo.InvariantCulture);
+            }
+
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
             else
