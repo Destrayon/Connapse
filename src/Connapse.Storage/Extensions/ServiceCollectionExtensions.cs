@@ -198,9 +198,11 @@ public static class ServiceCollectionExtensions
 
         // Atlassian Cloud: one named client for the API and the token endpoint, and a singleton
         // token cache so service-account tokens are shared across every source on a site.
-        // Redirects are not followed automatically: an attachment download redirects to Atlassian's
-        // media host, and AtlassianApiClient checks each hop before following it.
-        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName)
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName);
+
+        // Downloads only, with redirects not followed automatically: an attachment download
+        // redirects to Atlassian's media host, and AtlassianApiClient checks each hop first.
+        services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.DownloadHttpClientName)
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();

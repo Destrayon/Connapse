@@ -11,7 +11,7 @@ public sealed record FakeConfluenceComment(
 /// <summary>An attachment on a page or blog post. <see cref="Id"/> is the digits after "att".</summary>
 public sealed record FakeConfluenceAttachment(
     string Id, string PageId, string FileName, byte[] Content, DateTimeOffset ModifiedAt,
-    string MediaType = "text/plain", long? DeclaredSize = null, int Version = 1)
+    string MediaType = "text/plain", long? DeclaredSize = null, int Version = 1, bool OmitSize = false)
 {
     public long Size => DeclaredSize ?? Content.Length;
 }
@@ -103,7 +103,7 @@ public sealed partial class FakeConfluence
                 id = "att" + a.Id,
                 title = a.FileName,
                 mediaType = a.MediaType,
-                fileSize = a.Size,
+                fileSize = a.OmitSize ? (long?)null : a.Size,
                 pageId = a.PageId,
                 version = new { number = a.Version, createdAt = a.ModifiedAt },
             });

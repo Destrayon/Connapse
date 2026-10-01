@@ -304,8 +304,9 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         await _connector.GetChangesAsync(null);
         _api.Confluence.DownloadRedirect = target;
 
+        // Permanent: the same redirect will come back on a retry.
         await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
-            .Should().ThrowAsync<InvalidOperationException>();
+            .Should().ThrowAsync<Connapse.Core.Interfaces.PermanentIngestionException>();
         _api.Requests.Should().NotContain(r => r.AbsoluteUri.StartsWith(target, StringComparison.Ordinal));
     }
 
@@ -346,6 +347,67 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
 
         delta.Upserted.Should().Contain(f => f.Path == "/attachments/503/new.pdf");
         _api.Confluence.AttachmentListings.Should().BeEquivalentTo(new Dictionary<string, int> { ["1"] = 1, ["2"] = 2 });
+    }
+
+    [Fact]
+    public async Task GetChanges_AttachmentListedWithoutASize_IsSkippedAndCounted()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "unsized.txt") with { OmitSize = true });
+        _api.Confluence.AddAttachment(Attachment("502", "1", "zero.txt") with { DeclaredSize = 0 });
+
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Select(f => f.Path).Should().Equal("/pages/1.md");
+        delta.Notice.Should().Be("2 attachments skipped: over 25 MB or unsupported type");
+        (await _connector.ExistsAsync("/attachments/501/unsized.txt")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReadFile_AttachmentLargerThanListed_FailsPermanentlyWithoutPassingTheCap()
+    {
+        const int cap = 1024 * 1024;
+        var site = new AtlassianSite("https://acme.atlassian.net", CloudId, "client-1");
+        var capped = new ConfluenceSpaceConnector(
+            new ConfluenceSpaceConfig(site, SpaceId, "ENG", _root, MaxAttachmentMb: 1),
+            new AtlassianApiClient(_api.CreateClient(), new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System), site, "secret"),
+            fileTypes: new Extensions(".txt"));
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+
+        // Listed as 100 bytes, served as three times the cap.
+        _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+            "501", "1", "big.txt", new byte[3 * cap], DateTimeOffset.UnixEpoch, DeclaredSize: 100));
+        await capped.GetChangesAsync(null);
+
+        var copy = new MemoryStream();
+        await using var download = await capped.ReadFileAsync("/attachments/501/big.txt");
+        await FluentActions.Awaiting(() => download.CopyToAsync(copy))
+            .Should().ThrowAsync<Connapse.Core.Interfaces.PermanentIngestionException>().WithMessage("*1 MB cap*");
+        copy.Length.Should().BeLessThanOrEqualTo(cap);
+    }
+
+    [Fact]
+    public async Task ReadFile_AttachmentDeletedSinceTheListing_ThrowsFileNotFound()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.AddAttachment(Attachment("501", "1", "notes.txt"));
+        await _connector.GetChangesAsync(null);
+
+        _api.Confluence.RemoveAttachment("501");
+
+        await FluentActions.Awaiting(() => _connector.ReadFileAsync("/attachments/501/notes.txt"))
+            .Should().ThrowAsync<FileNotFoundException>();
+    }
+
+    [Fact]
+    public void SafeFileName_LongNameEndingInASurrogatePair_IsNotSplit()
+    {
+        string name = new string('a', 195) + "\U0001F600" + new string('b', 20) + ".txt";
+
+        string safe = ConfluenceSpaceConnector.SafeFileName(name);
+
+        safe.Should().Be(new string('a', 195) + ".txt");
+        safe.Any(char.IsSurrogate).Should().BeFalse();
     }
 
     [Theory]
