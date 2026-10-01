@@ -17,6 +17,7 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
     private readonly Dictionary<string, Func<HttpRequestMessage, HttpResponseMessage>> _routes = [];
     private readonly HashSet<string> _validTokens = [];
+    private readonly HashSet<string> _authorizationCodes = [];
     private readonly object _gate = new();
     private int _tokensIssued;
 
@@ -45,6 +46,12 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
 
     /// <summary>The Content-Type of each token request.</summary>
     public List<string?> TokenContentTypes { get; } = [];
+
+    /// <summary>The body of each <c>authorization_code</c> token request, accepted or not.</summary>
+    public List<string> AuthorizationCodeBodies { get; } = [];
+
+    /// <summary>Makes the token endpoint accept <paramref name="code"/> once in an <c>authorization_code</c> grant.</summary>
+    public void AcceptAuthorizationCode(string code) { lock (_gate) _authorizationCodes.Add(code); }
 
     public void FailWith(HttpStatusCode? status) { lock (_gate) FailingStatus = status; }
 
@@ -120,11 +127,23 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
         if (FailingTokenStatus is { } failing)
             return new HttpResponseMessage(failing);
 
-        string? grantType = body.TrimStart().StartsWith('{')
-            ? JsonDocument.Parse(body).RootElement.GetProperty("grant_type").GetString()
-            : System.Web.HttpUtility.ParseQueryString(body)["grant_type"];
-        if (grantType != "client_credentials")
+        bool isJson = body.TrimStart().StartsWith('{');
+        string? Field(string name) => isJson
+            ? JsonDocument.Parse(body).RootElement.TryGetProperty(name, out var value) ? value.GetString() : null
+            : System.Web.HttpUtility.ParseQueryString(body)[name];
+
+        string? grantType = Field("grant_type");
+        if (grantType == "authorization_code")
+        {
+            AuthorizationCodeBodies.Add(body);
+            // A user sign-in code is good once, like Atlassian's.
+            if (Field("code") is not { } code || !_authorizationCodes.Remove(code))
+                return new HttpResponseMessage(HttpStatusCode.BadRequest);
+        }
+        else if (grantType != "client_credentials")
+        {
             return new HttpResponseMessage(HttpStatusCode.BadRequest);
+        }
 
         string token = "token-" + ++_tokensIssued;
         _validTokens.Add(token);

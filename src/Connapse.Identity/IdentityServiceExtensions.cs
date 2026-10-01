@@ -94,6 +94,7 @@ public static class IdentityServiceExtensions
         services.AddSingleton<AzureSignInRequests>();
         services.AddSingleton<AzureLinkConfirmations>();
         services.AddSingleton<GitHubLinkFlow>();
+        services.AddSingleton<AtlassianLinkFlow>();
 
         services.AddHttpContextAccessor();
 
