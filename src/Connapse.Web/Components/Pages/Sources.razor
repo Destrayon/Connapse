@@ -7,6 +7,7 @@
 @using System.Text.Json
 
 @using Connapse.Web.Services
+@using Connapse.Web.Components.Sources
 @inject ISourceStore SourceStore
 @inject Connapse.Web.Services.PrivateSourceVisibility PrivateSources
 @inject IConnectionStore ConnectionStore
@@ -382,6 +383,13 @@
                             <div class="form-text ms-4">Comments from bots are left out. After adding, choose exceptions on the source's edit page.</div>
                         </fieldset>
                     }
+                    else if (selectedProvider is ConnectionProvider.Atlassian && confluenceForm is not null)
+                    {
+                        @* An Atlassian connection is one site. Each space ticked becomes its own
+                           source, named after the site and the space, so there is no name field. *@
+                        <ConfluenceSpaceForm ConnectionId="@form.ConnectionId" Selection="confluenceForm"
+                                             ExistingSpaceIds="confluenceExisting" />
+                    }
                     else
                     {
                     <div class="mb-3">
@@ -627,6 +635,10 @@
 
     private SourceForm? form;
     private GitHubRepositoryForm? githubForm;
+    private ConfluenceSpaceSelection? confluenceForm;
+
+    /// <summary>Space ids the chosen Atlassian connection already has a source for.</summary>
+    private IReadOnlySet<string> confluenceExisting = new HashSet<string>();
     private bool creating;
     private string? createError;
     private string? createWarning;
@@ -1035,6 +1047,7 @@
         form = new SourceForm { ConnectionId = connectionId };
         githubForm = new GitHubRepositoryForm();
         await LoadGitHubSuggestionsAsync();
+        await ResetConfluenceAsync();
     }
 
     private void CancelCreate()
@@ -1066,6 +1079,100 @@
         createWarning = null;
         ClearRepoError();
         await LoadGitHubSuggestionsAsync();
+        await ResetConfluenceAsync();
+    }
+
+    /// <summary>A fresh space selection, and which spaces the chosen Atlassian connection already has sources for.</summary>
+    private async Task ResetConfluenceAsync()
+    {
+        confluenceForm = new ConfluenceSpaceSelection();
+        confluenceExisting = new HashSet<string>();
+        if (SelectedConnection is not { Provider: ConnectionProvider.Atlassian } connection)
+            return;
+
+        try
+        {
+            confluenceExisting = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+        }
+        catch (Exception)
+        {
+            // Offering every space is safe: a duplicate is skipped again when the sources are created.
+        }
+    }
+
+    /// <summary>
+    /// Creates one source per ticked space on an Atlassian site connection. Each is created on its
+    /// own, so a name clash on one still creates the others and says so. A space that already has
+    /// a source on the connection is skipped, matched on its id.
+    /// </summary>
+    private async Task CreateConfluenceSpacesAsync(Connection connection)
+    {
+        if (confluenceForm is null) return;
+
+        if (confluenceForm.Validate() is { } invalid)
+        {
+            createError = invalid;
+            return;
+        }
+
+        var site = Connapse.Storage.Connectors.Atlassian.AtlassianSite.FromConfigJson(connection.ConfigJson);
+        if (site is null)
+        {
+            createError = $"Connection '{connection.Name}' is not a complete Atlassian site. Re-add it on the Providers page.";
+            return;
+        }
+
+        creating = true;
+        var created = new List<string>();
+        var failed = new List<string>();
+
+        try
+        {
+            // Read again rather than trusting what the dialog loaded: another admin may have added one since.
+            var existing = ConfluenceSpaceSelection.SpaceIdsOf(await SourceStore.ListByConnectionAsync(connection.Id));
+            var requests = confluenceForm.ToRequests(connection.Id, new Uri(site.SiteUrl).Host, existing, out var skipped);
+
+            foreach (var request in requests)
+            {
+                try
+                {
+                    var source = await SourceStore.CreateAsync(request);
+                    created.Add(source.Name);
+                    await AuditLogger.LogAsync("source.created", "source", source.Id.ToString(),
+                        new { source.Name, source.ConnectionId });
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // A duplicate name: this space already has a source of that name.
+                    failed.Add(ex.Message);
+                }
+            }
+
+            if (created.Count == 0)
+            {
+                createError = "Nothing added. "
+                    + (skipped.Count > 0 ? $"Already a source: {string.Join(", ", skipped)}. " : "")
+                    + string.Join(" ", failed);
+                return;
+            }
+
+            form = null;
+            confluenceForm = null;
+            Succeed($"Added {created.Count} {(created.Count == 1 ? "source" : "sources")}: {string.Join(", ", created)}. They sync on the next cycle, or press Sync."
+                + (skipped.Count > 0 ? $" Skipped, already a source: {string.Join(", ", skipped)}." : "")
+                + (failed.Count > 0 ? " Not added: " + string.Join(" ", failed) : ""));
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a Blazor event handler tears down the circuit.
+            createError = $"Could not add the spaces. {ex.Message}";
+        }
+        finally
+        {
+            creating = false;
+        }
     }
 
     /// <summary>
@@ -1172,6 +1279,12 @@
         if (connection.Provider == ConnectionProvider.GitHub)
         {
             await CreateGitHubRepositoryAsync(connection);
+            return;
+        }
+
+        if (connection.Provider == ConnectionProvider.Atlassian)
+        {
+            await CreateConfluenceSpacesAsync(connection);
             return;
         }
 

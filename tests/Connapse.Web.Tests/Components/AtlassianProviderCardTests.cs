@@ -37,7 +37,8 @@ public class AtlassianProviderCardTests : IDisposable
 
         ctx.Services.AddSingleton(store);
         ctx.Services.AddSingleton(credentials);
-        ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit));
+        ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
+            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System)));
     }
 
     public void Dispose() => ctx.Dispose();
