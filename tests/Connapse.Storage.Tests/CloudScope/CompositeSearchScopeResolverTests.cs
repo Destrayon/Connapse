@@ -26,6 +26,27 @@ public class CompositeSearchScopeResolverTests
         return await Task.FromResult(c.Combine(aws, azure));
     }
 
+    // ── No resolvers is not a permit ──
+
+    [Fact]
+    public void Combine_EmptyList_FailsClosed()
+    {
+        // All() over nothing is true, which read an empty composite as globally unrestricted.
+        var r = new CompositeSearchScopeResolver.Combiner().Combine([]);
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Outcome.Should().Be(SearchScopes.Failed.Outcome);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_NoResolvers_FailsClosed()
+    {
+        var r = await new CompositeSearchScopeResolver([]).ResolveAsync(Guid.NewGuid());
+
+        r.IsUnrestricted.Should().BeFalse();
+        r.Outcome.Should().Be(SearchScopes.Failed.Outcome);
+    }
+
     // ── With GitHub: private repository documents are filtered whatever the clouds say ──
 
     [Fact]
