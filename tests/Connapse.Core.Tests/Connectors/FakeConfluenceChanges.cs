@@ -8,6 +8,14 @@ namespace Connapse.Core.Tests.Connectors;
 public sealed record FakeConfluenceComment(
     string Id, string PageId, string AuthorId, string Body, DateTimeOffset ModifiedAt, bool Inline = false);
 
+/// <summary>An attachment on a page or blog post. <see cref="Id"/> is the digits after "att".</summary>
+public sealed record FakeConfluenceAttachment(
+    string Id, string PageId, string FileName, byte[] Content, DateTimeOffset ModifiedAt,
+    string MediaType = "text/plain", long? DeclaredSize = null, int Version = 1, bool OmitSize = false)
+{
+    public long Size => DeclaredSize ?? Content.Length;
+}
+
 /// <summary>
 /// The fake's comments and the v1 CQL search that reports changes to them. The search understands
 /// only the clauses the connector sends: <c>space="KEY"</c>, the type filter, and
@@ -74,7 +82,88 @@ public sealed partial class FakeConfluence
         if (rest == "rest/api/search")
             return Search(query);
 
+        if (AttachmentsRoute().Match(rest) is { Success: true } listing)
+        {
+            string singular = listing.Groups["kind"].Value == "pages" ? "page" : "blogpost";
+            string pageId = listing.Groups["id"].Value;
+            AttachmentListings[pageId] = AttachmentListings.GetValueOrDefault(pageId) + 1;
+            if (RateLimitAttachmentListing.Remove(pageId))
+            {
+                var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                limited.Headers.TryAddWithoutValidation("Retry-After", "30");
+                return limited;
+            }
+
+            if (!_pages.TryGetValue(pageId, out var page) || page.Kind != singular)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            var all = _attachments.Values.Where(a => a.PageId == pageId).OrderBy(a => a.Id, StringComparer.Ordinal).ToList();
+            return Paged(rest, query, all, a => new
+            {
+                id = "att" + a.Id,
+                title = a.FileName,
+                mediaType = a.MediaType,
+                fileSize = a.OmitSize ? (long?)null : a.Size,
+                pageId = a.PageId,
+                version = new { number = a.Version, createdAt = a.ModifiedAt },
+            });
+        }
+
+        if (DownloadRoute().Match(rest) is { Success: true } download)
+        {
+            string attId = download.Groups["att"].Value;
+            if (!_attachments.TryGetValue(attId, out var attachment) || attachment.PageId != download.Groups["page"].Value)
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+            redirect.Headers.Location = new Uri(DownloadRedirect ?? $"https://{MediaHost}/file/{attId}/binary?token=media-{attId}");
+            return redirect;
+        }
+
         return null;
+    }
+
+    // ── Attachments ──────────────────────────────────────────────────────
+
+    /// <summary>Where a download redirects to.</summary>
+    public const string MediaHost = "api.media.atlassian.com";
+
+    private readonly Dictionary<string, FakeConfluenceAttachment> _attachments = [];
+
+    /// <summary>How many times each page's attachment list was read.</summary>
+    public Dictionary<string, int> AttachmentListings { get; } = [];
+
+    /// <summary>Pages whose next attachment listing answers 429, once each.</summary>
+    public HashSet<string> RateLimitAttachmentListing { get; } = [];
+
+    /// <summary>Overrides where a download redirects, for the client's host checks.</summary>
+    public string? DownloadRedirect { get; set; }
+
+    public void AddAttachment(FakeConfluenceAttachment attachment) { lock (_gate) _attachments[attachment.Id] = attachment; }
+
+    public void RemoveAttachment(string id) { lock (_gate) _attachments.Remove(id); }
+
+    [GeneratedRegex(@"^api/v2/(?<kind>pages|blogposts)/(?<id>\d+)/attachments$")]
+    private static partial Regex AttachmentsRoute();
+
+    [GeneratedRegex(@"^rest/api/content/(?<page>\d+)/child/attachment/att(?<att>\d+)/download$")]
+    private static partial Regex DownloadRoute();
+
+    [GeneratedRegex(@"^/file/(?<att>\d+)/binary$")]
+    private static partial Regex MediaRoute();
+
+    /// <summary>The media host's answer: the attachment's bytes, when the address carries its token.</summary>
+    internal HttpResponseMessage AnswerMedia(Uri uri)
+    {
+        lock (_gate)
+        {
+            var match = MediaRoute().Match(uri.AbsolutePath);
+            string attId = match.Groups["att"].Value;
+            if (!match.Success || !_attachments.TryGetValue(attId, out var attachment) || !uri.Query.Contains($"token=media-{attId}"))
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(attachment.Content) };
+        }
     }
 
     private HttpResponseMessage Search(System.Collections.Specialized.NameValueCollection query)
@@ -102,6 +191,13 @@ public sealed partial class FakeConfluence
             hits.AddRange(_comments.Values
                 .Where(c => _pages.TryGetValue(c.PageId, out var p) && p.SpaceId == spaceId && c.ModifiedAt >= since)
                 .Select(c => (c.Id, "comment", "Re: comment", c.PageId, _pages[c.PageId].Kind, c.ModifiedAt)));
+        }
+
+        if (cql.Contains("attachment", StringComparison.Ordinal))
+        {
+            hits.AddRange(_attachments.Values
+                .Where(a => _pages.TryGetValue(a.PageId, out var p) && p.SpaceId == spaceId && a.ModifiedAt >= since)
+                .Select(a => ("att" + a.Id, "attachment", a.FileName, a.PageId, _pages[a.PageId].Kind, a.ModifiedAt)));
         }
 
         int limit = int.Parse(query["limit"] ?? "25", CultureInfo.InvariantCulture);

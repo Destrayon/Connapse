@@ -29,6 +29,9 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     /// <summary>Every request received, as absolute URL.</summary>
     public List<Uri> Requests { get; } = [];
 
+    /// <summary>The bearer token, if any, each request to the media host carried.</summary>
+    public List<string?> MediaAuthorization { get; } = [];
+
     /// <summary>The bearer token each non-token request carried.</summary>
     public List<string?> BearerTokens { get; } = [];
 
@@ -95,6 +98,14 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
             {
                 TokenContentTypes.Add(request.Content!.Headers.ContentType?.MediaType);
                 return IssueToken(tokenBody!);
+            }
+
+            // The media service a download redirects to: its address carries its own token, so a
+            // bearer header is recorded (it must never arrive) but not required.
+            if (uri.Host == FakeConfluence.MediaHost)
+            {
+                MediaAuthorization.Add(token);
+                return Confluence.AnswerMedia(uri);
             }
 
             // A site's tenant_info answers anyone, with no token.

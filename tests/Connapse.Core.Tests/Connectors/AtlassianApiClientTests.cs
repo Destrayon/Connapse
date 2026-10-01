@@ -286,6 +286,34 @@ public sealed class AtlassianApiClientTests : IDisposable
         return response;
     }
 
+    [Fact]
+    public async Task DownloadAsync_UsesTheDownloadClientForEveryHop()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", "4001", "Page"));
+        _api.Confluence.AddAttachment(new FakeConfluenceAttachment(
+            "501", "1", "a.txt", "bytes"u8.ToArray(), DateTimeOffset.UnixEpoch));
+        var counting = new CountingHandler(_api);
+        var client = new AtlassianApiClient(
+            _api.CreateClient(), NewTokens(), _site, "secret", _clock, downloads: new HttpClient(counting));
+
+        await using var stream = await client.DownloadAsync("rest/api/content/1/child/attachment/att501/download", default);
+        using var reader = new StreamReader(stream);
+
+        (await reader.ReadToEndAsync()).Should().Be("bytes");
+        counting.Hosts.Should().Equal("api.atlassian.com", FakeConfluence.MediaHost);
+    }
+
+    private sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        public List<string> Hosts { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Hosts.Add(request.RequestUri!.Host);
+            return base.SendAsync(request, ct);
+        }
+    }
+
     private sealed class FakeFactory(FakeAtlassianApi api) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => api.CreateClient();

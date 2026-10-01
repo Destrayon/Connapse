@@ -21,7 +21,8 @@ public class ConnectorFactory(
     GitHub.GitHubCredentialPool? gitHubPool = null,
     Atlassian.AtlassianTokenSource? atlassianTokens = null,
     IOptionsMonitor<AtlassianSourceSettings>? atlassianSettings = null,
-    ILoggerFactory? loggerFactory = null) : IConnectorFactory
+    ILoggerFactory? loggerFactory = null,
+    IFileTypeValidator? fileTypes = null) : IConnectorFactory
 {
     /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
     public const string GitHubHttpClientName = "GitHub";
@@ -294,6 +295,10 @@ public class ConnectorFactory(
             throw new InvalidOperationException(
                 $"Source '{source.Name}' is on connection '{connection.Name}', which has no service-account secret stored.");
 
+        int maxAttachmentMb = Int(scope, "maxAttachmentMb") ?? 25;
+        if (maxAttachmentMb <= 0)
+            throw new InvalidOperationException($"Source '{source.Name}' has a maxAttachmentMb that is not a positive number.");
+
         if (atlassianTokens is null || atlassianSettings is null)
             throw new InvalidOperationException(
                 $"Source '{source.Name}' needs the Atlassian token source and source settings, which are not registered.");
@@ -303,10 +308,17 @@ public class ConnectorFactory(
             atlassianSettings.CurrentValue.StateDirectory, source.Id.ToString("N")));
 
         return new Atlassian.ConfluenceSpaceConnector(
-            new Atlassian.ConfluenceSpaceConfig(site, spaceId!, spaceKey, statePath),
+            new Atlassian.ConfluenceSpaceConfig(
+                site, spaceId!, spaceKey, statePath,
+                IncludeAttachments: Bool(scope, "includeAttachments") ?? true,
+                MaxAttachmentMb: maxAttachmentMb),
             new Atlassian.AtlassianApiClient(
-                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret),
-            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>());
+                httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret,
+                downloads: httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.DownloadHttpClientName)),
+            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>(),
+            // The parsers Ingestion registered, reached through Core's interface: an attachment
+            // without one is skipped and counted rather than ingested to fail.
+            fileTypes: fileTypes);
     }
 
     private static void RequireJsonObject(JsonDocument doc, string subject)

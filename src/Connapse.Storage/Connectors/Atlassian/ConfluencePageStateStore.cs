@@ -2,12 +2,14 @@ using System.Text.Json;
 
 namespace Connapse.Storage.Connectors.Atlassian;
 
-/// <summary>An attachment of a page as last listed.</summary>
+/// <summary>An attachment of a page as last listed. <see cref="Id"/> is the numeric part of Confluence's <c>att…</c> id.</summary>
 internal sealed class ConfluenceStoredAttachment
 {
     public string Id { get; set; } = "";
     public int Version { get; set; }
-    public string Filename { get; set; } = "";
+    public DateTimeOffset VersionAt { get; set; }
+    public string FileName { get; set; } = "";
+    public string? MediaType { get; set; }
     public long Size { get; set; }
 }
 
@@ -23,6 +25,9 @@ internal sealed class ConfluenceStoredPage
     public string? ParentId { get; set; }
     public string? ParentType { get; set; }             // page | folder | null
     public List<ConfluenceStoredAttachment> Attachments { get; set; } = [];
+
+    /// <summary>When <see cref="Attachments"/> was last listed from Confluence; null means it is due.</summary>
+    public DateTimeOffset? AttachmentsListedAt { get; set; }
 }
 
 /// <summary>A folder's place in the tree, so a breadcrumb can climb past it.</summary>
@@ -32,7 +37,6 @@ internal sealed record ConfluenceFolderParent(string? ParentId, string? ParentTy
 internal sealed class ConfluenceSyncState
 {
     public DateTimeOffset? Watermark { get; set; }
-    public DateTimeOffset? LastAttachmentSweepAt { get; set; }
     public Dictionary<string, string> FolderTitles { get; set; } = [];
 
     /// <summary>Each known folder's own parent. Folders nest, and a breadcrumb walks through them.</summary>
@@ -45,6 +49,9 @@ internal sealed class ConfluenceSyncState
     public DateTimeOffset? FoldersRefreshedAt { get; set; }
 
     public string SpaceName { get; set; } = "";
+
+    /// <summary>Which page each stored attachment belongs to, so a read can find it from its path.</summary>
+    public Dictionary<string, string> AttachmentPages { get; set; } = [];
 }
 
 /// <summary>

@@ -50,7 +50,18 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
     }
 
     /// <summary>Builds the real connector over the fake, the way the factory branch will.</summary>
-    private sealed class FakeApiConnectorFactory(FakeAtlassianApi api, string root, TimeProvider clock) : IConnectorFactory
+    /// <summary>What the source's scope would say about attachments; tests flip it between cycles.</summary>
+    private sealed class AttachmentOptions
+    {
+        public bool Include { get; set; } = true;
+        public int MaxMb { get; set; } = 25;
+    }
+
+    private readonly AttachmentOptions _attachments = new();
+
+    private sealed class FakeApiConnectorFactory(
+        FakeAtlassianApi api, string root, TimeProvider clock, AttachmentOptions options, IFileTypeValidator fileTypes)
+        : IConnectorFactory
     {
         private readonly AtlassianTokenSource _tokens = new(new FakeHttpClients(api), TimeProvider.System);
 
@@ -58,9 +69,11 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         {
             var site = AtlassianSite.FromConfigJson(connection.ConfigJson)!;
             return new ConfluenceSpaceConnector(
-                new ConfluenceSpaceConfig(site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N"))),
+                new ConfluenceSpaceConfig(
+                    site, SpaceId, "ENG", Path.Combine(root, source.Id.ToString("N")), options.Include, options.MaxMb),
                 new AtlassianApiClient(api.CreateClient(), _tokens, site, secret!),
-                clock: clock);
+                clock: clock,
+                fileTypes: fileTypes);
         }
 
         public IConnector Create(Source source) => throw new InvalidOperationException("Confluence sources have a connection");
@@ -71,7 +84,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         var queue = new RecordingIngestionQueue();
         var service = new SourceSyncService(
             sp.GetRequiredService<IServiceScopeFactory>(),
-            new FakeApiConnectorFactory(_api, _root, _clock),
+            new FakeApiConnectorFactory(_api, _root, _clock, _attachments, sp.GetRequiredService<IFileTypeValidator>()),
             queue,
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
         return (service, queue);
@@ -478,6 +491,146 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         var third = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
         third.Deleted.Should().Be(1);
         queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
+    private FakeConfluenceAttachment AttachmentOn(string pageId, string id, string name, long? size = null) =>
+        new(id, pageId, name, "attached runbook text"u8.ToArray(), _clock.GetUtcNow().AddMinutes(-1), DeclaredSize: size);
+
+    /// <summary>
+    /// The registration the app really uses: downloads get a client that leaves redirects to
+    /// AtlassianApiClient, so every hop is checked against Atlassian's hosts.
+    /// </summary>
+    [Fact]
+    public void DownloadHttpClient_DoesNotFollowRedirectsItself()
+    {
+        var handler = fixture.Factory.Services.GetRequiredService<IHttpMessageHandlerFactory>()
+            .CreateHandler(AtlassianApiClient.DownloadHttpClientName);
+        while (handler is DelegatingHandler delegating)
+            handler = delegating.InnerHandler!;
+
+        handler.Should().BeOfType<SocketsHttpHandler>().Which.AllowAutoRedirect.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NewAttachment_Ingested()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        var job = queue.Jobs.Should().ContainSingle().Subject;
+        job.Options.Path.Should().Be("/attachments/601/runbook.txt");
+        job.Options.Metadata!["confluence:breadcrumb"].Should().Be("Engineering > Page 2 > runbook.txt");
+        job.Options.Metadata[SourceSyncService.RemoteSizeKey].Should().Be("21", "an attachment's signature is its real size");
+    }
+
+    [Fact]
+    public async Task AttachmentDeleted_RemovedAfterDailySweep()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/601/runbook.txt");
+
+        // A deletion is invisible to the change query, so it waits for the sweep.
+        _api.Confluence.RemoveAttachment("601");
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, synced, connection);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().Contain("/attachments/601/runbook.txt");
+
+        _clock.Advance(ConfluenceSpaceConnector.AttachmentSweepInterval);
+        var swept = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        swept.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().NotContain("/attachments/601/runbook.txt");
+    }
+
+    [Fact]
+    public async Task OversizeAttachment_SkippedAndCounted()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "huge.txt", size: 30L * 1024 * 1024));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "602", "small.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Notice.Should().Be("1 attachment skipped: over 25 MB or unsupported type");
+        queue.Jobs.Select(j => j.Options.Path).Should().Contain("/attachments/602/small.txt")
+            .And.NotContain(p => p.StartsWith("/attachments/601/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnsupportedAttachment_SkippedAndCounted()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("101", "601", "setup.exe"));
+        _api.Confluence.AddAttachment(AttachmentOn("102", "602", "archive.bin"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+
+        var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Notice.Should().Be("2 attachments skipped: over 25 MB or unsupported type");
+        queue.Jobs.Should().NotContain(j => j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task IncludeAttachmentsOff_RemovesExisting()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _attachments.Include = false;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Deleted.Should().Be(1);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id))
+            .Should().BeEquivalentTo("/pages/101.md", "/pages/102.md", "/blogposts/201.md");
+    }
+
+    [Fact]
+    public async Task AttachmentResourceUri_PointsAtPage()
+    {
+        SeedSpace();
+        _api.Confluence.AddAttachment(AttachmentOn("102", "601", "runbook.txt"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, _) = BuildService(scope.ServiceProvider);
+        await service.SyncSourceAsync(source, connection, CancellationToken.None);
+
+        await using var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        string? uri = await db.Documents
+            .Where(d => d.SourceId == source.Id && d.Path == "/attachments/601/runbook.txt")
+            .Select(d => d.ResourceUri).SingleAsync();
+
+        uri.Should().Be(AtlassianUri.ForAttachment(_cloudId.ToLowerInvariant(), "102", "601"));
+        AtlassianUri.TryParse(uri, out string cloudId, out string contentId).Should().BeTrue();
+        contentId.Should().Be("102", "a hit on the attachment is checked against its page");
+        cloudId.Should().Be(_cloudId.ToLowerInvariant());
     }
 
     /// <summary>
