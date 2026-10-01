@@ -165,7 +165,7 @@
         @* AWS renders status and setup together below. Repeating these cards above those sections
            made the page read like two separate checklists for the same work. Azure does the same
            (its setup cards below), so it is excluded here too. *@
-        @if (Key != "aws" && Key != "azure" && Key != "github")
+        @if (Key != "aws" && Key != "azure" && Key != "github" && Key != "atlassian")
         {
         @* Requirements first: someone arriving here is asking what is left to do, and answering
            that before showing forms is the reason this page exists. *@
@@ -1865,6 +1865,10 @@
                 </Actions>
             </ProviderStepCard>
         }
+        else if (Key == "atlassian")
+        {
+            <AtlassianProviderCard />
+        }
 
     }
 </div>
@@ -2956,6 +2960,7 @@
         "aws" => "Read files from S3.",
         "azure" => "Read files from Azure Blob Storage.",
         "github" => "Index repositories' docs, issues, and pull requests.",
+        "atlassian" => "Index Confluence spaces and pages.",
         _ => $"Set up {provider.DisplayName}."
     };
 

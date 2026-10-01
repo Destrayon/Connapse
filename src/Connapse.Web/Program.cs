@@ -152,6 +152,7 @@ builder.Services.AddMemoryCache();
 // after a source already exists.
 builder.Services.AddScoped<SourceScopePreflight>();
 builder.Services.AddScoped<IProviderSetupReader, ProviderSetupReader>();
+builder.Services.AddScoped<Connapse.Web.Services.AtlassianSiteService>();
 builder.Services.AddSingleton<Connapse.Web.Services.GitHubManifestRequests>();
 builder.Services.AddScoped<Connapse.Web.Services.PrivateSourceVisibility>();
 builder.Services.AddScoped<Connapse.Web.Services.GitHubAppUsage>();
