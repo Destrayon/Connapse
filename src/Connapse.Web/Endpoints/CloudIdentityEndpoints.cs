@@ -651,12 +651,7 @@ public static class CloudIdentityEndpoints
                 return Results.Redirect("/profile/integrations?error=atlassian_link_unlinked");
             }
 
-            // The link app is proven to work. False here means it was marked recently, not that
-            // it is missing, so the result is not checked.
-            await credentials.MarkAtlassianLinkAppVerifiedAsync(DateTime.UtcNow, ct);
-
-            await audit.LogAsync("identity.atlassian.linked", "user", userId.Value.ToString(),
-                new { link.AccountId, link.DisplayName }, ct);
+            await RecordAtlassianLinkAsync(audit, credentials, logger, userId.Value, link, ct);
             return Results.Redirect("/profile/integrations?linked=atlassian");
         }).RequireAuthorization();
 
@@ -760,6 +755,28 @@ public static class CloudIdentityEndpoints
         }).RequireAuthorization();
 
         return app;
+    }
+
+    /// <summary>Records a saved Atlassian link: the audit event, and that the link app works.</summary>
+    internal static async Task RecordAtlassianLinkAsync(
+        IAuditLogger audit, IProviderCredentialStore credentials, ILogger logger,
+        Guid userId, PendingAtlassianLink link, CancellationToken ct)
+    {
+        // First, because the link is already saved: nothing after this may cost it its record.
+        await audit.LogAsync("identity.atlassian.linked", "user", userId.ToString(),
+            new { link.AccountId, link.DisplayName }, ct);
+
+        try
+        {
+            // The link app is proven to work. False here means it was marked recently, not that
+            // it is missing, so the result is not checked.
+            await credentials.MarkAtlassianLinkAppVerifiedAsync(DateTime.UtcNow, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Only a status label on the Providers page depends on this; the link stands.
+            logger.LogWarning(ex, "Could not record that the Atlassian linking app was verified");
+        }
     }
 
     private static Guid? GetUserId(HttpContext httpContext)
