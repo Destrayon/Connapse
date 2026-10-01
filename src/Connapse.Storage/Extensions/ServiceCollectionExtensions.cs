@@ -197,6 +197,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(Connectors.Atlassian.AtlassianApiClient.HttpClientName);
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<Connectors.Atlassian.AtlassianTokenSource>();
+        services.AddScoped<Connectors.Atlassian.AtlassianUserSignIn>();
 
         // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
         // rather than minted per request; it reaches the scoped credential store through a scope.
