@@ -68,6 +68,7 @@ public class ProviderSetupReader(
         var azurePermissions = await azurePermissionsTask;
         var gitHub = await GitHubAppAsync(ct);
         bool atlassianInUse = providers.Contains(ConnectionProvider.Atlassian);
+        var atlassianLinkApp = await AtlassianLinkAppAsync(ct);
 
         return
         [
@@ -93,16 +94,17 @@ public class ProviderSetupReader(
                 [gitHub],
                 InUse: gitHub.Status != RequirementStatus.NotConfigured),
 
-            // A saved site is the whole of Atlassian setup for now (the linking app arrives later),
-            // and it is only saved once the service account has passed every probe.
+            // A site is only saved once the service account has passed every probe. The linking app
+            // is what lets anyone see its pages: without it every Confluence hit is denied.
             new ProviderSetup("atlassian", "Atlassian",
                 [
+                    atlassianLinkApp,
                     new ProviderRequirement("Atlassian site",
                         "A Confluence Cloud site and the service account Connapse reads it with.",
                         atlassianInUse ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
                         ActionLabel: atlassianInUse ? null : "Add a site", ActionHref: atlassianInUse ? null : "#atlassian-site")
                 ],
-                InUse: atlassianInUse)
+                InUse: atlassianInUse || atlassianLinkApp.Status != RequirementStatus.NotConfigured)
         ];
     }
 
@@ -182,6 +184,42 @@ public class ProviderSetupReader(
     }
 
     private const string PostgresGitHubProvider = "github";
+
+    /// <summary>
+    /// Whether people can link their Atlassian accounts. Ready only once someone has completed a
+    /// sign-in through the app; a saved app nobody has used yet is unconfirmed, since the callback
+    /// URL or sharing setting it depends on can only be checked by signing in.
+    /// </summary>
+    private async Task<ProviderRequirement> AtlassianLinkAppAsync(CancellationToken ct)
+    {
+        const string name = "Linking app";
+        const string description =
+            "The Atlassian app people sign in through so search can respect what they may read.";
+
+        AtlassianLinkAppRegistration? app;
+        try
+        {
+            app = await credentials.GetAtlassianLinkAppAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the stored Atlassian linking app");
+            return new ProviderRequirement(name, description, RequirementStatus.Unknown,
+                "Could not read the stored app.");
+        }
+
+        if (app is null)
+            return new ProviderRequirement(name, description, RequirementStatus.NotConfigured,
+                "Nobody can link an Atlassian account, so Confluence results are hidden from everyone.",
+                "Set up", "#atlassian-app");
+
+        if (app.VerifiedAt is null)
+            return new ProviderRequirement(name, description, RequirementStatus.Warning,
+                "Saved, waiting for a first sign-in. It shows as ready once someone links their account with it.",
+                "Check the app", "#atlassian-app");
+
+        return new ProviderRequirement(name, description, RequirementStatus.Satisfied, app.ClientId);
+    }
 
     /// <summary>
     /// Whether Connapse has an Azure app identity to read Blob storage (and Entra/ARM) with, and

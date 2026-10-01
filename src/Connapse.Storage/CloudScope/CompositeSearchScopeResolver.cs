@@ -3,17 +3,18 @@ using Connapse.Core;
 namespace Connapse.Storage.CloudScope;
 
 /// <summary>
-/// Unions any number of scope resolvers into one, per URI scheme; AWS and Azure are the clouds. Each
-/// cloud governs its own scheme (<c>s3://</c>, <c>azblob://</c>); non-cloud documents (resource_uri NULL)
-/// are always admitted by the store's existing fallback. A cloud that is not enforcing contributes
-/// its scheme wildcard (its docs visible); a cloud that denies or fails contributes nothing (its
-/// docs hidden), and one cloud's failure never denies the other's or non-cloud docs. Only when both
-/// clouds are unrestricted is the result globally unrestricted.
+/// Unions any number of scope resolvers into one, per URI scheme. Each resolver governs its own
+/// scheme (<c>s3://</c>, <c>azblob://</c>, <c>github://</c>, <c>atlassian://</c>); non-provider
+/// documents (resource_uri NULL) are always admitted by the store's existing fallback. A cloud
+/// (<see cref="ScopeKind.Cloud"/>) that is not enforcing contributes its scheme wildcard (its docs
+/// visible); one that denies or fails contributes nothing (its docs hidden), and one resolver's
+/// failure never denies another's or non-provider docs. Only when every resolver is a cloud and every
+/// cloud is unrestricted is the result globally unrestricted.
 /// <para>
-/// GitHub is the exception to that last rule: it only ever contributes grants, never
-/// "unrestricted", because private repository documents must be filtered whether or not any cloud
-/// is. So when GitHub is part of the composite the result is always a set of matches — the clouds'
-/// wildcards when they do not filter, plus the private repositories this user may read.
+/// GitHub and Atlassian (<see cref="ScopeKind.GrantOnly"/>) are the exception to that last rule:
+/// they only ever contribute grants, never "unrestricted", because their documents must be filtered
+/// whether or not any cloud is. So when one is part of the composite the result is always a set of
+/// matches — the clouds' wildcards when they do not filter, plus what this user was granted.
 /// </para>
 /// </summary>
 // The inner resolvers are typed as ISearchScopeResolver (not the concrete AWS/Azure types) purely
