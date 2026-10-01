@@ -226,6 +226,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MinioConnectionTester>();
         services.AddScoped<S3ConnectionTester>();
         services.AddScoped<AzureBlobConnectionTester>();
+        services.AddScoped<AtlassianConnectionTester>();
 
         // Singleton: it holds no per-request state, and the SDK caches and refreshes the resolved
         // credential itself, so a new instance per scope would discard that cache each time.
