@@ -64,6 +64,12 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
     public void Map(string absolutePath, Func<HttpRequestMessage, HttpResponseMessage> handler) =>
         _routes[absolutePath] = handler;
 
+    /// <summary>
+    /// Confluence content answered on any site: spaces, their pages and blog posts, folders and
+    /// users. A route registered with <see cref="Map"/> for the same path takes precedence.
+    /// </summary>
+    public FakeConfluence Confluence { get; } = new();
+
     public void MapJson(string absolutePath, object body) =>
         Map(absolutePath, _ => Json(body));
 
@@ -116,9 +122,11 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
                 return new HttpResponseMessage(failing);
 
             _routes.TryGetValue(uri.AbsolutePath, out route);
+            if (route is null)
+                return Confluence.Answer(uri);
         }
 
-        return route is null ? new HttpResponseMessage(HttpStatusCode.NotFound) : route(request);
+        return route(request);
     }
 
     // Caller holds _gate. Accepts the form body Atlassian documents, and JSON too.

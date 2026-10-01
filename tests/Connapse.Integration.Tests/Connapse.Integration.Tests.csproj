@@ -48,6 +48,7 @@
     <!-- Shared with the unit tests rather than referencing that project, which would pull its test host in. -->
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeGitHubApi.cs" Link="Fakes\FakeGitHubApi.cs" />
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeAtlassianApi.cs" Link="Fakes\FakeAtlassianApi.cs" />
+    <Compile Include="..\Connapse.Core.Tests\Connectors\FakeConfluence.cs" Link="Fakes\FakeConfluence.cs" />
   </ItemGroup>
 
 </Project>
