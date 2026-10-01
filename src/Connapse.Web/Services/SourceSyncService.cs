@@ -212,6 +212,13 @@ public class SourceSyncService(
                 : await SyncViaListAndDiffAsync(
                     source, connector, sourceStore, scope.ServiceProvider, ct, applyWithheldDeletions);
 
+            if (result.Unsupported > 0)
+            {
+                logger.LogInformation(
+                    "Skipped {Count} file(s) in source {SourceId} ({Name}) that no parser can read",
+                    result.Unsupported, source.Id, Sanitize(source.Name));
+            }
+
             // The remote answered, so it is readable again: its documents come back into search.
             if (source.AccessRevokedAt is not null)
             {
@@ -285,6 +292,9 @@ public class SourceSyncService(
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
+        var validator = sp.GetRequiredService<IFileTypeValidator>();
+        var (supported, unsupported) = PartitionSupported(delta.Upserted, validator);
+
         int upserted;
         int deleted;
         int inFlight;
@@ -295,7 +305,7 @@ public class SourceSyncService(
             // Everything the source holds, so anything indexed and missing from it went away
             // while there was no cursor to report it — the same question list-and-diff answers.
             (upserted, deleted, withheld, inFlight) = await ReconcileAsync(
-                source, delta.Upserted, sourceStore, context, sp, applyWithheldDeletions, ct);
+                source, supported, sourceStore, context, sp, applyWithheldDeletions, ct);
             deleted += await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
 
             // Withheld deletions are only applied by a later full listing, so the cursor stays
@@ -307,13 +317,31 @@ public class SourceSyncService(
                     source.Id, source.SyncCursor, SyncStatus.Succeeded, error: null, DateTime.UtcNow, ct);
 
                 return new SourceSyncResult(
-                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
+                    Unsupported: unsupported);
             }
         }
         else
         {
-            (upserted, inFlight) = await EnqueueAllAsync(source, delta.Upserted, context, sp, ct);
+            (upserted, inFlight) = await EnqueueAllAsync(source, supported, context, sp, ct);
             deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+
+            // A delta reports a changed file once and the cursor then moves past it, so a filtered
+            // upsert whose path already holds a leftover Failed document is the only chance to
+            // clear it before the next full listing.
+            if (unsupported > 0)
+            {
+                var filteredPaths = delta.Upserted
+                    .Where(f => !validator.IsSupported(f.Path))
+                    .Select(f => f.Path)
+                    .ToList();
+                var existing = await LoadByPathsAsync(context, source.Id, filteredPaths, ct);
+                var leftovers = existing.Values
+                    .Where(d => IsContentlessLeftover(d.Path, d.IngestionStatus, validator))
+                    .Select(d => d.Path)
+                    .ToList();
+                deleted += await DeleteByPathsAsync(source, leftovers, context, sp, ct);
+            }
         }
 
         // A change reported for a document that is still being ingested could not be queued: the
@@ -340,7 +368,8 @@ public class SourceSyncService(
                     source.Id, inFlight);
 
                 return new SourceSyncResult(
-                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld);
+                    upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
+                    Unsupported: unsupported);
             }
 
             logger.LogWarning(
@@ -373,7 +402,7 @@ public class SourceSyncService(
 
         return new SourceSyncResult(
             upserted, deleted, UsedDeltaPath: true, RequiredResync: false, Error: null, WithheldDeletions: withheld,
-            Notice: delta.Notice);
+            Notice: delta.Notice, Unsupported: unsupported);
     }
 
     private async Task<SourceSyncResult> SyncViaListAndDiffAsync(
@@ -381,13 +410,14 @@ public class SourceSyncService(
         bool applyWithheldDeletions = false)
     {
         IReadOnlyList<ConnectorFile> remote = await connector.ListFilesAsync(null, ct);
+        var (supported, unsupported) = PartitionSupported(remote, sp.GetRequiredService<IFileTypeValidator>());
 
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync(ct);
 
         // In-flight documents need no hold here: the next listing reports every file again.
         var (upserted, deleted, withheld, _) = await ReconcileAsync(
-            source, remote, sourceStore, context, sp, applyWithheldDeletions, ct);
+            source, supported, sourceStore, context, sp, applyWithheldDeletions, ct);
 
         // No cursor to advance on this path, so record the outcome directly. The stored
         // cursor stays null, which is what marks this source as fallback-synced.
@@ -396,8 +426,38 @@ public class SourceSyncService(
 
         return new SourceSyncResult(
             upserted, deleted, UsedDeltaPath: false, RequiredResync: false, Error: null,
-            WithheldDeletions: withheld);
+            WithheldDeletions: withheld, Unsupported: unsupported);
     }
+
+    /// <summary>
+    /// Splits a remote's files into those a parser can read and a count of the rest.
+    /// <para>
+    /// Only the upload paths used to check the parser registry, so an image in a synced bucket
+    /// was enqueued, failed in the pipeline with "Unsupported file type", and sat in the source as
+    /// a Failed document that no retry could ever fix. Filtering here keeps those files out of the
+    /// index entirely: they are not the source's documents, merely objects stored beside them.
+    /// </para>
+    /// </summary>
+    internal static (List<ConnectorFile> Supported, int Unsupported) PartitionSupported(
+        IReadOnlyList<ConnectorFile> files, IFileTypeValidator validator)
+    {
+        var supported = new List<ConnectorFile>(files.Count);
+        foreach (var file in files)
+        {
+            if (validator.IsSupported(file.Path))
+                supported.Add(file);
+        }
+
+        return (supported, files.Count - supported.Count);
+    }
+
+    /// <summary>
+    /// True for a document at a path no parser reads that never became searchable: the Failed
+    /// row an image left behind, or a claim whose job could never succeed. Such a row holds no
+    /// chunks, so removing it loses nothing.
+    /// </summary>
+    internal static bool IsContentlessLeftover(string path, DocumentStatus status, IFileTypeValidator validator) =>
+        !validator.IsSupported(path) && status != DocumentStatus.Ready;
 
     /// <summary>
     /// Brings the indexed documents in line with a complete listing of the remote: enqueues what
@@ -408,14 +468,33 @@ public class SourceSyncService(
         Source source, IReadOnlyList<ConnectorFile> remote, ISourceStore sourceStore, KnowledgeDbContext context,
         IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
     {
-        var indexedPaths = await context.Documents
+        var indexed = await context.Documents
             .AsNoTracking()
             .Where(d => d.SourceId == source.Id)
-            .Select(d => d.Path)
+            .Select(d => new { d.Path, d.IngestionStatus })
             .ToListAsync(ct);
 
         var remotePaths = remote.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+
+        // Documents an earlier sync made for files no parser can read, such as images. They are
+        // missing from the listing only because it is now filtered, and they never held content,
+        // so they are removed outside the guard. Counting them against it would make the first
+        // sync after an upgrade withhold every genuine deletion on an image-heavy source.
+        //
+        // Only rows that never became searchable qualify. A Ready document at such a path holds
+        // content -- its parser may since have been removed -- and stays under the guard like any
+        // other deletion, so a bad listing cannot take it without approval.
+        var validator = sp.GetRequiredService<IFileTypeValidator>();
+        var unreadable = indexed
+            .Where(d => !remotePaths.Contains(d.Path) && IsContentlessLeftover(d.Path, d.IngestionStatus, validator))
+            .Select(d => d.Path)
+            .ToList();
+        var unreadableSet = unreadable.ToHashSet(StringComparer.Ordinal);
+
+        var indexedPaths = indexed.Select(d => d.Path).Where(p => !unreadableSet.Contains(p)).ToList();
         var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
+
+        int unreadableDeleted = await DeleteByPathsAsync(source, unreadable, context, sp, ct);
 
         // Upserts apply regardless. A source that trips the guard must keep ingesting new
         // content, or the safety mechanism becomes the outage it exists to prevent.
@@ -468,7 +547,7 @@ public class SourceSyncService(
         await sourceStore.UpdateWithheldDeletionsAsync(
             source.Id, withhold ? vanished.Count : null, ct);
 
-        return (upserted, deleted, withhold ? vanished.Count : 0, inFlight);
+        return (upserted, deleted + unreadableDeleted, withhold ? vanished.Count : 0, inFlight);
     }
 
     /// <summary>

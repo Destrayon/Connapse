@@ -27,6 +27,10 @@ public record OwnerRef(Guid Id, bool IsSource)
 /// the cycle already in flight. A caller that surfaces this to a user should say "in
 /// progress", not "failed".
 /// </param>
+/// <param name="Unsupported">
+/// Files the remote reported that no parser can read, such as images. They are skipped rather
+/// than enqueued, so they never become documents.
+/// </param>
 public record SourceSyncResult(
     int Upserted,
     int Deleted,
@@ -35,7 +39,8 @@ public record SourceSyncResult(
     string? Error,
     bool AlreadyRunning = false,
     int WithheldDeletions = 0,
-    string? Notice = null);
+    string? Notice = null,
+    int Unsupported = 0);
 
 /// <summary>
 /// Thrown when a reindex would move a document between ownership domains — source to
