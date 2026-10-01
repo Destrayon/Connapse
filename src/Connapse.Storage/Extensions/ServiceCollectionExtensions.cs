@@ -310,9 +310,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CloudScope.GitHubSearchScopeResolver>();
         services.AddSingleton<CloudScope.GitHubRepositoryAccess>();
         services.AddScoped<ISearchScopeResolver>(sp => new CloudScope.CompositeSearchScopeResolver(
-            sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(),
-            sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>()));
+        [
+            new(sp.GetRequiredService<CloudScope.AwsSearchScopeResolver>(), "s3://", CloudScope.ScopeKind.Cloud),
+            new(sp.GetRequiredService<CloudScope.AzureSearchScopeResolver>(), "azblob://", CloudScope.ScopeKind.Cloud),
+            new(sp.GetRequiredService<CloudScope.GitHubSearchScopeResolver>(), CloudScope.GitHubSearchScopeResolver.Scheme, CloudScope.ScopeKind.GrantOnly),
+        ]));
 
         // Reads the connections, so scoped alongside the store it uses.
         services.AddScoped<IAwsGrantRegions, CloudScope.ConnectionGrantRegions>();
