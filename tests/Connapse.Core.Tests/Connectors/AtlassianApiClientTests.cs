@@ -181,6 +181,26 @@ public sealed class AtlassianApiClientTests : IDisposable
     }
 
     [Fact]
+    public async Task PageAsync_RepeatedNextLink_Throws()
+    {
+        // Page b points back at page a: an endless walk unless the client notices.
+        _api.Map(Root + "/api/v2/spaces", request => request.RequestUri!.Query.Contains("cursor=b")
+            ? FakeAtlassianApi.Json(new { results = new[] { new { id = "2" } }, _links = new { next = "/wiki/api/v2/spaces?cursor=a" } })
+            : FakeAtlassianApi.Json(new { results = new[] { new { id = "1" } }, _links = new { next = "/wiki/api/v2/spaces?cursor=b" } }));
+
+        var ids = new List<string>();
+        Func<Task> walk = async () =>
+        {
+            await foreach (string id in NewClient().PageAsync("api/v2/spaces",
+                root => root.GetProperty("results").EnumerateArray().Select(e => e.GetProperty("id").GetString()!), default))
+                ids.Add(id);
+        };
+
+        await walk.Should().ThrowAsync<InvalidOperationException>().WithMessage("*repeated*");
+        _api.Calls[Root + "/api/v2/spaces"].Should().Be(3);
+    }
+
+    [Fact]
     public async Task PageAsync_V1RelativeNext_ResolvesAgainstTheWiki()
     {
         _api.Map(Root + "/rest/api/search", request => request.RequestUri!.Query.Contains("cursor=z")

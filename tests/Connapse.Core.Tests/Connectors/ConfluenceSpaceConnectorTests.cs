@@ -13,6 +13,7 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
     private readonly FakeAtlassianApi _api = new();
     private readonly string _root = Path.Combine(Path.GetTempPath(), "confluence-unit-" + Guid.NewGuid().ToString("N"));
     private readonly ConfluenceSpaceConnector _connector;
+    private readonly ManualClock _clock = new();
 
     public ConfluenceSpaceConnectorTests()
     {
@@ -20,7 +21,8 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         var tokens = new AtlassianTokenSource(new FakeFactory(_api), TimeProvider.System);
         _connector = new ConfluenceSpaceConnector(
             new ConfluenceSpaceConfig(site, SpaceId, "ENG", _root),
-            new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret"));
+            new AtlassianApiClient(_api.CreateClient(), tokens, site, "secret"),
+            clock: _clock);
         _api.Confluence.AddSpace(SpaceId, "ENG", "Engineering");
     }
 
@@ -108,6 +110,112 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
             .Should().ThrowAsync<FileNotFoundException>();
         await FluentActions.Awaiting(() => _connector.ReadFileAsync("/pages/../state.md"))
             .Should().ThrowAsync<FileNotFoundException>();
+    }
+
+    [Fact]
+    public async Task ReadFile_AncestorChainDeeperThanTheCap_StopsAtFiftyLevels()
+    {
+        // Page 1 is the top; each page n+1 sits under page n, sixty deep.
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "P1"));
+        for (int n = 2; n <= 60; n++)
+            _api.Confluence.Upsert(new FakeConfluencePage(n.ToString(), SpaceId, "P" + n, ParentId: (n - 1).ToString(), ParentType: "page"));
+
+        await _connector.GetChangesAsync(null);
+        string header = (await ReadAsync("/pages/60.md").WaitAsync(TimeSpan.FromSeconds(10))).Split('\n')[0];
+
+        string[] crumbs = header["# ".Length..].Split(" > ");
+        crumbs.Should().HaveCount(1 + ConfluenceSpaceConnector.MaxAncestors + 1);
+        crumbs[0].Should().Be("Engineering");
+        crumbs[1].Should().Be("P10", "the walk climbs fifty levels from P60 and stops at P10");
+        crumbs[^1].Should().Be("P60");
+    }
+
+    [Fact]
+    public async Task GetChanges_UnreadableCursor_RequiresFullResync()
+    {
+        var delta = await _connector.GetChangesAsync("not a cursor");
+
+        delta.RequiresFullResync.Should().BeTrue();
+        delta.NextCursor.Should().BeNull();
+        _api.Requests.Should().BeEmpty("nothing is asked of Confluence before the cursor is understood");
+    }
+
+    [Fact]
+    public async Task GetChanges_RateLimitedOnAFolder_AppliesNothingAndKeepsTheCursor()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Kept"));
+        _api.Confluence.AddFolder("900", "Guides");
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+
+        // A page now in a folder whose lookup is rate limited, and the old page gone.
+        _api.Confluence.Remove("1");
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "New", ParentId: "900", ParentType: "folder"));
+        _api.Map($"/ex/confluence/{CloudId}/wiki/api/v2/folders/900", _ =>
+        {
+            var limited = new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests);
+            limited.Headers.TryAddWithoutValidation("Retry-After", "30");
+            return limited;
+        });
+
+        var delta = await _connector.GetChangesAsync(cursor);
+
+        delta.IsFullListing.Should().BeFalse();
+        delta.Upserted.Should().BeEmpty();
+        delta.NextCursor.Should().Be(cursor);
+        delta.Notice.Should().Contain("rate limiting");
+        (await _connector.ListFilesAsync()).Select(f => f.Path).Should().Equal("/pages/1.md");
+    }
+
+    [Fact]
+    public async Task GetChanges_FreshStartRateLimited_LeavesTheOldStoreReadable()
+    {
+        _api.Confluence.MaxPageSize = 1;
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "One"));
+        _api.Confluence.Upsert(new FakeConfluencePage("2", SpaceId, "Two"));
+        await _connector.GetChangesAsync(null);
+
+        _api.Confluence.RateLimitNextContinuation = true;
+        var delta = await _connector.GetChangesAsync(null);
+
+        delta.Upserted.Should().BeEmpty();
+        delta.IsFullListing.Should().BeFalse();
+        (await _connector.ListFilesAsync()).Should().HaveCount(2, "jobs already queued must still find their pages");
+        (await ReadAsync("/pages/2.md")).Should().StartWith("# Engineering > Two\n");
+    }
+
+    [Fact]
+    public async Task GetChanges_UnavailableFolder_IsNotAskedAgainUntilTheHourlyRefresh()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Orphan", ParentId: "999", ParentType: "folder"));
+
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+        cursor = (await _connector.GetChangesAsync(cursor)).NextCursor!;
+        _api.Confluence.FolderFetches["999"].Should().Be(1, "a 404 is remembered");
+
+        _clock.Advance(ConfluenceSpaceConnector.FolderRefreshInterval);
+        await _connector.GetChangesAsync(cursor);
+        _api.Confluence.FolderFetches["999"].Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetChanges_FolderNoLongerUsed_IsDroppedFromTheState()
+    {
+        _api.Confluence.AddFolder("900", "Guides");
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Guide", ParentId: "900", ParentType: "folder"));
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+
+        _api.Confluence.Reparent("1", null, null);
+        await _connector.GetChangesAsync(cursor);
+
+        string state = await File.ReadAllTextAsync(Path.Combine(_root, "state.json"));
+        state.Should().NotContain("900");
+    }
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan by) => _now += by;
     }
 
     private sealed class FakeFactory(FakeAtlassianApi api) : IHttpClientFactory

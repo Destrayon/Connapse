@@ -20,7 +20,8 @@ public class ConnectorFactory(
     ILogger<ConnectorFactory> logger,
     GitHub.GitHubCredentialPool? gitHubPool = null,
     Atlassian.AtlassianTokenSource? atlassianTokens = null,
-    IOptionsMonitor<AtlassianSourceSettings>? atlassianSettings = null) : IConnectorFactory
+    IOptionsMonitor<AtlassianSourceSettings>? atlassianSettings = null,
+    ILoggerFactory? loggerFactory = null) : IConnectorFactory
 {
     /// <summary>The named client GitHub sources and the GitHub App read the REST API through.</summary>
     public const string GitHubHttpClientName = "GitHub";
@@ -305,7 +306,7 @@ public class ConnectorFactory(
             new Atlassian.ConfluenceSpaceConfig(site, spaceId!, spaceKey, statePath),
             new Atlassian.AtlassianApiClient(
                 httpClientFactory.CreateClient(Atlassian.AtlassianApiClient.HttpClientName), atlassianTokens, site, secret),
-            logger);
+            loggerFactory?.CreateLogger<Atlassian.ConfluenceSpaceConnector>());
     }
 
     private static void RequireJsonObject(JsonDocument doc, string subject)

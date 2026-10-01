@@ -38,6 +38,12 @@ internal sealed class ConfluenceSyncState
     /// <summary>Each known folder's own parent. Folders nest, and a breadcrumb walks through them.</summary>
     public Dictionary<string, ConfluenceFolderParent> FolderParents { get; set; } = [];
 
+    /// <summary>Folders that answered 403 or 404, not asked again until <see cref="FoldersRefreshedAt"/> is due.</summary>
+    public HashSet<string> FolderUnavailable { get; set; } = [];
+
+    /// <summary>When every folder in use was last read again, to pick up renames.</summary>
+    public DateTimeOffset? FoldersRefreshedAt { get; set; }
+
     public string SpaceName { get; set; } = "";
 }
 
@@ -58,16 +64,6 @@ internal sealed class ConfluencePageStateStore(string root)
     private string PagesDir => Path.Combine(root, "pages");
 
     private string StatePath => Path.Combine(root, "state.json");
-
-    /// <summary>Discards every page and starts a fresh state. Used when the cursor is null.</summary>
-    public void Reset()
-    {
-        if (Directory.Exists(PagesDir))
-            Directory.Delete(PagesDir, recursive: true);
-
-        Directory.CreateDirectory(PagesDir);
-        SaveState(new ConfluenceSyncState());
-    }
 
     public ConfluenceStoredPage? Load(string id)
     {

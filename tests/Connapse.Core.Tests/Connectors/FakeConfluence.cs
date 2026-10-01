@@ -72,6 +72,26 @@ public sealed partial class FakeConfluence
         }
     }
 
+    /// <summary>Renames a page, which Confluence records as a new version.</summary>
+    public void Rename(string id, string title)
+    {
+        Edit(id);
+        lock (_gate) _pages[id] = _pages[id] with { Title = title };
+    }
+
+    /// <summary>Moves a page under another parent in the same space. Its version does not change.</summary>
+    public void Reparent(string id, string? parentId, string? parentType)
+    {
+        lock (_gate) _pages[id] = _pages[id] with { ParentId = parentId, ParentType = parentType };
+    }
+
+    public void RenameSpace(string id, string name) { lock (_gate) _spaces[id] = (_spaces[id].Key, name); }
+
+    public void RenameFolder(string id, string title) { lock (_gate) _folders[id] = _folders[id] with { Title = title }; }
+
+    /// <summary>Answers the next list request that continues from a cursor 429, once.</summary>
+    public bool RateLimitNextContinuation { get; set; }
+
     public void Remove(string id) { lock (_gate) _pages.Remove(id); }
 
     /// <summary>Moves a page to another space, which drops it from this space's listing.</summary>
@@ -154,6 +174,14 @@ public sealed partial class FakeConfluence
 
         int limit = Math.Min(int.Parse(query["limit"] ?? "25", CultureInfo.InvariantCulture), MaxPageSize);
         int start = int.Parse(query["cursor"] ?? "0", CultureInfo.InvariantCulture);
+        if (start > 0 && RateLimitNextContinuation)
+        {
+            RateLimitNextContinuation = false;
+            var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            limited.Headers.TryAddWithoutValidation("Retry-After", "30");
+            return limited;
+        }
+
         string singular = kind == "pages" ? "page" : "blogpost";
 
         var all = _pages.Values
