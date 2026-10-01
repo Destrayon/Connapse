@@ -171,6 +171,14 @@ public class IngestionPipeline : IKnowledgeIngester
             // cannot be read is known to be a permanent failure before any row is touched.
             workingStream.Position = 0;
             var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
+
+            // Every chunk, and any failure message quoting a warning, ends up in a text column,
+            // so the parser's output is made storable once here rather than in each parser.
+            parsedDocument = parsedDocument with
+            {
+                Content = StorableText.Clean(parsedDocument.Content),
+                Warnings = parsedDocument.Warnings.Select(StorableText.Clean).ToList(),
+            };
             warnings.AddRange(parsedDocument.Warnings);
 
             var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
