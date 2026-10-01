@@ -307,6 +307,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPerSchemeResultVerifier, AzureSearchResultVerifier>();
         // Confluence hits: checked live against the site, one call per uncached (account, page).
         services.AddSingleton<ConfluencePermissionChecker>();
+        services.AddSingleton(_ => new AtlassianConnectionPresence(TimeProvider.System));
         services.AddScoped<IPerSchemeResultVerifier, AtlassianSearchResultVerifier>();
         services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
             sp.GetServices<IPerSchemeResultVerifier>()));
