@@ -305,6 +305,56 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
             "/pages/101.md", "/pages/102.md", "/pages/103.md", "/blogposts/201.md");
     }
 
+    /// <summary>
+    /// The whole path with nothing faked but Confluence: the app's own connector factory and DI
+    /// build the connector from the stored connection and secret, the sync enqueues the page, and
+    /// the real ingestion pipeline chunks what the connector renders.
+    /// </summary>
+    [Fact]
+    public async Task EndToEnd_IngestedPage_EveryChunkStartsWithBreadcrumb()
+    {
+        var confluence = fixture.Atlassian.Confluence;
+        string spaceId = Random.Shared.NextInt64(1_000_000_000, 9_999_999_999).ToString();
+        string parentId = Random.Shared.NextInt64(1_000_000_000, 9_999_999_999).ToString();
+        string pageId = (long.Parse(parentId) + 1).ToString();
+        confluence.AddSpace(spaceId, "ENG", "Engineering");
+        confluence.Upsert(new FakeConfluencePage(parentId, spaceId, "Parent"));
+        confluence.Upsert(new FakeConfluencePage(pageId, spaceId, "Title", ParentId: parentId, ParentType: "page",
+            Body: "<h1>Install</h1><p>" + string.Join(" ", Enumerable.Repeat("Run the installer and follow each prompt.", 20))
+                + "</p><h1>Upgrade</h1><p>Stop the service, then upgrade it in place.</p>"));
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var connections = sp.GetRequiredService<IConnectionStore>();
+        var connection = await connections.CreateAsync(new CreateConnectionRequest(
+            $"atl-{Guid.NewGuid():N}"[..20], ConnectionProvider.Atlassian,
+            $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{_cloudId}}","clientId":"client-{{_cloudId}}"}""",
+            "service-secret"), null);
+        var source = await sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
+            $"cf-{Guid.NewGuid():N}"[..20], connection.Id,
+            $$"""{"kind":"confluence-space","spaceId":"{{spaceId}}","spaceKey":"ENG"}"""));
+
+        var factory = sp.GetRequiredService<IConnectorFactory>();
+        var queue = new RecordingIngestionQueue();
+        var service = new SourceSyncService(
+            sp.GetRequiredService<IServiceScopeFactory>(), factory, queue,
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Error.Should().BeNull();
+        var job = queue.Jobs.Single(j => j.Options.Path == $"/pages/{pageId}.md");
+
+        string? secret = await connections.GetSecretAsync(connection.Id);
+        var connector = factory.Create(source, connection, secret);
+        await using (var content = await connector.ReadFileAsync(job.Options.Path))
+            await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(content, job.Options, CancellationToken.None);
+
+        await using var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var chunks = await db.Chunks.Where(c => c.DocumentId == Guid.Parse(job.DocumentId)).Select(c => c.Content).ToListAsync();
+        chunks.Should().HaveCountGreaterThan(1);
+        chunks.Should().OnlyContain(c => c.StartsWith("Engineering > Parent > Title", StringComparison.Ordinal));
+        confluence.BodyFormats.Should().OnlyContain(f => f == "storage");
+    }
+
     [Fact]
     public async Task EveryDocument_HasAtlassianResourceUri()
     {
