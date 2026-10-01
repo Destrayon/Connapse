@@ -48,7 +48,7 @@ public class SearchPageHiddenSourceTests : IDisposable
         ctx.Services.AddSingleton(containers);
         ctx.Services.AddSingleton(sources);
         ctx.Services.AddSingleton(search);
-        ctx.Services.AddSingleton(new PrivateSourceVisibility(resolver, authorization));
+        ctx.Services.AddSingleton(new PrivateSourceVisibility(resolver, authorization, Substitute.For<IConnectionStore>()));
         ctx.Services.AddSingleton(settings);
         ctx.Services.AddSingleton(Substitute.For<IOptionsMonitor<EmbeddingSettings>>());
         ctx.Services.AddSingleton(new VectorModelDiscovery(

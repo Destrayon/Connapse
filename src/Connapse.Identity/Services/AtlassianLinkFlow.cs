@@ -4,7 +4,15 @@ namespace Connapse.Identity.Services;
 
 /// <summary>What was recorded when an Atlassian sign-in was started: the PKCE verifier (when PKCE is on) and who started it.</summary>
 /// <param name="RevocationGeneration">The user's unlink count when the sign-in began; the link is saved only while it is unchanged.</param>
-public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, Guid UserId, DateTime ExpiresAtUtc, DateTime StartedAtUtc, long RevocationGeneration);
+public sealed record AtlassianPendingSignIn(string State, string? CodeVerifier, Guid UserId, DateTime ExpiresAtUtc, DateTime StartedAtUtc, long RevocationGeneration)
+{
+    // The PKCE verifier is what redeems the sign-in code; the generated ToString would print it.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"State = {State}, CodeVerifier = ***, UserId = {UserId}, ExpiresAtUtc = {ExpiresAtUtc}, StartedAtUtc = {StartedAtUtc}, RevocationGeneration = {RevocationGeneration}");
+        return true;
+    }
+}
 
 /// <summary>An Atlassian account the callback resolved, held until a signed-in user can be shown to own it.</summary>
 /// <param name="SignInStartedAtUtc">When the sign-in began: an unlink after it refuses the link, however long the callback took.</param>
