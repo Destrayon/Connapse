@@ -20,6 +20,7 @@ public class AtlassianProviderCardTests : IDisposable
     private readonly StubAtlassianHandler stub = new();
     private readonly IConnectionStore store = Substitute.For<IConnectionStore>();
     private readonly IProviderCredentialStore credentials = Substitute.For<IProviderCredentialStore>();
+    private readonly IAuditLogger audit = Substitute.For<IAuditLogger>();
 
     public AtlassianProviderCardTests()
     {
@@ -31,12 +32,12 @@ public class AtlassianProviderCardTests : IDisposable
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub));
 
-        var audit = Substitute.For<IAuditLogger>();
         store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([]));
 
         ctx.Services.AddSingleton(store);
         ctx.Services.AddSingleton(credentials);
+        ctx.Services.AddSingleton(audit);
         ctx.Services.AddSingleton(new AtlassianSiteService(http, new AtlassianConnectionTester(http), store, audit,
             new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System)));
     }
@@ -100,6 +101,24 @@ public class AtlassianProviderCardTests : IDisposable
         credentials.Received(1).SaveAtlassianLinkAppAsync("link-client", Secret, Arg.Any<Guid?>(), Arg.Any<CancellationToken>());
         cut.Find("#atlassian-app").TextContent.Should().Contain("Saved, waiting for a first sign-in");
         cut.Markup.Should().NotContain(Secret);
+    }
+
+    [Fact]
+    public void LinkingApp_Save_WritesTheCredentialSavedAuditWithoutTheSecret()
+    {
+        credentials.GetAtlassianLinkAppAsync(Arg.Any<CancellationToken>())
+            .Returns(null, new AtlassianLinkAppRegistration("link-client"));
+        object? details = null;
+        audit.When(a => a.LogAsync("provider.credential.saved", "provider", "atlassian", Arg.Any<object?>(), Arg.Any<CancellationToken>()))
+            .Do(call => details = call.ArgAt<object?>(3));
+        var cut = ctx.Render<AtlassianProviderCard>();
+
+        cut.Find("#atlassian-app-client-id").Input("link-client");
+        cut.Find("#atlassian-app-client-secret").Change(Secret);
+        cut.Find("#atlassian-app-save").Click();
+
+        cut.WaitForAssertion(() => details.Should().NotBeNull());
+        System.Text.Json.JsonSerializer.Serialize(details).Should().Contain("link-client").And.NotContain(Secret);
     }
 
     [Fact]
