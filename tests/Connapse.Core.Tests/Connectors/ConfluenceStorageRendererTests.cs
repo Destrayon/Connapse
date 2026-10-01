@@ -292,6 +292,10 @@ public class ConfluenceStorageRendererTests
     [InlineData("<div><!-- > </b> -->", 100_000)]
     [InlineData("<div><?pi > </b> ?>", 100_000)]
     [InlineData("<div a=\"> </b>\" b='>'>", 100_000)]
+    [InlineData("<_>", 10_000)]
+    [InlineData("<_>", 100_000)]
+    [InlineData("<Ⅰ>", 10_000)]
+    [InlineData("<Ⅰ>", 100_000)]
     public void Render_LexerTrickNesting_DoesNotCrash(string unit, int repeats)
     {
         string body = string.Concat(Enumerable.Repeat(unit, repeats)) + "innermost";

@@ -131,7 +131,10 @@ public static partial class ConfluenceStorageRenderer
                     failure = ExceptionDispatchInfo.Capture(ex);
                 }
             },
-            maxStackSize: 256 * 1024 * 1024);
+            maxStackSize: 64 * 1024 * 1024)
+        {
+            IsBackground = true,
+        };
         thread.Start();
         thread.Join();
         failure?.Throw();
@@ -207,7 +210,7 @@ public static partial class ConfluenceStorageRenderer
                 end = EndOf(text, "?>", lt + 2);
             else if (next == '!')
                 end = EndOfTag(text, lt + 2);
-            else if (char.IsLetter(next) || next == '/')
+            else
             {
                 end = EndOfTag(text, lt + 1);
                 string tag = text[lt..end];
@@ -219,8 +222,6 @@ public static partial class ConfluenceStorageRenderer
                 i = end;
                 continue;
             }
-            else
-                end = lt + 1;
 
             sb.Append(text, lt, end - lt);
             i = end;
