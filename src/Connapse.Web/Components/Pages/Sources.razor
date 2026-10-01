@@ -949,12 +949,16 @@
                     "source", source.Id.ToString(),
                     new { source.Name, result.Upserted, result.Deleted });
 
+                string skipped = result.Unsupported > 0
+                    ? $" {result.Unsupported} unsupported file(s) skipped."
+                    : "";
+
                 if (result.Notice is not null)
                     Warn($"'{source.Name}': {result.Notice}");
                 else
                     Succeed(result.WithheldDeletions > 0
-                        ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld."
-                        : $"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.");
+                        ? $"'{source.Name}' synced — {result.Upserted} queued, {result.WithheldDeletions} deletion(s) withheld.{skipped}"
+                        : $"'{source.Name}' synced — {result.Upserted} queued, {result.Deleted} removed.{skipped}");
             }
 
             await LoadAsync();

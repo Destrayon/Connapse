@@ -825,4 +825,84 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         (await db.Documents.AsNoTracking().SingleAsync(d => d.SourceId == source.Id))
             .ResourceUri.Should().BeNull();
     }
+
+    [Fact]
+    public async Task SyncSourceAsync_FallbackPath_SkipsFilesNoParserCanRead()
+    {
+        // #594: an image in a synced bucket used to be enqueued, fail in the pipeline with
+        // "Unsupported file type", and stay in the source as a Failed document forever.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var connector = new FakeListConnector(File("/a.md"), File("/photo.png"), File("/scan.JPG"));
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(1);
+        result.Unsupported.Should().Be(2);
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.Where(d => d.SourceId == source.Id).Select(d => d.Path).ToListAsync())
+            .Should().Equal("/a.md");
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_DeltaPath_SkipsFilesNoParserCanRead()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var delta = new SyncDelta([File("/new.md"), File("/diagram.svg")], [], "cursor-1", RequiresFullResync: false);
+        var result = await BuildService(scope.ServiceProvider, new FakeDeltaConnector(delta))
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Upserted.Should().Be(1);
+        result.Unsupported.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_LeftoverDocumentsForUnreadableFiles_AreRemovedWithoutTrippingTheGuard()
+    {
+        // Sources synced before #594 hold a Failed document per image. The filtered listing no
+        // longer reports those files, so they look like deletions. Counted against the deletion
+        // guard, twenty of them out of twenty-two documents would withhold the cleanup and every
+        // genuine deletion with it, on the first sync after an upgrade.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var images = Enumerable.Range(0, 20).Select(i => File($"/img{i}.png")).ToArray();
+        await using (var seed = await factory.CreateDbContextAsync())
+        {
+            foreach (var path in images.Select(f => f.Path).Append("/a.md").Append("/b.md"))
+            {
+                seed.Documents.Add(new Connapse.Storage.Data.Entities.DocumentEntity
+                {
+                    Id = Guid.NewGuid(),
+                    SourceId = source.Id,
+                    FileName = Path.GetFileName(path),
+                    Path = path,
+                    ContentHash = string.Empty,
+                    SizeBytes = 10,
+                    CreatedAt = DateTime.UtcNow,
+                    IngestionStatus = DocumentStatus.FailedPermanent,
+                    Metadata = [],
+                });
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var connector = new FakeListConnector([.. images, File("/a.md"), File("/b.md")]);
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.WithheldDeletions.Should().Be(0, "documents that never held content are not a deletion to guard");
+        result.Deleted.Should().Be(20);
+        result.Unsupported.Should().Be(20);
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.Where(d => d.SourceId == source.Id).Select(d => d.Path).OrderBy(p => p).ToListAsync())
+            .Should().Equal("/a.md", "/b.md");
+    }
 }
