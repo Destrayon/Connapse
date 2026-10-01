@@ -280,7 +280,9 @@ public static class ServiceCollectionExtensions
         // everything through) when Azure AD isn't configured, so AWS-only/non-cloud deployments
         // pay nothing extra.
         services.AddSingleton<IBlobTagReader, BlobTagReader>();
-        services.AddScoped<ISearchResultVerifier, AzureSearchResultVerifier>();
+        services.AddScoped<IPerSchemeResultVerifier, AzureSearchResultVerifier>();
+        services.AddScoped<ISearchResultVerifier>(sp => new CompositeSearchResultVerifier(
+            sp.GetServices<IPerSchemeResultVerifier>()));
         services.Configure<AzureVerifierSettings>(configuration.GetSection(AzureVerifierSettings.SectionName));
 
         services.AddSingleton<IS3Discovery, CloudScope.S3Discovery>();
