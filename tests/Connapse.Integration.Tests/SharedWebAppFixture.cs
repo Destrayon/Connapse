@@ -54,6 +54,10 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     /// <summary>Stands in for Atlassian's token endpoint, tenant_info and Confluence API.</summary>
     public Connapse.Core.Tests.Connectors.FakeAtlassianApi Atlassian { get; } = new();
 
+    /// <summary>Where Confluence sources built by the app keep their page state; removed on dispose.</summary>
+    public string AtlassianStateDirectory { get; } =
+        Path.Combine(Path.GetTempPath(), "connapse-atlassian-" + Guid.NewGuid().ToString("N"));
+
     /// <summary>The MinIO host:port string used in connection test requests.</summary>
     public string MinioHostPort { get; private set; } = null!;
 
@@ -79,6 +83,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
                 builder.UseSetting("Knowledge:Chunking:MinChunkSize", "10");
                 builder.UseSetting("Knowledge:Chunking:Overlap", "20");
                 builder.UseSetting("Knowledge:Upload:ParallelWorkers", "1");
+                builder.UseSetting("Sources:Atlassian:StateDirectory", AtlassianStateDirectory);
                 builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
                 builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
                 builder.UseSetting("Identity:Jwt:Secret", TestJwtSecret);
@@ -142,6 +147,9 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
         await Factory.DisposeAsync();
         await _postgres.DisposeAsync();
         await _minio.DisposeAsync();
+
+        if (Directory.Exists(AtlassianStateDirectory))
+            Directory.Delete(AtlassianStateDirectory, recursive: true);
     }
 
     private static async Task WaitForAppReadyAsync(HttpClient client)

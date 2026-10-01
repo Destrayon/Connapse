@@ -78,6 +78,9 @@ public class SourceConnectorFactoryTests
         var httpClients = Substitute.For<IHttpClientFactory>();
         httpClients.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
+        var atlassianOptions = Substitute.For<IOptionsMonitor<AtlassianSourceSettings>>();
+        atlassianOptions.CurrentValue.Returns(new AtlassianSourceSettings { StateDirectory = "/var/atlassian" });
+
         return new ConnectorFactory(
             monitor,
             gitHubOptions,
@@ -89,7 +92,9 @@ public class SourceConnectorFactoryTests
             new Connapse.Storage.Connectors.GitHub.GitHubCredentialPool(
                 new Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp(
                     scopeFactory, httpClients, NullLogger<Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp>.Instance),
-                scopeFactory));
+                scopeFactory),
+            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(httpClients, TimeProvider.System),
+            atlassianOptions);
     }
 
     private static Connection MakeConnection(ConnectionProvider provider, string config, Guid? id = null) => new(
@@ -782,5 +787,66 @@ public class SourceConnectorFactoryTests
 
         act.Should().Throw<ArgumentException>();
     }
-}
 
+    private const string AtlassianCloudId = "11111111-2222-3333-4444-555555555555";
+
+    private static readonly Connection AtlassianConnection = MakeConnection(
+        ConnectionProvider.Atlassian,
+        $$"""{"siteUrl":"https://acme.atlassian.net","cloudId":"{{AtlassianCloudId}}","clientId":"client-1"}""");
+
+    [Fact]
+    public void Create_AtlassianConfluenceSpace_BuildsConnectorWithStateUnderTheSource()
+    {
+        var source = MakeSource(AtlassianConnection.Id, """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG"}""");
+
+        var connector = _factory.Create(source, AtlassianConnection, "service-secret");
+
+        var config = connector.Should().BeOfType<Connapse.Storage.Connectors.Atlassian.ConfluenceSpaceConnector>().Subject.Config;
+        connector.Type.Should().Be(ConnectorType.Atlassian);
+        config.SpaceId.Should().Be("4001");
+        config.SpaceKey.Should().Be("ENG");
+        config.Site.CloudId.Should().Be(AtlassianCloudId);
+        config.StatePath.Should().Be(Path.GetFullPath(Path.Combine("/var/atlassian", source.Id.ToString("N"))));
+    }
+
+    [Theory]
+    [InlineData("""{"kind":"confluence-space","spaceKey":"ENG"}""")]
+    [InlineData("""{"kind":"confluence-space","spaceId":"","spaceKey":"ENG"}""")]
+    [InlineData("""{"kind":"confluence-space","spaceId":"12/../3","spaceKey":"ENG"}""")]
+    [InlineData("""{"kind":"confluence-space","spaceId":-4,"spaceKey":"ENG"}""")]
+    public void Factory_AtlassianScopeMissingSpaceId_Throws(string scope)
+    {
+        var source = MakeSource(AtlassianConnection.Id, scope);
+
+        Action act = () => _factory.Create(source, AtlassianConnection, "service-secret");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*");
+    }
+
+    [Theory]
+    [InlineData("""{"kind":"confluence-space","spaceId":"4001"}""")]
+    [InlineData("""{"kind":"confluence-space","spaceId":"4001","spaceKey":"  "}""")]
+    [InlineData("""{"kind":"jira-project","spaceId":"4001","spaceKey":"ENG"}""")]
+    [InlineData("""{"spaceId":"4001","spaceKey":"ENG"}""")]
+    public void Create_AtlassianScopeWithoutKeyOrKnownKind_Throws(string scope)
+    {
+        var source = MakeSource(AtlassianConnection.Id, scope);
+
+        Action act = () => _factory.Create(source, AtlassianConnection, "service-secret");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*");
+    }
+
+    [Theory]
+    [InlineData("""{"siteUrl":"https://evil.example.com","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"c"}""", "secret")]
+    [InlineData("""{"siteUrl":"https://acme.atlassian.net","cloudId":"11111111-2222-3333-4444-555555555555","clientId":"c"}""", null)]
+    public void Create_AtlassianWithBadSiteOrNoSecret_Throws(string config, string? secret)
+    {
+        var connection = MakeConnection(ConnectionProvider.Atlassian, config);
+        var source = MakeSource(connection.Id, """{"kind":"confluence-space","spaceId":"4001","spaceKey":"ENG"}""");
+
+        Action act = () => _factory.Create(source, connection, secret);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage($"*'{source.Name}'*");
+    }
+}

@@ -189,6 +189,10 @@ public static class ServiceCollectionExtensions
         services.Configure<GitHubSourceSettings>(
             configuration.GetSection(GitHubSourceSettings.SectionName));
 
+        // Where Confluence sources keep their page state. Configuration-only, for the same reason.
+        services.Configure<AtlassianSourceSettings>(
+            configuration.GetSection(AtlassianSourceSettings.SectionName));
+
         // GitHub issues sources read the REST API anonymously; headers are set per request.
         services.AddHttpClient(Connectors.ConnectorFactory.GitHubHttpClientName);
 

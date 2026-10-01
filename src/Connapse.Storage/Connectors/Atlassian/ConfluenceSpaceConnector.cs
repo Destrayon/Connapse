@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Connapse.Core;
@@ -38,6 +39,9 @@ public sealed partial class ConfluenceSpaceConnector(
     private readonly ConfluencePageStateStore _store = new(config.StatePath);
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly ILogger _logger = logger ?? NullLogger.Instance;
+    private readonly Dictionary<string, string> _userNames = new(StringComparer.Ordinal);
+
+    internal ConfluenceSpaceConfig Config => config;
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
@@ -96,8 +100,39 @@ public sealed partial class ConfluenceSpaceConnector(
     public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) =>
         Task.FromResult(List(prefix));
 
-    public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) =>
-        throw new NotSupportedException("Reading Confluence pages is not available yet.");
+    /// <summary>
+    /// Fetches the page's storage-format body and renders it under its breadcrumb. Only storage
+    /// format is ever asked for: the rendered views expand include macros as the service account,
+    /// which would put restricted pages' text into less restricted ones.
+    /// </summary>
+    public async Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
+    {
+        var page = Find(path)
+            ?? throw new FileNotFoundException(
+                $"'{LogSanitizer.Sanitize(path)}' is not a synced page of Confluence space {LogSanitizer.Sanitize(config.SpaceKey)}.");
+
+        string endpoint = page.Kind == "blogpost" ? "blogposts" : "pages";
+        ContentResponse content;
+        try
+        {
+            content = await api.GetJsonAsync<ContentResponse>($"api/v2/{endpoint}/{page.Id}?body-format=storage", ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
+        {
+            throw new FileNotFoundException($"Confluence {page.Kind} {page.Id} no longer exists.", ex);
+        }
+
+        // Moved out between the listing and this read: not this source's to index any more.
+        if (content.SpaceId is { } spaceId && spaceId != config.SpaceId)
+            throw new FileNotFoundException($"Confluence {page.Kind} {page.Id} is no longer in this space.");
+
+        string body = content.Body?.Storage?.Value ?? "";
+        var names = await UserNamesAsync(ConfluenceStorageRenderer.MentionedAccountIds(body), ct);
+        var breadcrumb = Breadcrumb(page, string.IsNullOrWhiteSpace(content.Title) ? page.Title : content.Title, _store.LoadState());
+
+        var rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(breadcrumb, body, Comments: [], names));
+        return new MemoryStream(Encoding.UTF8.GetBytes(rendered.Markdown));
+    }
 
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
         Task.FromResult(Find(path) is not null);
@@ -257,7 +292,88 @@ public sealed partial class ConfluenceSpaceConnector(
         return page?.Kind == kind ? page : null;
     }
 
+    // ── Reading ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Space name, then each ancestor page or folder from the top down, then the title. Walks the
+    /// stored parent links, so it costs no requests; stops at an unknown parent, a cycle, or
+    /// <see cref="MaxAncestors"/> levels.
+    /// </summary>
+    private List<string> Breadcrumb(ConfluenceStoredPage page, string title, ConfluenceSyncState state)
+    {
+        string space = string.IsNullOrWhiteSpace(state.SpaceName) ? config.SpaceKey : state.SpaceName;
+        if (page.Kind == "blogpost")
+            return [space, "Blog", title];
+
+        var ancestors = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal) { "page:" + page.Id };
+        string? id = page.ParentId;
+        string? type = page.ParentType;
+
+        while (id is not null && ancestors.Count < MaxAncestors && seen.Add(type + ":" + id))
+        {
+            if (type == "folder" && state.FolderTitles.TryGetValue(id, out string? folderTitle))
+            {
+                ancestors.Add(folderTitle);
+                var parent = state.FolderParents.GetValueOrDefault(id);
+                (id, type) = (parent?.ParentId, parent?.ParentType);
+            }
+            else if (type == "page" && _store.Load(id) is { Kind: "page" } parentPage)
+            {
+                ancestors.Add(parentPage.Title);
+                (id, type) = (parentPage.ParentId, parentPage.ParentType);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        ancestors.Reverse();
+        return [space, .. ancestors, title];
+    }
+
+    /// <summary>
+    /// Display names for mentioned accounts, looked up a hundred at a time and kept for this
+    /// connector's lifetime. A failed lookup leaves the names out rather than failing the page.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> UserNamesAsync(IReadOnlySet<string> accountIds, CancellationToken ct)
+    {
+        foreach (string[] batch in accountIds.Where(a => !_userNames.ContainsKey(a)).Chunk(100))
+        {
+            string query = string.Join('&', batch.Select(a => "accountId=" + Uri.EscapeDataString(a)));
+            try
+            {
+                var users = await api.GetJsonAsync<UserBulkResponse>($"rest/api/user/bulk?{query}", ct);
+                foreach (var user in users.Results ?? [])
+                {
+                    string? name = string.IsNullOrWhiteSpace(user.DisplayName) ? user.PublicName : user.DisplayName;
+                    if (user.AccountId is not null && !string.IsNullOrWhiteSpace(name))
+                        _userNames[user.AccountId] = name;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(
+                    "Confluence space {SpaceKey}: looking up mentioned users failed (HTTP {Status}); rendering without their names",
+                    LogSanitizer.Sanitize(config.SpaceKey), (int?)ex.StatusCode);
+            }
+        }
+
+        return _userNames;
+    }
+
     // ── Wire shapes ────────────────────────────────────────────────────────
+
+    private sealed record StorageBody(string? Value, string? Representation);
+
+    private sealed record ContentBody(StorageBody? Storage);
+
+    private sealed record ContentResponse(string? Id, string? Title, string? SpaceId, ContentBody? Body);
+
+    private sealed record UserResponse(string? AccountId, string? DisplayName, string? PublicName);
+
+    private sealed record UserBulkResponse(List<UserResponse>? Results);
 
     private sealed record SpaceResponse(string? Id, string? Key, string? Name);
 
