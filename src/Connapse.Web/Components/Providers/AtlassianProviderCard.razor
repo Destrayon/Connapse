@@ -7,6 +7,7 @@
 @inject AtlassianSiteService Sites
 @inject IConnectionStore Connections
 @inject IProviderCredentialStore Credentials
+@inject IAuditLogger Audit
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
@@ -271,7 +272,11 @@
             var state = await AuthState.GetAuthenticationStateAsync();
             Guid? userId = Guid.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out Guid id) ? id : null;
 
-            await Credentials.SaveAtlassianLinkAppAsync(appClientId.Trim(), appClientSecret.Trim(), userId);
+            string savedClientId = appClientId.Trim();
+            await Credentials.SaveAtlassianLinkAppAsync(savedClientId, appClientSecret.Trim(), userId);
+            // The same event GitHub's App writes. The client ID only: never the secret.
+            await Audit.LogAsync("provider.credential.saved", "provider", "atlassian",
+                new { ClientId = savedClientId, Via = "manual" });
             // Never rendered back, and no reason to keep it in the circuit's memory.
             appClientSecret = null;
             appClientId = null;
