@@ -53,6 +53,14 @@ public record GitHubAppRegistration(long AppId, string Slug, string? ClientId, s
 public record GitHubAppCredentialMaterial(GitHubAppRegistration App, string PrivateKeyPem, string? ClientSecret);
 
 /// <summary>
+/// The Atlassian OAuth app users sign in through to link their Atlassian account (non-secret). The
+/// client secret is fetched separately via <see cref="IProviderCredentialStore.GetAtlassianLinkAppSecretAsync"/>.
+/// </summary>
+/// <param name="ClientId">The OAuth 2.0 (3LO) app's client id.</param>
+/// <param name="VerifiedAt">When a user last completed the sign-in with it, or null if none has yet.</param>
+public record AtlassianLinkAppRegistration(string ClientId, DateTime? VerifiedAt = null);
+
+/// <summary>
 /// Existence and timing of a stored credential, independent of its shape.
 /// </summary>
 /// <remarks>
@@ -121,6 +129,21 @@ public interface IProviderCredentialStore
     Task<ProviderCredentialInfo> SaveGitHubAppAsync(
         GitHubAppRegistration app, string privateKeyPem, string? clientSecret, Guid? createdByUserId,
         CancellationToken ct = default);
+
+    /// <summary>The stored Atlassian link app, or null when none is.</summary>
+    Task<AtlassianLinkAppRegistration?> GetAtlassianLinkAppAsync(CancellationToken ct = default);
+
+    /// <summary>The Atlassian link app's decrypted client secret, or null when none is stored.</summary>
+    /// <exception cref="ProviderCredentialUnavailableException">Stored but the secret cannot be decrypted.</exception>
+    Task<string?> GetAtlassianLinkAppSecretAsync(CancellationToken ct = default);
+
+    /// <summary>Stores or replaces the Atlassian link app, clearing its verified state.</summary>
+    Task<ProviderCredentialInfo> SaveAtlassianLinkAppAsync(
+        string clientId, string clientSecret, Guid? createdByUserId, CancellationToken ct = default);
+
+    /// <summary>Records that a user completed the sign-in with the stored app.</summary>
+    /// <returns>False when nothing was written: no app is stored, or one was marked recently.</returns>
+    Task<bool> MarkAtlassianLinkAppVerifiedAsync(DateTime when, CancellationToken ct = default);
 }
 
 /// <summary>
