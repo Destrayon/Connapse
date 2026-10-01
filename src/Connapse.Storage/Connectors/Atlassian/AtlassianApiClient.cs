@@ -130,17 +130,23 @@ public sealed class AtlassianApiClient(
     /// </summary>
     private Uri Resolve(string pathOrLink)
     {
-        if (Uri.TryCreate(pathOrLink, UriKind.Absolute, out Uri? absolute))
+        if (pathOrLink.StartsWith("//", StringComparison.Ordinal) || pathOrLink.StartsWith('\\'))
+            throw new InvalidOperationException("Refusing to follow a link that could name another host.");
+
+        // Only an explicit scheme counts as absolute: on Linux a path like "/wiki/x" also parses
+        // as an absolute file:// URI.
+        if (pathOrLink.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || pathOrLink.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            if (absolute.Scheme != Uri.UriSchemeHttps
+            if (!Uri.TryCreate(pathOrLink, UriKind.Absolute, out Uri? absolute)
+                || absolute.Scheme != Uri.UriSchemeHttps
+                || !absolute.IsDefaultPort
                 || !string.Equals(absolute.Host, ApiHost, StringComparison.OrdinalIgnoreCase)
                 || !absolute.AbsolutePath.StartsWith(SitePath + "/", StringComparison.Ordinal))
-                throw new InvalidOperationException(
-                    $"Refusing to follow a link outside this site's Atlassian API: {absolute.GetLeftPart(UriPartial.Path)}");
+                throw new InvalidOperationException("Refusing to follow a link outside this site's Atlassian API.");
             return absolute;
         }
 
-        // A protocol-relative or backslash path could still name another host; Uri decides.
         Uri resolved = pathOrLink.StartsWith("/wiki/", StringComparison.Ordinal)
             ? new Uri($"https://{ApiHost}{SitePath}{pathOrLink}")
             : new Uri(ConfluenceBase, pathOrLink.TrimStart('/'));
@@ -202,6 +208,7 @@ public sealed class AtlassianApiClient(
         public override void Flush() { }
         public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => inner.ReadAsync(buffer, ct);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) => inner.ReadAsync(buffer, offset, count, ct);
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();

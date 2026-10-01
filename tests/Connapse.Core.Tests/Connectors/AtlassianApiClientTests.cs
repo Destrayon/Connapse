@@ -97,7 +97,7 @@ public sealed class AtlassianApiClientTests : IDisposable
     [Fact]
     public async Task GetJsonAsync_TokenEndpointRefuses_ThrowsAuthException()
     {
-        _api.FailWith(HttpStatusCode.Unauthorized);
+        _api.FailTokenWith(HttpStatusCode.Unauthorized);
 
         await FluentActions.Awaiting(() => NewClient().GetJsonAsync<JsonElement>("api/v2/spaces/1", default))
             .Should().ThrowAsync<AtlassianAuthException>();
@@ -173,6 +173,52 @@ public sealed class AtlassianApiClientTests : IDisposable
 
         await walk.Should().ThrowAsync<InvalidOperationException>();
         _api.Requests.Should().NotContain(u => u.Host == "evil.example");
+    }
+
+    [Fact]
+    public async Task GetJsonAsync_TokenRequest_IsFormUrlEncoded()
+    {
+        _api.MapJson(Root + "/api/v2/spaces/1", new { id = "1" });
+
+        await NewClient().GetJsonAsync<JsonElement>("api/v2/spaces/1", default);
+
+        _api.TokenContentTypes.Should().Equal("application/x-www-form-urlencoded");
+    }
+
+    [Theory]
+    [InlineData("/wiki/api/v2/spaces?cursor=a")]
+    [InlineData("/rest/api/search?cursor=a")]
+    public async Task PageAsync_RelativeNext_IsFollowedOnAnyOs(string next)
+    {
+        _api.Map(Root + "/api/v2/spaces", _ => FakeAtlassianApi.Json(new { results = new[] { 1 }, _links = new { next } }));
+        string followed = next.StartsWith("/wiki/") ? Root + "/api/v2/spaces" : Root + "/rest/api/search";
+        _api.Map(followed, request => request.RequestUri!.Query.Contains("cursor=a")
+            ? FakeAtlassianApi.Json(new { results = new[] { 2 } })
+            : FakeAtlassianApi.Json(new { results = new[] { 1 }, _links = new { next } }));
+
+        var items = new List<int>();
+        await foreach (int i in NewClient().PageAsync("api/v2/spaces",
+            root => root.GetProperty("results").EnumerateArray().Select(e => e.GetInt32()), default))
+            items.Add(i);
+
+        items.Should().Equal(1, 2);
+    }
+
+    [Theory]
+    [InlineData("//evil.example/x")]
+    [InlineData("\\\\evil\\x")]
+    public async Task PageAsync_HostNamingNext_Throws(string next)
+    {
+        _api.MapJson(Root + "/api/v2/spaces", new { results = new[] { 1 }, _links = new { next } });
+
+        Func<Task> walk = async () =>
+        {
+            await foreach (int _ in NewClient().PageAsync("api/v2/spaces",
+                root => root.GetProperty("results").EnumerateArray().Select(e => e.GetInt32()), default)) { }
+        };
+
+        await walk.Should().ThrowAsync<InvalidOperationException>();
+        _api.Requests.Should().OnlyContain(u => u.Host == "api.atlassian.com" || u.Host == "auth.atlassian.com");
     }
 
     [Fact]
