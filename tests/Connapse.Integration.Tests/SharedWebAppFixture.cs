@@ -51,6 +51,9 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     public HttpClient AdminClient { get; private set; } = null!;
     public string AdminToken { get; private set; } = null!;
 
+    /// <summary>Stands in for Atlassian's token endpoint, tenant_info and Confluence API.</summary>
+    public Connapse.Core.Tests.Connectors.FakeAtlassianApi Atlassian { get; } = new();
+
     /// <summary>The MinIO host:port string used in connection test requests.</summary>
     public string MinioHostPort { get; private set; } = null!;
 
@@ -105,6 +108,12 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
                     services.RemoveAll<IAzureSigningKeySource>();
                     services.AddSingleton<IAzureSigningKeySource, FakeAzureSigningKeySource>();
+
+                    // The named Atlassian client answers from the in-process fake; nothing dials
+                    // atlassian.net or api.atlassian.com. Forwarded through an invoker that does not
+                    // own the fake, because the client factory disposes the handlers it creates.
+                    services.AddHttpClient(Connapse.Storage.Connectors.Atlassian.AtlassianApiClient.HttpClientName)
+                        .ConfigurePrimaryHttpMessageHandler(() => new ForwardingHandler(Atlassian));
                 });
             });
 
@@ -118,9 +127,18 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
             new AuthenticationHeaderValue("Bearer", AdminToken);
     }
 
+    private sealed class ForwardingHandler(HttpMessageHandler inner) : HttpMessageHandler
+    {
+        private readonly HttpMessageInvoker _invoker = new(inner, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            _invoker.SendAsync(request, ct);
+    }
+
     public async Task DisposeAsync()
     {
         AdminClient.Dispose();
+        Atlassian.Dispose();
         await Factory.DisposeAsync();
         await _postgres.DisposeAsync();
         await _minio.DisposeAsync();
