@@ -399,6 +399,7 @@ api.MapSearchEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 api.MapGitHubAppEndpoints();
+api.MapAtlassianEndpoints();
 
 // Map OAuth 2.1 endpoints (discovery, token, registration)
 app.MapOAuthEndpoints();

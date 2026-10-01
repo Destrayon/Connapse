@@ -13,6 +13,7 @@ namespace Connapse.Core.Tests.Connectors;
 public sealed class FakeAtlassianApi : HttpMessageHandler
 {
     public const string TokenPath = "/oauth/token";
+    public const string TenantInfoPath = "/_edge/tenant_info";
 
     private readonly Dictionary<string, Func<HttpRequestMessage, HttpResponseMessage>> _routes = [];
     private readonly HashSet<string> _validTokens = [];
@@ -81,6 +82,14 @@ public sealed class FakeAtlassianApi : HttpMessageHandler
             {
                 TokenContentTypes.Add(request.Content!.Headers.ContentType?.MediaType);
                 return IssueToken(tokenBody!);
+            }
+
+            // A site's tenant_info answers anyone, with no token.
+            if (uri.AbsolutePath == TenantInfoPath)
+            {
+                return _routes.TryGetValue(TenantInfoPath, out var tenant)
+                    ? tenant(request)
+                    : new HttpResponseMessage(HttpStatusCode.NotFound);
             }
 
             BearerTokens.Add(token);
