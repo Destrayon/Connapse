@@ -67,6 +67,7 @@ public class ProviderSetupReader(
         var azureAccess = await azureAccessTask;
         var azurePermissions = await azurePermissionsTask;
         var gitHub = await GitHubAppAsync(ct);
+        bool atlassianInUse = providers.Contains(ConnectionProvider.Atlassian);
 
         return
         [
@@ -90,7 +91,18 @@ public class ProviderSetupReader(
             // is set up here like AWS access; its installations become connections.
             new ProviderSetup("github", "GitHub",
                 [gitHub],
-                InUse: gitHub.Status != RequirementStatus.NotConfigured)
+                InUse: gitHub.Status != RequirementStatus.NotConfigured),
+
+            // A saved site is the whole of Atlassian setup for now (the linking app arrives later),
+            // and it is only saved once the service account has passed every probe.
+            new ProviderSetup("atlassian", "Atlassian",
+                [
+                    new ProviderRequirement("Atlassian site",
+                        "A Confluence Cloud site and the service account Connapse reads it with.",
+                        atlassianInUse ? RequirementStatus.Satisfied : RequirementStatus.NotConfigured,
+                        ActionLabel: atlassianInUse ? null : "Add a site", ActionHref: atlassianInUse ? null : "#atlassian-site")
+                ],
+                InUse: atlassianInUse)
         ];
     }
 
