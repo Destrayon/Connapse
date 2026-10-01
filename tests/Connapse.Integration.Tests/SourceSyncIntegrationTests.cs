@@ -905,4 +905,83 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         (await after.Documents.Where(d => d.SourceId == source.Id).Select(d => d.Path).OrderBy(p => p).ToListAsync())
             .Should().Equal("/a.md", "/b.md");
     }
+
+    [Fact]
+    public void SyncSourceAsync_ReadyDocumentsAtUnreadablePaths_StayUnderTheGuard()
+    {
+        // A Ready document holds chunks. If its type stopped being supported -- a parser removed
+        // -- it is a deletion like any other, and a bad listing must not take it without approval.
+        var validator = new Connapse.Ingestion.Validation.FileTypeValidator(
+            [new Connapse.Ingestion.Parsers.TextParser()]);
+
+        SourceSyncService.IsContentlessLeftover("/img.png", DocumentStatus.FailedPermanent, validator).Should().BeTrue();
+        SourceSyncService.IsContentlessLeftover("/img.png", DocumentStatus.Queued, validator).Should().BeTrue();
+        SourceSyncService.IsContentlessLeftover("/img.png", DocumentStatus.Ready, validator).Should().BeFalse();
+        SourceSyncService.IsContentlessLeftover("/a.md", DocumentStatus.FailedPermanent, validator).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_ManyReadyDocumentsAtUnreadablePaths_AreWithheldNotDeleted()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        var images = Enumerable.Range(0, 20).Select(i => File($"/ready{i}.png")).ToArray();
+        await SeedDocumentsAsync(factory, source.Id, DocumentStatus.Ready, images.Select(f => f.Path));
+        await SeedDocumentsAsync(factory, source.Id, DocumentStatus.Ready, ["/a.md", "/b.md"]);
+
+        var connector = new FakeListConnector([.. images, File("/a.md"), File("/b.md")]);
+        var result = await BuildService(scope.ServiceProvider, connector)
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.WithheldDeletions.Should().Be(20, "searchable documents are only removed with approval");
+        result.Deleted.Should().Be(0);
+
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.CountAsync(d => d.SourceId == source.Id)).Should().Be(22);
+    }
+
+    [Fact]
+    public async Task SyncSourceAsync_DeltaReportsAnUnreadableFileWithALeftover_RemovesTheLeftover()
+    {
+        // A delta reports each change once and the cursor then moves past it.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+
+        await SeedDocumentsAsync(factory, source.Id, DocumentStatus.FailedPermanent, ["/photo.png"]);
+        await SeedDocumentsAsync(factory, source.Id, DocumentStatus.Ready, ["/kept.png"]);
+
+        var delta = new SyncDelta([File("/photo.png"), File("/kept.png")], [], "cursor-1", RequiresFullResync: false);
+        var result = await BuildService(scope.ServiceProvider, new FakeDeltaConnector(delta))
+            .SyncSourceAsync(source, connection, CancellationToken.None);
+
+        result.Deleted.Should().Be(1);
+        await using var after = await factory.CreateDbContextAsync();
+        (await after.Documents.Where(d => d.SourceId == source.Id).Select(d => d.Path).ToListAsync())
+            .Should().Equal(["/kept.png"], "a Ready document is never removed outside the guard");
+    }
+
+    private static async Task SeedDocumentsAsync(
+        IDbContextFactory<KnowledgeDbContext> factory, Guid sourceId, DocumentStatus status, IEnumerable<string> paths)
+    {
+        await using var seed = await factory.CreateDbContextAsync();
+        foreach (var path in paths)
+        {
+            seed.Documents.Add(new Connapse.Storage.Data.Entities.DocumentEntity
+            {
+                Id = Guid.NewGuid(),
+                SourceId = sourceId,
+                FileName = Path.GetFileName(path),
+                Path = path,
+                ContentHash = string.Empty,
+                SizeBytes = 10,
+                CreatedAt = DateTime.UtcNow,
+                IngestionStatus = status,
+                Metadata = [],
+            });
+        }
+        await seed.SaveChangesAsync();
+    }
 }

@@ -88,12 +88,30 @@ public static class ContentSniffer
         if (TextExtensions.Contains(extension))
         {
             // Text has no signature to require, so the check runs the other way: content that
-            // starts like a known binary format is not text, whatever it is called.
-            return Identify(head) is { } actual
+            // starts like a known binary format is not text, whatever it is called. A signature is
+            // only a few printable bytes, though -- a note that opens with "GIF89a" is still a
+            // note -- so the header must also carry the control bytes no text file contains.
+            return Identify(head) is { } actual && HasBinaryControlBytes(head)
                 ? $"its content is {actual}, not text"
                 : null;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// True when the bytes include C0 control characters that text never uses. Tab, line feed,
+    /// form feed, carriage return and escape are allowed; every format <see cref="Identify"/> knows
+    /// carries other control bytes (NUL, 0x1A, length fields) within its first few dozen bytes.
+    /// </summary>
+    private static bool HasBinaryControlBytes(ReadOnlySpan<byte> head)
+    {
+        foreach (byte b in head)
+        {
+            if (b < 0x20 && b is not ((byte)'\t' or (byte)'\n' or (byte)'\f' or (byte)'\r' or 0x1B))
+                return true;
+        }
+
+        return false;
     }
 }

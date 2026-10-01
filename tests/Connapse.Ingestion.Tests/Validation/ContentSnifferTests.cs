@@ -68,6 +68,23 @@ public class ContentSnifferTests
     public void DescribeMismatch_ImageNamedAsText_IsRejected(string extension) =>
         ContentSniffer.DescribeMismatch(Jpeg, extension).Should().Be("its content is a JPEG image, not text");
 
+    [Theory]
+    [InlineData("GIF89a is the header every GIF starts with.\n")]
+    [InlineData("%PDF-1.7 is the first line of a PDF; this note explains it.\n")]
+    [InlineData("PK\u0003\u0004 aside, this is prose.")]
+    public void DescribeMismatch_TextOpeningWithASignature_IsConsistent(string text)
+    {
+        // A few printable signature bytes do not make a file binary. Only the ZIP case contains
+        // control bytes, so it alone is still rejected.
+        byte[] head = Encoding.UTF8.GetBytes(text);
+        string? mismatch = ContentSniffer.DescribeMismatch(head, ".md");
+
+        if (text.StartsWith("PK"))
+            mismatch.Should().Be("its content is a ZIP archive, not text");
+        else
+            mismatch.Should().BeNull();
+    }
+
     [Fact]
     public void DescribeMismatch_Utf16TextWithoutBom_IsConsistent()
     {

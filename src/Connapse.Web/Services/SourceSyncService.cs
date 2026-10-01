@@ -325,6 +325,23 @@ public class SourceSyncService(
         {
             (upserted, inFlight) = await EnqueueAllAsync(source, supported, context, sp, ct);
             deleted = await DeleteByPathsAsync(source, delta.DeletedPaths, context, sp, ct);
+
+            // A delta reports a changed file once and the cursor then moves past it, so a filtered
+            // upsert whose path already holds a leftover Failed document is the only chance to
+            // clear it before the next full listing.
+            if (unsupported > 0)
+            {
+                var filteredPaths = delta.Upserted
+                    .Where(f => !validator.IsSupported(f.Path))
+                    .Select(f => f.Path)
+                    .ToList();
+                var existing = await LoadByPathsAsync(context, source.Id, filteredPaths, ct);
+                var leftovers = existing.Values
+                    .Where(d => IsContentlessLeftover(d.Path, d.IngestionStatus, validator))
+                    .Select(d => d.Path)
+                    .ToList();
+                deleted += await DeleteByPathsAsync(source, leftovers, context, sp, ct);
+            }
         }
 
         // A change reported for a document that is still being ingested could not be queued: the
@@ -435,6 +452,14 @@ public class SourceSyncService(
     }
 
     /// <summary>
+    /// True for a document at a path no parser reads that never became searchable: the Failed
+    /// row an image left behind, or a claim whose job could never succeed. Such a row holds no
+    /// chunks, so removing it loses nothing.
+    /// </summary>
+    internal static bool IsContentlessLeftover(string path, DocumentStatus status, IFileTypeValidator validator) =>
+        !validator.IsSupported(path) && status != DocumentStatus.Ready;
+
+    /// <summary>
     /// Brings the indexed documents in line with a complete listing of the remote: enqueues what
     /// changed and deletes what is gone, unless the deletion guard withholds it. Shared by
     /// list-and-diff sources and by a delta source's full listing.
@@ -443,26 +468,31 @@ public class SourceSyncService(
         Source source, IReadOnlyList<ConnectorFile> remote, ISourceStore sourceStore, KnowledgeDbContext context,
         IServiceProvider sp, bool applyWithheldDeletions, CancellationToken ct)
     {
-        var indexedPaths = await context.Documents
+        var indexed = await context.Documents
             .AsNoTracking()
             .Where(d => d.SourceId == source.Id)
-            .Select(d => d.Path)
+            .Select(d => new { d.Path, d.IngestionStatus })
             .ToListAsync(ct);
 
         var remotePaths = remote.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
-        var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
 
         // Documents an earlier sync made for files no parser can read, such as images. They are
         // missing from the listing only because it is now filtered, and they never held content,
         // so they are removed outside the guard. Counting them against it would make the first
         // sync after an upgrade withhold every genuine deletion on an image-heavy source.
+        //
+        // Only rows that never became searchable qualify. A Ready document at such a path holds
+        // content -- its parser may since have been removed -- and stays under the guard like any
+        // other deletion, so a bad listing cannot take it without approval.
         var validator = sp.GetRequiredService<IFileTypeValidator>();
-        var unreadable = vanished.Where(p => !validator.IsSupported(p)).ToList();
-        if (unreadable.Count > 0)
-        {
-            vanished = vanished.Where(p => validator.IsSupported(p)).ToList();
-            indexedPaths = indexedPaths.Where(p => validator.IsSupported(p)).ToList();
-        }
+        var unreadable = indexed
+            .Where(d => !remotePaths.Contains(d.Path) && IsContentlessLeftover(d.Path, d.IngestionStatus, validator))
+            .Select(d => d.Path)
+            .ToList();
+        var unreadableSet = unreadable.ToHashSet(StringComparer.Ordinal);
+
+        var indexedPaths = indexed.Select(d => d.Path).Where(p => !unreadableSet.Contains(p)).ToList();
+        var vanished = indexedPaths.Where(p => !remotePaths.Contains(p)).ToList();
 
         int unreadableDeleted = await DeleteByPathsAsync(source, unreadable, context, sp, ct);
 
