@@ -28,6 +28,17 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
     public const string SpacesStep = "spaces";
     public const string AdminStep = "admin";
 
+    private const string UnverifiedMessage =
+        "Couldn't verify Confluence Administrator access because Atlassian didn't answer the check properly; try again.";
+
+    // The probes read what Atlassian returned; any of these means this probe failed, not that the test crashed.
+    private static bool IsProbeFailure(Exception ex) =>
+        ex is HttpRequestException or AtlassianAuthException or JsonException or InvalidOperationException;
+
+    private static bool IsRefusal(Exception ex) =>
+        ex is AtlassianAuthException
+        || ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized };
+
     private const string AdminMessage =
         "The service account isn't Confluence Administrator; Connapse can't check other users' access without it.";
 
@@ -78,21 +89,37 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 using var current = await api.GetJsonAsync<JsonDocument>("rest/api/user/current", linked);
                 ownAccountId = Text(current.RootElement, "accountId");
             }
-            catch (Exception ex) when (ex is HttpRequestException or AtlassianAuthException)
+            catch (Exception ex) when (IsProbeFailure(ex))
             {
                 return Failure(IdentityStep, "The credential can't read Confluence on this site.", stopwatch);
+            }
+
+            // Without the service account's own id the "other user" below could be the account itself,
+            // and checking yourself needs no admin rights: fail closed.
+            if (string.IsNullOrWhiteSpace(ownAccountId))
+                return Failure(IdentityStep, "The credential can't read Confluence on this site: Atlassian didn't say who it is.", stopwatch);
+
+            try
+            {
+                using var spaces = await api.GetJsonAsync<JsonDocument>("api/v2/spaces?limit=1", linked);
+                if (FirstId(spaces.RootElement) is null)
+                    return Failure(SpacesStep, "The service account has no Confluence access.", stopwatch);
+            }
+            catch (Exception ex) when (IsProbeFailure(ex))
+            {
+                return Failure(SpacesStep, "The service account has no Confluence access.", stopwatch);
             }
 
             string? pageId;
             try
             {
-                using var spaces = await api.GetJsonAsync<JsonDocument>("api/v2/spaces?limit=1", linked);
                 using var pages = await api.GetJsonAsync<JsonDocument>("api/v2/pages?limit=1", linked);
                 pageId = FirstId(pages.RootElement);
             }
-            catch (Exception ex) when (ex is HttpRequestException or AtlassianAuthException)
+            catch (Exception ex) when (IsProbeFailure(ex))
             {
-                return Failure(SpacesStep, "The service account has no Confluence access.", stopwatch);
+                return Failure(SpacesStep,
+                    "The service account can't list pages. Check that its app has the read:page:confluence scope.", stopwatch);
             }
 
             if (pageId is null)
@@ -107,9 +134,13 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                 using var users = await api.GetJsonAsync<JsonDocument>("rest/api/search/user?cql=type=user&limit=25", linked);
                 otherUser = FirstOtherAccount(users.RootElement, ownAccountId);
             }
-            catch (Exception ex) when (ex is HttpRequestException or AtlassianAuthException)
+            catch (Exception ex) when (IsRefusal(ex))
             {
                 return Failure(AdminStep, AdminMessage, stopwatch);
+            }
+            catch (Exception ex) when (IsProbeFailure(ex))
+            {
+                return Failure(AdminStep, UnverifiedMessage, stopwatch);
             }
 
             if (otherUser is null)
@@ -118,14 +149,27 @@ public sealed class AtlassianConnectionTester(IHttpClientFactory httpClients, Ti
                     + "access. Add another user to the site and test again.",
                     stopwatch);
 
-            using var check = await api.PostAsync(
-                $"rest/api/content/{Uri.EscapeDataString(pageId)}/permission/check",
-                new { subject = new { type = "user", identifier = otherUser }, operation = "read" }, linked);
-
-            if (check.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+            HttpStatusCode checkStatus;
+            try
+            {
+                using var check = await api.PostAsync(
+                    $"rest/api/content/{Uri.EscapeDataString(pageId)}/permission/check",
+                    new { subject = new { type = "user", identifier = otherUser }, operation = "read" }, linked);
+                checkStatus = check.StatusCode;
+            }
+            catch (AtlassianAuthException)
+            {
                 return Failure(AdminStep, AdminMessage, stopwatch);
-            if (!check.IsSuccessStatusCode)
-                return Failure(AdminStep, $"Confluence answered HTTP {(int)check.StatusCode} to the permission check.", stopwatch);
+            }
+            catch (Exception ex) when (IsProbeFailure(ex))
+            {
+                return Failure(AdminStep, UnverifiedMessage, stopwatch);
+            }
+
+            if (checkStatus is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+                return Failure(AdminStep, AdminMessage, stopwatch);
+            if (checkStatus != HttpStatusCode.OK)
+                return Failure(AdminStep, $"{UnverifiedMessage} Confluence answered HTTP {(int)checkStatus}.", stopwatch);
 
             stopwatch.Stop();
             return ConnectionTestResult.CreateSuccess(

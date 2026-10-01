@@ -138,6 +138,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
     public async Task DisposeAsync()
     {
         AdminClient.Dispose();
+        Atlassian.Dispose();
         await Factory.DisposeAsync();
         await _postgres.DisposeAsync();
         await _minio.DisposeAsync();

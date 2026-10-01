@@ -43,7 +43,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         string? checkBody = null;
         _api.Map(Root + "/rest/api/content/4242/permission/check", request =>
         {
-            checkBody = request.Content!.ReadAsStringAsync().Result;
+            checkBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
             return FakeAtlassianApi.Json(new { hasPermission = true });
         });
 
@@ -87,6 +87,111 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
 
         result.Success.Should().BeFalse();
         result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+    }
+
+    [Fact]
+    public async Task Test_UserCurrentWithoutAccountId_FailsAtIdentityStepWithoutACheck()
+    {
+        _api.MapJson(Root + "/rest/api/user/current", new { });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.IdentityStep);
+        _api.Calls.Keys.Should().NotContain(p => p.EndsWith("/permission/check"));
+    }
+
+    [Fact]
+    public async Task Test_PermissionCheckAnswers401_FailsAtAdminStep()
+    {
+        _api.Map(Root + "/rest/api/content/4242/permission/check", _ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
+        result.Message.Should().Contain("Confluence Administrator");
+    }
+
+    [Fact]
+    public async Task Test_MalformedSpacesBody_FailsAtSpacesStep()
+    {
+        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{not json", System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+    }
+
+    [Fact]
+    public async Task Test_NullBody_FailsAtItsStepInsteadOfThrowing()
+    {
+        _api.Map(Root + "/api/v2/spaces", _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("null", System.Text.Encoding.UTF8, "application/json"),
+        });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+    }
+
+    [Fact]
+    public async Task Test_NoSpaces_FailsAtSpacesStep()
+    {
+        _api.MapJson(Root + "/api/v2/spaces", new { results = Array.Empty<object>() });
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SpacesStep);
+    }
+
+    [Fact]
+    public async Task Test_PagesForbidden_NamesTheMissingScopeNotSpaces()
+    {
+        _api.Map(Root + "/api/v2/pages", _ => new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Message.Should().Contain("read:page:confluence");
+        result.Message.Should().NotContain("no Confluence access");
+    }
+
+    [Fact]
+    public async Task Test_UserSearchServerError_IsNotReportedAsNotAdmin()
+    {
+        _api.Map(Root + "/rest/api/search/user", _ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.AdminStep);
+        result.Message.Should().Contain("Couldn't verify").And.NotContain("isn't Confluence Administrator");
+    }
+
+    [Fact]
+    public async Task Test_TenantInfoTimesOut_FailsAtSiteStepInsteadOfThrowing()
+    {
+        _api.Map(FakeAtlassianApi.TenantInfoPath, _ => throw new TaskCanceledException("HttpClient timeout"));
+
+        var result = await _tester.TestConnectionAsync(_request);
+
+        result.Success.Should().BeFalse();
+        result.Details!["step"].Should().Be(AtlassianConnectionTester.SiteStep);
+    }
+
+    [Fact]
+    public async Task Test_TenantInfoIsAskedOfTheSitesOwnHost()
+    {
+        await _tester.TestConnectionAsync(_request);
+
+        _api.Requests.Should().Contain(u => u.AbsolutePath == FakeAtlassianApi.TenantInfoPath && u.Host == "acme.atlassian.net");
     }
 
     [Fact]
