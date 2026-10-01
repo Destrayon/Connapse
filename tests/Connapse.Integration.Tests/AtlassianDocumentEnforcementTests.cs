@@ -413,12 +413,17 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
         Guid containerId = await SeedAsync(sp);
         var azure = AzureVerifyEnforcementTests.BuildVerifier(sp.GetRequiredService<IDocumentStore>(), azureEnforcing: false, []);
         var atlassian = sp.GetServices<IPerSchemeResultVerifier>().OfType<AtlassianSearchResultVerifier>().Single();
-        var guard = new Connapse.Web.Services.DocumentReadGuard(new CompositeSearchResultVerifier([azure, atlassian]));
+        var documents = sp.GetRequiredService<IDocumentStore>();
+        var guard = new Connapse.Web.Services.DocumentReadGuard(new CompositeSearchResultVerifier([azure, atlassian]),
+            documents, Microsoft.Extensions.Logging.Abstractions.NullLogger<Connapse.Web.Services.DocumentReadGuard>.Instance);
         Guid user = AzureVerifyEnforcementTests.TestUser;
 
+        async Task<Document> DocumentAsync(string name) =>
+            (await documents.GetAsync(await DocumentIdAsync(sp, containerId, name)))!;
+
         foreach (string name in new[] { "azure-granted.md", "azure-ungranted.md", "upload.md" })
-            (await guard.CanReadAsync(user, await DocumentIdAsync(sp, containerId, name), default)).Should().BeTrue(name);
-        (await guard.CanReadAsync(user, await DocumentIdAsync(sp, containerId, "allowed-page.md"), default))
+            (await guard.CanReadAsync(user, await DocumentAsync(name), default)).Should().BeTrue(name);
+        (await guard.CanReadAsync(user, await DocumentAsync("allowed-page.md"), default))
             .Should().BeFalse("the user has no Atlassian link");
     }
 }

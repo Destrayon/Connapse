@@ -210,7 +210,7 @@ public static class DocumentsEndpoints
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString()
-                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document.Id, ct))
+                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
 
             return Results.Ok(document);
@@ -285,7 +285,7 @@ public static class DocumentsEndpoints
 
             var document = await documentStore.GetAsync(fileId, ct);
             if (document is null || document.ContainerId != containerId.ToString()
-                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document.Id, ct))
+                || !await readGuard.CanReadAsync(SearchPrincipal.Resolve(httpContext.User), document, ct))
                 return Results.NotFound(new { error = $"File {fileId} not found in container {containerId}" });
 
             document.Metadata.TryGetValue("Status", out var status);
