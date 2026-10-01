@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
@@ -50,7 +51,10 @@ public static partial class ConfluenceStorageRenderer
     private static partial Regex FenceOpenPattern();
 
     /// <summary>Renders the page, then its comments, to markdown.</summary>
-    public static ConfluenceRenderOutput Render(ConfluenceRenderInput input)
+    public static ConfluenceRenderOutput Render(ConfluenceRenderInput input) =>
+        OnLargeStack(() => RenderCore(input));
+
+    private static ConfluenceRenderOutput RenderCore(ConfluenceRenderInput input)
     {
         var state = new RenderState(input.UserNames ?? new Dictionary<string, string>());
         var sb = new StringBuilder();
@@ -81,7 +85,10 @@ public static partial class ConfluenceStorageRenderer
     }
 
     /// <summary>The account ids of every user mentioned in a storage-format body.</summary>
-    public static IReadOnlySet<string> MentionedAccountIds(string storageBody)
+    public static IReadOnlySet<string> MentionedAccountIds(string storageBody) =>
+        OnLargeStack(() => MentionedAccountIdsCore(storageBody));
+
+    private static HashSet<string> MentionedAccountIdsCore(string storageBody)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
         try
@@ -102,6 +109,33 @@ public static partial class ConfluenceStorageRenderer
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// Runs the parse and walk on a thread with a large stack, so no nesting shape the depth guards
+    /// miss can kill the process. Synchronous from the caller's view.
+    /// </summary>
+    private static T OnLargeStack<T>(Func<T> work)
+    {
+        T? result = default;
+        ExceptionDispatchInfo? failure = null;
+        var thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    result = work();
+                }
+                catch (Exception ex)
+                {
+                    failure = ExceptionDispatchInfo.Capture(ex);
+                }
+            },
+            maxStackSize: 256 * 1024 * 1024);
+        thread.Start();
+        thread.Join();
+        failure?.Throw();
+        return result!;
     }
 
     private static string RenderBody(string? storageBody, RenderState state, bool flattenHeadings)
@@ -130,51 +164,96 @@ public static partial class ConfluenceStorageRenderer
     /// </summary>
     private static IElement? Parse(string storageBody)
     {
-        if (NestsTooDeeply(storageBody))
+        string? xml = PrepareXml(storageBody);
+        if (xml is null)
             return null;
 
-        string xml = NamedEntityPattern().Replace(storageBody, TranslateEntity);
         IDocument document = new XmlParser().ParseDocument(
             "<root xmlns:ac=\"urn:confluence:ac\" xmlns:ri=\"urn:confluence:ri\">" + xml + "</root>");
         return document.DocumentElement;
     }
 
     /// <summary>
-    /// The XML parser recurses per nesting level and overflows the stack on pathological input, so
-    /// bodies nested past <see cref="MaxParseDepth"/> are rejected up front by a linear scan.
+    /// One linear pass that follows XML lexing: CDATA, comments and processing instructions are copied
+    /// through untouched, quoted attribute values are skipped when finding the end of a tag, and named
+    /// entities are translated everywhere else. It also tracks element depth and returns null as soon as
+    /// it passes <see cref="MaxParseDepth"/>, because the XML parser recurses per level and would
+    /// otherwise overflow the stack.
     /// </summary>
-    private static bool NestsTooDeeply(string text)
+    private static string? PrepareXml(string text)
     {
+        var sb = new StringBuilder(text.Length + 64);
         int depth = 0;
         int i = 0;
         while (i < text.Length)
         {
             int lt = text.IndexOf('<', i);
-            if (lt < 0 || lt + 1 >= text.Length)
-                return false;
-
-            char next = text[lt + 1];
-            if (string.CompareOrdinal(text, lt, "<![CDATA[", 0, 9) == 0)
+            if (lt < 0)
             {
-                int end = text.IndexOf("]]>", lt + 9, StringComparison.Ordinal);
-                if (end < 0)
-                    return false;
-                i = end + 3;
-                continue;
+                sb.Append(NamedEntityPattern().Replace(text[i..], TranslateEntity));
+                break;
             }
 
-            int gt = text.IndexOf('>', lt + 1);
-            if (gt < 0)
-                return false;
+            if (lt > i)
+                sb.Append(NamedEntityPattern().Replace(text[i..lt], TranslateEntity));
 
-            if (next == '/')
-                depth = Math.Max(0, depth - 1);
-            else if (char.IsLetter(next) && text[gt - 1] != '/' && ++depth > MaxParseDepth)
-                return true;
-            i = gt + 1;
+            char next = lt + 1 < text.Length ? text[lt + 1] : ' ';
+            int end;
+            if (string.CompareOrdinal(text, lt, "<![CDATA[", 0, 9) == 0)
+                end = EndOf(text, "]]>", lt + 9);
+            else if (string.CompareOrdinal(text, lt, "<!--", 0, 4) == 0)
+                end = EndOf(text, "-->", lt + 4);
+            else if (next == '?')
+                end = EndOf(text, "?>", lt + 2);
+            else if (next == '!')
+                end = EndOfTag(text, lt + 2);
+            else if (char.IsLetter(next) || next == '/')
+            {
+                end = EndOfTag(text, lt + 1);
+                string tag = text[lt..end];
+                if (next == '/')
+                    depth = Math.Max(0, depth - 1);
+                else if (!tag.EndsWith("/>", StringComparison.Ordinal) && ++depth > MaxParseDepth)
+                    return null;
+                sb.Append(NamedEntityPattern().Replace(tag, TranslateEntity));
+                i = end;
+                continue;
+            }
+            else
+                end = lt + 1;
+
+            sb.Append(text, lt, end - lt);
+            i = end;
         }
 
-        return false;
+        return sb.ToString();
+    }
+
+    /// <summary>Index just past <paramref name="terminator"/>, or the end of the text if it never closes.</summary>
+    private static int EndOf(string text, string terminator, int from)
+    {
+        int at = text.IndexOf(terminator, from, StringComparison.Ordinal);
+        return at < 0 ? text.Length : at + terminator.Length;
+    }
+
+    /// <summary>Index just past the <c>&gt;</c> that ends a tag, skipping quoted attribute values.</summary>
+    private static int EndOfTag(string text, int from)
+    {
+        for (int k = from; k < text.Length; k++)
+        {
+            char c = text[k];
+            if (c == '>')
+                return k + 1;
+            if (c is '"' or '\'')
+            {
+                int close = text.IndexOf(c, k + 1);
+                if (close < 0)
+                    return text.Length;
+                k = close;
+            }
+        }
+
+        return text.Length;
     }
 
     private static string TranslateEntity(Match match)
@@ -193,9 +272,14 @@ public static partial class ConfluenceStorageRenderer
         return sb.ToString();
     }
 
-    /// <summary>Strips tags with a single linear scan; used when the body cannot be parsed.</summary>
+    /// <summary>
+    /// Strips tags with a single linear scan; used when the body cannot be parsed. Parameter content is
+    /// dropped as the parsed path drops it, and the result is escaped like any other emitted text.
+    /// </summary>
     private static string TextFallback(string storageBody)
     {
+        const string parameterOpen = "<ac:parameter";
+        const string parameterClose = "</ac:parameter>";
         var sb = new StringBuilder(storageBody.Length);
         bool inTag = false;
         for (int i = 0; i < storageBody.Length; i++)
@@ -209,6 +293,12 @@ public static partial class ConfluenceStorageRenderer
                     sb.Append(' ');
                 }
             }
+            else if (string.CompareOrdinal(storageBody, i, parameterOpen, 0, parameterOpen.Length) == 0)
+            {
+                int close = storageBody.IndexOf(parameterClose, i, StringComparison.Ordinal);
+                i = close < 0 ? storageBody.Length : close + parameterClose.Length - 1;
+                sb.Append(' ');
+            }
             else if (c == '<' && i + 1 < storageBody.Length && (char.IsLetter(storageBody[i + 1]) || storageBody[i + 1] is '/' or '!' or '?'))
             {
                 inTag = true;
@@ -219,8 +309,32 @@ public static partial class ConfluenceStorageRenderer
             }
         }
 
-        return CleanSingleLine(WebUtility.HtmlDecode(sb.ToString()));
+        return EscapeStructure(CleanSingleLine(WebUtility.HtmlDecode(sb.ToString())));
     }
+
+    /// <summary>
+    /// Backslash-escapes markdown block structure at the start of emitted text, so page text cannot
+    /// forge a heading, quote, setext underline, code fence or comment separator.
+    /// </summary>
+    private static string EscapeStructure(string text)
+    {
+        int start = 0;
+        while (start < text.Length && text[start] == ' ')
+            start++;
+        if (start >= text.Length)
+            return text;
+
+        string rest = text[start..];
+        bool escape = rest[0] is '#' or '>'
+            || rest.StartsWith("```", StringComparison.Ordinal)
+            || rest.StartsWith("~~~", StringComparison.Ordinal)
+            || rest.StartsWith("---", StringComparison.Ordinal)
+            || rest.All(c => c is '=' or '-' or ' ');
+        return escape ? text[..start] + "\\" + rest : text;
+    }
+
+    private static string EscapeLines(string text) =>
+        string.Join("\n", text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(EscapeStructure));
 
     private static string CleanSingleLine(string text) =>
         WhitespacePattern().Replace(text, " ").Trim();
@@ -271,7 +385,7 @@ public static partial class ConfluenceStorageRenderer
 
         public string UserName(string? accountId) =>
             accountId is not null && userNames.TryGetValue(accountId, out string? name) && !string.IsNullOrWhiteSpace(name)
-                ? CleanSingleLine(name)
+                ? EscapeStructure(CleanSingleLine(name))
                 : "a user";
 
         public void RecordLink(string title)
@@ -347,7 +461,7 @@ public static partial class ConfluenceStorageRenderer
                 case "table":
                     return Block(Table(e));
                 case "time":
-                    return e.GetAttribute("datetime") ?? Children(e);
+                    return e.GetAttribute("datetime") is { } stamp ? EscapeStructure(CleanSingleLine(stamp)) : Children(e);
                 case "ac:structured-macro" or "ac:macro":
                     return Macro(e);
                 case "ac:link":
@@ -355,7 +469,7 @@ public static partial class ConfluenceStorageRenderer
                 case "ac:image":
                     return Image(e);
                 case "ac:emoticon":
-                    return e.GetAttribute("ac:emoji-fallback") ?? string.Empty;
+                    return EscapeStructure(CleanSingleLine(e.GetAttribute("ac:emoji-fallback") ?? string.Empty));
                 case "ac:task-list":
                     return Block(TaskList(e));
                 case "ri:user":
@@ -388,30 +502,6 @@ public static partial class ConfluenceStorageRenderer
 
             return sb.ToString();
         }
-
-        /// <summary>
-        /// Backslash-escapes markdown block structure at the start of emitted text, so page text cannot
-        /// forge a heading, quote, setext underline, code fence or comment separator.
-        /// </summary>
-        private static string EscapeStructure(string text)
-        {
-            int start = 0;
-            while (start < text.Length && text[start] == ' ')
-                start++;
-            if (start >= text.Length)
-                return text;
-
-            string rest = text[start..];
-            bool escape = rest[0] is '#' or '>'
-                || rest.StartsWith("```", StringComparison.Ordinal)
-                || rest.StartsWith("~~~", StringComparison.Ordinal)
-                || rest.StartsWith("---", StringComparison.Ordinal)
-                || rest.All(c => c is '=' or '-' or ' ');
-            return escape ? text[..start] + "\\" + rest : text;
-        }
-
-        private static string EscapeLines(string text) =>
-            string.Join("\n", text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(EscapeStructure));
 
         private static string Block(string content)
         {
@@ -566,11 +656,11 @@ public static partial class ConfluenceStorageRenderer
                     return (title.Length > 0 ? Block("**" + title + "**") : string.Empty)
                         + (rich is null ? string.Empty : Block(Children(rich)));
                 case "status":
-                    return CleanSingleLine(Param("title"));
+                    return EscapeStructure(CleanSingleLine(Param("title")));
                 case "jira":
-                    return CleanSingleLine(Param("key"));
+                    return EscapeStructure(CleanSingleLine(Param("key")));
                 case "include" or "excerpt-include":
-                    return "[includes: " + IncludedTitle(macro) + "]";
+                    return "[includes: " + EscapeStructure(IncludedTitle(macro)) + "]";
                 case "toc" or "children" or "pagetree":
                     return string.Empty;
             }
@@ -622,11 +712,11 @@ public static partial class ConfluenceStorageRenderer
                     string title = CleanSingleLine(target.GetAttribute("ri:content-title") ?? string.Empty);
                     if (title.Length > 0)
                         state.RecordLink(title);
-                    return text.Length > 0 ? text : title;
+                    return text.Length > 0 ? text : EscapeStructure(title);
                 case "ri:blog-post":
-                    return text.Length > 0 ? text : CleanSingleLine(target.GetAttribute("ri:content-title") ?? string.Empty);
+                    return text.Length > 0 ? text : EscapeStructure(CleanSingleLine(target.GetAttribute("ri:content-title") ?? string.Empty));
                 case "ri:space":
-                    return text.Length > 0 ? text : CleanSingleLine(target.GetAttribute("ri:space-key") ?? string.Empty);
+                    return text.Length > 0 ? text : EscapeStructure(CleanSingleLine(target.GetAttribute("ri:space-key") ?? string.Empty));
                 default:
                     return text;
             }
@@ -635,7 +725,7 @@ public static partial class ConfluenceStorageRenderer
         private static string Attachment(IElement target)
         {
             string file = CleanSingleLine(target.GetAttribute("ri:filename") ?? string.Empty);
-            return file.Length > 0 ? $"[attachment: {file}]" : "[attachment]";
+            return file.Length > 0 ? "[attachment: " + EscapeStructure(file) + "]" : "[attachment]";
         }
 
         private static string Image(IElement image)
@@ -644,7 +734,7 @@ public static partial class ConfluenceStorageRenderer
             if (attachment is not null)
                 return Attachment(attachment);
             string alt = CleanSingleLine(image.GetAttribute("ac:alt") ?? string.Empty);
-            return alt.Length > 0 ? $"[image: {alt}]" : "[image]";
+            return alt.Length > 0 ? "[image: " + EscapeStructure(alt) + "]" : "[image]";
         }
     }
 }
