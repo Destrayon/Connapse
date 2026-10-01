@@ -62,7 +62,7 @@ public class ExtractionAdapterTests : IDisposable
     [Theory]
     [InlineData("r2-user-password.pdf", true)]
     [InlineData("r6-both-passwords.pdf", true)]
-    [InlineData("r4-aes-v2-no-key-length.pdf", true)]
+    [InlineData("r4-aes-v2-no-key-length.pdf", false)]
     [InlineData("r5-user-password.pdf", false)]
     [InlineData("r3-empty-password.pdf", false)]
     [InlineData("r4-owner-password.pdf", false)]

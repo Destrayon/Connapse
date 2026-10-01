@@ -117,6 +117,12 @@ public class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) : IDocume
         {
             throw;
         }
+        catch (UglyToad.PdfPig.Exceptions.PdfDocumentEncryptedException)
+        {
+            // PdfPig has already tried the empty password, which opens every PDF that only
+            // restricts permissions. What is left needs a password Connapse does not have.
+            throw new PermanentIngestionException("the PDF is password-protected [encrypted]");
+        }
         catch (Exception ex)
         {
             warnings.Add($"Error parsing PDF: {ex.Message}");
