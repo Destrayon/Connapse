@@ -9,7 +9,8 @@ namespace Connapse.Storage.CloudScope;
 /// (<see cref="ScopeKind.Cloud"/>) that is not enforcing contributes its scheme wildcard (its docs
 /// visible); one that denies or fails contributes nothing (its docs hidden), and one resolver's
 /// failure never denies another's or non-provider docs. Only when every resolver is a cloud and every
-/// cloud is unrestricted is the result globally unrestricted.
+/// cloud is unrestricted is the result globally unrestricted. An empty list resolves to
+/// <see cref="SearchScopes.Failed"/>: no resolver is not a permit.
 /// <para>
 /// GitHub and Atlassian (<see cref="ScopeKind.GrantOnly"/>) are the exception to that last rule:
 /// they only ever contribute grants, never "unrestricted", because their documents must be filtered
@@ -105,6 +106,10 @@ public sealed class CompositeSearchScopeResolver(IReadOnlyList<SchemeResolver> r
         /// </summary>
         public SearchScopes Combine(IReadOnlyList<(SchemeResolver Entry, SearchScopes Scopes)> resolved)
         {
+            // All() over nothing is true, so an empty list would otherwise read as unrestricted.
+            if (resolved.Count == 0)
+                return SearchScopes.Failed;
+
             bool anyGrantOnly = resolved.Any(r => r.Entry.Kind is ScopeKind.GrantOnly);
             if (!anyGrantOnly && resolved.All(r => r.Scopes.IsUnrestricted))
                 return SearchScopes.Unrestricted;
