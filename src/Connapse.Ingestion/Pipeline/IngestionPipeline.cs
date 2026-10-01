@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Documents;
@@ -608,6 +609,11 @@ public class IngestionPipeline : IKnowledgeIngester
         if (parser == null)
             throw new PermanentIngestionException($"Unsupported file type: {extension}");
 
+        string? mismatch = await SniffMismatchAsync(content, extension, ct);
+        if (mismatch is not null)
+            throw new PermanentIngestionException(
+                $"Could not parse {Path.GetFileName(fileName)}: {mismatch}");
+
         try
         {
             return await parser.ParseAsync(content, fileName, ct);
@@ -618,6 +624,20 @@ public class IngestionPipeline : IKnowledgeIngester
             // that throws has met content it cannot read, and will meet it again on every retry.
             throw new PermanentIngestionException($"Could not parse {Path.GetFileName(fileName)}: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Reads the leading bytes, rewinds, and reports whether they contradict the extension.
+    /// The caller has already buffered the content, so the stream is seekable here.
+    /// </summary>
+    private static async Task<string?> SniffMismatchAsync(Stream content, string extension, CancellationToken ct)
+    {
+        long start = content.Position;
+        byte[] head = new byte[ContentSniffer.HeaderLength];
+        int read = await content.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+        content.Position = start;
+
+        return ContentSniffer.DescribeMismatch(head.AsSpan(0, read), extension);
     }
 
     private async Task<IReadOnlyList<ChunkInfo>> ChunkDocumentAsync(
