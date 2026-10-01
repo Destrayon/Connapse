@@ -22,6 +22,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserAwsIdentityLinkEntity> UserAwsIdentityLinks => Set<UserAwsIdentityLinkEntity>();
     public DbSet<UserAzureIdentityLinkEntity> UserAzureIdentityLinks => Set<UserAzureIdentityLinkEntity>();
     public DbSet<UserGitHubIdentityLinkEntity> UserGitHubIdentityLinks => Set<UserGitHubIdentityLinkEntity>();
+    public DbSet<UserAtlassianIdentityLinkEntity> UserAtlassianIdentityLinks => Set<UserAtlassianIdentityLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +40,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
         ConfigureUserAwsIdentityLinks(modelBuilder);
         ConfigureUserAzureIdentityLinks(modelBuilder);
         ConfigureUserGitHubIdentityLinks(modelBuilder);
+        ConfigureUserAtlassianIdentityLinks(modelBuilder);
     }
 
     private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
@@ -718,6 +720,34 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.GitHubIdentityLinks)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureUserAtlassianIdentityLinks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<UserAtlassianIdentityLinkEntity>(entity =>
+        {
+            entity.ToTable("user_atlassian_identity_links");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+
+            // Atlassian's account id: permanent across renames, so it is what a link means.
+            entity.Property(e => e.AccountId).HasColumnName("account_id").HasMaxLength(128).IsRequired();
+            entity.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320);
+            entity.Property(e => e.ConnectedAt).HasColumnName("connected_at").HasDefaultValueSql("now()");
+
+            // One link per user: linking again replaces it.
+            entity.HasIndex(e => e.UserId)
+                .HasDatabaseName("ix_user_atlassian_identity_links_user_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.AtlassianIdentityLinks)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
