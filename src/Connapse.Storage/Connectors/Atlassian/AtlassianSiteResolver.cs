@@ -60,8 +60,10 @@ public static partial class AtlassianSiteResolver
                     ? cloudId.ToString("D")
                     : null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+            || (ex is OperationCanceledException && !ct.IsCancellationRequested))
         {
+            // Includes the HttpClient's own timeout, which surfaces as a cancellation the caller did not ask for.
             return null;
         }
     }
