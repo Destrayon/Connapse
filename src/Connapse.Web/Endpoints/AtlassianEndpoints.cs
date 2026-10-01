@@ -6,7 +6,15 @@ namespace Connapse.Web.Endpoints;
 
 public sealed record ResolveAtlassianSiteRequest(string? SiteUrl);
 
-public sealed record CreateAtlassianSiteRequest(string? SiteUrl, string? ClientId, string? ClientSecret);
+public sealed record CreateAtlassianSiteRequest(string? SiteUrl, string? ClientId, string? ClientSecret)
+{
+    // The generated ToString would print the secret into any log line or message it reached.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"SiteUrl = {SiteUrl}, ClientId = {ClientId}, ClientSecret = ***");
+        return true;
+    }
+}
 
 public static class AtlassianEndpoints
 {
