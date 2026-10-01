@@ -11,6 +11,9 @@
 @inject GitHubIdentityLinkStore GitHubIdentityLinks
 @inject GitHubLinkFlow GitHubLinkFlow
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
+@inject AtlassianIdentityLinkStore AtlassianIdentityLinks
+@inject AtlassianLinkFlow AtlassianLinkFlow
+@inject Connapse.Core.Interfaces.IProviderCredentialStore ProviderCredentials
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
 @inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
@@ -402,6 +405,9 @@
                 }
             </div>
         </div>
+
+        <AtlassianIdentityCard Link="atlassianIdentity" SignInAvailable="atlassianSignInAvailable" Busy="isProcessing"
+                               OnConnect="ConnectAtlassian" OnDisconnect="DisconnectAtlassianAsync" />
     </div>
 </div>
 
@@ -439,6 +445,7 @@
         ApplyAwsErrorFromQuery();
         ApplyAzureErrorFromQuery();
         ApplyGitHubErrorFromQuery();
+        ApplyAtlassianErrorFromQuery();
 
         await LoadIdentitiesAsync();
     }
@@ -454,6 +461,68 @@
         gitHubSecretRevoked = await GitHubApp.CanSignInUsersAsync() && await GitHubApp.StoredClientSecretMatchesAsync() == false;
         gitHubSignInAvailable = !gitHubSecretRevoked && await GitHubApp.CanSignInUsersAsync();
         gitHubAppExists = gitHubSignInAvailable || await GitHubApp.IsConfiguredAsync();
+
+        atlassianIdentity = await AtlassianIdentityLinks.GetAsync(currentUserId);
+        atlassianSignInAvailable = await ProviderCredentials.GetAtlassianLinkAppAsync() is not null;
+    }
+
+    private Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? atlassianIdentity;
+    private bool atlassianSignInAvailable;
+
+    private void ApplyAtlassianErrorFromQuery()
+    {
+        var query = QueryHelpers.ParseQuery(new Uri(Navigation.Uri).Query);
+        if (query.TryGetValue("linked", out var linked) && linked.ToString() == "atlassian")
+        {
+            (statusMessage, statusSuccess) = ("Atlassian account linked. Confluence content you can read now appears in your search results.", true);
+            return;
+        }
+
+        if (!query.TryGetValue("error", out var errorValues)) return;
+
+        string error = errorValues.ToString();
+        if (!error.StartsWith("atlassian_", StringComparison.Ordinal)) return;
+
+        statusMessage = error switch
+        {
+            "atlassian_not_configured" => "Could not connect your Atlassian account: Atlassian sign-in is not set up yet. An administrator sets up the linking app under Providers.",
+            "atlassian_link_declined" => "You cancelled on Atlassian, so no account was linked.",
+            "atlassian_link_expired" => "That Atlassian sign-in took too long or was started in another tab. Start it again.",
+            "atlassian_link_wrong_user" => "That Atlassian sign-in was started by a different Connapse user, so nothing was linked. Sign in to Connapse as yourself and start again.",
+            "atlassian_link_unlinked" => "You disconnected Atlassian while the sign-in was finishing, so nothing was linked. Start it again to link.",
+            _ => "Atlassian did not complete the sign-in, so no account was linked. Try again; if it keeps failing, tell an administrator.",
+        };
+        statusSuccess = false;
+    }
+
+    private void ConnectAtlassian() =>
+        Navigation.NavigateTo("/api/v1/auth/cloud/atlassian/connect", forceLoad: true);
+
+    private async Task DisconnectAtlassianAsync()
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            // Refused first, so a sign-in racing the delete cannot put the link back.
+            AtlassianLinkFlow.RevokeFor(currentUserId);
+            bool deleted = await AtlassianIdentityLinks.DeleteAsync(currentUserId);
+            if (deleted)
+                await AuditLogger.LogAsync("identity.atlassian.unlinked", "user", currentUserId.ToString());
+            (statusMessage, statusSuccess) = deleted
+                ? ("Atlassian account disconnected. Confluence content that needs your account no longer appears in your search results.", true)
+                : ("No Atlassian account link found.", false);
+            await LoadIdentitiesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to disconnect Atlassian identity link for user {UserId}", currentUserId);
+            (statusMessage, statusSuccess) = ("Failed to disconnect. Please try again.", false);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
     }
 
     private Connapse.Identity.Data.Entities.UserGitHubIdentityLinkEntity? gitHubIdentity;

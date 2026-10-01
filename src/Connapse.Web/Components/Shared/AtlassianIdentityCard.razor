@@ -1,0 +1,114 @@
+@*
+    The Atlassian row on the integrations page. Presentational: the page loads the link and does the
+    connecting and disconnecting, so this card can be rendered on its own in tests. Disconnecting never
+    depends on SignInAvailable, or a linked row would become unremovable once an administrator
+    removed the link app.
+*@
+
+<div class="col-md-6">
+    <div class="card h-100 provider-card @(Link is not null ? "provider-connected" : "")" id="atlassian-identity-card"
+         style="--provider-color: #2684ff;">
+        <div class="card-body p-4">
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded d-flex align-items-center justify-content-center flex-shrink-0"
+                     style="width: 40px; height: 40px; background: rgba(38, 132, 255, 0.1); border: 1px solid rgba(38, 132, 255, 0.25);">
+                    <span class="bi-diagram-3" style="font-size: 1.1rem; color: #2684ff;" aria-hidden="true"></span>
+                </div>
+                <div class="ms-3 flex-grow-1">
+                    <strong>Atlassian</strong>
+                </div>
+                @if (Link is not null)
+                {
+                    <span class="badge rounded-pill text-bg-success">
+                        <span class="bi-check-circle-fill me-1" aria-hidden="true"></span>Connected
+                    </span>
+                }
+            </div>
+
+            @if (Link is not null)
+            {
+                <div class="d-flex gap-4 mb-3">
+                    <div>
+                        <small class="text-muted d-block">Connected as</small>
+                        <span class="small" id="atlassian-display-name">@Link.DisplayName</span>
+                    </div>
+                    <div>
+                        <small class="text-muted d-block">Connected</small>
+                        <small>@Link.ConnectedAt.ToString("MMM dd, yyyy")</small>
+                    </div>
+                </div>
+            }
+            else if (!SignInAvailable)
+            {
+                <div class="rounded-3 p-3" style="background: rgba(38, 132, 255, 0.08); border: 1px solid rgba(38, 132, 255, 0.2);">
+                    <small class="d-flex align-items-start text-muted">
+                        <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0" aria-hidden="true"></span>
+                        <span>Atlassian sign-in is not available yet. An administrator sets up the linking app under Providers → Atlassian first.</span>
+                    </small>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted small mb-0">
+                    <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>
+                    You sign in at <strong>Atlassian</strong>. Connapse only reads which account you are and
+                    keeps no token. It uses your account to show you Confluence content you can read.
+                </p>
+            }
+        </div>
+        @if (Link is not null)
+        {
+            <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                @if (confirmDisconnect)
+                {
+                    <p id="atlassian-disconnect-help" class="small text-muted mb-2">
+                        You will stop seeing Confluence content that needs your account. Your Atlassian account is not changed.
+                    </p>
+                    <div class="d-flex gap-2">
+                        <button id="atlassian-disconnect-confirm" class="btn btn-sm btn-danger" @onclick="DisconnectAsync"
+                                disabled="@Busy" aria-describedby="atlassian-disconnect-help">
+                            Disconnect Atlassian
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmDisconnect = false">
+                            Cancel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <button id="atlassian-disconnect" class="btn btn-sm btn-outline-danger" @onclick="() => confirmDisconnect = true" disabled="@Busy">
+                        <span class="bi-x-circle me-1" aria-hidden="true"></span>Disconnect
+                    </button>
+                }
+            </div>
+        }
+        else if (SignInAvailable)
+        {
+            <div class="card-footer border-top-0 px-4 pb-4 pt-0">
+                <button id="atlassian-connect" class="btn btn-sm btn-primary" @onclick="OnConnect" disabled="@Busy">
+                    <span class="bi-box-arrow-up-right me-1" aria-hidden="true"></span>Continue to Atlassian sign-in
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The user's link, or null when they have none.</summary>
+    [Parameter] public Connapse.Identity.Data.Entities.UserAtlassianIdentityLinkEntity? Link { get; set; }
+
+    /// <summary>Whether a link app is stored, so a sign-in can start.</summary>
+    [Parameter] public bool SignInAvailable { get; set; }
+
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnConnect { get; set; }
+    [Parameter] public EventCallback OnDisconnect { get; set; }
+
+    private bool confirmDisconnect;
+
+    private async Task DisconnectAsync()
+    {
+        confirmDisconnect = false;
+        await OnDisconnect.InvokeAsync();
+    }
+}
