@@ -50,6 +50,20 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
 
+    /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
+    public const string MetadataKeyParserWarnings = "ParserWarnings";
+
+    /// <summary>Keeps a page-by-page warning list from a long PDF from bloating the metadata column.</summary>
+    private const int MaxParserWarningsLength = 4000;
+
+    internal static string TruncateWarnings(IReadOnlyList<string> warnings)
+    {
+        string joined = string.Join("\n", warnings);
+        return joined.Length <= MaxParserWarningsLength
+            ? joined
+            : joined[..MaxParserWarningsLength] + $"\n… ({warnings.Count} warnings in total)";
+    }
+
     /// <summary>
     /// Written by SourceSyncService to record the remote's state at last ingestion, and
     /// preserved across a reindex so its change detection keeps a baseline to compare against.
@@ -180,6 +194,16 @@ public class IngestionPipeline : IKnowledgeIngester
             workingStream.Position = 0;
             var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
 
+            // Text that came out of a PDF's glyph mappings can be junk end to end. Indexed, it is a
+            // document that shows as Ready and matches nothing anyone types. Judged before the
+            // cleaning below, which would erase the NUL glyphs it needs to count.
+            string extension = Path.GetExtension(options.FileName ?? "").ToLowerInvariant();
+            UploadSettings limits = _uploadSettings.CurrentValue;
+            var quality = TextQuality.Measure(parsedDocument.Content);
+            if (TextQuality.DescribeGarbled(extension, quality, limits) is { } garbled)
+                throw new PermanentIngestionException($"Could not parse {Path.GetFileName(options.FileName)}: {garbled}");
+            string? partlyGarbled = TextQuality.DescribePartlyGarbled(extension, quality, limits);
+
             // Every chunk, and any failure message quoting a warning, ends up in a text column,
             // so the parser's output is made storable once here rather than in each parser.
             parsedDocument = parsedDocument with
@@ -189,6 +213,8 @@ public class IngestionPipeline : IKnowledgeIngester
                 Metadata = CleanMetadata(parsedDocument.Metadata),
             };
             warnings.AddRange(parsedDocument.Warnings);
+            if (partlyGarbled is not null)
+                warnings.Add(partlyGarbled);
 
             var chunks = await ChunkDocumentAsync(parsedDocument, options.Strategy, options.FileName, ct);
 
@@ -199,8 +225,8 @@ public class IngestionPipeline : IKnowledgeIngester
             if (chunks.Count == 0)
             {
                 throw new PermanentIngestionException(warnings.Count > 0
-                    ? $"No extractable content ({string.Join("; ", warnings)})"
-                    : "No extractable content");
+                    ? $"No extractable content ({string.Join("; ", warnings)}) [no_text]"
+                    : "No extractable content [no_text]");
             }
 
             var existing = await _context.Documents
@@ -239,6 +265,13 @@ public class IngestionPipeline : IKnowledgeIngester
             }
 
             var metadata = BuildMetadata(options, existing);
+
+            // Parser warnings used to reach only the log, or a failure message. A document that
+            // indexed with half its pages empty now says so where the API and UI can show it.
+            if (warnings.Count > 0)
+                metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
+            else
+                metadata.Remove(MetadataKeyParserWarnings); // a reindex may carry the last run's forward
 
             var embedSettings = _embeddingSettings.CurrentValue;
             IReadOnlyList<float[]> embeddings = await EmbedChunksAsync(chunks, embedSettings, ct);
