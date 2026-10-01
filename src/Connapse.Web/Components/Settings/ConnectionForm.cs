@@ -65,6 +65,21 @@ public sealed record ConnectionForm
     /// <summary>GitHub only: the App installation this connection reads through.</summary>
     public long? GitHubInstallationId { get; set; }
 
+    /// <summary>Atlassian only: the site's host, for display. The form never edits an Atlassian config.</summary>
+    public string? AtlassianSiteHost { get; private set; }
+
+    /// <summary>
+    /// The stored config as it was read, for providers this form does not own. Atlassian sites are
+    /// added and re-tested on the Providers page; a rename here must write their config back
+    /// byte for byte, never rebuild it from fields the form has no inputs for.
+    /// </summary>
+    private string? unownedConfigJson;
+
+    /// <summary>True for a provider whose config this form can rebuild from its own fields.</summary>
+    public bool OwnsConfig =>
+        Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem
+            or ConnectionProvider.Sftp or ConnectionProvider.GitHub;
+
     /// <summary>GitHub only: the organisation or user the installation is on, for display.</summary>
     public string? GitHubAccount { get; set; }
 
@@ -182,6 +197,9 @@ public sealed record ConnectionForm
     {
         var form = new ConnectionForm { Name = connection.Name, Provider = connection.Provider };
 
+        if (!form.OwnsConfig)
+            form.unownedConfigJson = connection.ConfigJson;
+
         if (string.IsNullOrWhiteSpace(connection.ConfigJson))
             return form;
 
@@ -212,6 +230,10 @@ public sealed record ConnectionForm
         if (node["installationId"] is JsonValue installation && installation.TryGetValue<long>(out long installationId))
             form.GitHubInstallationId = installationId;
         form.GitHubAccount = Str(node, "account");
+
+        if (form.Provider == ConnectionProvider.Atlassian
+            && Uri.TryCreate(Str(node, "siteUrl"), UriKind.Absolute, out Uri? siteUri))
+            form.AtlassianSiteHost = siteUri.Host;
 
         // PrivateKey and Passphrase are deliberately not populated. The store never returns a
         // secret to a read model, and leaving them blank is what makes "save without retyping
@@ -247,6 +269,10 @@ public sealed record ConnectionForm
     /// </summary>
     public string ToConfigJson()
     {
+        // Written back untouched: rebuilding it would emit "{}" and take the site dark.
+        if (!OwnsConfig)
+            return unownedConfigJson ?? "{}";
+
         var node = new JsonObject();
 
         switch (Provider)

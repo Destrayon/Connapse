@@ -446,6 +446,21 @@
                                                 </span>
                                             }
                                         }
+                                        else if (c.Provider == ConnectionProvider.Atlassian)
+                                        {
+                                            @if (c.HasSecret)
+                                            {
+                                                <span class="text-success" title="Encrypted at rest; managed on the Providers page">
+                                                    <span class="bi-key-fill me-1"></span>Service account (OAuth client credentials)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-danger" title="This site cannot authenticate; re-add it on the Providers page">
+                                                    <span class="bi-exclamation-triangle me-1"></span>No service account secret
+                                                </span>
+                                            }
+                                        }
                                         else if (c.HasSecret)
                                         {
                                             @* Only reachable for a connection created before this tab
@@ -2399,8 +2414,10 @@
             {
                 // Null result means the row is gone — deleted from another session between this
                 // form opening and saving. Reporting "saved" there would be a lie.
+                // A null config leaves the stored one alone. An Atlassian site's config belongs to
+                // the Providers page, so a rename here must not rewrite it.
                 var updated = await ConnectionStore.UpdateAsync(editing!.Id,
-                    new UpdateConnectionRequest(form.Name.Trim(), config, secret));
+                    new UpdateConnectionRequest(form.Name.Trim(), form.OwnsConfig ? config : null, secret));
                 ForgetGitHubInstallations(form.Provider);
 
                 if (updated is null)
@@ -2671,6 +2688,7 @@
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",
             ConnectionProvider.GitHub => form.GitHubAccount ?? $"installation {form.GitHubInstallationId}",
+            ConnectionProvider.Atlassian => form.AtlassianSiteHost ?? "—",
             _ => "—"
         };
     }

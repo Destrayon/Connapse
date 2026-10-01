@@ -32,6 +32,29 @@ public class ConnectionFormTests
     // ── Round trip ────────────────────────────────────────────────────
 
     [Fact]
+    public void AtlassianConnection_RenamedThroughTheForm_KeepsConfigByteIdentical()
+    {
+        const string config =
+            """{"siteUrl":"https://acme.atlassian.net","cloudId":"c-1","clientId":"svc","maxAttachmentMb":5}""";
+        var stored = Stored(ConnectionProvider.Atlassian, config, hasSecret: true);
+
+        var form = ConnectionForm.FromConnection(stored);
+        form.Name = "renamed";
+
+        form.ToConfigJson().Should().Be(config);
+        form.ToSecretJson().Should().BeNull("a null secret leaves the stored service account secret alone");
+    }
+
+    [Fact]
+    public void AtlassianConnection_ExposesItsSiteHostForDisplay()
+    {
+        var form = ConnectionForm.FromConnection(Stored(ConnectionProvider.Atlassian,
+            """{"siteUrl":"https://acme.atlassian.net","cloudId":"c-1","clientId":"svc"}"""));
+
+        form.AtlassianSiteHost.Should().Be("acme.atlassian.net");
+    }
+
+    [Fact]
     public void S3Connection_RoundTripsEveryField()
     {
         var stored = Stored(ConnectionProvider.S3,
