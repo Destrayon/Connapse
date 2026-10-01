@@ -408,6 +408,78 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3);
     }
 
+    [Fact]
+    public async Task NewComment_ReEnqueuesItsPage()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddComment("102", "acc-1", "<p>Looks good.</p>", _clock.GetUtcNow().AddMinutes(-1));
+        (await service.SyncSourceAsync(synced, connection, CancellationToken.None)).Error.Should().BeNull();
+
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
+    [Fact]
+    public async Task RepeatedOverlapHits_DoNotReEnqueue()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        _api.Confluence.AddComment("102", "acc-1", "<p>Looks good.</p>", _clock.GetUtcNow().AddMinutes(-1));
+        synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, synced, connection);
+
+        // The comment is still inside the next query's one-day overlap, so CQL reports it again.
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var third = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        third.Error.Should().BeNull();
+        _api.Confluence.SearchQueries.Should().HaveCount(2);
+        queue.Jobs.Should().BeEmpty();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().NotBe(synced.SyncCursor, "the watermark still moves on");
+    }
+
+    [Fact]
+    public async Task RateLimitedDuringChangeQuery_DeletesNothingAndKeepsTheCursor()
+    {
+        SeedSpace();
+
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sources = scope.ServiceProvider.GetRequiredService<ISourceStore>();
+        var (source, connection) = await SeedAsync(scope.ServiceProvider);
+        var (service, queue) = BuildService(scope.ServiceProvider);
+        var synced = await SyncAndSettleAsync(scope.ServiceProvider, service, queue, source, connection);
+
+        _api.Confluence.Remove("101");
+        _api.Confluence.AddComment("102", "acc-1", "<p>Missed this cycle.</p>", _clock.GetUtcNow());
+        _api.Confluence.RateLimitNextSearch = true;
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        var second = await service.SyncSourceAsync(synced, connection, CancellationToken.None);
+
+        second.Error.Should().BeNull();
+        second.Deleted.Should().Be(0);
+        second.Notice.Should().Contain("rate limiting");
+        queue.Jobs.Should().BeEmpty();
+        (await sources.GetAsync(source.Id))!.SyncCursor.Should().Be(synced.SyncCursor);
+        (await IndexedPathsAsync(scope.ServiceProvider, source.Id)).Should().HaveCount(3);
+
+        // The next cycle counts back from the old watermark, so the comment is still caught.
+        var third = await service.SyncSourceAsync((await sources.GetAsync(source.Id))!, connection, CancellationToken.None);
+        third.Deleted.Should().Be(1);
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/pages/102.md");
+    }
+
     /// <summary>
     /// The whole path with nothing faked but Confluence: the app's own connector factory and DI
     /// build the connector from the stored connection and secret, the sync enqueues the page, and

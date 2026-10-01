@@ -77,7 +77,8 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
         await ReadAsync("/pages/1.md");
         await ReadAsync("/blogposts/50.md");
 
-        _api.Confluence.BodyFormats.Should().HaveCount(2).And.OnlyContain(f => f == "storage");
+        // Two bodies, the page's footer and inline comments, and the blog post's footer comments.
+        _api.Confluence.BodyFormats.Should().HaveCount(5).And.OnlyContain(f => f == "storage");
         _api.Requests.Select(r => r.Query).Should().NotContain(q =>
             q.Contains("view", StringComparison.OrdinalIgnoreCase) || q.Contains("expand", StringComparison.OrdinalIgnoreCase));
     }
@@ -209,6 +210,67 @@ public sealed class ConfluenceSpaceConnectorTests : IDisposable
 
         string state = await File.ReadAllTextAsync(Path.Combine(_root, "state.json"));
         state.Should().NotContain("900");
+    }
+
+    [Fact]
+    public async Task CommentsAppearInRenderedDocument()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        _api.Confluence.Upsert(new FakeConfluencePage("50", SpaceId, "News", Kind: "blogpost"));
+        _api.Confluence.AddUser("acc-ada", "Ada Lovelace");
+        _api.Confluence.AddUser("acc-bob", "Bob Ross");
+        _api.Confluence.AddComment("1", "acc-bob", "<p>Second, inline.</p>", new DateTimeOffset(2026, 9, 21, 0, 0, 0, TimeSpan.Zero), inline: true);
+        _api.Confluence.AddComment("1", "acc-ada", "<p>First, thanks <ac:link><ri:user ri:account-id=\"acc-bob\" /></ac:link>.</p>",
+            new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero));
+        _api.Confluence.AddComment("50", "acc-ada", "<p>On the blog.</p>", new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero));
+
+        await _connector.GetChangesAsync(null);
+        string page = await ReadAsync("/pages/1.md");
+        string blog = await ReadAsync("/blogposts/50.md");
+
+        page.Should().Contain("## Comments");
+        int first = page.IndexOf("--- Comment by Ada Lovelace, 2026-09-20 ---", StringComparison.Ordinal);
+        int second = page.IndexOf("--- Comment by Bob Ross, 2026-09-21 ---", StringComparison.Ordinal);
+        first.Should().BePositive();
+        second.Should().BeGreaterThan(first, "comments are oldest first, footer and inline together");
+        page.Should().Contain("First, thanks Bob Ross.").And.Contain("Second, inline.");
+        blog.Should().Contain("--- Comment by Ada Lovelace, 2026-09-22 ---").And.Contain("On the blog.");
+        _api.Requests.Should().NotContain(r => r.AbsolutePath.EndsWith("/blogposts/50/inline-comments", StringComparison.Ordinal),
+            "blog posts have no inline comments to ask for");
+    }
+
+    [Fact]
+    public async Task GetChanges_SecondCycle_AsksCqlForCommentsSinceADayBeforeTheWatermark()
+    {
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+        _api.Confluence.SearchQueries.Should().BeEmpty("a first sync reads every page's comments anyway");
+
+        _clock.Advance(TimeSpan.FromMinutes(5));
+        await _connector.GetChangesAsync(cursor);
+
+        _api.Confluence.SearchQueries.Should().Equal(
+            "space=\"ENG\" AND type=comment AND lastmodified >= \"2026-09-30 12:00\"");
+        _api.Requests.Last(r => r.AbsolutePath.EndsWith("/rest/api/search", StringComparison.Ordinal)).Query
+            .Should().Contain("limit=100").And.Contain("expand=content.container");
+    }
+
+    [Fact]
+    public async Task GetChanges_CommentHitsAcrossSearchPages_KeepTheNewestPerPage()
+    {
+        _api.Confluence.MaxPageSize = 1;
+        _api.Confluence.Upsert(new FakeConfluencePage("1", SpaceId, "Page"));
+        string cursor = (await _connector.GetChangesAsync(null)).NextCursor!;
+
+        var older = new DateTimeOffset(2026, 10, 1, 9, 0, 0, TimeSpan.Zero);
+        var newer = older.AddHours(2);
+        _api.Confluence.AddComment("1", "acc", "<p>a</p>", newer);
+        _api.Confluence.AddComment("1", "acc", "<p>b</p>", older);
+        var delta = await _connector.GetChangesAsync(cursor);
+
+        delta.Upserted.Single().LastModified.Should().Be(newer.UtcDateTime);
+        _api.Confluence.SearchQueries.Should().HaveCount(2, "the second hit is on the next search page");
     }
 
     private sealed class ManualClock : TimeProvider
