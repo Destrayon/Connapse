@@ -12,15 +12,12 @@ namespace Connapse.Eval.Tests.Runs;
 public class ExtractRunnerTests
 {
     /// <summary>
-    /// Runs the generated encodings through the real TextParser and pins today's behaviour. UTF-8 and
-    /// BOM-marked files read correctly. Latin-1 is decoded as UTF-8: it is indexed garbled and shown as
-    /// Ready. UTF-16 without a BOM decodes to text full of NUL characters that PostgreSQL rejects; that
-    /// is recorded as a permanent failure, so it fails loudly rather than silently (#562 — it used to
-    /// stay Processing while the UI showed it indexed). Fixing encoding detection should flip the
-    /// extraction assertions.
+    /// Runs the generated encodings through the real TextParser. Before #594 Latin-1 was decoded as
+    /// UTF-8 and indexed garbled, and BOM-less UTF-16 decoded to NUL-filled text that PostgreSQL
+    /// rejected. With encoding detection every file reads correctly and is indexed.
     /// </summary>
     [Fact]
-    public async Task RunAsync_GeneratedEncodings_RecordsTodaysDecodingBehaviour()
+    public async Task RunAsync_GeneratedEncodings_DecodesEveryEncoding()
     {
         RepoPaths paths = RepoPaths.Find(AppContext.BaseDirectory);
         string runs = Path.Combine(Path.GetTempPath(), "eval-extract-runs-" + Guid.NewGuid().ToString("N"));
@@ -36,12 +33,12 @@ public class ExtractRunnerTests
         Dictionary<string, string> parsed = checks
             .Where(c => c.Type == "present" && c.Level == CheckLevel.Parsed)
             .ToDictionary(c => c.DocId, c => c.Outcome);
-        parsed.Where(p => p.Value == CheckOutcome.Pass).Select(p => p.Key).Should().BeEquivalentTo(
-            ["utf8.txt", "utf8.md", "utf8-bom.txt", "utf8-bom.md", "utf16le-bom.txt", "utf16le-bom.md"]);
+        parsed.Should().HaveCount(10);
+        parsed.Values.Should().AllBe(CheckOutcome.Pass);
         Dictionary<string, DocumentRecord> documents = run.ReadDocuments("generated-encodings").ToDictionary(d => d.DocId);
         documents["latin1.txt"].Status.Should().Be("Ready");
         documents["utf16le.txt"].Should().Match<DocumentRecord>(d =>
-            !d.Stalled && d.Status == "Failed" && d.IngestionState == "FailedPermanent" && d.ChunkCount == 0);
+            !d.Stalled && d.Status == "Ready" && d.ChunkCount > 0);
         checks.Where(c => c.Type == ExtractionEvaluator.NoSilentFailure && c.Outcome == CheckOutcome.Fail)
             .Should().BeEmpty();
         ExtractionScoring.Score(run).SilentFailureRate.Should().Be(0);
